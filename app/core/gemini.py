@@ -16,8 +16,10 @@ class GeminiClient:
     """
 
     FALLBACK_MODELS = [
-        "gemini-1.5-flash", # Updated to current stable models
-        "gemini-1.5-pro",
+        "gemini-3-pro-preview",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-pro",
     ]
 
     def __init__(self, api_key: str | None = None):
