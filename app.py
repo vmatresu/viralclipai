@@ -2,8 +2,10 @@ import os
 import json
 import asyncio
 import textwrap
+import logging
 from pathlib import Path
 from typing import List
+from datetime import datetime
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
@@ -13,6 +15,26 @@ import uvicorn
 
 from gemini_client import GeminiClient
 import clipper  # Import the modified clipper module directly
+
+# --- Logging Configuration ---
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("debug.log"),
+        logging.StreamHandler()
+    ]
+)
+
+# Separate error logger
+error_logger = logging.getLogger("error_logger")
+error_logger.setLevel(logging.ERROR)
+error_handler = logging.FileHandler("error.log")
+error_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+error_logger.addHandler(error_handler)
+
+# Main logger
+logger = logging.getLogger("app_logger")
 
 BASE_DIR = Path(__file__).parent.resolve()
 VIDEOS_DIR = BASE_DIR / "videos"
