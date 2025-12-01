@@ -11,7 +11,7 @@ from gemini_client import GeminiClient
 
 BASE_DIR = Path(__file__).parent.resolve()
 VIDEOS_DIR = BASE_DIR / "videos"
-PROMPT_PATH = BASE_DIR / "promptv2.txt"
+PROMPT_PATH = BASE_DIR / "prompt.txt"
 CLIPPER_PATH = BASE_DIR / "clipper.py"
 
 
@@ -60,7 +60,7 @@ def run_clipper(workdir: Path, style: str = "split"):
 
 def generate_highlights(url: str, style: str = "split") -> Path:
     if not PROMPT_PATH.exists():
-        raise RuntimeError(f"promptv2.txt not found at {PROMPT_PATH}")
+        raise RuntimeError(f"prompt.txt not found at {PROMPT_PATH}")
 
     base_prompt = PROMPT_PATH.read_text(encoding="utf-8")
     youtube_id = extract_youtube_id(url)
