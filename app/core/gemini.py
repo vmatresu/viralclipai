@@ -39,7 +39,8 @@ class GeminiClient:
         
         # Use a provided directory or a temporary one
         target_dir = output_dir if output_dir else Path(tempfile.mkdtemp())
-                    output_template = str(tmp_path / "% (id)s")        
+        output_template = str(target_dir / "% (id)s")
+        
         # Command to download subtitles only
         cmd = [
             "yt-dlp",
@@ -63,7 +64,7 @@ class GeminiClient:
         vtt_files = list(target_dir.glob("*.vtt"))
         if not vtt_files:
             # Try finding any sub file if specific language failed or name differs
-            vtt_files = list(target_dir.glob("*" ))
+            vtt_files = list(target_dir.glob("*"))
             logger.warning(f"No .vtt found. Files in target: {[f.name for f in vtt_files]}")
             raise RuntimeError("No transcript file downloaded by yt-dlp.")
         
@@ -127,7 +128,7 @@ class GeminiClient:
                     continue
                 # Fallback for other headers if they don't look like dialogue (dialogue usually doesn't start with Key:)
                 # But be careful with "Person: Hello"
-                if not re.match(r"^\[.*?\]", line) and not re.match(r"^<.*?<", line): 
+                if not re.match(r"^[\[.*?\]]", line) and not re.match(r"^<.*?<", line):
                      # If it's not a timestamped line (which we shouldn't be processing here anyway)
                      # and not a tag.
                      pass
