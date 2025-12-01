@@ -30,6 +30,34 @@ export function Navbar() {
               <span className="hidden sm:inline">Home</span>
             </Link>
             <Link
+              href="/pricing"
+              className="text-gray-300 hover:text-white transition-colors flex items-center gap-2 px-3 py-2 rounded-md hover:bg-gray-800"
+            >
+              <span>💰</span>
+              <span className="hidden sm:inline">Pricing</span>
+            </Link>
+            <Link
+              href="/docs"
+              className="text-gray-300 hover:text-white transition-colors flex items-center gap-2 px-3 py-2 rounded-md hover:bg-gray-800"
+            >
+              <span>📚</span>
+              <span className="hidden sm:inline">Docs</span>
+            </Link>
+            <Link
+              href="/about"
+              className="text-gray-300 hover:text-white transition-colors flex items-center gap-2 px-3 py-2 rounded-md hover:bg-gray-800"
+            >
+              <span>ℹ️</span>
+              <span className="hidden sm:inline">About</span>
+            </Link>
+            <Link
+              href="/contact"
+              className="text-gray-300 hover:text-white transition-colors flex items-center gap-2 px-3 py-2 rounded-md hover:bg-gray-800"
+            >
+              <span>✉️</span>
+              <span className="hidden sm:inline">Contact</span>
+            </Link>
+            <Link
               href="/history"
               className="text-gray-300 hover:text-white transition-colors flex items-center gap-2 px-3 py-2 rounded-md hover:bg-gray-800"
             >
