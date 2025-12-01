@@ -71,8 +71,8 @@ graph TB
 4. **Set up environment variables**
 
    ```bash
-   export GOOGLE_API_KEY="your-gemini-api-key-here"
-   # On Windows: set GOOGLE_API_KEY=your-gemini-api-key-here
+   export GEMINI_API_KEY="your-gemini-api-key-here"
+   # On Windows: set GEMINI_API_KEY=your-gemini-api-key-here
    ```
 
 5. **Run the application**
@@ -111,12 +111,64 @@ python -m app.main
 
 ## 🔧 Configuration
 
-The application uses the following configuration (see `app/config.py`):
+The application is now structured as a multi-tenant SaaS with Firebase Auth,
+Firestore, and S3-based storage. Most behaviour is controlled via
+environment variables (see `app/config.py`).
 
-- **Video Storage**: `./videos/` directory
-- **Prompt Template**: `./prompt.txt` (customizable AI instructions)
-- **Logging**: Debug logs saved to `debug.log`
-- **Templates**: Jinja2 templates in `app/templates/`
+**Core settings**
+
+- **Gemini API**
+
+  - `GEMINI_API_KEY` – API key for Google Gemini, used by `app/core/gemini.py`.
+
+- **Firebase Admin / Firestore (backend)**
+
+  - `FIREBASE_PROJECT_ID` – Firebase project ID.
+  - `FIREBASE_CREDENTIALS_PATH` – path to a service account JSON file with
+    Firestore access.
+
+- **Firebase Web SDK (frontend)**
+
+  - `FIREBASE_WEB_API_KEY`
+  - `FIREBASE_WEB_AUTH_DOMAIN`
+  - `FIREBASE_WEB_PROJECT_ID`
+  - `FIREBASE_WEB_STORAGE_BUCKET`
+  - `FIREBASE_WEB_MESSAGING_SENDER_ID`
+  - `FIREBASE_WEB_APP_ID`
+
+- **AWS / S3 (clip storage)**
+
+  - `AWS_REGION` – AWS region for the S3 bucket (e.g. `us-east-1`).
+  - `S3_BUCKET_NAME` – name of the bucket where clips and thumbnails are stored.
+  - Standard AWS credentials for boto3 must also be configured, e.g. via
+    `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optionally
+    `AWS_SESSION_TOKEN`/`AWS_PROFILE`.
+
+- **TikTok API**
+  - `TIKTOK_API_BASE_URL` – URL of the TikTok upload endpoint you expose
+    (or proxy) from your TikTok developer integration.
+
+**Paths and logging**
+
+- **Video scratch directory**: `./videos/`
+  - Used as a temporary working directory while processing.
+  - Final clips and thumbnails are uploaded to S3 under
+    `users/{uid}/{run_id}/clips/...` and are served via presigned URLs.
+- **Prompt template**: `./prompt.txt` (customizable AI instructions).
+- **Logging**: Debug logs saved to `debug.log`.
+- **Templates**: Jinja2 templates in `app/templates/`.
+
+## 🌐 SaaS Auth & Multi-Tenancy
+
+- Authentication is handled entirely by **Firebase Auth** on the frontend.
+  The browser obtains a Firebase ID token and sends it to the backend via
+  WebSocket (`/ws/process`) and `Authorization: Bearer <token>` headers.
+- The backend verifies ID tokens with **Firebase Admin** and stores per-user
+  data in **Firestore** under `users/{uid}` and `users/{uid}/videos/{run_id}`.
+- All clips and thumbnails are stored in **S3** namespaced by user ID and
+  run ID. Access is always via short-lived **presigned URLs**.
+- Each user is assigned a plan (`free`, `pro`, etc.) and monthly clip limits
+  are enforced before processing starts.
 
 ## 🤝 Contributing
 

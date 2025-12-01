@@ -2,6 +2,7 @@ import json
 import asyncio
 import logging
 from pathlib import Path
+from typing import Optional
 
 from fastapi import WebSocket
 
@@ -9,10 +10,11 @@ from app.config import PROMPT_PATH, VIDEOS_DIR
 from app.core.utils import extract_youtube_id, sanitize_filename, generate_run_id
 from app.core.gemini import GeminiClient
 from app.core import clipper
+from app.core import saas, storage
 
 logger = logging.getLogger(__name__)
 
-async def process_video_workflow(websocket: WebSocket, url: str, style: str):
+async def process_video_workflow(websocket: WebSocket, url: str, style: str, user_id: Optional[str] = None):
     try:
         if not PROMPT_PATH.exists():
             raise RuntimeError(f"prompt.txt not found at {PROMPT_PATH}")
@@ -47,15 +49,46 @@ async def process_video_workflow(websocket: WebSocket, url: str, style: str):
             h.setdefault("id", idx)
             h.setdefault("priority", idx)
             h.setdefault("title", f"Clip {idx}")
-        
+
+        # Determine how many clips will be produced for plan enforcement
+        styles_to_process = clipper.AVAILABLE_STYLES if style == "all" else [style]
+        total_clips = len(highlights) * len(styles_to_process)
+
+        if user_id is not None and total_clips > 0:
+            plan_id, max_clips = saas.get_plan_limits_for_user(user_id)
+            used = saas.get_monthly_usage(user_id)
+            if used + total_clips > max_clips:
+                msg = (
+                    f"Plan limit reached for user {user_id}: "
+                    f"plan={plan_id}, used={used}, requested={total_clips}, max={max_clips}"
+                )
+                logger.warning(msg)
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": "Clip limit reached for your current plan.",
+                        "details": msg,
+                    }
+                )
+                return
+
         highlights_path = workdir / "highlights.json"
         with open(highlights_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
+        # Upload analysis metadata to S3 for this user/run
+        if user_id is not None:
+            await asyncio.to_thread(
+                storage.upload_file,
+                highlights_path,
+                f"{user_id}/{run_id}/highlights.json",
+                "application/json",
+            )
+
         # 2. Download Video
         video_file = workdir / "source.mp4"
         clips_dir = clipper.ensure_dirs(workdir)
-        
+
         logger.info("Downloading video...")
         await websocket.send_json({"type": "log", "message": "📥 Downloading video..."})
         
@@ -66,8 +99,6 @@ async def process_video_workflow(websocket: WebSocket, url: str, style: str):
         await websocket.send_json({"type": "progress", "value": 50})
 
         # 3. Clipping
-        styles_to_process = clipper.AVAILABLE_STYLES if style == "all" else [style]
-        total_clips = len(highlights) * len(styles_to_process)
         completed_clips = 0
 
         for h in highlights:
@@ -97,6 +128,26 @@ async def process_video_workflow(websocket: WebSocket, url: str, style: str):
                     pad_before,
                     pad_after,
                 )
+
+                # Upload rendered clip and thumbnail to S3
+                if user_id is not None:
+                    s3_key = f"{user_id}/{run_id}/clips/{filename}"
+                    await asyncio.to_thread(
+                        storage.upload_file,
+                        out_path,
+                        s3_key,
+                        "video/mp4",
+                    )
+
+                    thumb_path = out_path.with_suffix(".jpg")
+                    if thumb_path.exists():
+                        thumb_key = f"{user_id}/{run_id}/clips/{thumb_path.name}"
+                        await asyncio.to_thread(
+                            storage.upload_file,
+                            thumb_path,
+                            thumb_key,
+                            "image/jpeg",
+                        )
                 
                 completed_clips += 1
                 progress = 50 + int((completed_clips / total_clips) * 40)
@@ -109,6 +160,12 @@ async def process_video_workflow(websocket: WebSocket, url: str, style: str):
             await websocket.send_json({"type": "log", "message": "🧹 Cleaned up source video file."})
 
         logger.info("Job complete.")
+
+        # Record usage for this job
+        if user_id is not None and total_clips > 0:
+            video_title = data.get("video_title") or f"Video {youtube_id}"
+            saas.record_video_job(user_id, run_id, url, video_title, total_clips)
+
         await websocket.send_json({"type": "progress", "value": 100})
         await websocket.send_json({"type": "log", "message": "✨ All done!"})
         await websocket.send_json({"type": "done", "videoId": run_id})

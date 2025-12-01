@@ -272,6 +272,17 @@
           'input[name="style"]:checked'
         ).value;
 
+        const token = await (window.authGetCurrentIdToken
+          ? window.authGetCurrentIdToken(true)
+          : Promise.resolve(null));
+        if (!token) {
+          log("You must be signed in to process videos.", "error");
+          alert("Please sign in with your Google account to use this app.");
+          submitBtn.disabled = false;
+          submitBtn.classList.remove("opacity-50", "cursor-not-allowed");
+          return;
+        }
+
         // Connect WebSocket
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
         const wsUrl = `${protocol}//${window.location.host}/ws/process`;
@@ -279,7 +290,7 @@
 
         ws.onopen = () => {
           log("Connected to server...", "success");
-          ws.send(JSON.stringify({ url, style }));
+          ws.send(JSON.stringify({ url, style, token }));
         };
 
         ws.onmessage = (event) => {
@@ -333,7 +344,17 @@
           '<div class="col-span-full text-center py-8"><div class="animate-spin text-4xl mb-2">⏳</div>Loading clips...</div>';
 
         try {
-          const res = await fetch(`/api/videos/${videoId}`);
+          const token = await (window.authGetCurrentIdToken
+            ? window.authGetCurrentIdToken(false)
+            : Promise.resolve(null));
+          if (!token) {
+            throw new Error("You must be signed in to view your clips.");
+          }
+          const res = await fetch(`/api/videos/${videoId}`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
           if (!res.ok) throw new Error("Failed to fetch video info");
           const data = await res.json();
 
@@ -404,13 +425,16 @@
                                     </div>
                                 </div>
 
-                                <div class="mt-auto pt-2 flex gap-3">
+                                <div class="mt-auto pt-2 flex gap-3 flex-wrap">
                                     <a href="${clip.url}" download class="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-center py-2 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2">
                                         <span>⬇️ Download</span>
                                         <span class="text-xs opacity-75">(${clip.size})</span>
                                     </a>
-                                    <button onclick="navigator.clipboard.writeText('${window.location.origin}${clip.url}')" class="px-3 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors" title="Copy Link">
+                                    <button onclick="navigator.clipboard.writeText(clip.url)" class="px-3 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors" title="Copy Link">
                                         🔗
+                                    </button>
+                                    <button onclick="publishToTikTok('${videoId}', '${clip.name}', '${uniqueId}')" class="px-3 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-sm font-semibold transition-colors" title="Publish to TikTok">
+                                        ▶️ TikTok
                                     </button>
                                 </div>
                             </div>
@@ -444,6 +468,50 @@
         navigator.clipboard.writeText(text).then(() => {
           // Optional: show toast
         });
+      };
+
+      window.publishToTikTok = async function (videoId, clipName, uniqueId) {
+        try {
+          const token = await (window.authGetCurrentIdToken
+            ? window.authGetCurrentIdToken(false)
+            : Promise.resolve(null));
+          if (!token) {
+            alert("Please sign in to publish clips to TikTok.");
+            return;
+          }
+
+          const titleEl = document.getElementById(uniqueId + "-title-text");
+          const descEl = document.getElementById(uniqueId + "-desc-text");
+          const body = {
+            title: titleEl ? titleEl.value : "",
+            description: descEl ? descEl.value : "",
+          };
+
+          const res = await fetch(
+            `/api/videos/${videoId}/clips/${encodeURIComponent(
+              clipName
+            )}/publish/tiktok`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify(body),
+            }
+          );
+
+          if (!res.ok) {
+            const errText = await res.text();
+            throw new Error(errText || "Failed to publish to TikTok");
+          }
+
+          log("Clip published to TikTok successfully.", "success");
+        } catch (err) {
+          console.error(err);
+          log("TikTok publish failed: " + err.message, "error");
+          alert("TikTok publish failed. Check console for details.");
+        }
       };
 
       // Check URL for ID on load

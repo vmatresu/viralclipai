@@ -5,3 +5,7 @@ yt-dlp
 websockets
 jinja2
 python-multipart
+firebase-admin
+google-cloud-firestore
+boto3
+httpx

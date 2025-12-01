@@ -1,143 +1,192 @@
 import json
-import os
-from datetime import datetime
-from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 
+from app.config import FIREBASE_WEB_CONFIG, TEMPLATES_DIR
+from app.core.firebase_client import get_current_user, verify_id_token
+from app.core import saas, storage
+from app.core.tiktok_client import publish_clip_to_tiktok as publish_clip_to_tiktok_service
 from app.core.workflow import process_video_workflow
-from app.config import VIDEOS_DIR, TEMPLATES_DIR
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
+
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    firebase_config_json = json.dumps(FIREBASE_WEB_CONFIG)
+    return templates.TemplateResponse(
+        "index.html",
+        {"request": request, "firebase_config_json": firebase_config_json},
+    )
+
 
 @router.get("/history", response_class=HTMLResponse)
 async def history(request: Request):
-    videos = []
-    if VIDEOS_DIR.exists():
-        paths = sorted(VIDEOS_DIR.iterdir(), key=os.path.getmtime, reverse=True)
-        for p in paths:
-            if p.is_dir():
-                json_path = p / "highlights.json"
-                title = p.name
-                url = ""
-                timestamp = datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
-                
-                if json_path.exists():
-                    try:
-                        data = json.loads(json_path.read_text(encoding="utf-8"))
-                        
-                        # Prefer the explicit video title from JSON
-                        if data.get("video_title"):
-                            title = data.get("video_title")
-                        else:
-                            highlights = data.get("highlights", [])
-                            if highlights:
-                                title = f"{len(highlights)} Clips Generated"
-                        
-                        url = data.get("video_url", "")
-                    except:
-                        pass
-                
-                videos.append({
-                    "id": p.name,
-                    "title": title,
-                    "url": url,
-                    "date": timestamp
-                })
-    
-    return templates.TemplateResponse("history.html", {"request": request, "videos": videos})
+    firebase_config_json = json.dumps(FIREBASE_WEB_CONFIG)
+    return templates.TemplateResponse(
+        "history.html",
+        {"request": request, "firebase_config_json": firebase_config_json},
+    )
+
+
+@router.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request):
+    firebase_config_json = json.dumps(FIREBASE_WEB_CONFIG)
+    return templates.TemplateResponse(
+        "settings.html",
+        {"request": request, "firebase_config_json": firebase_config_json},
+    )
+
 
 @router.websocket("/ws/process")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     try:
         data = await websocket.receive_json()
+        token = data.get("token")
         url = data.get("url")
         style = data.get("style", "split")
+
+        if not token:
+            await websocket.send_json(
+                {"type": "error", "message": "Authentication required"}
+            )
+            return
+
+        try:
+            decoded = verify_id_token(token)
+        except Exception:
+            await websocket.send_json(
+                {"type": "error", "message": "Invalid or expired authentication"}
+            )
+            return
+
+        uid = decoded.get("uid")
+        email = decoded.get("email")
+        if not uid:
+            await websocket.send_json(
+                {"type": "error", "message": "Invalid authentication payload"}
+            )
+            return
+
+        saas.get_or_create_user(uid, email)
+
         if not url:
             await websocket.send_json({"type": "error", "message": "No URL provided"})
             return
-        
-        await process_video_workflow(websocket, url, style)
+
+        await process_video_workflow(websocket, url, style, user_id=uid)
     except WebSocketDisconnect:
         pass
     except Exception as e:
         try:
             await websocket.send_json({"type": "error", "message": str(e)})
-        except:
+        except Exception:
             pass
 
+
 @router.get("/api/videos/{video_id}")
-async def get_video_info(video_id: str):
-    workdir = VIDEOS_DIR / video_id
-    if not workdir.exists():
-        return {"error": "Video not found"}
-    
-    # Load highlights metadata
+async def get_video_info(video_id: str, user=Depends(get_current_user)):
+    uid = user["uid"]
+
+    if not saas.user_owns_video(uid, video_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
+
+    # Load highlights metadata from S3
+    highlights_data = storage.load_highlights(uid, video_id)
     highlights_map = {}
-    json_path = workdir / "highlights.json"
-    if json_path.exists():
-        try:
-            data = json.loads(json_path.read_text(encoding="utf-8"))
-            for h in data.get("highlights", []):
-                h_id = h.get("id")
-                if h_id is not None:
-                    highlights_map[int(h_id)] = {
-                        "title": h.get("title", ""),
-                        "description": h.get("description", "")
-                    }
-        except Exception as e:
-            print(f"Error loading highlights.json: {e}")
+    for h in highlights_data.get("highlights", []):
+        h_id = h.get("id")
+        if h_id is not None:
+            highlights_map[int(h_id)] = {
+                "title": h.get("title", ""),
+                "description": h.get("description", ""),
+            }
 
-    clips_dir = workdir / "clips"
-    clips = []
-    if clips_dir.exists():
-        for f in sorted(clips_dir.glob("*.mp4")):
-            size_mb = f.stat().st_size / (1024 * 1024)
-            thumb_file = f.with_suffix(".jpg")
-            thumb_url = f"/files/{video_id}/{thumb_file.name}" if thumb_file.exists() else None
-            
-            # Extract ID from filename: clip_{prio}_{id}_{title}_{style}.mp4
-            # Example: clip_01_01_some-title_split.mp4
-            title_text = f.name
-            description_text = ""
-            
-            try:
-                parts = f.name.split('_')
-                if len(parts) >= 3 and parts[0] == "clip":
-                    clip_id = int(parts[2])
-                    if clip_id in highlights_map:
-                        title_text = highlights_map[clip_id]["title"]
-                        description_text = highlights_map[clip_id]["description"]
-            except Exception:
-                pass # Fallback to filename if parsing fails
-
-            clips.append({
-                "name": f.name,
-                "title": title_text,
-                "description": description_text,
-                "url": f"/files/{video_id}/{f.name}",
-                "thumbnail": thumb_url,
-                "size": f"{size_mb:.1f} MB"
-            })
-    
+    clips = storage.list_clips_with_metadata(uid, video_id, highlights_map)
     return {"id": video_id, "clips": clips}
 
-@router.get("/files/{video_id}/{filename}", response_class=FileResponse)
-async def serve_file(video_id: str, filename: str):
-    clip_path = VIDEOS_DIR / video_id / "clips" / filename
-    if not clip_path.exists():
-        return HTMLResponse("File not found", status_code=404)
-    
-    media_type = "application/octet-stream"
-    if filename.endswith(".mp4"):
-        media_type = "video/mp4"
-    elif filename.endswith(".jpg"):
-        media_type = "image/jpeg"
-        
-    return FileResponse(clip_path, filename=filename, media_type=media_type)
+
+@router.get("/api/user/videos")
+async def get_user_videos(user=Depends(get_current_user)):
+    uid = user["uid"]
+    videos = saas.list_user_videos(uid)
+    return {"videos": videos}
+
+
+@router.get("/api/settings")
+async def get_settings(user=Depends(get_current_user)):
+    uid = user["uid"]
+    settings = saas.get_user_settings(uid)
+    plan_id, max_clips = saas.get_plan_limits_for_user(uid)
+    used = saas.get_monthly_usage(uid)
+    return {
+        "settings": settings,
+        "plan": plan_id,
+        "max_clips_per_month": max_clips,
+        "clips_used_this_month": used,
+    }
+
+
+@router.post("/api/settings")
+async def update_settings(
+    payload: dict = Body(...),
+    user=Depends(get_current_user),
+):
+    uid = user["uid"]
+    settings = payload.get("settings") or {}
+    updated = saas.update_user_settings(uid, settings)
+    return {"settings": updated}
+
+
+@router.post("/api/videos/{video_id}/clips/{clip_name}/publish/tiktok")
+async def publish_clip_to_tiktok(
+    video_id: str,
+    clip_name: str,
+    payload: dict = Body(None),
+    user=Depends(get_current_user),
+):
+    uid = user["uid"]
+
+    if not saas.user_owns_video(uid, video_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
+
+    settings = saas.get_user_settings(uid)
+
+    title = ""
+    description = ""
+    if payload:
+        title = payload.get("title") or ""
+        description = payload.get("description") or ""
+
+    # Fallback to highlights metadata if title/description are not provided
+    if not title or not description:
+        highlights_data = storage.load_highlights(uid, video_id)
+        for h in highlights_data.get("highlights", []):
+            try:
+                parts = clip_name.split("_")
+                if len(parts) >= 3 and parts[0] == "clip":
+                    clip_id = int(parts[2])
+                    if int(h.get("id")) == clip_id:
+                        if not title:
+                            title = h.get("title", "")
+                        if not description:
+                            description = h.get("description", "")
+                        break
+            except Exception:
+                continue
+
+    s3_key = f"{uid}/{video_id}/clips/{clip_name}"
+    result = await publish_clip_to_tiktok_service(settings, s3_key, title, description)
+    return result
