@@ -89,7 +89,7 @@ async def get_video_info(video_id: str):
                 if h_id is not None:
                     highlights_map[int(h_id)] = {
                         "title": h.get("title", ""),
-                        "description": h.get("reason", "") or h.get("description", "")
+                        "description": h.get("description", "")
                     }
         except Exception as e:
             print(f"Error loading highlights.json: {e}")
