@@ -17,6 +17,7 @@ import {
   signOut as firebaseSignOut,
   User,
 } from "firebase/auth";
+import { frontendLogger } from "@/lib/logger";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -30,7 +31,9 @@ const firebaseConfig = {
 if (!getApps().length) {
   if (!firebaseConfig.apiKey) {
     // Incomplete config; app will run but auth will be disabled.
-    console.warn("Firebase config is missing. Auth will not work correctly.");
+    frontendLogger.warn(
+      "Firebase config is missing. Auth will not work correctly."
+    );
   } else {
     initializeApp(firebaseConfig);
   }

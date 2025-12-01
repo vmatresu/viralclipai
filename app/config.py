@@ -1,5 +1,7 @@
 import os
 import logging
+import logging.config
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 # Base Paths
@@ -13,17 +15,57 @@ STATIC_DIR = APP_DIR / "static"
 
 # Logging Setup
 LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()
-LOG_FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
-
-logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL),
-    format=LOG_FORMAT,
-    handlers=[
-        logging.FileHandler("debug.log"),
-        logging.StreamHandler()
-    ]
+LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s - %(message)s"
+LOG_FILE_PATH = os.getenv(
+    "LOG_FILE_PATH",
+    str((PROJECT_ROOT / "logs" / "app.log").resolve()),
 )
 
+LOG_DIR = Path(LOG_FILE_PATH).parent
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+LOGGING_CONFIG = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "standard": {
+            "format": LOG_FORMAT,
+        }
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "level": LOG_LEVEL,
+            "formatter": "standard",
+            "stream": "ext://sys.stdout",
+        },
+        "file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": LOG_LEVEL,
+            "formatter": "standard",
+            "filename": LOG_FILE_PATH,
+            "maxBytes": 10 * 1024 * 1024,  # 10 MB
+            "backupCount": 5,
+            "encoding": "utf8",
+        },
+    },
+    "loggers": {
+        "vidclips": {
+            "handlers": ["console", "file"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
+        # Let uvicorn log to console using its own handlers
+        "uvicorn.error": {"level": "INFO"},
+        "uvicorn.access": {"level": "INFO"},
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": LOG_LEVEL,
+    },
+}
+
+logging.config.dictConfig(LOGGING_CONFIG)
 logger = logging.getLogger("vidclips")
 
 # Ensure directories exist

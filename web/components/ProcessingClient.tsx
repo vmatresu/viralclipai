@@ -2,6 +2,7 @@
 
 import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
+import { frontendLogger } from "@/lib/logger";
 import { useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Clip, ClipGrid } from "./ClipGrid";
@@ -122,7 +123,7 @@ export function ProcessingClient() {
       };
 
       ws.onerror = (ev) => {
-        console.error(ev);
+        frontendLogger.error("WebSocket error occurred", ev);
         log("WebSocket error occurred.", "error");
       };
 
@@ -132,7 +133,7 @@ export function ProcessingClient() {
         }
       };
     } catch (err: any) {
-      console.error(err);
+      frontendLogger.error("Failed to start processing", err);
       setError(err.message || "Failed to start processing");
       setSubmitting(false);
     }

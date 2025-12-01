@@ -2,6 +2,7 @@
 
 import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
+import { frontendLogger } from "@/lib/logger";
 import { useState } from "react";
 
 export interface Clip {
@@ -50,7 +51,7 @@ export function ClipGrid({ videoId, clips, log }: ClipGridProps) {
       );
       log("Clip published to TikTok successfully.", "success");
     } catch (err: any) {
-      console.error(err);
+      frontendLogger.error("TikTok publish failed", err);
       log(`TikTok publish failed: ${err.message || "Unknown error"}`, "error");
       alert("TikTok publish failed. Check console for details.");
     } finally {
