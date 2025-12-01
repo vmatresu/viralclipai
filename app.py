@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 import uvicorn
@@ -136,7 +136,7 @@ async def process_video_workflow(websocket: WebSocket, url: str, style: str):
 app = FastAPI(title="YT Gemini Clipper")
 
 @app.get("/", response_class=HTMLResponse)
-async def index():
+async def index(request: Request):
     html = """
     <!DOCTYPE html>
     <html lang="en" class="dark">
@@ -183,9 +183,15 @@ async def index():
                 <div class="flex items-center justify-between h-16">
                     <div class="flex items-center gap-3">
                         <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center text-white font-bold text-xl">✂️</div>
-                        <span class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">
+                        <a href="/" class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500 hover:opacity-80 transition-opacity">
                             YT Gemini Clipper
-                        </span>
+                        </a>
+                    </div>
+                    <div>
+                        <a href="/history" class="text-gray-300 hover:text-white transition-colors flex items-center gap-2 px-3 py-2 rounded-md hover:bg-gray-800">
+                            <span>📜</span>
+                            <span class="hidden sm:inline">History</span>
+                        </a>
                     </div>
                 </div>
             </div>
@@ -195,7 +201,7 @@ async def index():
         <main class="max-w-5xl mx-auto px-4 pt-24 pb-12 space-y-8">
             
             <!-- Hero / Input Section -->
-            <section class="glass rounded-2xl p-8 shadow-2xl animate-fade-in-up">
+            <section id="inputSection" class="glass rounded-2xl p-8 shadow-2xl animate-fade-in-up">
                 <form id="processForm" class="space-y-6">
                     <div class="space-y-2">
                         <label class="text-sm font-medium text-gray-400 uppercase tracking-wider">YouTube Source URL</label>
@@ -279,8 +285,8 @@ async def index():
             <!-- Results Section (Hidden by default) -->
             <section id="resultsSection" class="hidden space-y-6">
                 <div class="flex items-center justify-between">
-                    <h2 class="text-2xl font-bold text-white">🎉 Generation Complete</h2>
-                    <button onclick="window.location.reload()" class="text-sm text-blue-400 hover:text-blue-300 hover:underline">Process Another Video</button>
+                    <h2 class="text-2xl font-bold text-white">🎉 Results</h2>
+                    <button onclick="window.location.href='/'" class="text-sm text-blue-400 hover:text-blue-300 hover:underline">Process Another Video</button>
                 </div>
                 
                 <div id="clipsGrid" class="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -295,6 +301,7 @@ async def index():
             const statusSection = document.getElementById('statusSection');
             const errorSection = document.getElementById('errorSection');
             const resultsSection = document.getElementById('resultsSection');
+            const inputSection = document.getElementById('inputSection');
             const consoleLog = document.getElementById('consoleLog');
             const progressBar = document.getElementById('progressBar');
             const submitBtn = document.getElementById('submitBtn');
@@ -350,14 +357,17 @@ async def index():
                         submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
                     } else if (data.type === 'done') {
                         ws.close();
+                        // Update URL without reloading to show state
+                        const newUrl = new URL(window.location);
+                        newUrl.searchParams.set('id', data.videoId);
+                        window.history.pushState({}, '', newUrl);
+                        
                         loadResults(data.videoId);
                     }
                 };
 
                 ws.onclose = () => {
                     if (!errorSection.classList.contains('hidden') || !resultsSection.classList.contains('hidden')) return;
-                    // If closed unexpectedly without 'done' or 'error'
-                    // log('Connection closed.', 'info');
                 };
                 
                 ws.onerror = (err) => {
@@ -368,6 +378,7 @@ async def index():
 
             async function loadResults(videoId) {
                 statusSection.classList.add('hidden');
+                inputSection.classList.remove('hidden'); // Keep input visible
                 resultsSection.classList.remove('hidden');
                 submitBtn.disabled = false;
                 submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
@@ -408,16 +419,153 @@ async def index():
                         `;
                         grid.appendChild(card);
                     });
+                    
+                    // Scroll to results
+                    resultsSection.scrollIntoView({ behavior: 'smooth' });
 
                 } catch (e) {
                     grid.innerHTML = `<div class="col-span-full text-red-400">Error loading results: ${e.message}</div>`;
                 }
             }
+
+            // Check URL for ID on load
+            window.addEventListener('DOMContentLoaded', () => {
+                const urlParams = new URLSearchParams(window.location.search);
+                const videoId = urlParams.get('id');
+                if (videoId) {
+                    loadResults(videoId);
+                }
+            });
         </script>
     </body>
     </html>
     """
     return HTMLResponse(html)
+
+@app.get("/history", response_class=HTMLResponse)
+async def history(request: Request):
+    # Scan videos directory
+    videos = []
+    if VIDEOS_DIR.exists():
+        # Sort by modified time, newest first
+        paths = sorted(VIDEOS_DIR.iterdir(), key=os.path.getmtime, reverse=True)
+        for p in paths:
+            if p.is_dir():
+                json_path = p / "highlights.json"
+                title = p.name
+                url = ""
+                timestamp = datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+                
+                if json_path.exists():
+                    try:
+                        data = json.loads(json_path.read_text(encoding="utf-8"))
+                        # Use the first clip title as a proxy for the video title or fallback
+                        highlights = data.get("highlights", [])
+                        if highlights:
+                            # Maybe aggregate titles or just show the first one
+                            title = f"{len(highlights)} Clips Generated"
+                        url = data.get("video_url", "")
+                    except:
+                        pass
+                
+                videos.append({
+                    "id": p.name,
+                    "title": title,
+                    "url": url,
+                    "date": timestamp
+                })
+
+    html = """
+    <!DOCTYPE html>
+    <html lang="en" class="dark">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>History - YT Gemini Clipper</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <script>
+            tailwind.config = {
+                darkMode: 'class',
+                theme: {
+                    extend: {
+                        colors: {
+                            gray: {
+                                900: '#121212',
+                                800: '#1e1e1e',
+                                700: '#2d2d2d',
+                            }
+                        }
+                    }
+                }
+            }
+        </script>
+        <style>
+            .glass {
+                background: rgba(30, 30, 30, 0.7);
+                backdrop-filter: blur(10px);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+            }
+        </style>
+    </head>
+    <body class="bg-gray-900 text-gray-100 min-h-screen font-sans antialiased">
+
+        <!-- Navbar -->
+        <nav class="glass fixed top-0 w-full z-50 border-b border-gray-700">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex items-center justify-between h-16">
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center text-white font-bold text-xl">✂️</div>
+                        <a href="/" class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500 hover:opacity-80 transition-opacity">
+                            YT Gemini Clipper
+                        </a>
+                    </div>
+                    <div>
+                        <a href="/" class="text-gray-300 hover:text-white transition-colors flex items-center gap-2 px-3 py-2 rounded-md hover:bg-gray-800">
+                            <span>🏠</span>
+                            <span class="hidden sm:inline">Home</span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="max-w-5xl mx-auto px-4 pt-24 pb-12 space-y-8">
+            <div class="flex items-center justify-between">
+                <h1 class="text-3xl font-bold text-white">Processing History</h1>
+            </div>
+
+            <div class="grid gap-4">
+    """
+    
+    if not videos:
+        html += '<div class="text-center py-12 text-gray-500 text-lg">No history found.</div>'
+    else:
+        for v in videos:
+            html += f"""
+            <a href="/?id={v['id']}" class="glass p-6 rounded-xl hover:bg-gray-800 transition-all group block border-l-4 border-transparent hover:border-blue-500">
+                <div class="flex items-start justify-between">
+                    <div>
+                        <h3 class="text-lg font-bold text-white group-hover:text-blue-400 transition-colors mb-1">{v['title']}</h3>
+                        <div class="text-sm text-gray-400 font-mono mb-2">{v['id']}</div>
+                        <div class="text-sm text-gray-500 truncate max-w-md">{v['url']}</div>
+                    </div>
+                    <div class="text-xs text-gray-500 font-mono bg-gray-800 px-2 py-1 rounded border border-gray-700">
+                        {v['date']}
+                    </div>
+                </div>
+            </a>
+            """
+
+    html += """
+            </div>
+        </main>
+    </body>
+    </html>
+    """
+    return HTMLResponse(html)
+
+# ... rest of the file (websocket endpoint, api endpoints) ...
 
 @app.websocket("/ws/process")
 async def websocket_endpoint(websocket: WebSocket):
