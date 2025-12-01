@@ -31,14 +31,14 @@ async def process_video_workflow(websocket: WebSocket, url: str, style: str):
         await websocket.send_json({"type": "progress", "value": 10})
 
         # 1. Gemini Analysis
-        logger.info("Asking Gemini to analyze video...")
-        await websocket.send_json({"type": "log", "message": "🤖 Asking Gemini to analyze video..."})
+        logger.info("Analyzing video with AI...")
+        await websocket.send_json({"type": "log", "message": "🤖 Analyzing video with AI..."})
         
         client = GeminiClient()
         data = await asyncio.to_thread(client.get_highlights, base_prompt, url, workdir)
         
-        logger.info("Gemini analysis complete.")
-        await websocket.send_json({"type": "log", "message": "✅ Gemini analysis complete."})
+        logger.info("AI analysis complete.")
+        await websocket.send_json({"type": "log", "message": "✅ AI analysis complete."})
         await websocket.send_json({"type": "progress", "value": 30})
 
         data["video_url"] = url

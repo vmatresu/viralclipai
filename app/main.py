@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.routers import web
 
-app = FastAPI(title="YT Gemini Clipper")
+app = FastAPI(title="Viral Clip AI")
 
 # Mount static files if needed (currently mostly CDN)
 # app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
