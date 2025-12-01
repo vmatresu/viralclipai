@@ -37,8 +37,8 @@ graph TB
 - **AI Engine**: Google Gemini AI
 - **Video Processing**: yt-dlp (YouTube downloader)
 - **Real-Time**: WebSockets for live updates
-- **Frontend**: Jinja2 templates + TailwindCSS
-- **Server**: Uvicorn ASGI server
+- **Frontend**: Next.js (App Router) + React + TailwindCSS (Vercel)
+- **Server**: Uvicorn ASGI server (API)
 
 ## 📋 Prerequisites
 
@@ -83,8 +83,44 @@ graph TB
    ```
 
 6. **Open in browser**
+   For the legacy Jinja UI, navigate to `http://localhost:8000`.
 
-   Navigate to `http://localhost:8000`
+### Frontend (Next.js web/)
+
+The recommended production frontend lives in the `web/` folder as a Next.js
+App Router project.
+
+1. **Install frontend dependencies**
+
+   ```bash
+   cd web
+   npm install
+   ```
+
+2. **Configure environment variables (Next.js)**
+
+   In `web/.env.local`:
+
+   ```bash
+   NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+
+   NEXT_PUBLIC_FIREBASE_API_KEY=... # from Firebase web config
+   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=...
+   NEXT_PUBLIC_FIREBASE_PROJECT_ID=...
+   NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=...
+   NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=...
+   NEXT_PUBLIC_FIREBASE_APP_ID=...
+   ```
+
+3. **Run Next.js dev server**
+
+   ```bash
+   cd web
+   npm run dev
+   ```
+
+   Then open `http://localhost:3000` for the React UI (which talks to the
+   FastAPI backend on port 8000).
 
 ## 🎯 Usage
 
@@ -213,7 +249,7 @@ The AI behavior is controlled by the `prompt.txt` file. You can customize:
 
 **"Gemini API key not found"**
 
-- Ensure `GOOGLE_API_KEY` environment variable is set
+- Ensure `GEMINI_API_KEY` environment variable is set
 - Check your Google AI Studio account for API access
 
 **"Video download failed"**

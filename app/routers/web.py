@@ -4,49 +4,17 @@ from fastapi import (
     Body,
     Depends,
     HTTPException,
-    Request,
     WebSocket,
     WebSocketDisconnect,
     status,
 )
-from fastapi.responses import HTMLResponse, FileResponse
-from fastapi.templating import Jinja2Templates
 
-from app.config import FIREBASE_WEB_CONFIG, TEMPLATES_DIR
 from app.core.firebase_client import get_current_user, verify_id_token
 from app.core import saas, storage
 from app.core.tiktok_client import publish_clip_to_tiktok as publish_clip_to_tiktok_service
 from app.core.workflow import process_video_workflow
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
-
-
-@router.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    firebase_config_json = json.dumps(FIREBASE_WEB_CONFIG)
-    return templates.TemplateResponse(
-        "index.html",
-        {"request": request, "firebase_config_json": firebase_config_json},
-    )
-
-
-@router.get("/history", response_class=HTMLResponse)
-async def history(request: Request):
-    firebase_config_json = json.dumps(FIREBASE_WEB_CONFIG)
-    return templates.TemplateResponse(
-        "history.html",
-        {"request": request, "firebase_config_json": firebase_config_json},
-    )
-
-
-@router.get("/settings", response_class=HTMLResponse)
-async def settings_page(request: Request):
-    firebase_config_json = json.dumps(FIREBASE_WEB_CONFIG)
-    return templates.TemplateResponse(
-        "settings.html",
-        {"request": request, "firebase_config_json": firebase_config_json},
-    )
 
 
 @router.websocket("/ws/process")
