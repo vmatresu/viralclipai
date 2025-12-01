@@ -1,0 +1,56 @@
+name: Deploy to DigitalOcean Droplet
+
+on:
+  push:
+    branches:
+    - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository (optional)
+      uses: actions/checkout@v4
+
+    - name: Deploy over SSH
+      uses: appleboy/ssh-action@v0.1.10
+      with:
+        host: ${{ secrets.DO_HOST }}
+        username: ${{ secrets.DO_USER }}
+        port: ${{ secrets.DO_PORT }}
+        key: ${{ secrets.DO_SSH_KEY }}
+        script: |
+          set -e
+
+          # Adjust this path to where your app lives on the droplet
+          APP_DIR=/var/www/vidclips-gemini
+
+          if [ ! -d "$APP_DIR" ]; then
+            echo "App directory $APP_DIR does not exist on droplet" >&2
+            exit 1
+          fi
+
+          cd "$APP_DIR"
+
+          # Pull latest code from main
+          git fetch origin main
+          git reset --hard origin/main
+
+          # If you use Docker Compose for backend + frontend, uncomment:
+          # docker compose pull
+          # docker compose up -d --build
+
+          # Otherwise, you can do a bare-metal deploy, e.g.:
+          #
+          # Backend (FastAPI)
+          # python -m venv venv
+          # source venv/bin/activate
+          # pip install -r requirements.txt
+          # systemctl restart vidclips-backend.service
+          #
+          # Frontend (Next.js in web/)
+          # cd web
+          # npm install --omit=dev
+          # npm run build
+          # pm2 restart viralvideoai-frontend || pm2 start npm --name viralvideoai-frontend -- run start
