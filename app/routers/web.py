@@ -30,9 +30,15 @@ async def history(request: Request):
                 if json_path.exists():
                     try:
                         data = json.loads(json_path.read_text(encoding="utf-8"))
-                        highlights = data.get("highlights", [])
-                        if highlights:
-                            title = f"{len(highlights)} Clips Generated"
+                        
+                        # Prefer the explicit video title from JSON
+                        if data.get("video_title"):
+                            title = data.get("video_title")
+                        else:
+                            highlights = data.get("highlights", [])
+                            if highlights:
+                                title = f"{len(highlights)} Clips Generated"
+                        
                         url = data.get("video_url", "")
                     except:
                         pass

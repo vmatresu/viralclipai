@@ -1,5 +1,16 @@
 import urllib.parse as up
 import hashlib
+import uuid
+from datetime import datetime
+
+def generate_run_id() -> str:
+    """
+    Generates a unique run ID for folder naming.
+    Format: YYYYMMDD_HHMMSS_RANDOM
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    short_uuid = str(uuid.uuid4())[:8]
+    return f"{timestamp}_{short_uuid}"
 
 def extract_youtube_id(url: str) -> str:
     """

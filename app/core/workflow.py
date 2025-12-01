@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import WebSocket
 
 from app.config import PROMPT_PATH, VIDEOS_DIR
-from app.core.utils import extract_youtube_id, sanitize_filename
+from app.core.utils import extract_youtube_id, sanitize_filename, generate_run_id
 from app.core.gemini import GeminiClient
 from app.core import clipper
 
@@ -18,11 +18,15 @@ async def process_video_workflow(websocket: WebSocket, url: str, style: str):
             raise RuntimeError(f"prompt.txt not found at {PROMPT_PATH}")
 
         base_prompt = PROMPT_PATH.read_text(encoding="utf-8")
+        # We still extract ID for info, but not for folder name
         youtube_id = extract_youtube_id(url)
-        workdir = VIDEOS_DIR / youtube_id
+        
+        # Create unique run folder
+        run_id = generate_run_id()
+        workdir = VIDEOS_DIR / run_id
         workdir.mkdir(parents=True, exist_ok=True)
         
-        logger.info(f"Starting job for Video ID: {youtube_id}")
+        logger.info(f"Starting job for Video ID: {youtube_id} in {workdir}")
         await websocket.send_json({"type": "log", "message": f"🚀 Starting job for Video ID: {youtube_id}"})
         await websocket.send_json({"type": "progress", "value": 10})
 
@@ -107,7 +111,7 @@ async def process_video_workflow(websocket: WebSocket, url: str, style: str):
         logger.info("Job complete.")
         await websocket.send_json({"type": "progress", "value": 100})
         await websocket.send_json({"type": "log", "message": "✨ All done!"})
-        await websocket.send_json({"type": "done", "videoId": youtube_id})
+        await websocket.send_json({"type": "done", "videoId": run_id})
 
     except Exception as e:
         import traceback
