@@ -86,16 +86,12 @@ export default function SettingsPage() {
       <section className="glass rounded-2xl p-6 space-y-4">
         <h2 className="text-xl font-semibold text-white">Plan &amp; Usage</h2>
         {loading && !data ? (
-          <div className="text-sm text-gray-400">
-            Loading plan information...
-          </div>
+          <div className="text-sm text-gray-400">Loading plan information...</div>
         ) : data ? (
           <div className="space-y-1 text-sm text-gray-300">
             <div>
               <span className="font-semibold">Plan:</span>{" "}
-              <span className="uppercase text-blue-400 text-xs">
-                {data.plan}
-              </span>
+              <span className="uppercase text-blue-400 text-xs">{data.plan}</span>
             </div>
             <div>
               <span className="font-semibold">Monthly Clips:</span>{" "}
@@ -112,8 +108,8 @@ export default function SettingsPage() {
       <section className="glass rounded-2xl p-6 space-y-4">
         <h2 className="text-xl font-semibold text-white">TikTok Integration</h2>
         <p className="text-sm text-gray-400">
-          Connect your TikTok account by providing the access token and account
-          ID from your TikTok developer application.
+          Connect your TikTok account by providing the access token and account ID from
+          your TikTok developer application.
         </p>
         <form onSubmit={onSubmit} className="space-y-4">
           <div>

@@ -24,11 +24,7 @@ export function ClipGrid({ videoId, clips, log }: ClipGridProps) {
   const { getIdToken } = useAuth();
   const [publishing, setPublishing] = useState<string | null>(null);
 
-  async function publishToTikTok(
-    clip: Clip,
-    title: string,
-    description: string
-  ) {
+  async function publishToTikTok(clip: Clip, title: string, description: string) {
     try {
       setPublishing(clip.name);
       const token = await getIdToken();

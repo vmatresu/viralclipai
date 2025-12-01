@@ -52,20 +52,28 @@ def get_monthly_usage(uid: str, as_of: Optional[datetime] = None) -> int:
     return total
 
 
-def record_video_job(uid: str, run_id: str, video_url: str, video_title: str, clips_count: int) -> None:
+def record_video_job(
+    uid: str,
+    run_id: str,
+    video_url: str,
+    video_title: str,
+    clips_count: int,
+    custom_prompt: Optional[str] = None,
+) -> None:
     db = get_firestore_client()
     col = db.collection("users").document(uid).collection("videos")
     now = datetime.now(timezone.utc)
-    col.document(run_id).set(
-        {
-            "video_id": run_id,
-            "video_url": video_url,
-            "video_title": video_title,
-            "clips_count": int(clips_count),
-            "created_at": now,
-        },
-        merge=True,
-    )
+    payload: Dict[str, Any] = {
+        "video_id": run_id,
+        "video_url": video_url,
+        "video_title": video_title,
+        "clips_count": int(clips_count),
+        "created_at": now,
+    }
+    if custom_prompt:
+        payload["custom_prompt"] = custom_prompt
+
+    col.document(run_id).set(payload, merge=True)
 
 
 def user_owns_video(uid: str, run_id: str) -> bool:

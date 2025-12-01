@@ -7,3 +7,7 @@ videos/
 error.log
 debug.log
 .gemini-clipboard/*
+node_modules/
+web/node_modules/
+.next/
+web/.next/

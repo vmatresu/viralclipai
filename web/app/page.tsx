@@ -8,9 +8,9 @@ export default function HomePage() {
           Turn long-form videos into viral clips in minutes.
         </h1>
         <p className="text-gray-300 max-w-2xl">
-          Viral Clip AI analyzes your YouTube commentary videos, finds the most
-          engaging moments, and generates social-ready clips optimized for
-          TikTok, Shorts, and Reels.
+          Viral Clip AI analyzes your YouTube commentary videos, finds the most engaging
+          moments, and generates social-ready clips optimized for TikTok, Shorts, and
+          Reels.
         </p>
         <div className="flex flex-wrap gap-3">
           <a
@@ -32,24 +32,22 @@ export default function HomePage() {
         <div className="glass rounded-2xl p-5 space-y-2">
           <h3 className="font-semibold text-white">AI highlight detection</h3>
           <p className="text-sm text-gray-300">
-            Powered by Gemini to find high-retention segments and automatically
-            propose clip boundaries.
+            Powered by Gemini to find high-retention segments and automatically propose
+            clip boundaries.
           </p>
         </div>
         <div className="glass rounded-2xl p-5 space-y-2">
           <h3 className="font-semibold text-white">Vertical-ready formats</h3>
           <p className="text-sm text-gray-300">
-            Split view, left/right focus, or all styles—designed for TikTok,
-            Shorts, and Reels.
+            Split view, left/right focus, or all styles—designed for TikTok, Shorts, and
+            Reels.
           </p>
         </div>
         <div className="glass rounded-2xl p-5 space-y-2">
-          <h3 className="font-semibold text-white">
-            Per-user history & limits
-          </h3>
+          <h3 className="font-semibold text-white">Per-user history & limits</h3>
           <p className="text-sm text-gray-300">
-            Firebase Auth, Firestore, and S3-backed storage so every creator has
-            their own secure workspace.
+            Firebase Auth, Firestore, and S3-backed storage so every creator has their
+            own secure workspace.
           </p>
         </div>
       </section>

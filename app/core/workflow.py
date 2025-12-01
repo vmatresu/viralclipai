@@ -14,12 +14,23 @@ from app.core import saas, storage
 
 logger = logging.getLogger(__name__)
 
-async def process_video_workflow(websocket: WebSocket, url: str, style: str, user_id: Optional[str] = None):
+async def process_video_workflow(
+    websocket: WebSocket,
+    url: str,
+    style: str,
+    user_id: Optional[str] = None,
+    custom_prompt: Optional[str] = None,
+):
     try:
-        if not PROMPT_PATH.exists():
-            raise RuntimeError(f"prompt.txt not found at {PROMPT_PATH}")
+        # Base prompt: use user-provided prompt when present, otherwise fallback
+        # to the default instructions from prompt.txt.
+        if custom_prompt and custom_prompt.strip():
+            base_prompt = custom_prompt.strip()
+        else:
+            if not PROMPT_PATH.exists():
+                raise RuntimeError(f"prompt.txt not found at {PROMPT_PATH}")
 
-        base_prompt = PROMPT_PATH.read_text(encoding="utf-8")
+            base_prompt = PROMPT_PATH.read_text(encoding="utf-8")
         # We still extract ID for info, but not for folder name
         youtube_id = extract_youtube_id(url)
         
@@ -44,6 +55,8 @@ async def process_video_workflow(websocket: WebSocket, url: str, style: str, use
         await websocket.send_json({"type": "progress", "value": 30})
 
         data["video_url"] = url
+        if custom_prompt and custom_prompt.strip():
+            data["custom_prompt"] = custom_prompt.strip()
         highlights = data.get("highlights", [])
         for idx, h in enumerate(highlights, start=1):
             h.setdefault("id", idx)
@@ -164,7 +177,14 @@ async def process_video_workflow(websocket: WebSocket, url: str, style: str, use
         # Record usage for this job
         if user_id is not None and total_clips > 0:
             video_title = data.get("video_title") or f"Video {youtube_id}"
-            saas.record_video_job(user_id, run_id, url, video_title, total_clips)
+            saas.record_video_job(
+                user_id,
+                run_id,
+                url,
+                video_title,
+                total_clips,
+                custom_prompt=custom_prompt.strip() if custom_prompt else None,
+            )
 
         await websocket.send_json({"type": "progress", "value": 100})
         await websocket.send_json({"type": "log", "message": "✨ All done!"})

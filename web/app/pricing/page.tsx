@@ -4,8 +4,8 @@ export default function PricingPage() {
       <section className="space-y-3">
         <h1 className="text-3xl font-extrabold text-white">Pricing</h1>
         <p className="text-gray-300 max-w-2xl">
-          Start free, then upgrade when you are ready to produce clips at scale.
-          Plans are per-user and can be changed at any time.
+          Start free, then upgrade when you are ready to produce clips at scale. Plans
+          are per-user and can be changed at any time.
         </p>
       </section>
       <section className="grid md:grid-cols-3 gap-6">

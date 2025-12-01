@@ -10,6 +10,7 @@ interface UserVideo {
   video_title?: string;
   video_url?: string;
   created_at?: string;
+  custom_prompt?: string;
 }
 
 export default function HistoryPage() {
@@ -55,16 +56,12 @@ export default function HistoryPage() {
   }
 
   if (error) {
-    return (
-      <div className="text-center py-12 text-red-400 text-lg">{error}</div>
-    );
+    return <div className="text-center py-12 text-red-400 text-lg">{error}</div>;
   }
 
   if (videos.length === 0) {
     return (
-      <div className="text-center py-12 text-gray-500 text-lg">
-        No history found.
-      </div>
+      <div className="text-center py-12 text-gray-500 text-lg">No history found.</div>
     );
   }
 
@@ -87,6 +84,12 @@ export default function HistoryPage() {
                 <div className="text-sm text-gray-500 truncate max-w-md">
                   {v.video_url || ""}
                 </div>
+                {v.custom_prompt && (
+                  <div className="mt-1 text-xs text-gray-500 line-clamp-2">
+                    <span className="font-semibold text-gray-400 mr-1">Prompt:</span>
+                    {v.custom_prompt}
+                  </div>
+                )}
               </div>
               <div className="text-xs text-gray-500 font-mono bg-gray-800 px-2 py-1 rounded border border-gray-700">
                 {v.created_at || ""}

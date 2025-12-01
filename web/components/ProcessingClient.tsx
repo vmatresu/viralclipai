@@ -27,6 +27,8 @@ export function ProcessingClient() {
   const [errorDetails, setErrorDetails] = useState<string | null>(null);
   const [videoId, setVideoId] = useState<string | null>(null);
   const [clips, setClips] = useState<Clip[]>([]);
+  const [customPrompt, setCustomPrompt] = useState("");
+  const [customPromptUsed, setCustomPromptUsed] = useState<string | null>(null);
 
   const hasResults = useMemo(() => clips.length > 0, [clips]);
 
@@ -34,9 +36,7 @@ export function ProcessingClient() {
     (msg: string, type: "info" | "error" | "success" = "info") => {
       setLogs((prev) => [
         ...prev,
-        `${
-          type === "error" ? "[ERROR]" : type === "success" ? "[OK]" : ">"
-        } ${msg}`,
+        `${type === "error" ? "[ERROR]" : type === "success" ? "[OK]" : ">"} ${msg}`,
       ]);
     },
     []
@@ -50,10 +50,14 @@ export function ProcessingClient() {
         if (!token) {
           throw new Error("You must be signed in to view your clips.");
         }
-        const data = await apiFetch<{ clips: Clip[] }>(`/api/videos/${id}`, {
-          token,
-        });
+        const data = await apiFetch<{ clips: Clip[]; custom_prompt?: string }>(
+          `/api/videos/${id}`,
+          {
+            token,
+          }
+        );
         setClips(data.clips || []);
+        setCustomPromptUsed(data.custom_prompt ?? null);
       } catch (err: any) {
         setError(err.message || "Error loading results");
       }
@@ -78,6 +82,7 @@ export function ProcessingClient() {
     setProgress(0);
     setClips([]);
     setVideoId(null);
+    setCustomPromptUsed(null);
 
     try {
       const token = await getIdToken();
@@ -88,8 +93,7 @@ export function ProcessingClient() {
         return;
       }
 
-      const apiBase =
-        process.env.NEXT_PUBLIC_API_BASE_URL || window.location.origin;
+      const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || window.location.origin;
       const baseUrl = new URL(apiBase);
       const wsProtocol = baseUrl.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${wsProtocol}//${baseUrl.host}/ws/process`;
@@ -97,7 +101,14 @@ export function ProcessingClient() {
 
       ws.onopen = () => {
         log("Connected to server...", "success");
-        ws.send(JSON.stringify({ url, style, token }));
+        ws.send(
+          JSON.stringify({
+            url,
+            style,
+            token,
+            prompt: customPrompt.trim() || undefined,
+          })
+        );
       };
 
       ws.onmessage = (event) => {
@@ -158,6 +169,65 @@ export function ProcessingClient() {
                   className="w-full bg-gray-800 border border-gray-700 rounded-xl px-5 py-4 text-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-gray-600"
                   required
                 />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-400 uppercase tracking-wider">
+                Custom prompt (optional)
+              </label>
+              <textarea
+                value={customPrompt}
+                onChange={(e) => setCustomPrompt(e.target.value)}
+                rows={3}
+                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none placeholder-gray-500"
+                placeholder="e.g. Find the most emotional moments where the speaker shares a personal story."
+              />
+              <div className="flex flex-wrap gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCustomPrompt(
+                      "Find the most emotional and vulnerable moments in this video that would resonate strongly on TikTok."
+                    )
+                  }
+                  className="px-3 py-1 rounded-full bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700"
+                >
+                  Emotional moments
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCustomPrompt(
+                      "Find the best high-retention viral clip candidates for short-form social media (TikTok, Shorts, Reels)."
+                    )
+                  }
+                  className="px-3 py-1 rounded-full bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700"
+                >
+                  Best viral clips
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCustomPrompt(
+                      "Find segments with intense discussion about the main subject, where there is strong opinion or debate."
+                    )
+                  }
+                  className="px-3 py-1 rounded-full bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700"
+                >
+                  Subject discussion
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCustomPrompt(
+                      "Find moments with interesting sounds or reactions that would work well in sound-on social media clips."
+                    )
+                  }
+                  className="px-3 py-1 rounded-full bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700"
+                >
+                  Sound-focused clips
+                </button>
               </div>
             </div>
 
@@ -259,6 +329,16 @@ export function ProcessingClient() {
               Process Another Video
             </button>
           </div>
+          {customPromptUsed && (
+            <div className="glass rounded-xl p-4 border border-gray-700">
+              <h3 className="text-sm font-semibold text-gray-200 mb-1">
+                Custom prompt used
+              </h3>
+              <p className="text-xs text-gray-300 whitespace-pre-wrap">
+                {customPromptUsed}
+              </p>
+            </div>
+          )}
           <ClipGrid videoId={videoId} clips={clips} log={log} />
         </section>
       )}

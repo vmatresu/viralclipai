@@ -28,18 +28,24 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-if (!getApps().length) {
-  if (!firebaseConfig.apiKey) {
-    // Incomplete config; app will run but auth will be disabled.
-    frontendLogger.warn(
-      "Firebase config is missing. Auth will not work correctly."
-    );
-  } else {
-    initializeApp(firebaseConfig);
-  }
-}
+let authInstance: ReturnType<typeof getAuth> | null = null;
 
-const auth = getAuth();
+function getAuthInstance() {
+  if (!authInstance) {
+    if (!getApps().length) {
+      if (!firebaseConfig.apiKey) {
+        // Incomplete config; app will run but auth will be disabled.
+        frontendLogger.warn(
+          "Firebase config is missing. Auth will not work correctly."
+        );
+      } else {
+        initializeApp(firebaseConfig);
+      }
+    }
+    authInstance = getAuth();
+  }
+  return authInstance;
+}
 
 type AuthContextValue = {
   user: User | null;
@@ -56,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const auth = getAuthInstance();
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
@@ -64,15 +71,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
+    const auth = getAuthInstance();
     const provider = new GoogleAuthProvider();
     await signInWithPopup(auth, provider);
   }, []);
 
   const signOut = useCallback(async () => {
+    const auth = getAuthInstance();
     await firebaseSignOut(auth);
   }, []);
 
   const getIdToken = useCallback(async (): Promise<string | null> => {
+    const auth = getAuthInstance();
     const current = auth.currentUser;
     if (!current) return null;
     return await current.getIdToken(true);

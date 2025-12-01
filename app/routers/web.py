@@ -25,6 +25,7 @@ async def websocket_endpoint(websocket: WebSocket):
         token = data.get("token")
         url = data.get("url")
         style = data.get("style", "split")
+        prompt = data.get("prompt")
 
         if not token:
             await websocket.send_json(
@@ -54,7 +55,13 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.send_json({"type": "error", "message": "No URL provided"})
             return
 
-        await process_video_workflow(websocket, url, style, user_id=uid)
+        await process_video_workflow(
+            websocket,
+            url,
+            style,
+            user_id=uid,
+            custom_prompt=prompt,
+        )
     except WebSocketDisconnect:
         pass
     except Exception as e:
@@ -71,7 +78,7 @@ async def get_video_info(video_id: str, user=Depends(get_current_user)):
     if not saas.user_owns_video(uid, video_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
 
-    # Load highlights metadata from S3
+    # Load highlights metadata
     highlights_data = storage.load_highlights(uid, video_id)
     highlights_map = {}
     for h in highlights_data.get("highlights", []):
@@ -83,7 +90,14 @@ async def get_video_info(video_id: str, user=Depends(get_current_user)):
             }
 
     clips = storage.list_clips_with_metadata(uid, video_id, highlights_map)
-    return {"id": video_id, "clips": clips}
+    response = {
+        "id": video_id,
+        "clips": clips,
+    }
+    custom_prompt = highlights_data.get("custom_prompt")
+    if custom_prompt:
+        response["custom_prompt"] = custom_prompt
+    return response
 
 
 @router.get("/api/user/videos")
