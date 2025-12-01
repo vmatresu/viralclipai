@@ -39,8 +39,7 @@ class GeminiClient:
         
         # Use a provided directory or a temporary one
         target_dir = output_dir if output_dir else Path(tempfile.mkdtemp())
-        output_template = str(target_dir / "% (id)s")
-        
+                    output_template = str(tmp_path / "% (id)s")        
         # Command to download subtitles only
         cmd = [
             "yt-dlp",
@@ -121,8 +120,17 @@ class GeminiClient:
                 continue
             
             # Skip metadata headers (contains :)
-            if "-->" not in line and ":" in line and not re.match(r"^[\[\]]*", line):
-                 continue
+            # Improved heuristic: skip lines starting with typical VTT headers or Metadata
+            if "-->" not in line and ":" in line:
+                # Check for Metadata-like lines "Key: Value"
+                if re.match(r"^(Kind|Language|Style|Region):", line, re.IGNORECASE):
+                    continue
+                # Fallback for other headers if they don't look like dialogue (dialogue usually doesn't start with Key:)
+                # But be careful with "Person: Hello"
+                if not re.match(r"^\[.*?\]", line) and not re.match(r"^<.*?<", line): 
+                     # If it's not a timestamped line (which we shouldn't be processing here anyway)
+                     # and not a tag.
+                     pass
 
             # Skip cues/numbers
             if line.isdigit():
