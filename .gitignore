@@ -6,3 +6,4 @@ __pycache__/
 videos/
 error.log
 debug.log
+.gemini-clipboard/*
