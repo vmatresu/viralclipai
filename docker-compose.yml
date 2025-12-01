@@ -1,0 +1,29 @@
+version: "3.9"
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: prod
+    env_file:
+      - .env.api # create this with your backend env vars
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      target: runner
+    env_file:
+      - web/.env.production # create this for Next.js prod env
+    environment:
+      # Talks to the api service within the Docker network
+      - NEXT_PUBLIC_API_BASE_URL=http://api:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
