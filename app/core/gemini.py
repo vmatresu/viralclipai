@@ -84,6 +84,22 @@ class GeminiClient:
             transcript_path.write_text(parsed_transcript, encoding="utf-8")
             logger.info(f"Saved parsed transcript to {transcript_path}")
 
+        # Cleanup raw VTT files
+        for f in vtt_files:
+            try:
+                f.unlink()
+                logger.debug(f"Deleted raw VTT file: {f}")
+            except Exception as e:
+                logger.warning(f"Failed to delete VTT file {f}: {e}")
+
+        # If we created a temporary directory, clean it up
+        if not output_dir:
+            import shutil
+            try:
+                shutil.rmtree(target_dir)
+            except Exception as e:
+                logger.warning(f"Failed to remove temp dir {target_dir}: {e}")
+
         return parsed_transcript
 
     def _parse_vtt(self, content: str) -> str:
