@@ -101,9 +101,9 @@ def run_ffmpeg_clip(start_str: str, end_str: str, out_path: Path, style: str):
         t_start = parse_time(start_str)
         t_end = parse_time(end_str)
         
-        # Pad -1s / +1s
+        # Pad -1s / +2s
         t_start = max(t_start - timedelta(seconds=1), datetime(1900, 1, 1)) # Clamp to 0
-        t_end = t_end + timedelta(seconds=1)
+        t_end = t_end + timedelta(seconds=2)
         
         duration = (t_end - t_start).total_seconds()
         start_seconds = (t_start - datetime(1900, 1, 1)).total_seconds()
@@ -140,8 +140,8 @@ def main():
     parser.add_argument("--url", help="YouTube Video URL to override highlights.json", default=None)
     parser.add_argument(
         "--style", 
-        help="Output style. Options: 'split', 'left_focus', 'right_focus', or 'all'. Default is 'all'.", 
-        default="all",
+        help="Output style. Options: 'split', 'left_focus', 'right_focus', or 'all'. Default is 'split'.", 
+        default="split",
         choices=AVAILABLE_STYLES + ["all"]
     )
     args = parser.parse_args()
