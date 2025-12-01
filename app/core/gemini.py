@@ -5,7 +5,6 @@ import logging
 from typing import Dict, Any
 
 import google.generativeai as genai
-# NEW IMPORT
 from youtube_transcript_api import YouTubeTranscriptApi
 
 logger = logging.getLogger(__name__)
@@ -31,21 +30,45 @@ class GeminiClient:
     # NEW HELPER METHOD
     def _get_transcript(self, video_url: str) -> str:
         try:
-            # Extract video ID more robustly if needed, but simple split works for standard URLs
+            # Extract video ID
             if "v=" in video_url:
                 video_id = video_url.split("v=")[-1].split("&")[0]
             elif "youtu.be" in video_url:
                 video_id = video_url.split("/")[-1]
             else:
-                # Fallback to the previous extraction logic or simple split
                 video_id = video_url.split("/")[-1]
 
-            # Fetch transcript
-            transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
-            
+            # Try list_transcripts first to find English or auto-generated English
+            try:
+                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+                
+                # Priority: Manually created English -> Generated English -> Any English -> First available
+                try:
+                    transcript = transcript_list.find_transcript(['en'])
+                except:
+                    try:
+                        transcript = transcript_list.find_generated_transcript(['en'])
+                    except:
+                        # Fallback: iterate and find any english code 'en-*'
+                        transcript = None
+                        for t in transcript_list:
+                            if t.language_code.startswith('en'):
+                                transcript = t
+                                break
+                        if not transcript:
+                            # Last resort: take the first available one
+                            transcript = next(iter(transcript_list))
+
+                transcript_data = transcript.fetch()
+                
+            except Exception as list_error:
+                logger.warning(f"list_transcripts failed ({list_error}), trying direct get_transcript fallback...")
+                # Fallback to the static method (which defaults to 'en')
+                transcript_data = YouTubeTranscriptApi.get_transcript(video_id)
+
             # Format as a string with timestamps for the model
             formatted_transcript = ""
-            for entry in transcript_list:
+            for entry in transcript_data:
                 start = entry['start']
                 text = entry['text']
                 # Format timestamp as HH:MM:SS
@@ -57,10 +80,9 @@ class GeminiClient:
             return formatted_transcript
         except Exception as e:
             logger.error(f"Error fetching transcript: {e}")
-            raise RuntimeError(f"Could not fetch transcript for {video_url}. Is it available/captioned?")
+            raise RuntimeError(f"Could not fetch transcript for {video_url}. Is it available/captioned? Details: {e}")
 
     def build_prompt(self, base_prompt: str, transcript_text: str) -> str:
-        # We now pass the TRANSCRIPT, not just the URL
         return textwrap.dedent(
             f"""
             {base_prompt}
@@ -94,7 +116,6 @@ class GeminiClient:
                 response = model.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
                 
                 text = response.text.strip()
-                # Clean up markdown if present (though response_mime_type helps)
                 if text.startswith("```json"):
                     text = text[7:]
                 if text.endswith("```"):
