@@ -18,10 +18,10 @@ class GeminiClient:
     """
 
     FALLBACK_MODELS = [
-        "gemini-3-pro-preview",
         "gemini-2.5-flash",
         "gemini-2.5-flash-lite",
         "gemini-2.5-pro",
+        "gemini-3-pro-preview",
     ]
 
     def __init__(self, api_key: str | None = None):
@@ -39,7 +39,7 @@ class GeminiClient:
         
         # Use a provided directory or a temporary one
         target_dir = output_dir if output_dir else Path(tempfile.mkdtemp())
-        output_template = str(target_dir / "% (id)s")
+        output_template = str(target_dir / "%(id)s")
         
         # Command to download subtitles only
         cmd = [
@@ -60,13 +60,19 @@ class GeminiClient:
             logger.error(f"yt-dlp subtitle download failed: {e.stderr}")
             raise RuntimeError(f"Failed to download transcript. ensure video has captions. Details: {e.stderr}") from e
         
-        # Find the downloaded .vtt file
-        vtt_files = list(target_dir.glob("*.vtt"))
-        if not vtt_files:
-            # Try finding any sub file if specific language failed or name differs
-            vtt_files = list(target_dir.glob("*"))
-            logger.warning(f"No .vtt found. Files in target: {[f.name for f in vtt_files]}")
-            raise RuntimeError("No transcript file downloaded by yt-dlp.")
+                # Find the downloaded .vtt file
+        
+                vtt_files = list(target_dir.glob("*.vtt"))
+        
+                if not vtt_files:
+        
+                    # Try finding any sub file if specific language failed or name differs
+        
+                    vtt_files = list(target_dir.glob("*"))
+        
+                    logger.warning(f"No .vtt found. Files in target: {[f.name for f in vtt_files]}")
+        
+                    raise RuntimeError("No transcript file downloaded by yt-dlp.")
         
         # Prefer English if multiple
         vtt_file = vtt_files[0]
