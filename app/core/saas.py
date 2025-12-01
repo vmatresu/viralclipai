@@ -10,6 +10,8 @@ PLANS: Dict[str, Dict[str, int]] = {
     "pro": {"max_clips_per_month": 500},
 }
 
+SUPERADMIN_ROLE = "superadmin"
+
 
 def get_or_create_user(uid: str, email: Optional[str] = None) -> Dict[str, Any]:
     db = get_firestore_client()
@@ -94,6 +96,20 @@ def list_user_videos(uid: str) -> List[Dict[str, Any]]:
     return results
 
 
+def is_super_admin(uid: str) -> bool:
+    """Return True if the user has the superadmin role.
+
+    Role is stored on the user document as `role = "superadmin"` and can be
+    managed via the Firestore console.
+    """
+    db = get_firestore_client()
+    doc = db.collection("users").document(uid).get()
+    if not doc.exists:
+        return False
+    data = doc.to_dict() or {}
+    return data.get("role") == SUPERADMIN_ROLE
+
+
 def get_user_settings(uid: str) -> Dict[str, Any]:
     db = get_firestore_client()
     ref = db.collection("users").document(uid)
@@ -111,3 +127,37 @@ def update_user_settings(uid: str, settings: Dict[str, Any]) -> Dict[str, Any]:
     ref = db.collection("users").document(uid)
     ref.set({"settings": settings}, merge=True)
     return settings
+
+
+def get_global_prompt() -> Optional[str]:
+    """Fetch the global base prompt from Firestore admin config.
+
+    Stored in `admin/config` document under the `base_prompt` field. Returns
+    None if not set.
+    """
+    db = get_firestore_client()
+    doc = db.collection("admin").document("config").get()
+    if not doc.exists:
+        return None
+    data = doc.to_dict() or {}
+    prompt = data.get("base_prompt")
+    if isinstance(prompt, str) and prompt.strip():
+        return prompt.strip()
+    return None
+
+
+def set_global_prompt(uid: str, prompt: str) -> str:
+    """Update the global base prompt in Firestore admin config.
+
+    Records the updating user and timestamp for traceability.
+    """
+    db = get_firestore_client()
+    ref = db.collection("admin").document("config")
+    now = datetime.now(timezone.utc)
+    payload: Dict[str, Any] = {
+        "base_prompt": prompt,
+        "updated_at": now,
+        "updated_by": uid,
+    }
+    ref.set(payload, merge=True)
+    return prompt

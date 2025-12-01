@@ -1,4 +1,5 @@
 import { ProcessingClient } from "@/components/ProcessingClient";
+import { Suspense } from "react";
 
 export default function HomePage() {
   return (
@@ -53,7 +54,9 @@ export default function HomePage() {
       </section>
 
       <section id="app">
-        <ProcessingClient />
+        <Suspense fallback={<div className="text-gray-400">Loading...</div>}>
+          <ProcessingClient />
+        </Suspense>
       </section>
     </div>
   );

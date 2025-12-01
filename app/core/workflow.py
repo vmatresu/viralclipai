@@ -22,15 +22,21 @@ async def process_video_workflow(
     custom_prompt: Optional[str] = None,
 ):
     try:
-        # Base prompt: use user-provided prompt when present, otherwise fallback
-        # to the default instructions from prompt.txt.
+        # Base prompt resolution order:
+        # 1) user-provided custom prompt
+        # 2) global admin-configured prompt in Firestore
+        # 3) local prompt.txt fallback (for initial setups/migrations)
         if custom_prompt and custom_prompt.strip():
             base_prompt = custom_prompt.strip()
         else:
-            if not PROMPT_PATH.exists():
-                raise RuntimeError(f"prompt.txt not found at {PROMPT_PATH}")
+            global_prompt = saas.get_global_prompt()
+            if global_prompt:
+                base_prompt = global_prompt
+            else:
+                if not PROMPT_PATH.exists():
+                    raise RuntimeError(f"prompt.txt not found at {PROMPT_PATH}")
 
-            base_prompt = PROMPT_PATH.read_text(encoding="utf-8")
+                base_prompt = PROMPT_PATH.read_text(encoding="utf-8")
         # We still extract ID for info, but not for folder name
         youtube_id = extract_youtube_id(url)
         

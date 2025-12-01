@@ -172,3 +172,27 @@ async def publish_clip_to_tiktok(
     s3_key = f"{uid}/{video_id}/clips/{clip_name}"
     result = await publish_clip_to_tiktok_service(settings, s3_key, title, description)
     return result
+
+
+@router.get("/api/admin/prompt")
+async def get_admin_prompt(user=Depends(get_current_user)):
+    uid = user["uid"]
+    if not saas.is_super_admin(uid):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    prompt = saas.get_global_prompt() or ""
+    return {"prompt": prompt}
+
+
+@router.post("/api/admin/prompt")
+async def update_admin_prompt(
+    payload: dict = Body(...),
+    user=Depends(get_current_user),
+):
+    uid = user["uid"]
+    if not saas.is_super_admin(uid):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    prompt = (payload.get("prompt") or "").strip()
+    updated = saas.set_global_prompt(uid, prompt)
+    return {"prompt": updated}
