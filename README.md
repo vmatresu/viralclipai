@@ -148,7 +148,7 @@ python -m app.main
 ## 🔧 Configuration
 
 The application is now structured as a multi-tenant SaaS with Firebase Auth,
-Firestore, and S3-based storage. Most behaviour is controlled via
+Firestore, and Cloudflare R2-based storage (S3-compatible). Most behaviour is controlled via
 environment variables (see `app/config.py`).
 
 **Core settings**
@@ -172,13 +172,15 @@ environment variables (see `app/config.py`).
   - `FIREBASE_WEB_MESSAGING_SENDER_ID`
   - `FIREBASE_WEB_APP_ID`
 
-- **AWS / S3 (clip storage)**
+- **Cloudflare R2 (clip storage)**
 
-  - `AWS_REGION` – AWS region for the S3 bucket (e.g. `us-east-1`).
-  - `S3_BUCKET_NAME` – name of the bucket where clips and thumbnails are stored.
-  - Standard AWS credentials for boto3 must also be configured, e.g. via
-    `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optionally
-    `AWS_SESSION_TOKEN`/`AWS_PROFILE`.
+  - `R2_ACCOUNT_ID` – Cloudflare account ID used for R2.
+  - `R2_BUCKET_NAME` – bucket where clips, thumbnails, and highlights are stored.
+  - `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` – R2 API tokens (S3-compatible).
+  - `R2_ENDPOINT_URL` – S3 endpoint for R2. If omitted, defaults to
+    `https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com`.
+  - R2 is fronted by Cloudflare's global network and has zero egress fees,
+    which is ideal for a video-heavy SaaS.
 
 - **TikTok API**
 
@@ -198,8 +200,9 @@ environment variables (see `app/config.py`).
 
 - **Video scratch directory**: `./videos/`
   - Used as a temporary working directory while processing.
-  - Final clips and thumbnails are uploaded to S3 under
-    `users/{uid}/{run_id}/clips/...` and are served via presigned URLs.
+  - Final clips and thumbnails are uploaded to Cloudflare R2 under
+    `users/{uid}/{run_id}/clips/...` and are served via S3-compatible
+    presigned URLs.
 - **Prompt template**: `./prompt.txt` (customizable AI instructions).
 - **Logging**: Debug logs saved to `debug.log`.
 
@@ -210,8 +213,9 @@ environment variables (see `app/config.py`).
   WebSocket (`/ws/process`) and `Authorization: Bearer <token>` headers.
 - The backend verifies ID tokens with **Firebase Admin** and stores per-user
   data in **Firestore** under `users/{uid}` and `users/{uid}/videos/{run_id}`.
-- All clips and thumbnails are stored in **S3** namespaced by user ID and
-  run ID. Access is always via short-lived **presigned URLs**.
+- All clips and thumbnails are stored in **Cloudflare R2** (S3-compatible)
+  namespaced by user ID and run ID. Access is always via short-lived
+  **presigned URLs** generated against the R2 S3 API.
 - Each user is assigned a plan (`free`, `pro`, etc.) and monthly clip limits
   are enforced before processing starts.
 

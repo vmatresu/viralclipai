@@ -1,34 +1,46 @@
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import boto3
 from botocore.exceptions import ClientError
 
-from app.config import AWS_REGION, S3_BUCKET_NAME, logger
+from app.config import (
+    R2_ACCESS_KEY_ID,
+    R2_BUCKET_NAME,
+    R2_ENDPOINT_URL,
+    R2_SECRET_ACCESS_KEY,
+    logger,
+)
 
-_s3_client = None
+_r2_client: Optional[Any] = None
 
 
-def get_s3_client():
-    global _s3_client
-    if _s3_client is None:
-        _s3_client = boto3.client("s3", region_name=AWS_REGION)
-    return _s3_client
+def get_r2_client():
+    global _r2_client
+    if _r2_client is None:
+        session = boto3.session.Session()
+        _r2_client = session.client(
+            "s3",
+            endpoint_url=R2_ENDPOINT_URL or None,
+            aws_access_key_id=R2_ACCESS_KEY_ID or None,
+            aws_secret_access_key=R2_SECRET_ACCESS_KEY or None,
+        )
+    return _r2_client
 
 
 def upload_file(path: Path, key: str, content_type: str) -> None:
-    client = get_s3_client()
+    client = get_r2_client()
     extra_args: Dict[str, Any] = {"ContentType": content_type}
-    client.upload_file(str(path), S3_BUCKET_NAME, key, ExtraArgs=extra_args)
+    client.upload_file(str(path), R2_BUCKET_NAME, key, ExtraArgs=extra_args)
 
 
 def generate_presigned_url(key: str, expires_in: int = 3600) -> str:
-    client = get_s3_client()
+    client = get_r2_client()
     try:
         url = client.generate_presigned_url(
             "get_object",
-            Params={"Bucket": S3_BUCKET_NAME, "Key": key},
+            Params={"Bucket": R2_BUCKET_NAME, "Key": key},
             ExpiresIn=expires_in,
         )
         return url
@@ -38,10 +50,10 @@ def generate_presigned_url(key: str, expires_in: int = 3600) -> str:
 
 
 def load_highlights(uid: str, video_id: str) -> Dict[str, Any]:
-    client = get_s3_client()
+    client = get_r2_client()
     key = f"{uid}/{video_id}/highlights.json"
     try:
-        obj = client.get_object(Bucket=S3_BUCKET_NAME, Key=key)
+        obj = client.get_object(Bucket=R2_BUCKET_NAME, Key=key)
     except ClientError as exc:
         logger.error("Failed to load highlights for %s/%s: %s", uid, video_id, exc)
         return {}
@@ -53,12 +65,12 @@ def load_highlights(uid: str, video_id: str) -> Dict[str, Any]:
 
 
 def list_clips_with_metadata(uid: str, video_id: str, highlights_map: Dict[int, Dict[str, str]], url_expiry: int = 3600) -> List[Dict[str, Any]]:
-    client = get_s3_client()
+    client = get_r2_client()
     prefix = f"{uid}/{video_id}/clips/"
     paginator = client.get_paginator("list_objects_v2")
     size_map: Dict[str, int] = {}
     keys: List[str] = []
-    for page in paginator.paginate(Bucket=S3_BUCKET_NAME, Prefix=prefix):
+    for page in paginator.paginate(Bucket=R2_BUCKET_NAME, Prefix=prefix):
         for obj in page.get("Contents", []):
             key = obj["Key"]
             size_map[key] = obj["Size"]
