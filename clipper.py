@@ -71,11 +71,11 @@ def build_vf_filter(style: str) -> str:
     if style == "split":
         # Portrait 1080x1920: top = left half, bottom = right half
         return (
-            "scale=1920:-2,split=2[full][full2]" # Removed trailing backslash
+            "scale=1920:-2,split=2[full][full2];"
             "[full]crop=910:1080:0:0[left];"
             "[full2]crop=960:1080:960:0[right];"
             "[left]scale=1080:-2,crop=1080:960[left_scaled];"
-            "[right]scale=1080:-2,crop=1080:960[right_scaled]" # Removed trailing backslash
+            "[right]scale=1080:-2,crop=1080:960[right_scaled];"
             "[left_scaled][right_scaled]vstack=inputs=2"
         )
 
