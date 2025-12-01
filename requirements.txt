@@ -3,3 +3,6 @@ fastapi
 uvicorn
 yt-dlp
 websockets
+jinja2
+python-multipart
+youtube-transcript-api
