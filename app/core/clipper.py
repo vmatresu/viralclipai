@@ -68,14 +68,27 @@ def build_vf_filter(style: str) -> str:
         )
     return "scale=-2:1920,crop=1080:1920"
 
-def run_ffmpeg_clip(start_str: str, end_str: str, out_path: Path, style: str, video_file: Path):
+def run_ffmpeg_clip(
+    start_str: str,
+    end_str: str,
+    out_path: Path,
+    style: str,
+    video_file: Path,
+    pad_before_seconds: float = 0.0,
+    pad_after_seconds: float = 0.0,
+):
     try:
         t_start = parse_time(start_str)
         t_end = parse_time(end_str)
-        
-        # Pad -1s / +2s
-        t_start = max(t_start - timedelta(seconds=1), datetime(1900, 1, 1))
-        t_end = t_end + timedelta(seconds=2)
+
+        if pad_before_seconds > 0:
+            t_start = max(
+                t_start - timedelta(seconds=pad_before_seconds),
+                datetime(1900, 1, 1),
+            )
+        if pad_after_seconds > 0:
+            t_end = t_end + timedelta(seconds=pad_after_seconds)
+
         duration = (t_end - t_start).total_seconds()
         start_seconds = (t_start - datetime(1900, 1, 1)).total_seconds()
     except ValueError as e:

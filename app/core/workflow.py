@@ -71,6 +71,8 @@ async def process_video_workflow(websocket: WebSocket, url: str, style: str):
             title = h.get("title", f"clip_{clip_id}")
             start = h["start"]
             end = h["end"]
+            pad_before = float(h.get("pad_before_seconds", 0) or 0)
+            pad_after = float(h.get("pad_after_seconds", 0) or 0)
             prio = h.get("priority", 99)
             safe_title = sanitize_filename(title)
 
@@ -81,7 +83,16 @@ async def process_video_workflow(websocket: WebSocket, url: str, style: str):
                 logger.info(f"Rendering clip: {title} ({s})")
                 await websocket.send_json({"type": "log", "message": f"✂️ Rendering clip: {title} ({s})"})
                 
-                await asyncio.to_thread(clipper.run_ffmpeg_clip, start, end, out_path, s, video_file)
+                await asyncio.to_thread(
+                    clipper.run_ffmpeg_clip,
+                    start,
+                    end,
+                    out_path,
+                    s,
+                    video_file,
+                    pad_before,
+                    pad_after,
+                )
                 
                 completed_clips += 1
                 progress = 50 + int((completed_clips / total_clips) * 40)

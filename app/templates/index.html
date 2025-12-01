@@ -238,71 +238,105 @@
                     return;
                 }
 
-                                    data.clips.forEach(clip => {
-                                        const card = document.createElement('div');
-                                        card.className = 'glass rounded-xl overflow-hidden hover:bg-gray-800 transition-colors group flex flex-col';
-                                        
-                                        // Thumbnail / Player Area
-                                        let mediaHtml = '';
-                                        if (clip.thumbnail) {
-                                            mediaHtml = `
-                                                <div class="aspect-[9/16] bg-black relative group-hover:opacity-100 transition-opacity">
-                                                    <video 
-                                                        controls 
-                                                        preload="none" 
-                                                        poster="${clip.thumbnail}" 
-                                                        class="w-full h-full object-contain"
-                                                        src="${clip.url}">
-                                                    </video>
-                                                </div>
-                                            `;
-                                        } else {
-                                            // Fallback if no thumbnail
-                                             mediaHtml = `
-                                                <div class="aspect-[9/16] bg-black relative flex items-center justify-center">
-                                                    <video 
-                                                        controls 
-                                                        preload="none"
-                                                        class="w-full h-full object-contain"
-                                                        src="${clip.url}">
-                                                    </video>
-                                                </div>
-                                            `;
-                                        }
-                
-                                        card.innerHTML = `
-                                            ${mediaHtml}
-                                            <div class="p-5 flex-1 flex flex-col">
-                                                <div class="flex items-start justify-between mb-2">
-                                                    <h4 class="font-bold text-lg leading-tight text-white group-hover:text-blue-400 transition-colors pr-4 break-words line-clamp-2" title="${clip.name}">${clip.name}</h4>
-                                                </div>
-                                                <div class="mt-auto pt-4 flex gap-3">
-                                                    <a href="${clip.url}" download class="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-center py-2 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2">
-                                                        <span>⬇️ Download</span>
-                                                        <span class="text-xs opacity-75">(${clip.size})</span>
-                                                    </a>
-                                                    <button onclick="navigator.clipboard.writeText('${window.location.origin}${clip.url}')" class="px-3 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors" title="Copy Link">
-                                                        🔗
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        `;
-                                        grid.appendChild(card);
-                                    });                
-                resultsSection.scrollIntoView({ behavior: 'smooth' });
+                    data.clips.forEach((clip, index) => {
+                        const card = document.createElement('div');
+                        card.className = 'glass rounded-xl overflow-hidden hover:bg-gray-800 transition-colors group flex flex-col';
+                        const uniqueId = `clip-${index}`;
+                        
+                        // Thumbnail / Player Area
+                        let mediaHtml = '';
+                        const posterAttr = clip.thumbnail ? `poster="${clip.thumbnail}"` : '';
+                        
+                        mediaHtml = `
+                            <div class="aspect-[9/16] bg-black relative group-hover:opacity-100 transition-opacity cursor-pointer" onclick="togglePlay('${uniqueId}')">
+                                <video 
+                                    id="${uniqueId}"
+                                    controls 
+                                    preload="none" 
+                                    ${posterAttr} 
+                                    class="w-full h-full object-contain"
+                                    src="${clip.url}">
+                                </video>
+                                <div class="absolute inset-0 flex items-center justify-center pointer-events-none bg-black/20 group-hover:bg-transparent transition-colors" id="${uniqueId}-overlay">
+                                    <span class="text-4xl opacity-80 shadow-lg">▶️</span>
+                                </div>
+                            </div>
+                        `;
 
-            } catch (e) {
-                grid.innerHTML = `<div class="col-span-full text-red-400">Error loading results: ${e.message}</div>`;
-            }
-        }
+                        card.innerHTML = `
+                            ${mediaHtml}
+                            <div class="p-5 flex-1 flex flex-col">
+                                <div class="flex items-start justify-between mb-2">
+                                    <h4 class="font-bold text-lg leading-tight text-white group-hover:text-blue-400 transition-colors pr-4 break-words line-clamp-2" title="${clip.title}">${clip.title}</h4>
+                                </div>
+                                
+                                <!-- Drawer Toggle -->
+                                <button onclick="toggleDrawer('${uniqueId}-drawer')" class="text-xs text-gray-400 hover:text-white flex items-center gap-1 mb-3 transition-colors">
+                                    <span>📝 Show Details</span>
+                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                                </button>
 
-        window.addEventListener('DOMContentLoaded', () => {
-            const urlParams = new URLSearchParams(window.location.search);
-            const videoId = urlParams.get('id');
-            if (videoId) {
-                loadResults(videoId);
+                                <!-- Drawer Content -->
+                                <div id="${uniqueId}-drawer" class="hidden space-y-3 mb-4 bg-gray-900/50 p-3 rounded-lg border border-gray-700/50">
+                                    <div class="space-y-1">
+                                        <div class="flex justify-between items-center">
+                                            <label class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Title</label>
+                                            <button onclick="copyText('${uniqueId}-title-text')" class="text-gray-500 hover:text-blue-400 transition-colors" title="Copy Title">📋</button>
+                                        </div>
+                                        <textarea id="${uniqueId}-title-text" class="w-full bg-gray-800 border border-gray-700 rounded p-2 text-sm text-gray-300 focus:border-blue-500 outline-none" rows="2" readonly>${clip.title}</textarea>
+                                    </div>
+                                    <div class="space-y-1">
+                                        <div class="flex justify-between items-center">
+                                            <label class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Description</label>
+                                            <button onclick="copyText('${uniqueId}-desc-text')" class="text-gray-500 hover:text-blue-400 transition-colors" title="Copy Description">📋</button>
+                                        </div>
+                                        <textarea id="${uniqueId}-desc-text" class="w-full bg-gray-800 border border-gray-700 rounded p-2 text-sm text-gray-300 focus:border-blue-500 outline-none" rows="4" readonly>${clip.description}</textarea>
+                                    </div>
+                                </div>
+
+                                <div class="mt-auto pt-2 flex gap-3">
+                                    <a href="${clip.url}" download class="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-center py-2 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2">
+                                        <span>⬇️ Download</span>
+                                        <span class="text-xs opacity-75">(${clip.size})</span>
+                                    </a>
+                                    <button onclick="navigator.clipboard.writeText('${window.location.origin}${clip.url}')" class="px-3 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors" title="Copy Link">
+                                        🔗
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                        grid.appendChild(card);
+                    });
+                } catch (e) {
+                    grid.innerHTML = `<div class="col-span-full text-red-400">Error loading results: ${e.message}</div>`;
+                }
             }
-        });
+
+            window.togglePlay = function(id) {
+                const video = document.getElementById(id);
+                const overlay = document.getElementById(id + '-overlay');
+                if (video.paused) {
+                    video.play();
+                    overlay.classList.add('hidden');
+                } else {
+                    video.pause();
+                    overlay.classList.remove('hidden');
+                }
+            }
+
+            window.toggleDrawer = function(id) {
+                const drawer = document.getElementById(id);
+                drawer.classList.toggle('hidden');
+            }
+
+            window.copyText = function(elementId) {
+                const text = document.getElementById(elementId).value;
+                navigator.clipboard.writeText(text).then(() => {
+                    // Optional: show toast
+                });
+            }
+
+            // Check URL for ID on load
     </script>
 </body>
 </html>

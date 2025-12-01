@@ -175,6 +175,9 @@ class GeminiClient:
             - Return ONLY a single JSON object and nothing else.
             - Ensure all timestamps are in "HH:MM:SS" format.
             - You MUST verify the quotes exist in the transcript provided above.
+            - For each highlight, also provide numeric fields `pad_before_seconds` and `pad_after_seconds`.
+              These represent small extra seconds of context to include before and after the logical start/end
+              so that words are not cut off (typically between 0.5 and 2.0 seconds per side).
             """
         ).strip()
 

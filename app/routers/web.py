@@ -72,6 +72,22 @@ async def get_video_info(video_id: str):
     if not workdir.exists():
         return {"error": "Video not found"}
     
+    # Load highlights metadata
+    highlights_map = {}
+    json_path = workdir / "highlights.json"
+    if json_path.exists():
+        try:
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+            for h in data.get("highlights", []):
+                h_id = h.get("id")
+                if h_id is not None:
+                    highlights_map[int(h_id)] = {
+                        "title": h.get("title", ""),
+                        "description": h.get("reason", "") or h.get("description", "")
+                    }
+        except Exception as e:
+            print(f"Error loading highlights.json: {e}")
+
     clips_dir = workdir / "clips"
     clips = []
     if clips_dir.exists():
@@ -80,8 +96,25 @@ async def get_video_info(video_id: str):
             thumb_file = f.with_suffix(".jpg")
             thumb_url = f"/files/{video_id}/{thumb_file.name}" if thumb_file.exists() else None
             
+            # Extract ID from filename: clip_{prio}_{id}_{title}_{style}.mp4
+            # Example: clip_01_01_some-title_split.mp4
+            title_text = f.name
+            description_text = ""
+            
+            try:
+                parts = f.name.split('_')
+                if len(parts) >= 3 and parts[0] == "clip":
+                    clip_id = int(parts[2])
+                    if clip_id in highlights_map:
+                        title_text = highlights_map[clip_id]["title"]
+                        description_text = highlights_map[clip_id]["description"]
+            except Exception:
+                pass # Fallback to filename if parsing fails
+
             clips.append({
                 "name": f.name,
+                "title": title_text,
+                "description": description_text,
                 "url": f"/files/{video_id}/{f.name}",
                 "thumbnail": thumb_url,
                 "size": f"{size_mb:.1f} MB"

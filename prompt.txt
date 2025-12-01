@@ -15,6 +15,7 @@ Extract a batch of **3 to 10 viral segments** that prioritize Interaction over s
 * **Duration:** Each individual segment must be **20 to 60 seconds** long.
 * **Narrative:** [Setup] -> [Reaction] -> [Punchline].
 * **Audio:** Ensure the cut timestamp doesn't sever a word.
+* **Padding:** For each segment, choose small `pad_before_seconds` and `pad_after_seconds` values (typically between 0.5 and 2.0 seconds) so the conversation is not cut off abruptly.
 
 **Output Format:**
 Return ONLY a single JSON object with this schema:
@@ -26,6 +27,8 @@ Return ONLY a single JSON object with this schema:
       "title": "Viral Title",
       "start": "HH:MM:SS",
       "end": "HH:MM:SS",
+      "pad_before_seconds": 1.0,
+      "pad_after_seconds": 2.0,
       "duration": 0,
       "summary": "Left: [Quote] -> Right: [Reaction]",
       "reason": "Why this specific interaction goes viral.",
