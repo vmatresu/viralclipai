@@ -202,7 +202,10 @@ environment variables (see `app/config.py`).
     `users/{uid}/{run_id}/clips/...` and are served via presigned URLs.
 - **Prompt template**: `./prompt.txt` (customizable AI instructions).
 - **Logging**: Debug logs saved to `debug.log`.
-- **Templates**: Jinja2 templates in `app/templates/`.
+- **Legacy templates**: `app/templates/` contains older Jinja2 HTML templates
+  used by a previous server-rendered frontend. The current recommended
+  frontend is the Next.js app in `web/`. You can keep the templates for
+  reference or remove them if you do not need the legacy UI.
 
 ## 🌐 SaaS Auth & Multi-Tenancy
 
