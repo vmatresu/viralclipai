@@ -9,9 +9,6 @@ VIDEO_FILE_NAME = "source.mp4"
 CLIPS_DIR_NAME = "clips"
 
 # Available styles:
-# 1. "split": Left half top, Right half bottom (Portrait 1080x1920).
-# 2. "left_focus": Zoom/crop to the left half only, full-screen 9:16.
-# 3. "right_focus": Zoom/crop to the right half only, full-screen 9:16.
 AVAILABLE_STYLES = ["split", "left_focus", "right_focus"]
 
 
@@ -44,18 +41,24 @@ def download_video(url: str, video_file: Path):
         video_file.unlink(missing_ok=True)
 
     print(f"[info] Downloading video from {url}")
-    subprocess.run(
-        [
-            "yt-dlp",
-            "--remote-components", "ejs:github",
-            "-f",
-            "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-            "-o",
-            str(video_file),
-            url,
-        ],
-        check=True,
-    )
+    try:
+        subprocess.run(
+            [
+                "yt-dlp",
+                "--remote-components", "ejs:github",
+                "-f",
+                "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                "-o",
+                str(video_file),
+                url,
+            ],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"[error] yt-dlp failed:\n{e.stderr}")
+        raise RuntimeError(f"Video download failed: {e.stderr}") from e
 
 
 def parse_time(t_str: str) -> datetime:
@@ -64,16 +67,9 @@ def parse_time(t_str: str) -> datetime:
     return datetime.strptime(t_str, fmt)
 
 
-def format_time(dt: datetime) -> str:
-    # Return string in HH:MM:SS.mmm format
-    return dt.strftime("%H:%M:%S.%f")[:-3]
-
-
 def build_vf_filter(style: str) -> str:
     if style == "split":
         # Portrait 1080x1920: top = left half, bottom = right half
-        # Adjusted left crop to 910 width to avoid seeing the right-side person
-        # Using scale=1080:-2,crop=1080:960 to preserve aspect ratio (center crop vertically)
         return (
             "scale=1920:-2,split=2[full][full2]" # Removed trailing backslash
             "[full]crop=910:1080:0:0[left];"
@@ -118,7 +114,7 @@ def run_ffmpeg_clip(start_str: str, end_str: str, out_path: Path, style: str, vi
         start_seconds = (t_start - datetime(1900, 1, 1)).total_seconds()
     except ValueError as e:
         print(f"[error] Time parsing failed: {e}")
-        return
+        raise
 
     vf_filter = build_vf_filter(style)
 
@@ -146,7 +142,11 @@ def run_ffmpeg_clip(start_str: str, end_str: str, out_path: Path, style: str, vi
         str(out_path),
     ]
 
-    subprocess.run(cmd, check=True)
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as e:
+        print(f"[error] ffmpeg failed:\n{e.stderr}")
+        raise RuntimeError(f"FFmpeg clipping failed for {out_path.name}: {e.stderr}") from e
 
 
 def sanitize_filename(text: str, max_len: int = 60) -> str:
@@ -164,7 +164,7 @@ def main():
     )
     parser.add_argument(
         "--style",
-        help="Output style. Options: 'split', 'left_focus', 'right_focus', or 'all'. Default is 'split'.",
+        help="Output style.",
         default="split",
         choices=AVAILABLE_STYLES + ["all"],
     )
@@ -186,14 +186,12 @@ def main():
         print("[error] No highlights found in JSON.")
         return
 
-    # Determine URL
     video_url = json_url
     if not video_url:
-        raise SystemExit("[error] 'video_url' missing in highlights.json and no URL override provided.")
+        raise SystemExit("[error] 'video_url' missing in highlights.json.")
 
     download_video(video_url, video_file)
 
-    # Determine which styles to process
     if args.style == "all":
         styles_to_process = AVAILABLE_STYLES
     else:
@@ -207,16 +205,14 @@ def main():
         prio = h.get("priority", 99)
         safe_title = sanitize_filename(title)
 
-        print(f"\n[clip] priority={prio} id={clip_id} | {title} | {start} -> {end} (Padded +/- 1s)")
+        print(f"\n[clip] priority={prio} id={clip_id} | {title} | {start} -> {end}")
 
         for style in styles_to_process:
-            # Clear, descriptive naming
             filename = f"clip_{prio:02d}_{clip_id:02d}_{safe_title}_{style}.mp4"
             out_path = clips_dir / filename
             print(f" > Rendering style: {style} -> {out_path.name}")
             run_ffmpeg_clip(start, end, out_path, style=style, video_file=video_file)
 
-    # Remove source video to keep only highlights and clips
     if video_file.exists():
         print(f"[cleanup] Removing source video {video_file}")
         video_file.unlink()

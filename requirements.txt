@@ -2,3 +2,4 @@ google-generativeai
 fastapi
 uvicorn
 yt-dlp
+websockets
