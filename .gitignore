@@ -3,3 +3,4 @@ clips/
 venv/
 __pycache__/
 .DS_Store
+videos/
