@@ -145,8 +145,18 @@ environment variables (see `app/config.py`).
     `AWS_SESSION_TOKEN`/`AWS_PROFILE`.
 
 - **TikTok API**
+
   - `TIKTOK_API_BASE_URL` – URL of the TikTok upload endpoint you expose
     (or proxy) from your TikTok developer integration.
+
+- **Security / domains**
+  - `ALLOWED_HOSTS` – comma-separated list of hostnames allowed at the
+    FastAPI layer (used by TrustedHostMiddleware). Recommended for
+    production:
+    - `ALLOWED_HOSTS=viralvideoai.io,www.viralvideoai.io`
+  - `CORS_ORIGINS` – comma-separated list of allowed origins for browsers.
+    For example:
+    - `CORS_ORIGINS=https://viralvideoai.io,https://www.viralvideoai.io`
 
 **Paths and logging**
 

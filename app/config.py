@@ -30,6 +30,11 @@ logger = logging.getLogger("vidclips")
 # Ensure directories exist
 VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
 
+
+def _split_csv(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 # AWS / S3
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "")
@@ -46,3 +51,18 @@ FIREBASE_WEB_CONFIG = {
     "messagingSenderId": os.getenv("FIREBASE_WEB_MESSAGING_SENDER_ID", ""),
     "appId": os.getenv("FIREBASE_WEB_APP_ID", ""),
 }
+
+# Security / domains
+ALLOWED_HOSTS = _split_csv(
+    os.getenv(
+        "ALLOWED_HOSTS",
+        "localhost,127.0.0.1,viralvideoai.io,www.viralvideoai.io",
+    )
+)
+
+CORS_ORIGINS = _split_csv(
+    os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:8000,https://viralvideoai.io,https://www.viralvideoai.io",
+    )
+)
