@@ -3,7 +3,6 @@ fastapi
 uvicorn
 yt-dlp
 websockets
-jinja2
 python-multipart
 firebase-admin
 google-cloud-firestore
