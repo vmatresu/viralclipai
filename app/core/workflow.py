@@ -31,7 +31,7 @@ async def process_video_workflow(websocket: WebSocket, url: str, style: str):
         await websocket.send_json({"type": "log", "message": "🤖 Asking Gemini to analyze video..."})
         
         client = GeminiClient()
-        data = await asyncio.to_thread(client.get_highlights, base_prompt, url)
+        data = await asyncio.to_thread(client.get_highlights, base_prompt, url, workdir)
         
         logger.info("Gemini analysis complete.")
         await websocket.send_json({"type": "log", "message": "✅ Gemini analysis complete."})

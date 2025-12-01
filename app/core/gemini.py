@@ -30,47 +30,61 @@ class GeminiClient:
             raise RuntimeError("GEMINI_API_KEY is not set in environment.")
         genai.configure(api_key=api_key)
 
-    def _get_transcript(self, video_url: str) -> str:
+    def _get_transcript(self, video_url: str, output_dir: Path = None) -> str:
         """
         Fetches video transcript using yt-dlp (vtt format) and parses it.
+        Optionally saves the raw VTT to output_dir.
         """
         logger.info(f"Fetching transcript for {video_url} using yt-dlp...")
         
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            tmp_path = Path(tmpdirname)
-            output_template = str(tmp_path / "% (id)s")
-            
-            # Command to download subtitles only
-            cmd = [
-                "yt-dlp",
-                "--write-auto-sub",
-                "--write-sub",
-                "--sub-lang", "en,en-US,en-GB",
-                "--skip-download",
-                "--sub-format", "vtt",
-                "--output", output_template,
-                video_url
-            ]
-            
-            try:
-                # Capture output to avoid polluting logs unless error
-                subprocess.run(cmd, check=True, capture_output=True, text=True)
-            except subprocess.CalledProcessError as e:
-                logger.error(f"yt-dlp subtitle download failed: {e.stderr}")
-                raise RuntimeError(f"Failed to download transcript. ensure video has captions. Details: {e.stderr}") from e
-            
-            # Find the downloaded .vtt file
-            vtt_files = list(tmp_path.glob("*.vtt"))
-            if not vtt_files:
-                # Try finding any sub file if specific language failed or name differs
-                vtt_files = list(tmp_path.glob("*" ))
-                logger.warning(f"No .vtt found. Files in temp: {[f.name for f in vtt_files]}")
-                raise RuntimeError("No transcript file downloaded by yt-dlp.")
-            
-            vtt_file = vtt_files[0]
-            content = vtt_file.read_text(encoding='utf-8', errors='ignore')
-            
-            return self._parse_vtt(content)
+        # Use a provided directory or a temporary one
+        target_dir = output_dir if output_dir else Path(tempfile.mkdtemp())
+        output_template = str(target_dir / "% (id)s")
+        
+        # Command to download subtitles only
+        cmd = [
+            "yt-dlp",
+            "--write-auto-sub",
+            "--write-sub",
+            "--sub-lang", "en,en-US,en-GB",
+            "--skip-download",
+            "--sub-format", "vtt",
+            "--output", output_template,
+            video_url
+        ]
+        
+        try:
+            # Capture output to avoid polluting logs unless error
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"yt-dlp subtitle download failed: {e.stderr}")
+            raise RuntimeError(f"Failed to download transcript. ensure video has captions. Details: {e.stderr}") from e
+        
+        # Find the downloaded .vtt file
+        vtt_files = list(target_dir.glob("*.vtt"))
+        if not vtt_files:
+            # Try finding any sub file if specific language failed or name differs
+            vtt_files = list(target_dir.glob("*" ))
+            logger.warning(f"No .vtt found. Files in target: {[f.name for f in vtt_files]}")
+            raise RuntimeError("No transcript file downloaded by yt-dlp.")
+        
+        # Prefer English if multiple
+        vtt_file = vtt_files[0]
+        for f in vtt_files:
+            if ".en" in f.name:
+                vtt_file = f
+                break
+
+        content = vtt_file.read_text(encoding='utf-8', errors='ignore')
+        
+        # Save parsed transcript for debugging/reference if output_dir is provided
+        parsed_transcript = self._parse_vtt(content)
+        if output_dir:
+            transcript_path = output_dir / "transcript.txt"
+            transcript_path.write_text(parsed_transcript, encoding="utf-8")
+            logger.info(f"Saved parsed transcript to {transcript_path}")
+
+        return parsed_transcript
 
     def _parse_vtt(self, content: str) -> str:
         """
@@ -78,13 +92,14 @@ class GeminiClient:
         """
         lines = content.splitlines()
         transcript_text = ""
-        seen_lines = set()
         
         # Regex for VTT timestamp: 00:00:00.000 --> 00:00:05.000
         # Matches start timestamp group 1
-        ts_pattern = re.compile(r"( \d{2}:\d{2}:\d{2})\.\d{3} -->.*")
+        # Some VTTs use 00:00.000 (MM:SS.mmm) format too
+        ts_pattern = re.compile(r"((?:\d{2}:)?\d{2}:\d{2}\.\d{3}) -->.*")
         
         current_ts = "00:00:00"
+        buffer_text = ""
         
         for line in lines:
             line = line.strip()
@@ -98,35 +113,25 @@ class GeminiClient:
             
             m = ts_pattern.match(line)
             if m:
-                current_ts = m.group(1) # HH:MM:SS
+                ts = m.group(1)
+                # Normalize to HH:MM:SS
+                if len(ts.split(":")) == 2:
+                    ts = "00:" + ts
+                current_ts = ts.split(".")[0] # Drop milliseconds for readability in prompt
                 continue
             
-            # Skip simple numbers (cue indices) if they appear alone
+            # Skip metadata headers (contains :)
+            if "-->" not in line and ":" in line and not re.match(r"^[\[\]]*", line):
+                 continue
+
+            # Skip cues/numbers
             if line.isdigit():
                 continue
-                
-            # Skip metadata headers (contains :)
-            if "-->" not in line and ":" in line and not re.match(r"^\s*\[.*?\]", line):
-                 # Heuristic to skip header lines like "Language: en" if they slipped through
-                 # But be careful not to skip dialogue. 
-                 # Better heuristic: VTT headers usually usually at top. 
-                 # We'll assume lines after WEBVTT and before first TS are header? 
-                 # For simplicity, let's just accept text.
-                 pass
 
-            # Deduplicate adjacent lines (common in auto-caps rolling window)
-            if line and line not in seen_lines:
-                # Reset seen_lines occasionally to allow repetition of phrases later in video?
-                # For summary, global unique set is risky if "Yes" is said twice.
-                # Let's just dedupe immediate repetition or use a sliding window.
-                # Simple approach: just add it.
-                # Actually, auto-subs often repeat the same line with slight additions.
-                # A simple dedupe logic:
-                if len(transcript_text) > 0 and line in transcript_text[-200:]:
-                     continue
-
+            # De-duplication for rolling captions
+            if line != buffer_text:
                 transcript_text += f"[{current_ts}] {line}\n"
-                # seen_lines.add(line) # Don't use global seen, standard conversation has repeats.
+                buffer_text = line
         
         return transcript_text
 
@@ -148,9 +153,9 @@ class GeminiClient:
             """
         ).strip()
 
-    def get_highlights(self, base_prompt: str, video_url: str) -> Dict[str, Any]:
-        # 1. Fetch Transcript
-        transcript_text = self._get_transcript(video_url)
+    def get_highlights(self, base_prompt: str, video_url: str, workdir: Path = None) -> Dict[str, Any]:
+        # 1. Fetch Transcript (pass workdir to save it)
+        transcript_text = self._get_transcript(video_url, output_dir=workdir)
         
         # 2. Build prompt with transcript
         prompt = self.build_prompt(base_prompt, transcript_text)
