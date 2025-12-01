@@ -238,28 +238,57 @@
                     return;
                 }
 
-                data.clips.forEach(clip => {
-                    const card = document.createElement('div');
-                    card.className = 'glass rounded-xl overflow-hidden hover:bg-gray-800 transition-colors group';
-                    card.innerHTML = `
-                        <div class="p-5">
-                            <div class="flex items-start justify-between mb-2">
-                                <h4 class="font-bold text-lg leading-tight text-white group-hover:text-blue-400 transition-colors pr-4 break-words">${clip.name}</h4>
-                                <span class="text-xs font-mono bg-gray-700 text-gray-300 px-2 py-1 rounded uppercase">${clip.size}</span>
-                            </div>
-                            <div class="flex gap-3 mt-4">
-                                <a href="${clip.url}" download class="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-center py-2 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2">
-                                    <span>⬇️ Download</span>
-                                </a>
-                                <button onclick="navigator.clipboard.writeText('${window.location.origin}${clip.url}')" class="px-3 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors" title="Copy Link">
-                                    🔗
-                                </button>
-                            </div>
-                        </div>
-                    `;
-                    grid.appendChild(card);
-                });
+                                    data.clips.forEach(clip => {
+                                        const card = document.createElement('div');
+                                        card.className = 'glass rounded-xl overflow-hidden hover:bg-gray-800 transition-colors group flex flex-col';
+                                        
+                                        // Thumbnail / Player Area
+                                        let mediaHtml = '';
+                                        if (clip.thumbnail) {
+                                            mediaHtml = `
+                                                <div class="aspect-[9/16] bg-black relative group-hover:opacity-100 transition-opacity">
+                                                    <video 
+                                                        controls 
+                                                        preload="none" 
+                                                        poster="${clip.thumbnail}" 
+                                                        class="w-full h-full object-contain"
+                                                        src="${clip.url}">
+                                                    </video>
+                                                </div>
+                                            `;
+                                        } else {
+                                            // Fallback if no thumbnail
+                                             mediaHtml = `
+                                                <div class="aspect-[9/16] bg-black relative flex items-center justify-center">
+                                                    <video 
+                                                        controls 
+                                                        preload="none"
+                                                        class="w-full h-full object-contain"
+                                                        src="${clip.url}">
+                                                    </video>
+                                                </div>
+                                            `;
+                                        }
                 
+                                        card.innerHTML = `
+                                            ${mediaHtml}
+                                            <div class="p-5 flex-1 flex flex-col">
+                                                <div class="flex items-start justify-between mb-2">
+                                                    <h4 class="font-bold text-lg leading-tight text-white group-hover:text-blue-400 transition-colors pr-4 break-words line-clamp-2" title="${clip.name}">${clip.name}</h4>
+                                                </div>
+                                                <div class="mt-auto pt-4 flex gap-3">
+                                                    <a href="${clip.url}" download class="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-center py-2 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2">
+                                                        <span>⬇️ Download</span>
+                                                        <span class="text-xs opacity-75">(${clip.size})</span>
+                                                    </a>
+                                                    <button onclick="navigator.clipboard.writeText('${window.location.origin}${clip.url}')" class="px-3 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors" title="Copy Link">
+                                                        🔗
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        `;
+                                        grid.appendChild(card);
+                                    });                
                 resultsSection.scrollIntoView({ behavior: 'smooth' });
 
             } catch (e) {

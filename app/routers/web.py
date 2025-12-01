@@ -77,17 +77,28 @@ async def get_video_info(video_id: str):
     if clips_dir.exists():
         for f in sorted(clips_dir.glob("*.mp4")):
             size_mb = f.stat().st_size / (1024 * 1024)
+            thumb_file = f.with_suffix(".jpg")
+            thumb_url = f"/files/{video_id}/{thumb_file.name}" if thumb_file.exists() else None
+            
             clips.append({
                 "name": f.name,
-                "url": f"/download/{video_id}/{f.name}",
+                "url": f"/files/{video_id}/{f.name}",
+                "thumbnail": thumb_url,
                 "size": f"{size_mb:.1f} MB"
             })
     
     return {"id": video_id, "clips": clips}
 
-@router.get("/download/{video_id}/{filename}", response_class=FileResponse)
-async def download_clip(video_id: str, filename: str):
+@router.get("/files/{video_id}/{filename}", response_class=FileResponse)
+async def serve_file(video_id: str, filename: str):
     clip_path = VIDEOS_DIR / video_id / "clips" / filename
     if not clip_path.exists():
         return HTMLResponse("File not found", status_code=404)
-    return FileResponse(clip_path, filename=filename, media_type="video/mp4")
+    
+    media_type = "application/octet-stream"
+    if filename.endswith(".mp4"):
+        media_type = "video/mp4"
+    elif filename.endswith(".jpg"):
+        media_type = "image/jpeg"
+        
+    return FileResponse(clip_path, filename=filename, media_type=media_type)

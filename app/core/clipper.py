@@ -101,6 +101,22 @@ def run_ffmpeg_clip(start_str: str, end_str: str, out_path: Path, style: str, vi
 
     try:
         subprocess.run(cmd, check=True, capture_output=True, text=True)
+        
+        # Generate thumbnail
+        thumb_path = out_path.with_suffix(".jpg")
+        cmd_thumb = [
+            "ffmpeg", "-y",
+            "-i", str(out_path),
+            "-ss", "00:00:01",
+            "-vframes", "1",
+            "-vf", "scale=480:-2",
+            str(thumb_path)
+        ]
+        try:
+            subprocess.run(cmd_thumb, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"Thumbnail generation failed for {out_path.name}: {e.stderr}")
+
     except subprocess.CalledProcessError as e:
         logger.error(f"ffmpeg failed:\n{e.stderr}")
         raise RuntimeError(f"FFmpeg clipping failed for {out_path.name}: {e.stderr}") from e
