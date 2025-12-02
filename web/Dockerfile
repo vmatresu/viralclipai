@@ -47,14 +47,16 @@ COPY package.json package-lock.json* yarn.lock* pnpm-lock.yaml* ./
 
 # Install dependencies based on lockfile
 # Use npm ci for faster, reliable, reproducible builds
+# Use --legacy-peer-deps to handle peer dependency conflicts
 RUN if [ -f package-lock.json ]; then \
-        npm ci --ignore-scripts --prefer-offline --no-audit; \
+        npm ci --legacy-peer-deps --ignore-scripts --prefer-offline --no-audit || \
+        npm install --legacy-peer-deps --ignore-scripts --prefer-offline --no-audit; \
     elif [ -f yarn.lock ]; then \
         yarn install --frozen-lockfile --ignore-scripts --prefer-offline --non-interactive; \
     elif [ -f pnpm-lock.yaml ]; then \
         corepack enable && pnpm install --frozen-lockfile --ignore-scripts --prefer-offline; \
     else \
-        npm install --ignore-scripts --prefer-offline --no-audit; \
+        npm install --legacy-peer-deps --ignore-scripts --prefer-offline --no-audit; \
     fi && \
     # Clean npm cache
     npm cache clean --force || true
