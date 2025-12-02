@@ -32,8 +32,7 @@ function sanitizeError(error: unknown, status: number): Error {
 
   // For client errors (4xx), we can be slightly more specific
   // but still avoid exposing sensitive details
-  const message =
-    error instanceof Error ? error.message : "Request failed";
+  const message = error instanceof Error ? error.message : "Request failed";
   // Limit error message length to prevent DoS
   const safeMessage = message.length > 200 ? message.substring(0, 200) : message;
   return new Error(safeMessage);

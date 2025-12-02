@@ -1,7 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { Home, DollarSign, BookOpen, Info, Mail, History, Settings, LogIn, LogOut } from "lucide-react";
+import {
+  Home,
+  DollarSign,
+  BookOpen,
+  Info,
+  Mail,
+  History,
+  Settings,
+  LogIn,
+  LogOut,
+} from "lucide-react";
 
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";

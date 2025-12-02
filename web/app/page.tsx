@@ -7,7 +7,13 @@ import { ProcessingClient } from "@/components/ProcessingClient";
 import { analyticsEvents } from "@/lib/analytics";
 import { usePageView } from "@/lib/usePageView";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Sparkles, Video, Users } from "lucide-react";
 
 export default function HomePage() {
@@ -61,8 +67,8 @@ export default function HomePage() {
           </CardHeader>
           <CardContent>
             <CardDescription>
-              Powered by Gemini to find high-retention segments and automatically propose
-              clip boundaries.
+              Powered by Gemini to find high-retention segments and automatically
+              propose clip boundaries.
             </CardDescription>
           </CardContent>
         </Card>
@@ -73,8 +79,8 @@ export default function HomePage() {
           </CardHeader>
           <CardContent>
             <CardDescription>
-              Split view, left/right focus, or all styles—designed for TikTok, Shorts, and
-              Reels.
+              Split view, left/right focus, or all styles—designed for TikTok, Shorts,
+              and Reels.
             </CardDescription>
           </CardContent>
         </Card>

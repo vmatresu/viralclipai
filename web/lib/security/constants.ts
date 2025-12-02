@@ -51,18 +51,8 @@ export const CSP_DIRECTIVES = {
     "https://www.google-analytics.com",
   ],
   styleSrc: ["'self'", "'unsafe-inline'"],
-  imgSrc: [
-    "'self'",
-    "data:",
-    "https:",
-    "blob:",
-  ],
-  connectSrc: [
-    "'self'",
-    "https://*.googleapis.com",
-    "wss://*",
-    "ws://*",
-  ],
+  imgSrc: ["'self'", "data:", "https:", "blob:"],
+  connectSrc: ["'self'", "https://*.googleapis.com", "wss://*", "ws://*"],
   fontSrc: ["'self'", "data:"],
   objectSrc: ["'none'"],
   mediaSrc: ["'self'", "blob:", "https:"],
@@ -72,4 +62,3 @@ export const CSP_DIRECTIVES = {
   frameAncestors: ["'none'"],
   upgradeInsecureRequests: true,
 } as const;
-

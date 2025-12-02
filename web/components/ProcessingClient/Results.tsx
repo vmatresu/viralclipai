@@ -8,7 +8,13 @@ import { Sparkles } from "lucide-react";
 
 import { ClipGrid, type Clip } from "../ClipGrid";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 interface ResultsProps {
   videoId: string;

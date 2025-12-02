@@ -88,7 +88,10 @@ export function ProcessingClient() {
       // Validate and sanitize inputs
       const sanitizedUrl = sanitizeUrl(url);
       if (!sanitizedUrl) {
-        log("Invalid video URL. Please provide a valid YouTube or TikTok URL.", "error");
+        log(
+          "Invalid video URL. Please provide a valid YouTube or TikTok URL.",
+          "error"
+        );
         setSubmitting(false);
         return;
       }
