@@ -22,15 +22,19 @@ async def get_video_info(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.message)
     
     uid = user["uid"]
-    
+    from app.config import logger
+
     # Check ownership in DB first
     is_owner = saas.user_owns_video(uid, video_id)
     
     # Load highlights metadata (from storage)
     highlights_data = storage.load_highlights(uid, video_id)
     
+    logger.info(f"Debug get_video_info: uid={uid} video_id={video_id} is_owner={is_owner} highlights_found={bool(highlights_data)}")
+
     # If not in DB and not in storage, then it truly doesn't exist (or isn't yours)
     if not is_owner and not highlights_data:
+        logger.warning(f"Video not found for user {uid}: {video_id}")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
     
     highlights_map: Dict[int, Dict[str, str]] = {}

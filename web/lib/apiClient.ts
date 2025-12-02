@@ -64,7 +64,9 @@ export async function apiFetch<T = unknown>(
     if (!sanitizedBase) {
       throw new Error("Invalid API base URL configuration");
     }
-    url = `${sanitizedBase}${sanitizedPath}`;
+    // Remove trailing slash from base if present to prevent double slashes
+    const cleanBase = sanitizedBase.endsWith("/") ? sanitizedBase.slice(0, -1) : sanitizedBase;
+    url = `${cleanBase}${sanitizedPath}`;
   } else {
     // Relative URL - ensure it's safe
     url = sanitizedPath;
