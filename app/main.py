@@ -35,7 +35,7 @@ from app.middleware import (
     RequestLoggingMiddleware,
     SecurityHeadersMiddleware,
 )
-from app.routers import web
+from app.routers import processing, videos, settings, publishing, admin
 from app.version import __version__
 from app.schemas import HealthResponse
 
@@ -172,7 +172,11 @@ def create_app() -> FastAPI:
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     
     # Include API routers
-    app.include_router(web.router)
+    app.include_router(processing.router)
+    app.include_router(videos.router)
+    app.include_router(settings.router)
+    app.include_router(publishing.router)
+    app.include_router(admin.router)
     
     return app
 

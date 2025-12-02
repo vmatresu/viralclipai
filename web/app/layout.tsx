@@ -1,5 +1,7 @@
 import { type ReactNode } from "react";
 
+import { Toaster } from "sonner";
+
 import { Navbar } from "@/components/Navbar";
 import { AuthProvider } from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme-provider";
@@ -32,6 +34,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <main className="max-w-5xl mx-auto px-4 pt-24 pb-12 space-y-8">
               {children}
             </main>
+            <Toaster position="top-center" richColors />
           </AuthProvider>
         </ThemeProvider>
       </body>
