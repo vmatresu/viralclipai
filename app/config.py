@@ -103,3 +103,24 @@ CORS_ORIGINS = _split_csv(
         "http://localhost:8000,https://viralvideoai.io,https://www.viralvideoai.io",
     )
 )
+
+# -----------------------------------------------------------------------------
+# Security Configuration
+# -----------------------------------------------------------------------------
+
+# Rate limiting
+RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "60"))  # requests per window
+RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))  # seconds
+WS_RATE_LIMIT_CONNECTIONS = int(os.getenv("WS_RATE_LIMIT_CONNECTIONS", "10"))  # connections per window
+WS_RATE_LIMIT_WINDOW = int(os.getenv("WS_RATE_LIMIT_WINDOW", "60"))  # seconds
+
+# Request size limits
+MAX_REQUEST_SIZE = int(os.getenv("MAX_REQUEST_SIZE", str(10 * 1024 * 1024)))  # 10MB default
+
+# Session/Token settings
+TOKEN_EXPIRY_HOURS = int(os.getenv("TOKEN_EXPIRY_HOURS", "24"))
+
+# Environment
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
+IS_PRODUCTION = ENVIRONMENT == "production"
+DEBUG = not IS_PRODUCTION

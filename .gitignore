@@ -11,3 +11,5 @@ node_modules/
 web/node_modules/
 .next/
 web/.next/
+highlights.json
+.env.api.dev

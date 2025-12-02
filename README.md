@@ -7,17 +7,20 @@
 
 ## 🚀 Overview
 
-Viral Clip AI is an intelligent web application that leverages Google's Gemini AI to automatically extract viral-worthy clips from YouTube commentary videos. Perfect for content creators who produce split-screen reaction videos, this tool identifies high-engagement segments using advanced AI analysis.
+Viral Clip AI is an intelligent web application that leverages Google's Gemini AI to automatically extract viral-worthy clips from long-form commentary videos. It is designed as a SaaS-style platform with a modern Next.js frontend, a FastAPI backend, secure multi-tenancy, and Cloudflare R2 as primary storage.
 
 ### ✨ Key Features
 
 - **🤖 AI-Powered Analysis**: Uses Gemini AI to identify viral moments in videos
 - **🎯 Smart Segmentation**: Extracts 20-60 second clips following proven "Call & Response" formulas
-- **📱 Real-Time Processing**: WebSocket-powered progress updates and live console logs
+- **📱 Real-Time Processing**: WebSocket-powered progress updates
 - **🎨 Multiple Output Styles**: Generate clips in split-view, left-focus, right-focus, or all variations
 - **⬇️ One-Click Downloads**: Download processed clips with metadata
 - **📋 Copy-Paste Ready**: Includes optimized titles and social media captions
-- **🔄 Web-Based Interface**: Clean, modern UI built with TailwindCSS
+- **🔄 Web-Based Interface**: Clean, modern UI built with Next.js App Router + TailwindCSS
+- **🔐 SaaS-Ready**: Firebase Auth, Firestore, and per-user clip history
+- **☁️ Cloud Storage**: Cloudflare R2 (S3-compatible) as primary clip storage
+- **🧠 Custom Prompts**: Per-job and global prompts to steer Gemini’s behavior
 
 ## 🏗️ Architecture
 
@@ -35,18 +38,27 @@ graph TB
 
 - **Backend**: FastAPI (Python async web framework)
 - **AI Engine**: Google Gemini AI
-- **Video Processing**: yt-dlp (YouTube downloader)
+- **Video Processing**: yt-dlp + ffmpeg
 - **Real-Time**: WebSockets for live updates
-- **Frontend**: Next.js (App Router) + React + TailwindCSS (Vercel)
-- **Server**: Uvicorn ASGI server (API)
+- **Frontend**: Next.js (App Router) + React + TailwindCSS
+- **Storage**: Cloudflare R2 (S3-compatible) with presigned URLs
+- **Auth & Data**: Firebase Auth + Firestore
+- **Server**: Uvicorn / Gunicorn (via Docker)
 
 ## 📋 Prerequisites
 
-- Python 3.8+
-- Google AI API key (for Gemini)
-- FFmpeg (for video processing)
+- Docker and Docker Compose (recommended for both dev and prod)
+- Google AI API key (Gemini)
+- Firebase project with:
+  - Service account JSON for Admin SDK
+  - Web config for frontend
 
-## 🛠️ Installation
+You can still run things directly with Python/Node if you prefer, but the
+default path is Docker-based.
+
+## 🛠️ Local Development (Docker)
+
+See **`DOCKER_SETUP.md`** for a detailed quickstart. In short:
 
 1. **Clone the repository**
 
@@ -55,72 +67,39 @@ graph TB
    cd viralclipai
    ```
 
-2. **Create virtual environment**
+2. **Create env files**
+
+   - Copy `.env.api.dev.example` → `.env.api.dev` and fill in values.
+   - Copy `web/.env.local.example` → `web/.env.local` and fill in values.
+
+3. **Place Firebase credentials**
+
+   - Place `firebase-credentials.json` in the project root.
+   - Point `FIREBASE_CREDENTIALS_PATH` in `.env.api.dev` to `/app/firebase-credentials.json` (for Docker).
+
+4. **Run the stack**
 
    ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   docker-compose -f docker-compose.dev.yml up --build
    ```
 
-3. **Install dependencies**
+   - Backend API: http://localhost:8000
+   - Frontend: http://localhost:3000
+   - API docs: http://localhost:8000/docs
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+### Optional: Running without Docker
 
-4. **Set up environment variables**
+For advanced/local debugging you can still:
 
-   ```bash
-   export GEMINI_API_KEY="your-gemini-api-key-here"
-   # On Windows: set GEMINI_API_KEY=your-gemini-api-key-here
-   ```
+```bash
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+export GEMINI_API_KEY=...
+python -m app.main
+```
 
-5. **Run the application**
-
-   ```bash
-   python -m app.main
-   # Or: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-   ```
-
-6. **Open in browser**
-   For the legacy Jinja UI, navigate to `http://localhost:8000`.
-
-### Frontend (Next.js web/)
-
-The recommended production frontend lives in the `web/` folder as a Next.js
-App Router project.
-
-1. **Install frontend dependencies**
-
-   ```bash
-   cd web
-   npm install
-   ```
-
-2. **Configure environment variables (Next.js)**
-
-   In `web/.env.local`:
-
-   ```bash
-   NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
-
-   NEXT_PUBLIC_FIREBASE_API_KEY=... # from Firebase web config
-   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=...
-   NEXT_PUBLIC_FIREBASE_PROJECT_ID=...
-   NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=...
-   NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=...
-   NEXT_PUBLIC_FIREBASE_APP_ID=...
-   ```
-
-3. **Run Next.js dev server**
-
-   ```bash
-   cd web
-   npm run dev
-   ```
-
-   Then open `http://localhost:3000` for the React UI (which talks to the
-   FastAPI backend on port 8000).
+and run the Next.js app from `web/` with `npm install` and `npm run dev`.
 
 ## 🎯 Usage
 
@@ -137,19 +116,20 @@ App Router project.
 ### Example Workflow
 
 ```bash
-# Start the server
-python -m app.main
+# Start Docker dev stack
+docker-compose -f docker-compose.dev.yml up --build
 
-# Open http://localhost:8000
+# Open http://localhost:3000
 # Paste: https://www.youtube.com/watch?v=example
+# Optionally add a custom prompt
 # Select style and process
 ```
 
 ## 🔧 Configuration
 
-The application is now structured as a multi-tenant SaaS with Firebase Auth,
+The application is structured as a multi-tenant SaaS with Firebase Auth,
 Firestore, and Cloudflare R2-based storage (S3-compatible). Most behaviour is controlled via
-environment variables (see `app/config.py`).
+environment variables (see `app/config.py` and `docs/configuration.md`).
 
 **Core settings**
 
@@ -203,8 +183,11 @@ environment variables (see `app/config.py`).
   - Final clips and thumbnails are uploaded to Cloudflare R2 under
     `users/{uid}/{run_id}/clips/...` and are served via S3-compatible
     presigned URLs.
-- **Prompt template**: `./prompt.txt` (customizable AI instructions).
-- **Logging**: Debug logs saved to `debug.log`.
+- **Prompt template**: `./prompt.txt` (local fallback). The primary base prompt
+  is now stored in Firestore under `admin/config.base_prompt`. See
+  `docs/prompts.md`.
+- **Logging**: Rotating file logs (default `logs/app.log`) plus console logs.
+  See `docs/logging-and-observability.md`.
 
 ## 🌐 SaaS Auth & Multi-Tenancy
 
@@ -239,12 +222,14 @@ We welcome contributions! Here's how you can help:
 
 ## 📝 AI Prompt Customization
 
-The AI behavior is controlled by the `prompt.txt` file. You can customize:
+Prompting is now first-class and multi-layered. See `docs/prompts.md` for
+full details. In summary:
 
-- Target audience and content style
-- Clip length and structure preferences
-- Engagement optimization parameters
-- Output format specifications
+- Users can provide a **per-job custom prompt** from the main UI.
+- Admins can define a **global base prompt** in Firestore via `/admin/prompt`.
+- `prompt.txt` acts as a **fallback** when no global prompt is set.
+- The prompt used for each job is stored alongside metadata and surfaced
+  in both the results view and the history page.
 
 ## 🐛 Troubleshooting
 
