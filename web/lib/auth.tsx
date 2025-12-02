@@ -20,6 +20,7 @@ import {
 
 import { analyticsEvents, initAnalytics } from "@/lib/analytics";
 import { frontendLogger } from "@/lib/logger";
+import { isValidFirebaseConfig } from "@/lib/security/validation";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -30,6 +31,20 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
+
+// Validate Firebase configuration at module load time
+if (
+  typeof window !== "undefined" &&
+  !isValidFirebaseConfig({
+    apiKey: firebaseConfig.apiKey,
+    authDomain: firebaseConfig.authDomain,
+    projectId: firebaseConfig.projectId,
+  })
+) {
+  frontendLogger.warn(
+    "Firebase configuration is incomplete or invalid. Auth features may not work correctly."
+  );
+}
 
 let authInstance: ReturnType<typeof getAuth> | null = null;
 

@@ -26,6 +26,7 @@
     "noImplicitReturns": true,
     "noPropertyAccessFromIndexSignature": false,
     "exactOptionalPropertyTypes": false,
+    "noImplicitOverride": true,
     "plugins": [
       {
         "name": "next"

@@ -22,7 +22,7 @@ ARG VERSION=dev
 # Labels for metadata
 LABEL org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.authors="Viral Clip AI" \
-      org.opencontainers.image.url="https://viralvideoai.io" \
+      org.opencontainers.image.url="https://www.viralvideoai.io" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.vendor="Viral Clip AI" \

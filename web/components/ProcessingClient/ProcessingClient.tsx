@@ -11,6 +11,7 @@ import { type FormEvent, useEffect } from "react";
 import { analyticsEvents } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
+import { limitLength, sanitizeUrl } from "@/lib/security/validation";
 
 import { ErrorDisplay } from "./ErrorDisplay";
 import { useVideoProcessing } from "./hooks";
@@ -84,60 +85,172 @@ export function ProcessingClient() {
         return;
       }
 
+      // Validate and sanitize inputs
+      const sanitizedUrl = sanitizeUrl(url);
+      if (!sanitizedUrl) {
+        log("Invalid video URL. Please provide a valid YouTube or TikTok URL.", "error");
+        setSubmitting(false);
+        return;
+      }
+
+      const sanitizedPrompt = limitLength(customPrompt.trim(), 5000);
+
       // Track processing start
       void analyticsEvents.videoProcessingStarted({
         style,
-        hasCustomPrompt: customPrompt.trim().length > 0,
-        videoUrl: url,
+        hasCustomPrompt: sanitizedPrompt.length > 0,
+        videoUrl: sanitizedUrl,
       });
 
+      // Validate and sanitize API base URL
       const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? window.location.origin;
-      const baseUrl = new URL(apiBase);
+      let baseUrl: URL;
+      try {
+        baseUrl = new URL(apiBase);
+        // Ensure only http/https protocols
+        if (baseUrl.protocol !== "http:" && baseUrl.protocol !== "https:") {
+          throw new Error("Invalid API protocol");
+        }
+      } catch {
+        throw new Error("Invalid API base URL configuration");
+      }
+
+      // Build WebSocket URL securely
       const wsProtocol = baseUrl.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${wsProtocol}//${baseUrl.host}/ws/process`;
+
+      // Validate WebSocket URL
+      if (
+        !wsUrl.startsWith("ws://") &&
+        !wsUrl.startsWith("wss://") &&
+        !wsUrl.startsWith(`${window.location.protocol === "https:" ? "wss" : "ws"}://`)
+      ) {
+        throw new Error("Invalid WebSocket URL");
+      }
+
       const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
         log("Connected to server...", "success");
         ws.send(
           JSON.stringify({
-            url,
+            url: sanitizedUrl,
             style,
             token,
-            prompt: customPrompt.trim() || undefined,
+            prompt: sanitizedPrompt || undefined,
           })
         );
       };
 
       ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data.type === "log") {
-          log(data.message);
-        } else if (data.type === "progress") {
-          setProgress(data.value ?? 0);
-        } else if (data.type === "error") {
+        // Security: Limit message size to prevent DoS
+        if (event.data.length > 1024 * 1024) {
+          // 1MB limit
+          frontendLogger.error("WebSocket message too large", {
+            size: event.data.length,
+          });
           ws.close();
-          const errorMessage = data.message || "An unexpected error occurred.";
+          setError("Received message is too large");
+          setSubmitting(false);
+          return;
+        }
+
+        let data: unknown;
+        try {
+          data = JSON.parse(event.data);
+        } catch (error) {
+          frontendLogger.error("Failed to parse WebSocket message", error);
+          ws.close();
+          setError("Invalid message format received");
+          setSubmitting(false);
+          return;
+        }
+
+        // Validate data structure
+        if (!data || typeof data !== "object") {
+          frontendLogger.error("Invalid WebSocket message format", { data });
+          ws.close();
+          setError("Invalid message format");
+          setSubmitting(false);
+          return;
+        }
+
+        const message = data as {
+          type?: string;
+          message?: string;
+          value?: number;
+          videoId?: string;
+          details?: string;
+        };
+        if (message.type === "log") {
+          // Sanitize log message
+          const logMessage =
+            typeof message.message === "string"
+              ? message.message.substring(0, 1000)
+              : "Unknown log message";
+          log(logMessage);
+        } else if (message.type === "progress") {
+          // Validate progress value
+          const progressValue =
+            typeof message.value === "number" &&
+            message.value >= 0 &&
+            message.value <= 100
+              ? message.value
+              : 0;
+          setProgress(progressValue);
+        } else if (message.type === "error") {
+          ws.close();
+          // Sanitize error message
+          const errorMessage =
+            typeof message.message === "string"
+              ? message.message.substring(0, 500)
+              : "An unexpected error occurred.";
+          // Don't expose internal error details
+          const errorDetails =
+            typeof message.details === "string"
+              ? message.details.substring(0, 200)
+              : null;
           setError(errorMessage);
-          setErrorDetails(data.details || null);
+          setErrorDetails(errorDetails);
           setSubmitting(false);
 
           // Track processing failure
           void analyticsEvents.videoProcessingFailed({
-            errorType: data.details ?? "unknown",
+            errorType: errorDetails ?? "unknown",
             errorMessage,
             style,
           });
-        } else if (data.type === "done") {
+        } else if (message.type === "done") {
           ws.close();
-          const id = data.videoId as string;
-          setVideoId(id);
+          // Validate video ID
+          const id =
+            typeof message.videoId === "string" && message.videoId.trim() !== ""
+              ? message.videoId.trim()
+              : null;
+
+          if (!id) {
+            setError("Invalid video ID received");
+            setSubmitting(false);
+            return;
+          }
+
+          // Sanitize video ID (prevent XSS in URL)
+          const sanitizedId = id.replace(/[^a-zA-Z0-9_-]/g, "");
+          if (sanitizedId !== id) {
+            frontendLogger.warn("Video ID contained invalid characters", { id });
+          }
+
+          setVideoId(sanitizedId);
           const newUrl = new URL(window.location.href);
-          newUrl.searchParams.set("id", id);
+          newUrl.searchParams.set("id", sanitizedId);
           window.history.pushState({}, "", newUrl.toString());
 
           // Track processing completion after loading results
-          void loadResults(id);
+          void loadResults(sanitizedId);
+        } else {
+          frontendLogger.warn("Unknown WebSocket message type", {
+            type: message.type,
+          });
         }
       };
 

@@ -10,6 +10,10 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Viral Clip AI",
   description: "AI-powered viral short creation for commentary videos",
+  metadataBase: new URL("https://www.viralvideoai.io"),
+  alternates: {
+    canonical: "/",
+  },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

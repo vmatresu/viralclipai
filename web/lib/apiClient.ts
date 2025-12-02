@@ -1,3 +1,5 @@
+import { sanitizeUrl } from "@/lib/security/validation";
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
 export interface ApiRequestOptions {
@@ -6,34 +8,115 @@ export interface ApiRequestOptions {
   body?: unknown;
 }
 
+/**
+ * Sanitizes error messages to prevent information leakage
+ */
+function sanitizeError(error: unknown, status: number): Error {
+  // Don't expose internal error details to clients
+  // Only return safe, generic error messages
+  if (status >= 500) {
+    return new Error("An internal server error occurred. Please try again later.");
+  }
+  if (status === 401) {
+    return new Error("Authentication required. Please sign in.");
+  }
+  if (status === 403) {
+    return new Error("You don't have permission to perform this action.");
+  }
+  if (status === 404) {
+    return new Error("The requested resource was not found.");
+  }
+  if (status === 429) {
+    return new Error("Too many requests. Please try again later.");
+  }
+
+  // For client errors (4xx), we can be slightly more specific
+  // but still avoid exposing sensitive details
+  const message =
+    error instanceof Error ? error.message : "Request failed";
+  // Limit error message length to prevent DoS
+  const safeMessage = message.length > 200 ? message.substring(0, 200) : message;
+  return new Error(safeMessage);
+}
+
 export async function apiFetch<T = unknown>(
   path: string,
   options: ApiRequestOptions = {}
 ): Promise<T> {
   const { method = "GET", token, body } = options;
-  const url = API_BASE_URL ? `${API_BASE_URL}${path}` : path;
+
+  // Validate and sanitize path
+  if (!path || typeof path !== "string") {
+    throw new Error("Invalid API path");
+  }
+
+  // Prevent path traversal attacks
+  if (path.includes("..") || path.includes("//")) {
+    throw new Error("Invalid API path");
+  }
+
+  // Ensure path starts with /
+  const sanitizedPath = path.startsWith("/") ? path : `/${path}`;
+
+  // Build URL safely
+  let url: string;
+  if (API_BASE_URL) {
+    const sanitizedBase = sanitizeUrl(API_BASE_URL);
+    if (!sanitizedBase) {
+      throw new Error("Invalid API base URL configuration");
+    }
+    url = `${sanitizedBase}${sanitizedPath}`;
+  } else {
+    // Relative URL - ensure it's safe
+    url = sanitizedPath;
+  }
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
   if (token) {
+    // Validate token is not empty
+    if (typeof token !== "string" || token.trim() === "") {
+      throw new Error("Invalid authentication token");
+    }
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  try {
+    const res = await fetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      // Security: don't send credentials unless explicitly needed
+      credentials: "same-origin",
+      // Security: prevent caching of sensitive data
+      cache: method === "GET" ? "default" : "no-store",
+    });
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || `Request failed with status ${res.status}`);
+    if (!res.ok) {
+      let errorText: string;
+      try {
+        errorText = await res.text();
+        // Limit error text length
+        if (errorText.length > 1000) {
+          errorText = errorText.substring(0, 1000);
+        }
+      } catch {
+        errorText = "";
+      }
+      throw sanitizeError(errorText || new Error("Request failed"), res.status);
+    }
+
+    if (res.status === 204) {
+      return undefined as unknown as T;
+    }
+
+    return (await res.json()) as T;
+  } catch (error) {
+    // Re-throw sanitized errors
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error("An unexpected error occurred");
   }
-
-  if (res.status === 204) {
-    return undefined as unknown as T;
-  }
-
-  return (await res.json()) as T;
 }

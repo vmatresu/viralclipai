@@ -1,0 +1,6 @@
+Contact: security@viralvideoai.io
+Expires: 2026-12-31T23:59:59.000Z
+Preferred-Languages: en
+Canonical: https://www.viralvideoai.io/.well-known/security.txt
+Policy: https://www.viralvideoai.io/security-policy
+

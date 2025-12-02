@@ -2,6 +2,10 @@
   "name": "viralvideoai-web",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
   "scripts": {
     "dev": "next dev",
     "dev:docker": "docker-compose -f ../docker-compose.dev.yml up -d web && docker-compose -f ../docker-compose.dev.yml logs -f web",
@@ -17,34 +21,37 @@
     "format": "prettier --check .",
     "format:fix": "prettier --write .",
     "type-check": "tsc --noEmit",
-    "check": "npm run type-check && npm run lint && npm run format"
+    "check": "npm run type-check && npm run lint && npm run format",
+    "security:audit": "npm audit --audit-level=moderate",
+    "security:fix": "npm audit fix"
   },
   "dependencies": {
-    "next": "14.1.0",
-    "react": "18.2.0",
-    "react-dom": "18.2.0",
-    "firebase": "^9.23.0",
-    "swr": "^2.2.0"
+    "firebase": "^12.6.0",
+    "next": "^14.2.33",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "swr": "^2.2.5"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "@types/react": "^18.0.0",
-    "@types/react-dom": "^18.0.0",
-    "@typescript-eslint/eslint-plugin": "^6.21.0",
-    "@typescript-eslint/parser": "^6.21.0",
-    "autoprefixer": "^10.4.0",
-    "eslint": "^8.57.0",
-    "eslint-config-next": "14.1.0",
-    "eslint-config-prettier": "^9.1.0",
-    "eslint-plugin-import": "^2.29.0",
-    "eslint-plugin-jsx-a11y": "^6.8.0",
-    "eslint-plugin-prettier": "^5.1.3",
-    "eslint-plugin-react": "^7.33.0",
-    "eslint-plugin-react-hooks": "^4.6.0",
-    "eslint-import-resolver-typescript": "^3.6.1",
-    "postcss": "^8.4.0",
-    "prettier": "^3.3.0",
-    "tailwindcss": "^3.4.0",
-    "typescript": "^5.4.0"
+    "@types/node": "^20.19.25",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^14.2.33",
+    "eslint-config-prettier": "^9.1.2",
+    "eslint-import-resolver-typescript": "^3.10.1",
+    "eslint-plugin-import": "^2.31.0",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-prettier": "^5.2.1",
+    "eslint-plugin-react": "^7.37.3",
+    "eslint-plugin-react-hooks": "^4.6.2",
+    "eslint-plugin-security": "^2.1.1",
+    "postcss": "^8.4.49",
+    "prettier": "^3.4.2",
+    "tailwindcss": "^3.4.18",
+    "typescript": "^5.7.2"
   }
 }
