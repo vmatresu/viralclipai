@@ -6,7 +6,13 @@ from fastapi.responses import StreamingResponse
 from app.core.firebase_client import get_current_user
 from app.core import saas, storage
 from app.core.security import ValidationError, validate_video_id
-from app.schemas import VideoInfoResponse, UserVideosResponse
+from app.schemas import (
+    VideoInfoResponse,
+    UserVideosResponse,
+    DeleteVideoResponse,
+    BulkDeleteVideosRequest,
+    BulkDeleteVideosResponse,
+)
 
 router = APIRouter(prefix="/api", tags=["Videos"])
 
@@ -180,4 +186,167 @@ async def get_clip(
             "Cache-Control": "public, max-age=3600",
             "Cross-Origin-Resource-Policy": "cross-origin",
         }
+    )
+
+
+@router.delete("/videos/{video_id}", response_model=DeleteVideoResponse)
+async def delete_video(
+    video_id: str,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> DeleteVideoResponse:
+    """
+    Delete a single video and all associated files.
+    
+    This endpoint:
+    1. Validates ownership
+    2. Deletes all files from R2 storage
+    3. Deletes the video record from Firestore
+    
+    Returns 404 if video doesn't exist or user doesn't own it.
+    """
+    from app.config import logger
+    
+    # Validate video_id to prevent path traversal
+    try:
+        video_id = validate_video_id(video_id)
+    except ValidationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.message)
+    
+    uid = user["uid"]
+    
+    # Verify ownership before deletion
+    is_owner = saas.user_owns_video(uid, video_id)
+    if not is_owner:
+        logger.warning(f"User {uid} attempted to delete video {video_id} they don't own")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Video not found"
+        )
+    
+    try:
+        # Delete files from R2 storage
+        files_deleted = 0
+        try:
+            files_deleted = storage.delete_video_files(uid, video_id)
+        except Exception as e:
+            logger.error(f"Failed to delete files for video {video_id}: {e}")
+            # Continue with DB deletion even if file deletion fails
+        
+        # Delete record from Firestore
+        deleted = saas.delete_video(uid, video_id)
+        if not deleted:
+            logger.warning(f"Video {video_id} not found in database during deletion")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Video not found"
+            )
+        
+        logger.info(f"Successfully deleted video {video_id} for user {uid} ({files_deleted} files)")
+        
+        return DeleteVideoResponse(
+            success=True,
+            video_id=video_id,
+            message="Video deleted successfully",
+            files_deleted=files_deleted,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting video {video_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete video"
+        )
+
+
+@router.delete("/videos", response_model=BulkDeleteVideosResponse)
+async def bulk_delete_videos(
+    request: BulkDeleteVideosRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> BulkDeleteVideosResponse:
+    """
+    Delete multiple videos and all associated files.
+    
+    This endpoint:
+    1. Validates ownership for each video
+    2. Deletes all files from R2 storage for each video
+    3. Deletes video records from Firestore
+    
+    Returns detailed results for each video_id indicating success/failure.
+    """
+    from app.config import logger
+    
+    uid = user["uid"]
+    video_ids = request.video_ids
+    
+    # Verify ownership for all videos before proceeding
+    owned_video_ids = []
+    for video_id in video_ids:
+        if saas.user_owns_video(uid, video_id):
+            owned_video_ids.append(video_id)
+        else:
+            logger.warning(f"User {uid} attempted to delete video {video_id} they don't own")
+    
+    if not owned_video_ids:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="None of the specified videos belong to the current user"
+        )
+    
+    results: Dict[str, Dict[str, Any]] = {}
+    
+    # Initialize results for all video_ids
+    for video_id in video_ids:
+        if video_id not in owned_video_ids:
+            results[video_id] = {
+                "success": False,
+                "error": "Video not found or access denied"
+            }
+    
+    # Delete files from R2 storage for owned videos (must be done individually per video)
+    files_deleted_map: Dict[str, int] = {}
+    for video_id in owned_video_ids:
+        try:
+            files_deleted = storage.delete_video_files(uid, video_id)
+            files_deleted_map[video_id] = files_deleted
+        except Exception as e:
+            logger.error(f"Failed to delete files for video {video_id}: {e}")
+            files_deleted_map[video_id] = 0
+            # Continue with DB deletion even if file deletion fails
+    
+    # Batch delete records from Firestore (more efficient)
+    db_results = saas.delete_videos(uid, owned_video_ids)
+    
+    # Combine results
+    deleted_count = 0
+    failed_count = 0
+    
+    for video_id in video_ids:
+        if video_id not in owned_video_ids:
+            failed_count += 1
+            continue
+        
+        db_success = db_results.get(video_id, False)
+        files_deleted = files_deleted_map.get(video_id, 0)
+        
+        if db_success:
+            results[video_id] = {
+                "success": True,
+                "files_deleted": files_deleted,
+            }
+            deleted_count += 1
+            logger.info(f"Successfully deleted video {video_id} for user {uid} ({files_deleted} files)")
+        else:
+            results[video_id] = {
+                "success": False,
+                "error": "Video not found in database",
+                "files_deleted": files_deleted,  # Files were deleted even if DB record wasn't found
+            }
+            failed_count += 1
+    
+    return BulkDeleteVideosResponse(
+        success=deleted_count > 0,
+        deleted_count=deleted_count,
+        failed_count=failed_count,
+        results=results,
     )

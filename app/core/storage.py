@@ -132,3 +132,58 @@ def list_clips_with_metadata(uid: str, video_id: str, highlights_map: Dict[int, 
         )
     clips.sort(key=lambda item: item["name"])
     return clips
+
+
+def delete_video_files(uid: str, video_id: str) -> int:
+    """
+    Delete all files associated with a video from R2 storage.
+    
+    Args:
+        uid: User ID
+        video_id: Video ID
+        
+    Returns:
+        Number of objects deleted
+        
+    Raises:
+        ClientError: If deletion fails
+    """
+    client = get_r2_client()
+    prefix = f"{uid}/{video_id}/"
+    
+    # List all objects with this prefix
+    paginator = client.get_paginator("list_objects_v2")
+    objects_to_delete: List[Dict[str, str]] = []
+    
+    for page in paginator.paginate(Bucket=R2_BUCKET_NAME, Prefix=prefix):
+        for obj in page.get("Contents", []):
+            objects_to_delete.append({"Key": obj["Key"]})
+    
+    if not objects_to_delete:
+        logger.info("No files found to delete for video %s/%s", uid, video_id)
+        return 0
+    
+    # Delete objects in batches (R2 supports up to 1000 objects per request)
+    deleted_count = 0
+    batch_size = 1000
+    
+    for i in range(0, len(objects_to_delete), batch_size):
+        batch = objects_to_delete[i:i + batch_size]
+        try:
+            response = client.delete_objects(
+                Bucket=R2_BUCKET_NAME,
+                Delete={"Objects": batch, "Quiet": True}
+            )
+            # Count successful deletions
+            deleted_count += len(batch)
+            if response.get("Errors"):
+                logger.warning(
+                    "Some objects failed to delete for video %s/%s: %s",
+                    uid, video_id, response["Errors"]
+                )
+        except ClientError as exc:
+            logger.error("Failed to delete objects for video %s/%s: %s", uid, video_id, exc)
+            raise
+    
+    logger.info("Deleted %d objects for video %s/%s", deleted_count, uid, video_id)
+    return deleted_count

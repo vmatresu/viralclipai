@@ -1,13 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Clock, Film, AlertCircle } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
+import { Clock, Film, AlertCircle, Trash2, CheckSquare, Square } from "lucide-react";
 
-import { apiFetch } from "@/lib/apiClient";
+import { apiFetch, deleteVideo, bulkDeleteVideos } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { usePageView } from "@/lib/usePageView";
 import { Button } from "@/components/ui/button";
 import { SignInDialog } from "@/components/SignInDialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface UserVideo {
   id?: string;
@@ -24,6 +32,36 @@ export default function HistoryPage() {
   const [videos, setVideos] = useState<UserVideo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedVideos, setSelectedVideos] = useState<Set<string>>(new Set());
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ type: "single" | "bulk" | "all"; videoId?: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const loadVideos = useCallback(async () => {
+    if (authLoading || !user) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const token = await getIdToken();
+      if (!token) {
+        throw new Error("Failed to get authentication token");
+      }
+      const data = (await apiFetch<{ videos: UserVideo[] }>("/api/user/videos", {
+        token,
+      })) as { videos: UserVideo[] };
+      setVideos(data.videos ?? []);
+      setError(null);
+      setSelectedVideos(new Set()); // Clear selections when reloading
+    } catch (err: unknown) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to load history";
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  }, [getIdToken, user, authLoading]);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,7 +71,7 @@ export default function HistoryPage() {
       
       if (!user) {
         // Not logged in - stop loading but don't error yet (let UI handle it)
-        setLoading(false);
+        if (!cancelled) setLoading(false);
         return;
       }
 
@@ -48,6 +86,7 @@ export default function HistoryPage() {
         if (!cancelled) {
           setVideos(data.videos ?? []);
           setError(null);
+          setSelectedVideos(new Set()); // Clear selections when reloading
         }
       } catch (err: unknown) {
         if (!cancelled) {
@@ -64,6 +103,75 @@ export default function HistoryPage() {
       cancelled = true;
     };
   }, [getIdToken, user, authLoading]);
+
+  const handleSelectVideo = (videoId: string) => {
+    setSelectedVideos((prev) => {
+      const next = new Set(prev);
+      if (next.has(videoId)) {
+        next.delete(videoId);
+      } else {
+        next.add(videoId);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAll = () => {
+    if (selectedVideos.size === videos.length) {
+      setSelectedVideos(new Set());
+    } else {
+      setSelectedVideos(new Set(videos.map((v) => v.video_id ?? v.id ?? "").filter(Boolean)));
+    }
+  };
+
+  const handleDeleteClick = (type: "single" | "bulk" | "all", videoId?: string) => {
+    setDeleteTarget({ type, videoId });
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget || !user) return;
+
+    setDeleting(true);
+    try {
+      const token = await getIdToken();
+      if (!token) {
+        throw new Error("Failed to get authentication token");
+      }
+
+      if (deleteTarget.type === "single" && deleteTarget.videoId) {
+        await deleteVideo(deleteTarget.videoId, token);
+        // Remove from local state immediately for better UX
+        setVideos((prev) => prev.filter((v) => (v.video_id ?? v.id) !== deleteTarget.videoId));
+      } else if (deleteTarget.type === "bulk" && selectedVideos.size > 0) {
+        const videoIds = Array.from(selectedVideos);
+        await bulkDeleteVideos(videoIds, token);
+        // Remove deleted videos from local state
+        setVideos((prev) => prev.filter((v) => {
+          const id = v.video_id ?? v.id ?? "";
+          return !selectedVideos.has(id);
+        }));
+        setSelectedVideos(new Set());
+      } else if (deleteTarget.type === "all") {
+        const allVideoIds = videos.map((v) => v.video_id ?? v.id ?? "").filter(Boolean);
+        if (allVideoIds.length > 0) {
+          await bulkDeleteVideos(allVideoIds, token);
+          setVideos([]);
+          setSelectedVideos(new Set());
+        }
+      }
+
+      setDeleteDialogOpen(false);
+      setDeleteTarget(null);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to delete video(s)";
+      setError(errorMessage);
+      // Reload videos to sync state
+      await loadVideos();
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   if (authLoading) {
     return (
@@ -138,16 +246,88 @@ export default function HistoryPage() {
     );
   }
 
+  const getDeleteDialogContent = () => {
+    if (!deleteTarget) return { title: "", description: "" };
+
+    if (deleteTarget.type === "single") {
+      return {
+        title: "Delete Video",
+        description: "Are you sure you want to delete this video? This action cannot be undone and will delete all associated clips and files.",
+      };
+    } else if (deleteTarget.type === "bulk") {
+      return {
+        title: `Delete ${selectedVideos.size} Video${selectedVideos.size > 1 ? "s" : ""}`,
+        description: `Are you sure you want to delete ${selectedVideos.size} selected video${selectedVideos.size > 1 ? "s" : ""}? This action cannot be undone and will delete all associated clips and files.`,
+      };
+    } else {
+      return {
+        title: `Delete All Videos (${videos.length})`,
+        description: `Are you sure you want to delete all ${videos.length} videos? This action cannot be undone and will delete all associated clips and files.`,
+      };
+    }
+  };
+
+  const dialogContent = getDeleteDialogContent();
+
   return (
     <div className="space-y-6 page-container">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold tracking-tight">History</h1>
-        <p className="text-muted-foreground text-sm">{videos.length} videos processed</p>
+        <div className="flex items-center gap-4">
+          <p className="text-muted-foreground text-sm">{videos.length} videos processed</p>
+          {videos.length > 0 && (
+            <div className="flex items-center gap-2">
+              {selectedVideos.size > 0 && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => handleDeleteClick("bulk")}
+                  disabled={deleting}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete Selected ({selectedVideos.size})
+                </Button>
+              )}
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => handleDeleteClick("all")}
+                disabled={deleting}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete All
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
+
+      {videos.length > 0 && (
+        <div className="flex items-center gap-2 pb-2 border-b">
+          <button
+            onClick={handleSelectAll}
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            type="button"
+          >
+            {selectedVideos.size === videos.length ? (
+              <CheckSquare className="h-4 w-4" />
+            ) : (
+              <Square className="h-4 w-4" />
+            )}
+            <span>Select All</span>
+          </button>
+          {selectedVideos.size > 0 && (
+            <span className="text-sm text-muted-foreground">
+              {selectedVideos.size} selected
+            </span>
+          )}
+        </div>
+      )}
       
       <div className="grid gap-4">
         {videos.map((v) => {
           const id = v.video_id ?? v.id ?? "";
+          const isSelected = selectedVideos.has(id);
           // Format date if possible
           let dateStr = v.created_at ?? "";
           try {
@@ -165,43 +345,104 @@ export default function HistoryPage() {
           }
 
           return (
-            <a
+            <div
               key={id}
-              href={`/?id=${encodeURIComponent(id)}`}
-              className="glass p-6 rounded-xl hover:shadow-md hover:border-primary/30 transition-all group block border border-border/50"
+              className={`glass p-6 rounded-xl hover:shadow-md transition-all border ${
+                isSelected ? "border-primary/50 bg-primary/5" : "border-border/50"
+              }`}
             >
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                <div className="space-y-2 min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="text-lg font-bold text-foreground group-hover:text-primary transition-colors truncate">
-                      {v.video_title || "Generated Clips"}
-                    </h3>
-                    <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80">
-                      ID: {id.substring(0, 8)}...
-                    </span>
-                  </div>
-                  
-                  <div className="text-sm text-muted-foreground truncate font-mono bg-muted/30 px-2 py-1 rounded w-fit max-w-full">
-                    {v.video_url}
-                  </div>
-                  
-                  {v.custom_prompt && (
-                    <div className="mt-2 text-xs text-muted-foreground bg-muted/20 p-2 rounded border border-border/30">
-                      <span className="font-semibold mr-1">Custom Prompt:</span>
-                      <span className="italic">{v.custom_prompt}</span>
+                <div className="flex items-start gap-3 flex-1 min-w-0">
+                  <button
+                    onClick={() => handleSelectVideo(id)}
+                    className="mt-1 flex-shrink-0"
+                    type="button"
+                    aria-label={isSelected ? "Deselect video" : "Select video"}
+                  >
+                    {isSelected ? (
+                      <CheckSquare className="h-5 w-5 text-primary" />
+                    ) : (
+                      <Square className="h-5 w-5 text-muted-foreground" />
+                    )}
+                  </button>
+                  <a
+                    href={`/?id=${encodeURIComponent(id)}`}
+                    className="flex-1 min-w-0 space-y-2 group"
+                  >
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-lg font-bold text-foreground group-hover:text-primary transition-colors truncate">
+                        {v.video_title || "Generated Clips"}
+                      </h3>
+                      <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80">
+                        ID: {id.substring(0, 8)}...
+                      </span>
                     </div>
-                  )}
+                    
+                    <div className="text-sm text-muted-foreground truncate font-mono bg-muted/30 px-2 py-1 rounded w-fit max-w-full">
+                      {v.video_url}
+                    </div>
+                    
+                    {v.custom_prompt && (
+                      <div className="mt-2 text-xs text-muted-foreground bg-muted/20 p-2 rounded border border-border/30">
+                        <span className="font-semibold mr-1">Custom Prompt:</span>
+                        <span className="italic">{v.custom_prompt}</span>
+                      </div>
+                    )}
+                  </a>
                 </div>
                 
-                <div className="text-xs text-muted-foreground whitespace-nowrap flex items-center gap-1 sm:text-right">
-                  <Clock className="h-3 w-3" />
-                  {dateStr}
+                <div className="flex items-center gap-3 sm:flex-row flex-row-reverse justify-end">
+                  <div className="text-xs text-muted-foreground whitespace-nowrap flex items-center gap-1 sm:text-right">
+                    <Clock className="h-3 w-3" />
+                    {dateStr}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleDeleteClick("single", id);
+                    }}
+                    disabled={deleting}
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                    aria-label="Delete video"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
-            </a>
+            </div>
           );
         })}
       </div>
+
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{dialogContent.title}</DialogTitle>
+            <DialogDescription>{dialogContent.description}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeleteDialogOpen(false);
+                setDeleteTarget(null);
+              }}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteConfirm}
+              disabled={deleting}
+            >
+              {deleting ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

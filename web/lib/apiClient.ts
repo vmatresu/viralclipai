@@ -121,3 +121,43 @@ export async function apiFetch<T = unknown>(
     throw new Error("An unexpected error occurred");
   }
 }
+
+/**
+ * Delete a single video
+ */
+export async function deleteVideo(
+  videoId: string,
+  token: string
+): Promise<{ success: boolean; video_id: string; message?: string; files_deleted?: number }> {
+  return apiFetch<{ success: boolean; video_id: string; message?: string; files_deleted?: number }>(
+    `/api/videos/${encodeURIComponent(videoId)}`,
+    {
+      method: "DELETE",
+      token,
+    }
+  );
+}
+
+/**
+ * Delete multiple videos
+ */
+export async function bulkDeleteVideos(
+  videoIds: string[],
+  token: string
+): Promise<{
+  success: boolean;
+  deleted_count: number;
+  failed_count: number;
+  results: Record<string, { success: boolean; error?: string; files_deleted?: number }>;
+}> {
+  return apiFetch<{
+    success: boolean;
+    deleted_count: number;
+    failed_count: number;
+    results: Record<string, { success: boolean; error?: string; files_deleted?: number }>;
+  }>("/api/videos", {
+    method: "DELETE",
+    token,
+    body: { video_ids: videoIds },
+  });
+}

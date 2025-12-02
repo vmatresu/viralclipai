@@ -161,3 +161,71 @@ def set_global_prompt(uid: str, prompt: str) -> str:
     }
     ref.set(payload, merge=True)
     return prompt
+
+
+def delete_video(uid: str, video_id: str) -> bool:
+    """
+    Delete a single video record from Firestore.
+    
+    Args:
+        uid: User ID
+        video_id: Video ID to delete
+        
+    Returns:
+        True if video was deleted, False if it didn't exist
+        
+    Raises:
+        Exception: If deletion fails
+    """
+    db = get_firestore_client()
+    doc_ref = db.collection("users").document(uid).collection("videos").document(video_id)
+    doc = doc_ref.get()
+    
+    if not doc.exists:
+        return False
+    
+    doc_ref.delete()
+    return True
+
+
+def delete_videos(uid: str, video_ids: List[str]) -> Dict[str, bool]:
+    """
+    Delete multiple video records from Firestore.
+    
+    Args:
+        uid: User ID
+        video_ids: List of video IDs to delete
+        
+    Returns:
+        Dictionary mapping video_id to deletion success status
+        
+    Raises:
+        Exception: If deletion fails
+    """
+    if not video_ids:
+        return {}
+    
+    db = get_firestore_client()
+    col_ref = db.collection("users").document(uid).collection("videos")
+    
+    results: Dict[str, bool] = {}
+    
+    # Use batch writes for efficiency (Firestore allows up to 500 operations per batch)
+    batch_size = 500
+    for i in range(0, len(video_ids), batch_size):
+        batch = db.batch()
+        batch_video_ids = video_ids[i:i + batch_size]
+        
+        for video_id in batch_video_ids:
+            doc_ref = col_ref.document(video_id)
+            doc = doc_ref.get()
+            if doc.exists:
+                batch.delete(doc_ref)
+                results[video_id] = True
+            else:
+                results[video_id] = False
+        
+        if batch_video_ids:
+            batch.commit()
+    
+    return results

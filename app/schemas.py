@@ -18,6 +18,8 @@ from app.core.security import (
     validate_prompt,
     validate_style,
     validate_video_url,
+    validate_video_id,
+    ValidationError,
 )
 
 
@@ -212,3 +214,57 @@ class HealthResponse(BaseSchema):
     status: str = "healthy"
     version: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+# -----------------------------------------------------------------------------
+# Delete Request/Response Models
+# -----------------------------------------------------------------------------
+
+class BulkDeleteVideosRequest(BaseSchema):
+    """Request to delete multiple videos."""
+    video_ids: List[str] = Field(..., min_length=1, max_length=100, description="List of video IDs to delete")
+    
+    @field_validator("video_ids")
+    @classmethod
+    def validate_video_ids(cls, v: List[str]) -> List[str]:
+        """Validate and sanitize video IDs."""
+        validated_ids = []
+        for video_id in v:
+            try:
+                validated_id = validate_video_id(video_id)
+                validated_ids.append(validated_id)
+            except ValidationError:
+                # Skip invalid IDs - we'll report them in the response
+                pass
+        
+        if not validated_ids:
+            raise ValueError("At least one valid video ID is required")
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_ids = []
+        for video_id in validated_ids:
+            if video_id not in seen:
+                seen.add(video_id)
+                unique_ids.append(video_id)
+        
+        return unique_ids
+
+
+class DeleteVideoResponse(BaseSchema):
+    """Response after deleting a video."""
+    success: bool
+    video_id: str
+    message: Optional[str] = None
+    files_deleted: Optional[int] = None
+
+
+class BulkDeleteVideosResponse(BaseSchema):
+    """Response after bulk deleting videos."""
+    success: bool
+    deleted_count: int
+    failed_count: int
+    results: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Detailed results per video_id with success status and optional error"
+    )
