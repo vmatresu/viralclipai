@@ -63,12 +63,12 @@ export function sanitizeEventName(eventName: string): string {
  */
 export function sanitizeParams(
   params?: AnalyticsEventParams
-): Record<string, any> | undefined {
+): Record<string, string | number | boolean> | undefined {
   if (!params) {
     return undefined;
   }
 
-  const sanitized: Record<string, any> = {};
+  const sanitized: Record<string, string | number | boolean> = {};
   let paramCount = 0;
 
   for (const [key, value] of Object.entries(params)) {
@@ -88,7 +88,7 @@ export function sanitizeParams(
     }
 
     // Sanitize value
-    let sanitizedValue: any = value;
+    let sanitizedValue: string | number | boolean = value;
     if (typeof value === "string") {
       sanitizedValue = value.substring(0, MAX_PARAM_VALUE_LENGTH);
     } else if (typeof value === "number") {

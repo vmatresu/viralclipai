@@ -4,11 +4,11 @@
  * Displays processing results and clips.
  */
 
-import { ClipGrid } from "../ClipGrid";
+import { ClipGrid, type Clip } from "../ClipGrid";
 
 interface ResultsProps {
   videoId: string;
-  clips: any[];
+  clips: Clip[];
   customPromptUsed: string | null;
   log: (msg: string, type?: "info" | "error" | "success") => void;
   onReset: () => void;

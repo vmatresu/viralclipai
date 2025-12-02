@@ -47,10 +47,10 @@ const eventQueue: Array<{ eventName: string; params?: AnalyticsEventParams }> = 
 /**
  * Initialize Firebase Analytics with proper error handling and checks
  */
-export async function initAnalytics(): Promise<Analytics | null> {
+export function initAnalytics(): Promise<Analytics | null> {
   // Return existing instance if already initialized
   if (analyticsInstance) {
-    return analyticsInstance;
+    return Promise.resolve(analyticsInstance);
   }
 
   // Return existing promise if initialization is in progress
@@ -102,7 +102,7 @@ export async function initAnalytics(): Promise<Analytics | null> {
 
       // Disable analytics collection if user opted out
       if (!shouldEnableAnalytics(config)) {
-        await setAnalyticsCollectionEnabled(analyticsInstance, false);
+        setAnalyticsCollectionEnabled(analyticsInstance, false);
       }
 
       if (config.debug) {
@@ -231,9 +231,9 @@ export async function setAnalyticsUserId(userId: string | null): Promise<void> {
 
   try {
     if (userId) {
-      await setUserId(analyticsInstance, userId);
+      setUserId(analyticsInstance, userId);
     } else {
-      await setUserId(analyticsInstance, null);
+      setUserId(analyticsInstance, null);
     }
   } catch (error) {
     frontendLogger.error("Failed to set analytics user ID", error);
@@ -259,7 +259,7 @@ export async function setAnalyticsUserProperties(
   }
 
   try {
-    await setUserProperties(analyticsInstance, properties);
+    setUserProperties(analyticsInstance, properties);
   } catch (error) {
     frontendLogger.error("Failed to set analytics user properties", error);
   }
@@ -272,7 +272,7 @@ export async function setAnalyticsUserProperties(
 /**
  * Enable or disable analytics collection
  */
-export async function setAnalyticsEnabled(enabled: boolean): Promise<void> {
+export function setAnalyticsEnabled(enabled: boolean): void {
   config.enabled = enabled;
 
   if (!analyticsInstance) {
@@ -280,7 +280,7 @@ export async function setAnalyticsEnabled(enabled: boolean): Promise<void> {
   }
 
   try {
-    await setAnalyticsCollectionEnabled(analyticsInstance, enabled);
+    setAnalyticsCollectionEnabled(analyticsInstance, enabled);
     localStorage.setItem("analytics_consent", String(enabled));
   } catch (error) {
     frontendLogger.error("Failed to set analytics collection enabled", error);

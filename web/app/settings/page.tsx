@@ -35,21 +35,25 @@ export default function SettingsPage() {
           setLoading(false);
           return;
         }
-        const res = (await apiFetch<SettingsResponse>("/api/settings", {
+        const res = await apiFetch<SettingsResponse>("/api/settings", {
           token,
-        })) as SettingsResponse;
+        });
         if (!cancelled) {
           setData(res);
           setAccessToken(res.settings?.tiktok_access_token ?? "");
           setAccountId(res.settings?.tiktok_account_id ?? "");
         }
-      } catch (err: any) {
-        if (!cancelled) setStatus(err.message || "Failed to load settings");
+      } catch (err: unknown) {
+        if (!cancelled) {
+          const errorMessage =
+            err instanceof Error ? err.message : "Failed to load settings";
+          setStatus(errorMessage);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
-    load();
+    void load();
     return () => {
       cancelled = true;
     };
@@ -77,8 +81,10 @@ export default function SettingsPage() {
         body: payload,
       });
       setStatus("Settings saved.");
-    } catch (err: any) {
-      setStatus(err.message || "Error saving settings.");
+    } catch (err: unknown) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Error saving settings.";
+      setStatus(errorMessage);
     } finally {
       setSaving(false);
     }
@@ -88,24 +94,32 @@ export default function SettingsPage() {
     <div className="space-y-8">
       <section className="glass rounded-2xl p-6 space-y-4">
         <h2 className="text-xl font-semibold text-white">Plan &amp; Usage</h2>
-        {loading && !data ? (
-          <div className="text-sm text-gray-400">Loading plan information...</div>
-        ) : data ? (
-          <div className="space-y-1 text-sm text-gray-300">
-            <div>
-              <span className="font-semibold">Plan:</span>{" "}
-              <span className="uppercase text-blue-400 text-xs">{data.plan}</span>
+        {(() => {
+          if (loading && !data) {
+            return (
+              <div className="text-sm text-gray-400">Loading plan information...</div>
+            );
+          }
+          if (data) {
+            return (
+              <div className="space-y-1 text-sm text-gray-300">
+                <div>
+                  <span className="font-semibold">Plan:</span>{" "}
+                  <span className="uppercase text-blue-400 text-xs">{data.plan}</span>
+                </div>
+                <div>
+                  <span className="font-semibold">Monthly Clips:</span>{" "}
+                  {data.clips_used_this_month} / {data.max_clips_per_month}
+                </div>
+              </div>
+            );
+          }
+          return (
+            <div className="text-sm text-gray-400">
+              {status ?? "Unable to load plan information."}
             </div>
-            <div>
-              <span className="font-semibold">Monthly Clips:</span>{" "}
-              {data.clips_used_this_month} / {data.max_clips_per_month}
-            </div>
-          </div>
-        ) : (
-          <div className="text-sm text-gray-400">
-            {status || "Unable to load plan information."}
-          </div>
-        )}
+          );
+        })()}
       </section>
 
       <section className="glass rounded-2xl p-6 space-y-4">
@@ -116,10 +130,14 @@ export default function SettingsPage() {
         </p>
         <form onSubmit={onSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-gray-400 uppercase mb-1">
+            <label
+              htmlFor="tiktok-access-token"
+              className="block text-xs font-semibold text-gray-400 uppercase mb-1"
+            >
               TikTok Access Token
             </label>
             <input
+              id="tiktok-access-token"
               type="password"
               value={accessToken}
               onChange={(e) => setAccessToken(e.target.value)}
@@ -128,10 +146,14 @@ export default function SettingsPage() {
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-gray-400 uppercase mb-1">
+            <label
+              htmlFor="tiktok-account-id"
+              className="block text-xs font-semibold text-gray-400 uppercase mb-1"
+            >
               TikTok Account ID
             </label>
             <input
+              id="tiktok-account-id"
               type="text"
               value={accountId}
               onChange={(e) => setAccountId(e.target.value)}

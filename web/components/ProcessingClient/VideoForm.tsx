@@ -38,11 +38,15 @@ export function VideoForm({
     <section className="glass rounded-2xl p-8 shadow-2xl">
       <form onSubmit={onSubmit} className="space-y-6">
         <div className="space-y-2">
-          <label className="text-sm font-medium text-gray-400 uppercase tracking-wider">
+          <label
+            htmlFor="youtube-url"
+            className="text-sm font-medium text-gray-400 uppercase tracking-wider"
+          >
             YouTube Source URL
           </label>
           <div className="relative">
             <input
+              id="youtube-url"
               type="text"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
@@ -54,10 +58,14 @@ export function VideoForm({
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium text-gray-400 uppercase tracking-wider">
+          <label
+            htmlFor="custom-prompt"
+            className="text-sm font-medium text-gray-400 uppercase tracking-wider"
+          >
             Custom prompt (optional)
           </label>
           <textarea
+            id="custom-prompt"
             value={customPrompt}
             onChange={(e) => setCustomPrompt(e.target.value)}
             rows={3}
@@ -113,19 +121,25 @@ export function VideoForm({
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium text-gray-400 uppercase tracking-wider">
+          <div className="text-sm font-medium text-gray-400 uppercase tracking-wider">
             Output Style
-          </label>
+          </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {STYLES.map((s) => (
-              <label key={s.value} className="cursor-pointer">
+              <label
+                key={s.value}
+                htmlFor={`style-${s.value}`}
+                className="cursor-pointer"
+              >
                 <input
+                  id={`style-${s.value}`}
                   type="radio"
                   name="style"
                   value={s.value}
                   checked={style === s.value}
                   onChange={() => setStyle(s.value)}
                   className="peer sr-only"
+                  aria-label={`${s.label} - ${s.subtitle}`}
                 />
                 <div className="p-4 rounded-xl bg-gray-800 border border-gray-700 peer-checked:border-blue-500 peer-checked:bg-blue-900/20 transition-all text-center hover:bg-gray-750">
                   <span className="font-medium">{s.label}</span>

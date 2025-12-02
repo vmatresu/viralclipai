@@ -31,6 +31,7 @@ export function ClipGrid({ videoId, clips, log }: ClipGridProps) {
       setPublishing(clip.name);
       const token = await getIdToken();
       if (!token) {
+        // eslint-disable-next-line no-alert
         alert("Please sign in to publish clips to TikTok.");
         return;
       }
@@ -50,19 +51,20 @@ export function ClipGrid({ videoId, clips, log }: ClipGridProps) {
       log("Clip published to TikTok successfully.", "success");
 
       // Track successful TikTok publish
-      analyticsEvents.clipPublishedTikTok({
+      void analyticsEvents.clipPublishedTikTok({
         clipId: clip.name,
         clipName: clip.name,
         success: true,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       frontendLogger.error("TikTok publish failed", err);
-      const errorMessage = err.message || "Unknown error";
+      const errorMessage = err instanceof Error ? err.message : "Unknown error";
       log(`TikTok publish failed: ${errorMessage}`, "error");
+      // eslint-disable-next-line no-alert
       alert("TikTok publish failed. Check console for details.");
 
       // Track failed TikTok publish
-      analyticsEvents.clipPublishedFailed({
+      void analyticsEvents.clipPublishedFailed({
         clipId: clip.name,
         clipName: clip.name,
         errorType: errorMessage,
@@ -95,9 +97,11 @@ export function ClipGrid({ videoId, clips, log }: ClipGridProps) {
                 controls
                 preload="none"
                 className="w-full h-full object-contain"
-                poster={clip.thumbnail || undefined}
+                poster={clip.thumbnail ?? undefined}
                 src={clip.url}
-              />
+              >
+                <track kind="captions" />
+              </video>
             </div>
             <div className="p-5 flex-1 flex flex-col">
               <div className="flex items-start justify-between mb-2">
@@ -112,7 +116,10 @@ export function ClipGrid({ videoId, clips, log }: ClipGridProps) {
               <div className="space-y-3 mb-4 bg-gray-900/50 p-3 rounded-lg border border-gray-700/50">
                 <div className="space-y-1">
                   <div className="flex justify-between items-center">
-                    <label className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                    <label
+                      htmlFor={`${uniqueId}-title-text`}
+                      className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold"
+                    >
                       Title
                     </label>
                   </div>
@@ -125,7 +132,10 @@ export function ClipGrid({ videoId, clips, log }: ClipGridProps) {
                 </div>
                 <div className="space-y-1">
                   <div className="flex justify-between items-center">
-                    <label className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                    <label
+                      htmlFor={`${uniqueId}-desc-text`}
+                      className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold"
+                    >
                       Description
                     </label>
                   </div>
@@ -146,7 +156,7 @@ export function ClipGrid({ videoId, clips, log }: ClipGridProps) {
                     // Extract style from clip name (e.g., clip_01_01_title_split.mp4 -> split)
                     const styleMatch = clip.name.match(/_([^_]+)\.(mp4|jpg)$/);
                     const clipStyle = styleMatch?.[1] ?? "unknown";
-                    analyticsEvents.clipDownloaded({
+                    void analyticsEvents.clipDownloaded({
                       clipId: clip.name,
                       clipName: clip.name,
                       style: clipStyle,
@@ -159,8 +169,8 @@ export function ClipGrid({ videoId, clips, log }: ClipGridProps) {
                 </a>
                 <button
                   onClick={() => {
-                    navigator.clipboard.writeText(clip.url);
-                    analyticsEvents.clipCopiedLink({
+                    void navigator.clipboard.writeText(clip.url);
+                    void analyticsEvents.clipCopiedLink({
                       clipId: clip.name,
                       clipName: clip.name,
                     });
@@ -178,10 +188,10 @@ export function ClipGrid({ videoId, clips, log }: ClipGridProps) {
                     const descEl = document.getElementById(
                       `${uniqueId}-desc-text`
                     ) as HTMLTextAreaElement | null;
-                    publishToTikTok(
+                    void publishToTikTok(
                       clip,
-                      titleEl?.value || clip.title,
-                      descEl?.value || clip.description
+                      titleEl?.value ?? clip.title,
+                      descEl?.value ?? clip.description
                     );
                   }}
                   disabled={publishing === clip.name}

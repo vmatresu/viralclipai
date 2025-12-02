@@ -56,7 +56,7 @@ export function ProcessingClient() {
     const existingId = searchParams.get("id");
     if (existingId) {
       setVideoId(existingId);
-      loadResults(existingId);
+      void loadResults(existingId);
     }
   }, [searchParams, loadResults, setVideoId]);
 
@@ -78,19 +78,20 @@ export function ProcessingClient() {
       const token = await getIdToken();
       if (!token) {
         log("You must be signed in to process videos.", "error");
+        // eslint-disable-next-line no-alert
         alert("Please sign in with your Google account to use this app.");
         setSubmitting(false);
         return;
       }
 
       // Track processing start
-      analyticsEvents.videoProcessingStarted({
+      void analyticsEvents.videoProcessingStarted({
         style,
         hasCustomPrompt: customPrompt.trim().length > 0,
         videoUrl: url,
       });
 
-      const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || window.location.origin;
+      const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? window.location.origin;
       const baseUrl = new URL(apiBase);
       const wsProtocol = baseUrl.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${wsProtocol}//${baseUrl.host}/ws/process`;
@@ -122,8 +123,8 @@ export function ProcessingClient() {
           setSubmitting(false);
 
           // Track processing failure
-          analyticsEvents.videoProcessingFailed({
-            errorType: data.details || "unknown",
+          void analyticsEvents.videoProcessingFailed({
+            errorType: data.details ?? "unknown",
             errorMessage,
             style,
           });
@@ -136,7 +137,7 @@ export function ProcessingClient() {
           window.history.pushState({}, "", newUrl.toString());
 
           // Track processing completion after loading results
-          loadResults(id);
+          void loadResults(id);
         }
       };
 
@@ -150,14 +151,15 @@ export function ProcessingClient() {
           setSubmitting(false);
         }
       };
-    } catch (err: any) {
+    } catch (err: unknown) {
       frontendLogger.error("Failed to start processing", err);
-      const errorMessage = err.message || "Failed to start processing";
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to start processing";
       setError(errorMessage);
       setSubmitting(false);
 
       // Track processing failure
-      analyticsEvents.videoProcessingFailed({
+      void analyticsEvents.videoProcessingFailed({
         errorType: "initialization_error",
         errorMessage,
         style,

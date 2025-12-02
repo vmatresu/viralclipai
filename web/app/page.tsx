@@ -23,7 +23,10 @@ export default function HomePage() {
           <a
             href="#app"
             onClick={() => {
-              analyticsEvents.ctaClicked({ ctaName: "try_it_now", location: "home" });
+              void analyticsEvents.ctaClicked({
+                ctaName: "try_it_now",
+                location: "home",
+              });
             }}
             className="px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm md:text-base transition-colors"
           >
@@ -32,7 +35,10 @@ export default function HomePage() {
           <a
             href="/pricing"
             onClick={() => {
-              analyticsEvents.ctaClicked({ ctaName: "view_pricing", location: "home" });
+              void analyticsEvents.ctaClicked({
+                ctaName: "view_pricing",
+                location: "home",
+              });
             }}
             className="px-5 py-3 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-100 font-semibold text-sm md:text-base border border-gray-700 transition-colors"
           >

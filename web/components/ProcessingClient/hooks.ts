@@ -35,10 +35,13 @@ export function useVideoProcessing() {
 
   const log = useCallback(
     (msg: string, type: "info" | "error" | "success" = "info") => {
-      setLogs((prev) => [
-        ...prev,
-        `${type === "error" ? "[ERROR]" : type === "success" ? "[OK]" : ">"} ${msg}`,
-      ]);
+      let prefix = ">";
+      if (type === "error") {
+        prefix = "[ERROR]";
+      } else if (type === "success") {
+        prefix = "[OK]";
+      }
+      setLogs((prev) => [...prev, `${prefix} ${msg}`]);
     },
     []
   );
@@ -65,7 +68,7 @@ export function useVideoProcessing() {
         // Use stored values from when processing started, not current form values
         if (processingStartTime.current) {
           const durationMs = Date.now() - processingStartTime.current;
-          analyticsEvents.videoProcessingCompleted({
+          void analyticsEvents.videoProcessingCompleted({
             videoId: id,
             style: processingStyle.current,
             clipsGenerated: clipsData.length,
@@ -74,8 +77,10 @@ export function useVideoProcessing() {
           });
           processingStartTime.current = null;
         }
-      } catch (err: any) {
-        setError(err.message || "Error loading results");
+      } catch (err: unknown) {
+        const errorMessage =
+          err instanceof Error ? err.message : "Error loading results";
+        setError(errorMessage);
       }
     },
     [getIdToken]

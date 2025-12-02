@@ -28,7 +28,7 @@ export function ProcessingStatus({ progress, logs }: ProcessingStatusProps) {
           {logs.length === 0 ? (
             <div className="text-gray-500 italic">Waiting for task...</div>
           ) : (
-            logs.map((l, idx) => <div key={idx}>{l}</div>)
+            logs.map((l) => <div key={l}>{l}</div>)
           )}
         </div>
       </div>

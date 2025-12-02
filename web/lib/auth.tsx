@@ -1,24 +1,24 @@
 "use client";
 
-import { initializeApp, getApps } from "firebase/app";
+import { getApps, initializeApp } from "firebase/app";
 import {
+  GoogleAuthProvider,
+  signOut as firebaseSignOut,
   getAuth,
   onAuthStateChanged,
   signInWithPopup,
-  GoogleAuthProvider,
-  signOut as firebaseSignOut,
   type User,
 } from "firebase/auth";
 import {
-  type ReactNode,
   createContext,
   useCallback,
   useContext,
   useEffect,
   useState,
+  type ReactNode,
 } from "react";
 
-import { initAnalytics, analyticsEvents } from "@/lib/analytics";
+import { analyticsEvents, initAnalytics } from "@/lib/analytics";
 import { frontendLogger } from "@/lib/logger";
 
 const firebaseConfig = {
@@ -101,10 +101,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void analyticsEvents.userSignedOut();
   }, []);
 
-  const getIdToken = useCallback(async (): Promise<string | null> => {
+  const getIdToken = useCallback((): Promise<string | null> => {
     const auth = getAuthInstance();
     const current = auth.currentUser;
-    if (!current) return null;
+    if (!current) return Promise.resolve(null);
     return current.getIdToken(true);
   }, []);
 

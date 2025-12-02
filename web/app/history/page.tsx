@@ -38,15 +38,17 @@ export default function HistoryPage() {
         if (!cancelled) {
           setVideos(data.videos ?? []);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (!cancelled) {
-          setError(err.message || "Failed to load history");
+          const errorMessage =
+            err instanceof Error ? err.message : "Failed to load history";
+          setError(errorMessage);
         }
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
-    load();
+    void load();
     return () => {
       cancelled = true;
     };
@@ -73,7 +75,7 @@ export default function HistoryPage() {
   return (
     <div className="grid gap-4">
       {videos.map((v) => {
-        const id = v.video_id || v.id || "";
+        const id = v.video_id ?? v.id ?? "";
         return (
           <a
             key={id}
@@ -83,11 +85,11 @@ export default function HistoryPage() {
             <div className="flex items-start justify-between">
               <div>
                 <h3 className="text-lg font-bold text-white group-hover:text-blue-400 transition-colors mb-1">
-                  {v.video_title || "Generated Clips"}
+                  {v.video_title ?? "Generated Clips"}
                 </h3>
                 <div className="text-sm text-gray-400 font-mono mb-2">{id}</div>
                 <div className="text-sm text-gray-500 truncate max-w-md">
-                  {v.video_url || ""}
+                  {v.video_url ?? ""}
                 </div>
                 {v.custom_prompt && (
                   <div className="mt-1 text-xs text-gray-500 line-clamp-2">
@@ -97,7 +99,7 @@ export default function HistoryPage() {
                 )}
               </div>
               <div className="text-xs text-gray-500 font-mono bg-gray-800 px-2 py-1 rounded border border-gray-700">
-                {v.created_at || ""}
+                {v.created_at ?? ""}
               </div>
             </div>
           </a>
