@@ -40,8 +40,8 @@ build-api: ## Build backend API image
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		--build-arg VCS_REF=$(VCS_REF) \
 		--build-arg VERSION=$(VERSION) \
-		--tag vidclips-api:$(VERSION) \
-		--tag vidclips-api:latest \
+		--tag viralclipai-api:$(VERSION) \
+		--tag viralclipai-api:latest \
 		--progress=plain \
 		.
 
@@ -53,8 +53,8 @@ build-web: ## Build frontend web image
 		--build-arg VCS_REF=$(VCS_REF) \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://api:8000} \
-		--tag vidclips-web:$(VERSION) \
-		--tag vidclips-web:latest \
+		--tag viralclipai-web:$(VERSION) \
+		--tag viralclipai-web:latest \
 		--progress=plain \
 		./web
 
@@ -72,9 +72,9 @@ build-cache: ## Build with cache from registry
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		--build-arg VCS_REF=$(VCS_REF) \
 		--build-arg VERSION=$(VERSION) \
-		--cache-from vidclips-api:latest \
-		--tag vidclips-api:$(VERSION) \
-		--tag vidclips-api:latest \
+		--cache-from viralclipai-api:latest \
+		--tag viralclipai-api:$(VERSION) \
+		--tag viralclipai-api:latest \
 		.
 
 # -----------------------------------------------------------------------------
@@ -168,8 +168,8 @@ prune: ## Remove unused Docker resources
 	docker system prune -af --volumes
 
 clean-images: ## Remove project images
-	docker rmi vidclips-api:latest vidclips-api:$(VERSION) vidclips-web:latest vidclips-web:$(VERSION) 2>/dev/null || true
-	docker rmi vidclips-api:dev vidclips-web:dev 2>/dev/null || true
+	docker rmi viralclipai-api:latest viralclipai-api:$(VERSION) viralclipai-web:latest viralclipai-web:$(VERSION) 2>/dev/null || true
+	docker rmi viralclipai-api:dev viralclipai-web:dev 2>/dev/null || true
 
 # -----------------------------------------------------------------------------
 # CI/CD Targets
@@ -182,7 +182,7 @@ ci-build: ## Build for CI/CD (no cache)
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		--build-arg VCS_REF=$(VCS_REF) \
 		--build-arg VERSION=$(VERSION) \
-		--tag vidclips-api:$(VERSION) \
+		--tag viralclipai-api:$(VERSION) \
 		.
 
 ci-build-web: ## Build web for CI/CD (no cache)
@@ -192,7 +192,7 @@ ci-build-web: ## Build web for CI/CD (no cache)
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		--build-arg VCS_REF=$(VCS_REF) \
 		--build-arg VERSION=$(VERSION) \
-		--tag vidclips-web:$(VERSION) \
+		--tag viralclipai-web:$(VERSION) \
 		./web
 
 # -----------------------------------------------------------------------------
@@ -201,9 +201,9 @@ ci-build-web: ## Build web for CI/CD (no cache)
 
 scan: ## Scan images for vulnerabilities (requires docker scout)
 	@echo "Scanning API image..."
-	docker scout cves vidclips-api:latest || echo "docker scout not available"
+	docker scout cves viralclipai-api:latest || echo "docker scout not available"
 	@echo "Scanning Web image..."
-	docker scout cves vidclips-web:latest || echo "docker scout not available"
+	docker scout cves viralclipai-web:latest || echo "docker scout not available"
 
 # -----------------------------------------------------------------------------
 # Development Helpers

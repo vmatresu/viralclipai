@@ -9,7 +9,7 @@ export async function GET() {
     {
       status: 'healthy',
       timestamp: new Date().toISOString(),
-      service: 'vidclips-web',
+      service: 'viralclipai-web',
     },
     { status: 200 }
   );

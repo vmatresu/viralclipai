@@ -50,7 +50,7 @@ LOGGING_CONFIG = {
         },
     },
     "loggers": {
-        "vidclips": {
+        "viralclipai": {
             "handlers": ["console", "file"],
             "level": LOG_LEVEL,
             "propagate": False,
@@ -66,7 +66,7 @@ LOGGING_CONFIG = {
 }
 
 logging.config.dictConfig(LOGGING_CONFIG)
-logger = logging.getLogger("vidclips")
+logger = logging.getLogger("viralclipai")
 
 # Ensure directories exist
 VIDEOS_DIR.mkdir(parents=True, exist_ok=True)

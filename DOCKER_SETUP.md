@@ -47,7 +47,7 @@ NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=G-XXXXXXXXXX
 **File Structure:**
 
 ```
-vidclips-gemini/
+viralclipai/
 ├── .env.api.dev          ← Backend env file (create this)
 ├── docker-compose.dev.yml
 ├── web/

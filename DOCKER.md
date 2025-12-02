@@ -224,8 +224,8 @@ Health checks are configured in docker-compose files with:
 
 ### Docker Hub / Registry Push
 ```bash
-docker tag vidclips-api:latest your-registry/vidclips-api:latest
-docker push your-registry/vidclips-api:latest
+docker tag viralclipai-api:latest your-registry/viralclipai-api:latest
+docker push your-registry/viralclipai-api:latest
 ```
 
 ## Best Practices Checklist

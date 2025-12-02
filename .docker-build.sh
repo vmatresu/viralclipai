@@ -51,8 +51,8 @@ build_image() {
         --build-arg VCS_REF="${VCS_REF}" \
         --build-arg VERSION="${VERSION}" \
         ${extra_args} \
-        --tag "vidclips-${service}:${VERSION}" \
-        --tag "vidclips-${service}:latest" \
+        --tag "viralclipai-${service}:${VERSION}" \
+        --tag "viralclipai-${service}:latest" \
         --progress=plain \
         --file "${dockerfile}" \
         "${context}" || {
@@ -60,7 +60,7 @@ build_image() {
         exit 1
     }
     
-    log_info "Successfully built vidclips-${service}:${VERSION}"
+    log_info "Successfully built viralclipai-${service}:${VERSION}"
 }
 
 # Main

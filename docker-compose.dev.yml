@@ -23,8 +23,8 @@ services:
         BUILD_DATE: ${BUILD_DATE:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}
         VCS_REF: ${VCS_REF:-$(git rev-parse --short HEAD 2>/dev/null || echo 'dev')}
         VERSION: ${VERSION:-dev}
-    image: vidclips-api:dev
-    container_name: vidclips-api-dev
+    image: viralclipai-api:dev
+    container_name: viralclipai-api-dev
     env_file:
       - .env.api.dev
     environment:
@@ -44,7 +44,7 @@ services:
       - api-logs-dev:/app/logs
       - api-videos-dev:/app/videos
     networks:
-      - vidclips-network-dev
+      - viral-clip-ai-network-dev
     restart: unless-stopped
     # Development: more permissive resource limits
     deploy:
@@ -74,8 +74,8 @@ services:
         BUILD_DATE: ${BUILD_DATE:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}
         VCS_REF: ${VCS_REF:-$(git rev-parse --short HEAD 2>/dev/null || echo 'dev')}
         VERSION: ${VERSION:-dev}
-    image: vidclips-web:dev
-    container_name: vidclips-web-dev
+    image: viralclipai-web:dev
+    container_name: viralclipai-web-dev
     env_file:
       - web/.env.local
     environment:
@@ -91,7 +91,7 @@ services:
       - /app/node_modules
       - /app/.next
     networks:
-      - vidclips-network-dev
+      - viral-clip-ai-network-dev
     depends_on:
       - api
     restart: unless-stopped
@@ -115,17 +115,17 @@ services:
 # Networks
 # -----------------------------------------------------------------------------
 networks:
-  vidclips-network-dev:
+  viral-clip-ai-network-dev:
     driver: bridge
-    name: vidclips-network-dev
+    name: viral-clip-ai-network-dev
 
 # -----------------------------------------------------------------------------
 # Volumes
 # -----------------------------------------------------------------------------
 volumes:
   api-logs-dev:
-    name: vidclips-api-logs-dev
+    name: viral-clip-ai-api-logs-dev
     driver: local
   api-videos-dev:
-    name: vidclips-api-videos-dev
+    name: viral-clip-ai-api-videos-dev
     driver: local

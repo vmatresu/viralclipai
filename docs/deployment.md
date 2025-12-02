@@ -36,9 +36,9 @@ Dockerfiles for the backend and frontend.
 
 Two helper scripts are provided under `scripts/`:
 
-- `scripts/do-vidclips-create-droplet.sh` – idempotently creates a droplet via
+- `scripts/do-viralclipai-create-droplet.sh` – idempotently creates a droplet via
   `doctl`, waits for SSH, and optionally triggers provisioning.
-- `scripts/do-vidclips-provision-backend.sh` – runs on the droplet to:
+- `scripts/do-viralclipai-provision-backend.sh` – runs on the droplet to:
   - update & upgrade packages
   - install Docker and dependencies
   - configure a basic firewall with UFW

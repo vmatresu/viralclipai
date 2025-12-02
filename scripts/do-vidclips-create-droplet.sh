@@ -47,14 +47,14 @@ set -euo pipefail
 
 # Path to the remote provisioning script that will be executed on the Droplet
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROVISION_SCRIPT_LOCAL_PATH="${SCRIPT_DIR}/do-vidclips-provision-backend.sh"
+PROVISION_SCRIPT_LOCAL_PATH="${SCRIPT_DIR}/do-viralclipai-provision-backend.sh"
 
 ###############################
 # Helper functions
 ###############################
 
 log() {
-  echo "[do-vidclips-create-droplet] $*" >&2
+  echo "[do-viralclipai-create-droplet] $*" >&2
 }
 
 check_prerequisites() {

@@ -4,8 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:docker": "docker-compose -f ../docker-compose.dev.yml up -d web && docker-compose -f ../docker-compose.dev.yml logs -f web",
     "build": "next build",
+    "build:docker": "docker-compose -f ../docker-compose.dev.yml build web",
     "start": "next start",
+    "start:docker": "docker-compose -f ../docker-compose.dev.yml up -d web",
+    "stop:docker": "docker-compose -f ../docker-compose.dev.yml stop web",
+    "logs:docker": "docker-compose -f ../docker-compose.dev.yml logs -f web",
     "lint": "next lint",
     "format": "prettier --check .",
     "format:fix": "prettier --write ."

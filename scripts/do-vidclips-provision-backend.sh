@@ -11,21 +11,21 @@ set -euo pipefail
 # - Prepare application directory for GitHub Actions-based deployments
 #
 # This script is intended to be executed via SSH from the companion
-# do-vidclips-create-droplet.sh, e.g.:
-#   ssh root@IP 'bash -s' < scripts/do-vidclips-provision-backend.sh
+# do-viralclipai-create-droplet.sh, e.g.:
+#   ssh root@IP 'bash -s' < scripts/do-viralclipai-provision-backend.sh
 
 ###############################
 # Configuration
 ###############################
 
-: "${APP_DIR:=/var/www/vidclips-gemini}"
+: "${APP_DIR:=/var/www/viralclipai}"
 : "${CREATE_APP_DIR:=1}"
 
 # Whether to configure a simple UFW firewall (allow SSH/HTTP/HTTPS only)
 : "${CONFIGURE_UFW:=1}"
 
 log() {
-  echo "[do-vidclips-provision] $*" >&2
+  echo "[do-viralclipai-provision] $*" >&2
 }
 
 run_apt_update_upgrade() {

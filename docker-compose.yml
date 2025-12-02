@@ -26,8 +26,8 @@ services:
         VERSION: ${VERSION:-dev}
       cache_from:
         - python:3.11-slim-bookworm
-    image: vidclips-api:${VERSION:-latest}
-    container_name: vidclips-api
+    image: viralclipai-api:${VERSION:-latest}
+    container_name: viralclipai-api
     env_file:
       - .env.api
     environment:
@@ -42,7 +42,7 @@ services:
       # Read-only mount for static files (if needed)
       - ./app/static:/app/static:ro
     networks:
-      - vidclips-network
+      - viral-clip-ai-network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
@@ -89,8 +89,8 @@ services:
         NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${NEXT_PUBLIC_FIREBASE_PROJECT_ID:-}
       cache_from:
         - node:20-alpine
-    image: vidclips-web:${VERSION:-latest}
-    container_name: vidclips-web
+    image: viralclipai-web:${VERSION:-latest}
+    container_name: viralclipai-web
     env_file:
       - web/.env.production
     environment:
@@ -101,7 +101,7 @@ services:
     ports:
       - "${WEB_PORT:-3000}:3000"
     networks:
-      - vidclips-network
+      - viral-clip-ai-network
     depends_on:
       api:
         condition: service_healthy
@@ -138,17 +138,17 @@ services:
 # Networks
 # -----------------------------------------------------------------------------
 networks:
-  vidclips-network:
+  viral-clip-ai-network:
     driver: bridge
-    name: vidclips-network
+    name: viral-clip-ai-network
 
 # -----------------------------------------------------------------------------
 # Volumes
 # -----------------------------------------------------------------------------
 volumes:
   api-logs:
-    name: vidclips-api-logs
+    name: viral-clip-ai-api-logs
     driver: local
   api-videos:
-    name: vidclips-api-videos
+    name: viral-clip-ai-api-videos
     driver: local

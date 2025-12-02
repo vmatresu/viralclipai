@@ -21,7 +21,7 @@ log shipping / aggregation solution (e.g. CloudWatch, Datadog, Loki).
 
 ### Usage
 
-Modules use `logging.getLogger(__name__)` or the `vidclips` logger from
+Modules use `logging.getLogger(__name__)` or the `viralclipai` logger from
 `app/config.py`. Avoid using `print()` and prefer structured log messages.
 
 ## Frontend Logging
