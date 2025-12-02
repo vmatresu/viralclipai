@@ -1,9 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { usePageView } from "@/lib/usePageView";
-import { useEffect, useState } from "react";
 
 interface UserVideo {
   id?: string;
@@ -31,7 +32,9 @@ export default function HistoryPage() {
           setLoading(false);
           return;
         }
-        const data = await apiFetch("/api/user/videos", { token });
+        const data = (await apiFetch<{ videos: UserVideo[] }>("/api/user/videos", {
+          token,
+        })) as { videos: UserVideo[] };
         if (!cancelled) {
           setVideos(data.videos ?? []);
         }

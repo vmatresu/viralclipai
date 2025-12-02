@@ -1,10 +1,10 @@
 /**
  * Video Processing Form Component
- * 
+ *
  * Form for submitting video processing requests.
  */
 
-import { FormEvent } from "react";
+import { type FormEvent } from "react";
 
 const STYLES = [
   { value: "split", label: "Split View", subtitle: "Top/Bottom" },
@@ -129,9 +129,7 @@ export function VideoForm({
                 />
                 <div className="p-4 rounded-xl bg-gray-800 border border-gray-700 peer-checked:border-blue-500 peer-checked:bg-blue-900/20 transition-all text-center hover:bg-gray-750">
                   <span className="font-medium">{s.label}</span>
-                  <span className="block text-xs text-gray-500 mt-1">
-                    {s.subtitle}
-                  </span>
+                  <span className="block text-xs text-gray-500 mt-1">{s.subtitle}</span>
                 </div>
               </label>
             ))}
@@ -149,4 +147,3 @@ export function VideoForm({
     </section>
   );
 }
-

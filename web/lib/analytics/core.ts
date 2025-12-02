@@ -1,12 +1,12 @@
 /**
  * Core Analytics Functions
- * 
+ *
  * Initialization, event tracking, and user management for Firebase Analytics.
  */
 
 import {
   getAnalytics,
-  Analytics,
+  type Analytics,
   logEvent,
   isSupported,
   setAnalyticsCollectionEnabled,
@@ -14,10 +14,21 @@ import {
   setUserProperties,
 } from "firebase/analytics";
 import { getApps } from "firebase/app";
+
 import { frontendLogger } from "@/lib/logger";
-import { AnalyticsConfig, AnalyticsEventParams, AnalyticsEventName } from "./types";
+
 import { DEFAULT_CONFIG } from "./config";
-import { shouldEnableAnalytics, sanitizeEventName, sanitizeParams, validateEvent } from "./utils";
+import {
+  type AnalyticsConfig,
+  type AnalyticsEventParams,
+  type AnalyticsEventName,
+} from "./types";
+import {
+  shouldEnableAnalytics,
+  sanitizeEventName,
+  sanitizeParams,
+  validateEvent,
+} from "./utils";
 
 // ============================================================================
 // State Management
@@ -26,7 +37,7 @@ import { shouldEnableAnalytics, sanitizeEventName, sanitizeParams, validateEvent
 let analyticsInstance: Analytics | null = null;
 let initializationPromise: Promise<Analytics | null> | null = null;
 let isInitialized = false;
-let config: AnalyticsConfig = { ...DEFAULT_CONFIG };
+const config: AnalyticsConfig = { ...DEFAULT_CONFIG };
 const eventQueue: Array<{ eventName: string; params?: AnalyticsEventParams }> = [];
 
 // ============================================================================
@@ -78,7 +89,9 @@ export async function initAnalytics(): Promise<Analytics | null> {
       const measurementId = process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID;
       if (!measurementId) {
         if (config.debug) {
-          frontendLogger.info("Firebase Analytics measurement ID not configured. Analytics disabled.");
+          frontendLogger.info(
+            "Firebase Analytics measurement ID not configured. Analytics disabled."
+          );
         }
         return null;
       }
@@ -136,10 +149,7 @@ function processEventQueue(): void {
 /**
  * Internal event tracking (assumes analytics is initialized)
  */
-function trackEventInternal(
-  eventName: string,
-  params?: AnalyticsEventParams
-): void {
+function trackEventInternal(eventName: string, params?: AnalyticsEventParams): void {
   if (!analyticsInstance) {
     return;
   }
@@ -290,4 +300,3 @@ export function getAnalyticsInstance(): Analytics | null {
 export function isAnalyticsInitialized(): boolean {
   return isInitialized && analyticsInstance !== null;
 }
-

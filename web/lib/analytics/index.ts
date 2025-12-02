@@ -1,6 +1,6 @@
 /**
  * Analytics Module - Main Export
- * 
+ *
  * Centralized exports for the analytics module.
  */
 
@@ -9,4 +9,3 @@ export * from "./config";
 export * from "./core";
 export * from "./events";
 export { analyticsEvents } from "./events";
-

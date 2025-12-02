@@ -1,6 +1,6 @@
 /**
  * Processing Status Component
- * 
+ *
  * Displays processing progress and logs.
  */
 
@@ -21,7 +21,7 @@ export function ProcessingStatus({ progress, logs }: ProcessingStatusProps) {
           <div
             className="bg-gradient-to-r from-blue-500 to-purple-500 h-4 rounded-full transition-all duration-500 ease-out"
             style={{ width: `${progress}%` }}
-          ></div>
+          />
         </div>
 
         <div className="bg-black/50 rounded-xl p-4 font-mono text-sm text-green-400 h-64 overflow-y-auto border border-gray-800 space-y-1">
@@ -35,4 +35,3 @@ export function ProcessingStatus({ progress, logs }: ProcessingStatusProps) {
     </section>
   );
 }
-

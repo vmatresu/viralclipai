@@ -1,15 +1,17 @@
 /**
  * ProcessingClient Custom Hooks
- * 
+ *
  * Custom hooks for video processing logic.
  */
 
-import { useCallback, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useCallback, useRef, useState } from "react";
+
+import { analyticsEvents } from "@/lib/analytics";
 import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
-import { analyticsEvents } from "@/lib/analytics";
-import { Clip } from "../ClipGrid";
+
+import { type Clip } from "../ClipGrid";
 
 export function useVideoProcessing() {
   const searchParams = useSearchParams();
@@ -58,7 +60,7 @@ export function useVideoProcessing() {
         const clipsData = data.clips || [];
         setClips(clipsData);
         setCustomPromptUsed(data.custom_prompt ?? null);
-        
+
         // Track processing completion with actual clips count
         // Use stored values from when processing started, not current form values
         if (processingStartTime.current) {
@@ -112,4 +114,3 @@ export function useVideoProcessing() {
     searchParams,
   };
 }
-

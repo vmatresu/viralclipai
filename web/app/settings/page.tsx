@@ -1,8 +1,9 @@
 "use client";
 
+import { type FormEvent, useEffect, useState } from "react";
+
 import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
-import { FormEvent, useEffect, useState } from "react";
 
 interface SettingsResponse {
   plan: string;
@@ -34,9 +35,11 @@ export default function SettingsPage() {
           setLoading(false);
           return;
         }
-        const res = await apiFetch("/api/settings", { token });
+        const res = (await apiFetch<SettingsResponse>("/api/settings", {
+          token,
+        })) as SettingsResponse;
         if (!cancelled) {
-          setData(res as SettingsResponse);
+          setData(res);
           setAccessToken(res.settings?.tiktok_access_token ?? "");
           setAccountId(res.settings?.tiktok_account_id ?? "");
         }

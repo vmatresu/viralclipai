@@ -1,17 +1,18 @@
 /**
  * Analytics Utility Functions
- * 
+ *
  * Sanitization, validation, and privacy utilities for analytics.
  */
 
 import { frontendLogger } from "@/lib/logger";
-import { AnalyticsConfig, AnalyticsEventParams } from "./types";
+
 import {
   MAX_EVENT_NAME_LENGTH,
   MAX_PARAM_NAME_LENGTH,
   MAX_PARAM_VALUE_LENGTH,
   MAX_PARAMS_PER_EVENT,
 } from "./config";
+import { type AnalyticsConfig, type AnalyticsEventParams } from "./types";
 
 /**
  * Check if analytics should be enabled based on privacy settings
@@ -112,7 +113,7 @@ export function sanitizeParams(
  */
 export function validateEvent(
   eventName: string,
-  params?: AnalyticsEventParams
+  _params?: AnalyticsEventParams
 ): boolean {
   if (!eventName || typeof eventName !== "string") {
     frontendLogger.error("Invalid event name:", eventName);
@@ -126,4 +127,3 @@ export function validateEvent(
 
   return true;
 }
-

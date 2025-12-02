@@ -1,7 +1,10 @@
+import { type ReactNode } from "react";
+
+import type { Metadata } from "next";
+
 import { Navbar } from "@/components/Navbar";
 import { AuthProvider } from "@/lib/auth";
-import type { Metadata } from "next";
-import { ReactNode } from "react";
+
 import "./globals.css";
 
 export const metadata: Metadata = {

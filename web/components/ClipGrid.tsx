@@ -1,10 +1,11 @@
 "use client";
 
+import { useState } from "react";
+
+import { analyticsEvents } from "@/lib/analytics";
 import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
-import { analyticsEvents } from "@/lib/analytics";
-import { useState } from "react";
 
 export interface Clip {
   name: string;
@@ -47,7 +48,7 @@ export function ClipGrid({ videoId, clips, log }: ClipGridProps) {
         }
       );
       log("Clip published to TikTok successfully.", "success");
-      
+
       // Track successful TikTok publish
       analyticsEvents.clipPublishedTikTok({
         clipId: clip.name,
@@ -59,7 +60,7 @@ export function ClipGrid({ videoId, clips, log }: ClipGridProps) {
       const errorMessage = err.message || "Unknown error";
       log(`TikTok publish failed: ${errorMessage}`, "error");
       alert("TikTok publish failed. Check console for details.");
-      
+
       // Track failed TikTok publish
       analyticsEvents.clipPublishedFailed({
         clipId: clip.name,
@@ -144,7 +145,7 @@ export function ClipGrid({ videoId, clips, log }: ClipGridProps) {
                   onClick={() => {
                     // Extract style from clip name (e.g., clip_01_01_title_split.mp4 -> split)
                     const styleMatch = clip.name.match(/_([^_]+)\.(mp4|jpg)$/);
-                    const clipStyle = styleMatch ? styleMatch[1] : "unknown";
+                    const clipStyle = styleMatch?.[1] ?? "unknown";
                     analyticsEvents.clipDownloaded({
                       clipId: clip.name,
                       clipName: clip.name,

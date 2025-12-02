@@ -1,20 +1,22 @@
 /**
  * ProcessingClient Component
- * 
+ *
  * Main component for video processing workflow.
  */
 
 "use client";
 
-import { FormEvent, useEffect } from "react";
+import { type FormEvent, useEffect } from "react";
+
+import { analyticsEvents } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
-import { analyticsEvents } from "@/lib/analytics";
-import { useVideoProcessing } from "./hooks";
-import { VideoForm } from "./VideoForm";
-import { ProcessingStatus } from "./ProcessingStatus";
+
 import { ErrorDisplay } from "./ErrorDisplay";
+import { useVideoProcessing } from "./hooks";
+import { ProcessingStatus } from "./ProcessingStatus";
 import { Results } from "./Results";
+import { VideoForm } from "./VideoForm";
 
 export function ProcessingClient() {
   const {
@@ -118,7 +120,7 @@ export function ProcessingClient() {
           setError(errorMessage);
           setErrorDetails(data.details || null);
           setSubmitting(false);
-          
+
           // Track processing failure
           analyticsEvents.videoProcessingFailed({
             errorType: data.details || "unknown",
@@ -132,7 +134,7 @@ export function ProcessingClient() {
           const newUrl = new URL(window.location.href);
           newUrl.searchParams.set("id", id);
           window.history.pushState({}, "", newUrl.toString());
-          
+
           // Track processing completion after loading results
           loadResults(id);
         }
@@ -153,7 +155,7 @@ export function ProcessingClient() {
       const errorMessage = err.message || "Failed to start processing";
       setError(errorMessage);
       setSubmitting(false);
-      
+
       // Track processing failure
       analyticsEvents.videoProcessingFailed({
         errorType: "initialization_error",
@@ -206,4 +208,3 @@ export function ProcessingClient() {
     </div>
   );
 }
-

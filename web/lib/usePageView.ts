@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
+
 import { analyticsEvents } from "@/lib/analytics";
 
 /**
@@ -12,14 +13,13 @@ export function usePageView(pageName?: string) {
   const pathname = usePathname();
 
   useEffect(() => {
-    const name = pageName || pathname || "unknown";
-    const title = document.title || "";
-    
-    analyticsEvents.pageViewed({
+    const name = pageName ?? pathname ?? "unknown";
+    const title = document.title ?? "";
+
+    void analyticsEvents.pageViewed({
       pageName: name,
-      pagePath: pathname || undefined,
+      pagePath: pathname ?? undefined,
       pageTitle: title || undefined,
     });
   }, [pathname, pageName]);
 }
-

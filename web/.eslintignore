@@ -11,10 +11,10 @@ build/
 coverage/
 .nyc_output/
 
-# Config files (keep formatting)
-# next.config.*
-# tailwind.config.*
-# postcss.config.*
+# Config files
+next.config.*
+tailwind.config.*
+postcss.config.*
 
 # Environment files
 .env
@@ -28,14 +28,9 @@ logs/
 # Cache
 .cache/
 .parcel-cache/
-.prettiercache
+.eslintcache
 
-# Package manager
-package-lock.json
-yarn.lock
-pnpm-lock.yaml
-
-# TypeScript declaration files
+# TypeScript
 *.d.ts
 next-env.d.ts
 
@@ -46,5 +41,4 @@ coverage/
 # Misc
 .DS_Store
 *.pem
-*.svg
 

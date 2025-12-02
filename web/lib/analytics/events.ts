@@ -1,11 +1,10 @@
 /**
  * Predefined Analytics Events
- * 
+ *
  * Type-safe event helpers for common analytics events.
  */
 
 import { trackEvent, setAnalyticsUserId } from "./core";
-import { AnalyticsEventParams } from "./types";
 
 /**
  * Predefined analytics events with type safety
@@ -83,7 +82,11 @@ export const analyticsEvents = {
       clip_name: params.clipName,
     }),
 
-  clipPublishedTikTok: (params: { clipId: string; clipName: string; success: boolean }) =>
+  clipPublishedTikTok: (params: {
+    clipId: string;
+    clipName: string;
+    success: boolean;
+  }) =>
     trackEvent("clip_published_tiktok", {
       clip_id: params.clipId,
       clip_name: params.clipName,
@@ -102,11 +105,7 @@ export const analyticsEvents = {
     }),
 
   // Navigation
-  pageViewed: (params: {
-    pageName: string;
-    pagePath?: string;
-    pageTitle?: string;
-  }) =>
+  pageViewed: (params: { pageName: string; pagePath?: string; pageTitle?: string }) =>
     trackEvent("page_view", {
       page_name: params.pageName,
       page_path: params.pagePath,
@@ -146,4 +145,3 @@ export const analyticsEvents = {
       page_name: params.pageName,
     }),
 };
-

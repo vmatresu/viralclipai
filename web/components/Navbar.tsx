@@ -1,7 +1,8 @@
 "use client";
 
-import { useAuth } from "@/lib/auth";
 import Link from "next/link";
+
+import { useAuth } from "@/lib/auth";
 
 export function Navbar() {
   const { user, loading, signInWithGoogle, signOut } = useAuth();

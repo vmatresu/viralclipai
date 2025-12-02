@@ -1,6 +1,6 @@
 /**
  * Analytics Types & Interfaces
- * 
+ *
  * Centralized type definitions for analytics events and parameters.
  */
 
@@ -72,4 +72,3 @@ export interface AnalyticsConfig {
   maxEventQueueSize: number;
   batchIntervalMs: number;
 }
-

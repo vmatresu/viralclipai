@@ -1,13 +1,5 @@
 "use client";
 
-import {
-  ReactNode,
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useState,
-} from "react";
 import { initializeApp, getApps } from "firebase/app";
 import {
   getAuth,
@@ -15,10 +7,19 @@ import {
   signInWithPopup,
   GoogleAuthProvider,
   signOut as firebaseSignOut,
-  User,
+  type User,
 } from "firebase/auth";
-import { frontendLogger } from "@/lib/logger";
+import {
+  type ReactNode,
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
+
 import { initAnalytics, analyticsEvents } from "@/lib/analytics";
+import { frontendLogger } from "@/lib/logger";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -66,9 +67,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Initialize Firebase app first (via getAuthInstance), then analytics
     const auth = getAuthInstance();
-    
+
     // Initialize analytics after Firebase app is ready
-    initAnalytics();
+    void initAnalytics();
 
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
@@ -82,13 +83,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
-    analyticsEvents.signInAttempted();
+    void analyticsEvents.signInAttempted();
     const auth = getAuthInstance();
     const provider = new GoogleAuthProvider();
     try {
       await signInWithPopup(auth, provider);
-    } catch (error: any) {
-      analyticsEvents.signInFailed(error?.message || "Unknown error");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      void analyticsEvents.signInFailed(message);
       throw error;
     }
   }, []);
@@ -96,14 +98,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     const auth = getAuthInstance();
     await firebaseSignOut(auth);
-    analyticsEvents.userSignedOut();
+    void analyticsEvents.userSignedOut();
   }, []);
 
   const getIdToken = useCallback(async (): Promise<string | null> => {
     const auth = getAuthInstance();
     const current = auth.currentUser;
     if (!current) return null;
-    return await current.getIdToken(true);
+    return current.getIdToken(true);
   }, []);
 
   const value: AuthContextValue = {

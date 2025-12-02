@@ -1,17 +1,16 @@
-import { NextResponse } from 'next/server';
+import { NextResponse } from "next/server";
 
 /**
  * Health check endpoint for Docker/Kubernetes orchestration
  * Returns 200 OK if the service is healthy
  */
-export async function GET() {
+export function GET() {
   return NextResponse.json(
     {
-      status: 'healthy',
+      status: "healthy",
       timestamp: new Date().toISOString(),
-      service: 'viralclipai-web',
+      service: "viralclipai-web",
     },
     { status: 200 }
   );
 }
-

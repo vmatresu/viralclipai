@@ -1,4 +1,4 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
 export interface ApiRequestOptions {
   method?: string;
@@ -6,7 +6,7 @@ export interface ApiRequestOptions {
   body?: unknown;
 }
 
-export async function apiFetch<T = any>(
+export async function apiFetch<T = unknown>(
   path: string,
   options: ApiRequestOptions = {}
 ): Promise<T> {

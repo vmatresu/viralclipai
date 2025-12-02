@@ -1,6 +1,6 @@
 /**
  * Results Display Component
- * 
+ *
  * Displays processing results and clips.
  */
 
@@ -46,4 +46,3 @@ export function Results({
     </section>
   );
 }
-

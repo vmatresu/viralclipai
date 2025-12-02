@@ -1,10 +1,10 @@
 /**
  * Analytics Configuration & Constants
- * 
+ *
  * Centralized configuration and constants for Firebase Analytics.
  */
 
-import { AnalyticsConfig } from "./types";
+import { type AnalyticsConfig } from "./types";
 
 /**
  * Default analytics configuration
@@ -24,4 +24,3 @@ export const MAX_EVENT_NAME_LENGTH = 40;
 export const MAX_PARAM_NAME_LENGTH = 40;
 export const MAX_PARAM_VALUE_LENGTH = 100;
 export const MAX_PARAMS_PER_EVENT = 25;
-

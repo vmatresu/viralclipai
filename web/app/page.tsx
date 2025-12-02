@@ -1,9 +1,10 @@
 "use client";
 
+import { Suspense } from "react";
+
 import { ProcessingClient } from "@/components/ProcessingClient";
 import { analyticsEvents } from "@/lib/analytics";
 import { usePageView } from "@/lib/usePageView";
-import { Suspense } from "react";
 
 export default function HomePage() {
   usePageView("home");
