@@ -155,6 +155,7 @@ async def get_clip(
                     "Accept-Ranges": "bytes",
                     "Content-Length": str(end - start + 1),
                     "Cache-Control": "public, max-age=3600",
+                    "Cross-Origin-Resource-Policy": "cross-origin",
                 }
             )
         except (ValueError, IndexError):
@@ -177,5 +178,6 @@ async def get_clip(
             "Accept-Ranges": "bytes",
             "Content-Length": str(content_length),
             "Cache-Control": "public, max-age=3600",
+            "Cross-Origin-Resource-Policy": "cross-origin",
         }
     )

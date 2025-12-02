@@ -117,7 +117,9 @@ def list_clips_with_metadata(uid: str, video_id: str, highlights_map: Dict[int, 
                     description_text = meta.get("description", "")
         except Exception:
             pass
-        url = generate_presigned_url(key, expires_in=url_expiry)
+        # Use relative URL for video clips to go through backend proxy with CORS headers
+        # This ensures proper CORS handling for video playback
+        url = f"/api/videos/{video_id}/clips/{filename}"
         clips.append(
             {
                 "name": filename,
