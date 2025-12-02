@@ -1,3 +1,4 @@
+import json
 import os
 from typing import Any, Dict, Optional
 
@@ -15,10 +16,9 @@ def _init_firebase() -> None:
     global _firebase_app, _db
     if _firebase_app is not None and _db is not None:
         return
-    project_id = os.getenv("FIREBASE_PROJECT_ID")
     credentials_path = os.getenv("FIREBASE_CREDENTIALS_PATH")
-    if not project_id or not credentials_path:
-        raise RuntimeError("FIREBASE_PROJECT_ID and FIREBASE_CREDENTIALS_PATH must be configured")
+    if not credentials_path:
+        raise RuntimeError("FIREBASE_CREDENTIALS_PATH must be configured")
     
     # Resolve credentials path - check multiple possible locations
     if not os.path.isabs(credentials_path):
@@ -49,10 +49,32 @@ def _init_firebase() -> None:
     if not os.path.exists(credentials_path):
         raise FileNotFoundError(f"Firebase credentials file not found at: {credentials_path}")
     
+    # Extract project ID from credentials file to ensure it matches
+    try:
+        with open(credentials_path, "r", encoding="utf-8") as f:
+            cred_data = json.load(f)
+            project_id_from_creds = cred_data.get("project_id")
+    except (json.JSONDecodeError, KeyError, IOError) as e:
+        raise RuntimeError(f"Failed to read project_id from credentials file: {e}")
+    
+    if not project_id_from_creds:
+        raise RuntimeError("Credentials file does not contain a project_id field")
+    
+    # Use project ID from credentials file (most reliable)
+    # Optionally validate against environment variable if provided
+    env_project_id = os.getenv("FIREBASE_PROJECT_ID")
+    if env_project_id and env_project_id != project_id_from_creds:
+        logger.warning(
+            "FIREBASE_PROJECT_ID environment variable (%s) does not match credentials file project_id (%s). "
+            "Using project_id from credentials file.",
+            env_project_id,
+            project_id_from_creds,
+        )
+    
     cred = credentials.Certificate(credentials_path)
-    _firebase_app = firebase_admin.initialize_app(cred, {"projectId": project_id})
+    _firebase_app = firebase_admin.initialize_app(cred, {"projectId": project_id_from_creds})
     _db = firestore.client()
-    logger.info("Firebase initialized for project %s", project_id)
+    logger.info("Firebase initialized for project %s", project_id_from_creds)
 
 
 def get_firestore_client() -> firestore.Client:
