@@ -47,9 +47,10 @@ async def websocket_endpoint(websocket: WebSocket):
         # Authenticate
         try:
             decoded = verify_id_token(request_data.token)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"WebSocket auth failed for token starting with {request_data.token[:10]}... Error: {str(e)}")
             await websocket.send_json(
-                {"type": "error", "message": "Invalid or expired authentication"}
+                {"type": "error", "message": f"Authentication failed: {str(e)}"}
             )
             log_security_event("ws_auth_failed", request=websocket)
             return

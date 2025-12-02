@@ -99,6 +99,9 @@ FROM python-deps AS app-code
 # Copy application code (this layer changes frequently)
 COPY app/ ./app/
 COPY prompt.txt ./prompt.txt
+# Copy credentials if present (best effort for dev/prod build context)
+# Copy to root location to match volume mount structure in dev mode
+COPY firebase-credentials.json* ./firebase-credentials.json
 
 # Verify application structure
 RUN python -c "from app.main import app; print('Application loaded successfully')" || exit 1

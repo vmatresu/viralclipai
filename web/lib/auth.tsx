@@ -5,11 +5,11 @@ import {
   GoogleAuthProvider,
   signOut as firebaseSignOut,
   getAuth,
-  onAuthStateChanged,
-  signInWithPopup,
-  sendSignInLinkToEmail,
   isSignInWithEmailLink,
+  onAuthStateChanged,
+  sendSignInLinkToEmail,
   signInWithEmailLink,
+  signInWithPopup,
   type User,
 } from "firebase/auth";
 import {
@@ -108,8 +108,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const auth = getAuthInstance();
     const provider = new GoogleAuthProvider();
     try {
+      frontendLogger.info("Attempting Google sign-in...");
       await signInWithPopup(auth, provider);
+      frontendLogger.info("Google sign-in successful");
     } catch (error: unknown) {
+      frontendLogger.error("Google sign-in failed", error);
+
       const message = error instanceof Error ? error.message : "Unknown error";
       void analyticsEvents.signInFailed(message);
       throw error;
@@ -124,30 +128,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       url: `${window.location.origin}/auth/finish`,
       handleCodeInApp: true,
     };
-    
+
     await sendSignInLinkToEmail(auth, email, actionCodeSettings);
-    window.localStorage.setItem('emailForSignIn', email);
+    window.localStorage.setItem("emailForSignIn", email);
     void analyticsEvents.signInAttempted(); // Consider adding a specific event for email link
   }, []);
 
   const finishEmailSignIn = useCallback(async (email: string, link: string) => {
     const auth = getAuthInstance();
     try {
-       const result = await signInWithEmailLink(auth, email, link);
-       window.localStorage.removeItem('emailForSignIn');
-       if (result.user) {
-           analyticsEvents.userSignedIn(result.user.uid);
-       }
+      const result = await signInWithEmailLink(auth, email, link);
+      window.localStorage.removeItem("emailForSignIn");
+      if (result.user) {
+        analyticsEvents.userSignedIn(result.user.uid);
+      }
     } catch (error) {
-        const message = error instanceof Error ? error.message : "Unknown error";
-        void analyticsEvents.signInFailed(message);
-        throw error;
+      const message = error instanceof Error ? error.message : "Unknown error";
+      void analyticsEvents.signInFailed(message);
+      throw error;
     }
   }, []);
 
   const isEmailLink = useCallback((link: string) => {
-      const auth = getAuthInstance();
-      return isSignInWithEmailLink(auth, link);
+    const auth = getAuthInstance();
+    return isSignInWithEmailLink(auth, link);
   }, []);
 
   const signOut = useCallback(async () => {

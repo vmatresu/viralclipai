@@ -32,7 +32,7 @@ const nextConfig = {
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: https: blob:",
       "font-src 'self' data:",
-      "connect-src 'self' https://*.googleapis.com wss://* ws://*",
+      "connect-src 'self' https://*.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com wss://* ws://* http://localhost:8000 ws://localhost:8000",
       "media-src 'self' blob: https:",
       "object-src 'none'",
       "base-uri 'self'",

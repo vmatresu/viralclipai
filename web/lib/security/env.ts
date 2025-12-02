@@ -4,6 +4,7 @@
  */
 
 import { requireEnv, isValidFirebaseConfig } from "./validation";
+import { frontendLogger } from "@/lib/logger";
 
 /**
  * Validated environment variables
@@ -50,7 +51,7 @@ export function validateEnvironment(): void {
       projectId: env.firebase.projectId,
     })
   ) {
-    console.warn(
+    frontendLogger.warn(
       "[Security] Firebase configuration is incomplete. Auth features may not work correctly."
     );
   }
