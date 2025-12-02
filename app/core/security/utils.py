@@ -74,7 +74,8 @@ def log_security_event(
     if request:
         log_data["client_ip"] = request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown")
         log_data["path"] = str(request.url.path)
-        log_data["method"] = request.method
+        # WebSocket objects don't have a method attribute
+        log_data["method"] = getattr(request, "method", "WEBSOCKET")
         log_data["request_id"] = get_request_id(request)
     
     if details:

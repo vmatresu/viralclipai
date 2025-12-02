@@ -65,8 +65,8 @@ def get_firestore_client() -> firestore.Client:
 def verify_id_token(id_token: str) -> Dict[str, Any]:
     _init_firebase()
     try:
-        # Allow 5 minutes of clock skew for dev environments (docker vs host time drift)
-        return auth.verify_id_token(id_token, clock_skew_seconds=300)
+        # Allow 60 seconds of clock skew (max allowed by library) for dev environments
+        return auth.verify_id_token(id_token, clock_skew_seconds=60)
     except Exception as exc:
         logger.warning("Failed to verify Firebase ID token: %s", exc)
         raise
