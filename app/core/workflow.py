@@ -63,7 +63,26 @@ async def process_video_workflow(
         data["video_url"] = url
         if custom_prompt and custom_prompt.strip():
             data["custom_prompt"] = custom_prompt.strip()
-        highlights = data.get("highlights", [])
+        
+        # Robustly find the highlights list, even if Gemini uses a different key (e.g. "emotional_moments")
+        highlights = []
+        if "highlights" in data and isinstance(data["highlights"], list):
+            highlights = data["highlights"]
+        else:
+            # Fallback: Look for ANY list that looks like highlight data
+            for key, value in data.items():
+                if isinstance(value, list) and len(value) > 0:
+                    first_item = value[0]
+                    if isinstance(first_item, dict) and "start" in first_item and "end" in first_item:
+                        logger.info(f"Found alternate highlights key: {key}")
+                        highlights = value
+                        break
+        
+        if not highlights:
+            logger.warning("No valid highlights found in AI response.")
+            await websocket.send_json({"type": "error", "message": "AI failed to identify clips in the video."})
+            return
+
         for idx, h in enumerate(highlights, start=1):
             h.setdefault("id", idx)
             h.setdefault("priority", idx)
