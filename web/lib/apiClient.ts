@@ -161,3 +161,32 @@ export async function bulkDeleteVideos(
     body: { video_ids: videoIds },
   });
 }
+
+/**
+ * Delete a single clip from a video
+ */
+export async function deleteClip(
+  videoId: string,
+  clipName: string,
+  token: string
+): Promise<{
+  success: boolean;
+  video_id: string;
+  clip_name: string;
+  message?: string;
+  files_deleted?: number;
+}> {
+  return apiFetch<{
+    success: boolean;
+    video_id: string;
+    clip_name: string;
+    message?: string;
+    files_deleted?: number;
+  }>(
+    `/api/videos/${encodeURIComponent(videoId)}/clips/${encodeURIComponent(clipName)}`,
+    {
+      method: "DELETE",
+      token,
+    }
+  );
+}

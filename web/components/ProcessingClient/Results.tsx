@@ -23,6 +23,7 @@ interface ResultsProps {
   customPromptUsed: string | null;
   log: (msg: string, type?: "info" | "error" | "success") => void;
   onReset: () => void;
+  onClipDeleted?: (clipName: string) => void;
 }
 
 export function Results({
@@ -31,6 +32,7 @@ export function Results({
   customPromptUsed,
   log,
   onReset,
+  onClipDeleted,
 }: ResultsProps) {
   return (
     <section className="space-y-6">
@@ -55,7 +57,7 @@ export function Results({
           </CardContent>
         </Card>
       )}
-      <ClipGrid videoId={videoId} clips={clips} log={log} />
+      <ClipGrid videoId={videoId} clips={clips} log={log} onClipDeleted={onClipDeleted} />
     </section>
   );
 }

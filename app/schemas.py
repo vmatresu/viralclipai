@@ -268,3 +268,12 @@ class BulkDeleteVideosResponse(BaseSchema):
         default_factory=dict,
         description="Detailed results per video_id with success status and optional error"
     )
+
+
+class DeleteClipResponse(BaseSchema):
+    """Response after deleting a clip."""
+    success: bool
+    video_id: str
+    clip_name: str
+    message: Optional[str] = None
+    files_deleted: Optional[int] = None

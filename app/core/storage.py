@@ -187,3 +187,89 @@ def delete_video_files(uid: str, video_id: str) -> int:
     
     logger.info("Deleted %d objects for video %s/%s", deleted_count, uid, video_id)
     return deleted_count
+
+
+def delete_clip(uid: str, video_id: str, clip_name: str) -> int:
+    """
+    Delete a single clip and its thumbnail from R2 storage.
+    
+    Args:
+        uid: User ID
+        video_id: Video ID
+        clip_name: Name of the clip file (e.g., "clip_0_split.mp4")
+        
+    Returns:
+        Number of objects deleted (should be 1 or 2: clip + optional thumbnail)
+        
+    Raises:
+        ClientError: If deletion fails
+        ValueError: If clip_name is invalid
+    """
+    from app.core.security.validation import validate_clip_name, ValidationError
+    
+    # Validate clip_name to prevent path traversal
+    try:
+        clip_name = validate_clip_name(clip_name)
+    except ValidationError as e:
+        logger.error("Invalid clip name %s: %s", clip_name, e)
+        raise ValueError(f"Invalid clip name: {e.message}")
+    
+    client = get_r2_client()
+    
+    # Construct keys for clip and thumbnail
+    clip_key = f"{uid}/{video_id}/clips/{clip_name}"
+    # Thumbnail is typically the same name but with .jpg extension
+    thumbnail_key = clip_key.rsplit(".", 1)[0] + ".jpg"
+    
+    objects_to_delete: List[Dict[str, str]] = []
+    
+    # Check if clip exists
+    try:
+        client.head_object(Bucket=R2_BUCKET_NAME, Key=clip_key)
+        objects_to_delete.append({"Key": clip_key})
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code", "")
+        if error_code != "404":
+            logger.error("Error checking clip %s: %s", clip_key, e)
+            raise
+        # Clip doesn't exist, but continue to check thumbnail
+    
+    # Check if thumbnail exists
+    try:
+        client.head_object(Bucket=R2_BUCKET_NAME, Key=thumbnail_key)
+        objects_to_delete.append({"Key": thumbnail_key})
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code", "")
+        if error_code != "404":
+            logger.error("Error checking thumbnail %s: %s", thumbnail_key, e)
+            raise
+        # Thumbnail doesn't exist, that's fine
+    
+    if not objects_to_delete:
+        logger.warning("Clip %s/%s/%s not found", uid, video_id, clip_name)
+        return 0
+    
+    # Delete objects
+    try:
+        response = client.delete_objects(
+            Bucket=R2_BUCKET_NAME,
+            Delete={"Objects": objects_to_delete, "Quiet": True}
+        )
+        
+        deleted_count = len(objects_to_delete)
+        if response.get("Errors"):
+            logger.warning(
+                "Some objects failed to delete for clip %s/%s/%s: %s",
+                uid, video_id, clip_name, response["Errors"]
+            )
+            # Count only successful deletions
+            deleted_count = len(objects_to_delete) - len(response["Errors"])
+        
+        logger.info(
+            "Deleted %d object(s) for clip %s/%s/%s",
+            deleted_count, uid, video_id, clip_name
+        )
+        return deleted_count
+    except ClientError as exc:
+        logger.error("Failed to delete clip %s/%s/%s: %s", uid, video_id, clip_name, exc)
+        raise

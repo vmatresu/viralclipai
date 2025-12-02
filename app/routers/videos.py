@@ -5,13 +5,14 @@ from fastapi.responses import StreamingResponse
 
 from app.core.firebase_client import get_current_user
 from app.core import saas, storage
-from app.core.security import ValidationError, validate_video_id
+from app.core.security import ValidationError, validate_video_id, validate_clip_name
 from app.schemas import (
     VideoInfoResponse,
     UserVideosResponse,
     DeleteVideoResponse,
     BulkDeleteVideosRequest,
     BulkDeleteVideosResponse,
+    DeleteClipResponse,
 )
 
 router = APIRouter(prefix="/api", tags=["Videos"])
@@ -350,3 +351,86 @@ async def bulk_delete_videos(
         failed_count=failed_count,
         results=results,
     )
+
+
+@router.delete("/videos/{video_id}/clips/{clip_name}", response_model=DeleteClipResponse)
+async def delete_clip(
+    video_id: str,
+    clip_name: str,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> DeleteClipResponse:
+    """
+    Delete a single clip and its thumbnail.
+    
+    This endpoint:
+    1. Validates video ownership
+    2. Validates clip name format
+    3. Deletes the clip file and thumbnail from R2 storage
+    
+    Returns 404 if video doesn't exist, user doesn't own it, or clip doesn't exist.
+    """
+    from app.config import logger
+    
+    # Validate video_id to prevent path traversal
+    try:
+        video_id = validate_video_id(video_id)
+    except ValidationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.message)
+    
+    # Validate clip_name to prevent path traversal
+    try:
+        clip_name = validate_clip_name(clip_name)
+    except ValidationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.message)
+    
+    uid = user["uid"]
+    
+    # Verify ownership before deletion
+    is_owner = saas.user_owns_video(uid, video_id)
+    highlights_data = storage.load_highlights(uid, video_id)
+    
+    if not is_owner and not highlights_data:
+        logger.warning(f"User {uid} attempted to delete clip from video {video_id} they don't own")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Video not found"
+        )
+    
+    try:
+        # Delete clip and thumbnail from R2 storage
+        files_deleted = 0
+        try:
+            files_deleted = storage.delete_clip(uid, video_id, clip_name)
+        except ValueError as e:
+            # Invalid clip name format
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        except Exception as e:
+            logger.error(f"Failed to delete clip {clip_name} for video {video_id}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to delete clip"
+            )
+        
+        if files_deleted == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Clip not found"
+            )
+        
+        logger.info(f"Successfully deleted clip {clip_name} from video {video_id} for user {uid} ({files_deleted} files)")
+        
+        return DeleteClipResponse(
+            success=True,
+            video_id=video_id,
+            clip_name=clip_name,
+            message="Clip deleted successfully",
+            files_deleted=files_deleted,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting clip {clip_name} from video {video_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete clip"
+        )

@@ -1,14 +1,22 @@
 "use client";
 
-import { Download, Link2, Play, Share2, UploadCloud } from "lucide-react";
+import { Download, Link2, Play, Share2, UploadCloud, Trash2 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { analyticsEvents } from "@/lib/analytics";
-import { apiFetch } from "@/lib/apiClient";
+import { apiFetch, deleteClip } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
 import { toast } from "sonner";
@@ -102,12 +110,16 @@ interface ClipGridProps {
   videoId: string;
   clips: Clip[];
   log: (msg: string, type?: "info" | "error" | "success") => void;
+  onClipDeleted?: (clipName: string) => void;
 }
 
-export function ClipGrid({ videoId, clips, log }: ClipGridProps) {
+export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) {
   const { getIdToken } = useAuth();
   const [publishing, setPublishing] = useState<string | null>(null);
   const [playingClip, setPlayingClip] = useState<string | null>(null);
+  const [deletingClip, setDeletingClip] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [clipToDelete, setClipToDelete] = useState<Clip | null>(null);
   const videoRefs = useRef<{ [key: string]: HTMLVideoElement | null }>({});
   const blobUrls = useRef<{ [key: string]: string }>({});
 
@@ -170,6 +182,62 @@ export function ClipGrid({ videoId, clips, log }: ClipGridProps) {
       }
     }
     setPlayingClip(clipName);
+  };
+
+  const handleDeleteClick = (clip: Clip) => {
+    setClipToDelete(clip);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!clipToDelete) return;
+
+    setDeletingClip(clipToDelete.name);
+    try {
+      const token = await getIdToken();
+      if (!token) {
+        toast.error("Please sign in to delete clips.");
+        return;
+      }
+
+      await deleteClip(videoId, clipToDelete.name, token);
+      
+      // Clean up blob URL if it exists
+      if (blobUrls.current[clipToDelete.name]) {
+        URL.revokeObjectURL(blobUrls.current[clipToDelete.name]);
+        delete blobUrls.current[clipToDelete.name];
+      }
+
+      // Stop playing if this clip was playing
+      if (playingClip === clipToDelete.name) {
+        const video = videoRefs.current[clipToDelete.name];
+        if (video) {
+          video.pause();
+        }
+        setPlayingClip(null);
+      }
+
+      // Remove video ref
+      delete videoRefs.current[clipToDelete.name];
+
+      log(`Clip "${clipToDelete.title}" deleted successfully.`, "success");
+      toast.success("Clip deleted successfully");
+
+      // Notify parent component
+      if (onClipDeleted) {
+        onClipDeleted(clipToDelete.name);
+      }
+
+      setDeleteDialogOpen(false);
+      setClipToDelete(null);
+    } catch (err: unknown) {
+      frontendLogger.error("Failed to delete clip", err);
+      const errorMessage = err instanceof Error ? err.message : "Unknown error";
+      log(`Failed to delete clip: ${errorMessage}`, "error");
+      toast.error("Failed to delete clip. Please try again.");
+    } finally {
+      setDeletingClip(null);
+    }
   };
 
   async function publishToTikTok(clip: Clip, title: string, description: string) {
@@ -416,11 +484,52 @@ export function ClipGrid({ videoId, clips, log }: ClipGridProps) {
                   <Share2 className="h-4 w-4" />
                   {publishing === clip.name ? "Publishing..." : "Share"}
                 </Button>
+
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                  onClick={() => handleDeleteClick(clip)}
+                  disabled={deletingClip === clip.name}
+                  title="Delete clip"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               </div>
             </CardContent>
           </Card>
         );
       })}
+      
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Clip</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{clipToDelete?.title}"? This action cannot be undone and will delete the clip file and thumbnail.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeleteDialogOpen(false);
+                setClipToDelete(null);
+              }}
+              disabled={deletingClip !== null}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteConfirm}
+              disabled={deletingClip !== null}
+            >
+              {deletingClip ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

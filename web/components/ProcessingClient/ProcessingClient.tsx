@@ -230,6 +230,22 @@ export function ProcessingClient() {
     window.history.pushState({}, "", newUrl.toString());
   }
 
+  const handleClipDeleted = async (clipName: string) => {
+    // Reload clips from the API to get updated list
+    if (videoId) {
+      try {
+        await loadResults(videoId);
+      } catch (err) {
+        frontendLogger.error("Failed to reload clips after deletion", err);
+        // Optimistically remove the clip from the list
+        setClips((prev) => prev.filter((clip) => clip.name !== clipName));
+      }
+    } else {
+      // Fallback: optimistically remove from list
+      setClips((prev) => prev.filter((clip) => clip.name !== clipName));
+    }
+  };
+
   return (
     <div className="space-y-8">
       {/* Input Section */}
@@ -260,6 +276,7 @@ export function ProcessingClient() {
           customPromptUsed={customPromptUsed}
           log={log}
           onReset={handleReset}
+          onClipDeleted={handleClipDeleted}
         />
       )}
     </div>
