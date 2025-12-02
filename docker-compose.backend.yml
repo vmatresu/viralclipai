@@ -28,7 +28,7 @@ services:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
       # Ensure CORS allows local frontend
-      - CORS_ORIGINS=http://localhost:3000,http://localhost:8000
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:8003,http://localhost:3003,http://localhost:8000
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
