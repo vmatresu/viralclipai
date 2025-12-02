@@ -1,14 +1,83 @@
+# Git
 .git
 .gitignore
+.gitattributes
+.github
+
+# Python
 __pycache__
 *.py[cod]
-*.log
-venv
-.env*
+*$py.class
+*.so
+.Python
+*.egg-info
+dist
+build
+*.egg
+venv/
+env/
+ENV/
+.venv
+
+# IDE
 .vscode
 .idea
+*.swp
+*.swo
+*~
+.DS_Store
 
-web/node_modules
-web/.next
+# Environment
+.env*
+!.env.example
 
-videos
+# Logs
+*.log
+logs/
+debug.log
+error.log
+
+# Testing
+.pytest_cache
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# Documentation
+docs/_build/
+*.md
+!README.md
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+DOCKER.md
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Application specific
+videos/
+highlights.json
+prompt.txt.bak
+
+# Frontend (exclude from backend build)
+web/
+node_modules/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Build artifacts
+Makefile
+.docker-build.sh
