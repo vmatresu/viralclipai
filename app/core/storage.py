@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import boto3
+from botocore.client import Config
 from botocore.exceptions import ClientError
 
 from app.config import (
@@ -25,6 +26,9 @@ def get_r2_client():
             endpoint_url=R2_ENDPOINT_URL or None,
             aws_access_key_id=R2_ACCESS_KEY_ID or None,
             aws_secret_access_key=R2_SECRET_ACCESS_KEY or None,
+            # Cloudflare R2 requires signature version 4 (sigv4)
+            config=Config(signature_version='s3v4'),
+            region_name="auto",  # R2 requires a region, 'auto' or 'us-east-1' usually works
         )
     return _r2_client
 
@@ -62,6 +66,20 @@ def load_highlights(uid: str, video_id: str) -> Dict[str, Any]:
         return json.loads(body)
     except Exception:
         return {}
+
+
+def get_object(key: str, Range: Optional[str] = None) -> Optional[Any]:
+    """Get an object from R2 storage, optionally with a byte range."""
+    client = get_r2_client()
+    try:
+        params = {"Bucket": R2_BUCKET_NAME, "Key": key}
+        if Range:
+            params["Range"] = Range
+        obj = client.get_object(**params)
+        return obj
+    except ClientError as exc:
+        logger.error("Failed to get object %s: %s", key, exc)
+        return None
 
 
 def list_clips_with_metadata(uid: str, video_id: str, highlights_map: Dict[int, Dict[str, str]], url_expiry: int = 3600) -> List[Dict[str, Any]]:

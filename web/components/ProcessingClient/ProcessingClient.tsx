@@ -6,7 +6,7 @@
 
 "use client";
 
-import { type FormEvent, useEffect } from "react";
+import { type FormEvent } from "react";
 import { toast } from "sonner";
 
 import { analyticsEvents } from "@/lib/analytics";
@@ -54,14 +54,6 @@ export function ProcessingClient() {
 
   const { getIdToken, loading: authLoading, user } = useAuth();
   const hasResults = clips.length > 0;
-
-  useEffect(() => {
-    const existingId = searchParams.get("id");
-    if (existingId && !authLoading && user) {
-      setVideoId(existingId);
-      void loadResults(existingId);
-    }
-  }, [searchParams, loadResults, setVideoId, authLoading, user]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();

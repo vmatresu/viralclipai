@@ -1,7 +1,7 @@
 "use client";
 
 import { Download, Link2, Play, Share2, UploadCloud } from "lucide-react";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,6 +12,82 @@ import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
 import { toast } from "sonner";
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+
+interface VideoPlayerProps {
+  id: string;
+  clip: Clip;
+  videoId: string;
+  onRef: (el: HTMLVideoElement | null) => void;
+  onPlay: () => void;
+  getVideoUrl: (clipUrl: string, clipName: string) => Promise<string>;
+}
+
+function VideoPlayer({ id, clip, onRef, onPlay, getVideoUrl }: VideoPlayerProps) {
+  const [videoUrl, setVideoUrl] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadVideo() {
+      try {
+        setLoading(true);
+        const url = await getVideoUrl(clip.url, clip.name);
+        if (!cancelled) {
+          setVideoUrl(url);
+        }
+      } catch (error) {
+        frontendLogger.error("Failed to load video URL", error);
+        if (!cancelled) {
+          setVideoUrl(""); // Set empty to show error state
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void loadVideo();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [clip.url, clip.name, getVideoUrl]);
+
+  if (loading) {
+    return (
+      <div className="w-full h-full flex items-center justify-center">
+        <div className="text-muted-foreground">Loading video...</div>
+      </div>
+    );
+  }
+
+  if (!videoUrl) {
+    return (
+      <div className="w-full h-full flex items-center justify-center">
+        <div className="text-destructive">Failed to load video</div>
+      </div>
+    );
+  }
+
+  return (
+    <video
+      id={id}
+      ref={onRef}
+      controls
+      preload="metadata"
+      className="w-full h-full object-contain"
+      poster={clip.thumbnail ?? undefined}
+      src={videoUrl}
+      onPlay={onPlay}
+    >
+      <track kind="captions" />
+    </video>
+  );
+}
 
 export interface Clip {
   name: string;
@@ -33,6 +109,58 @@ export function ClipGrid({ videoId, clips, log }: ClipGridProps) {
   const [publishing, setPublishing] = useState<string | null>(null);
   const [playingClip, setPlayingClip] = useState<string | null>(null);
   const videoRefs = useRef<{ [key: string]: HTMLVideoElement | null }>({});
+  const blobUrls = useRef<{ [key: string]: string }>({});
+
+  // Cleanup blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(blobUrls.current).forEach((url) => {
+        URL.revokeObjectURL(url);
+      });
+    };
+  }, []);
+
+  // Function to get video URL with authentication
+  const getVideoUrl = async (clipUrl: string, clipName: string): Promise<string> => {
+    // If it's already a blob URL, return it
+    if (blobUrls.current[clipName]) {
+      return blobUrls.current[clipName];
+    }
+
+    // If it's a relative URL (API endpoint), fetch with auth and create blob
+    if (clipUrl.startsWith("/")) {
+      try {
+        const token = await getIdToken();
+        if (!token) {
+          throw new Error("Authentication required");
+        }
+
+        const baseUrl = API_BASE_URL.endsWith("/") ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+        const fullUrl = baseUrl ? `${baseUrl}${clipUrl}` : clipUrl;
+
+        const response = await fetch(fullUrl, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to load video: ${response.statusText}`);
+        }
+
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        blobUrls.current[clipName] = blobUrl;
+        return blobUrl;
+      } catch (error) {
+        frontendLogger.error("Failed to load video", error);
+        throw error;
+      }
+    }
+
+    // If it's already a full URL (presigned URL), return as-is
+    return clipUrl;
+  };
 
   const handlePlay = (clipName: string) => {
     if (playingClip && playingClip !== clipName) {
@@ -113,18 +241,14 @@ export function ClipGrid({ videoId, clips, log }: ClipGridProps) {
           >
             {/* Video Player Area */}
             <div className="relative aspect-[9/16] bg-black group-hover:opacity-100 transition-opacity">
-              <video
+              <VideoPlayer
                 id={uniqueId}
-                ref={(el) => { videoRefs.current[clip.name] = el; }}
-                controls
-                preload="metadata"
-                className="w-full h-full object-contain"
-                poster={clip.thumbnail ?? undefined}
-                src={clip.url}
+                clip={clip}
+                videoId={videoId}
+                onRef={(el) => { videoRefs.current[clip.name] = el; }}
                 onPlay={() => handlePlay(clip.name)}
-              >
-                <track kind="captions" />
-              </video>
+                getVideoUrl={getVideoUrl}
+              />
               
               {/* Custom Play Button Overlay (only visible when paused) */}
               {!isPlaying && (
@@ -206,7 +330,45 @@ export function ClipGrid({ videoId, clips, log }: ClipGridProps) {
                     });
                   }}
                 >
-                  <a href={clip.url} download>
+                  <a
+                    href={clip.url.startsWith("/") ? `${API_BASE_URL}${clip.url}` : clip.url}
+                    download
+                    onClick={async (e) => {
+                      // For relative URLs, we need to fetch with auth first
+                      if (clip.url.startsWith("/")) {
+                        e.preventDefault();
+                        try {
+                          const token = await getIdToken();
+                          if (!token) {
+                            toast.error("Please sign in to download clips.");
+                            return;
+                          }
+                          const baseUrl = API_BASE_URL.endsWith("/") ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+                          const fullUrl = baseUrl ? `${baseUrl}${clip.url}` : clip.url;
+                          const response = await fetch(fullUrl, {
+                            headers: {
+                              Authorization: `Bearer ${token}`,
+                            },
+                          });
+                          if (!response.ok) {
+                            throw new Error("Failed to download");
+                          }
+                          const blob = await response.blob();
+                          const blobUrl = URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.href = blobUrl;
+                          a.download = clip.name;
+                          document.body.appendChild(a);
+                          a.click();
+                          document.body.removeChild(a);
+                          URL.revokeObjectURL(blobUrl);
+                        } catch (error) {
+                          frontendLogger.error("Download failed", error);
+                          toast.error("Failed to download clip");
+                        }
+                      }
+                    }}
+                  >
                     <Download className="h-4 w-4" />
                     Download
                   </a>
@@ -216,8 +378,11 @@ export function ClipGrid({ videoId, clips, log }: ClipGridProps) {
                   variant="secondary"
                   size="icon"
                   className="shrink-0"
-                  onClick={() => {
-                    void navigator.clipboard.writeText(clip.url);
+                  onClick={async () => {
+                    const urlToCopy = clip.url.startsWith("/")
+                      ? `${API_BASE_URL}${clip.url}`
+                      : clip.url;
+                    void navigator.clipboard.writeText(urlToCopy);
                     toast.success("Link copied to clipboard");
                     void analyticsEvents.clipCopiedLink({
                       clipId: clip.name,

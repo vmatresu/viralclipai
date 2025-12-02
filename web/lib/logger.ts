@@ -14,16 +14,7 @@ const pinoConfig = {
   },
   // In development (server-side), use pino-pretty for readable logs
   ...(typeof window === "undefined" && process.env.NODE_ENV !== "production"
-    ? {
-        transport: {
-          target: "pino-pretty",
-          options: {
-            colorize: true,
-            ignore: "pid,hostname",
-            translateTime: "SYS:standard",
-          },
-        },
-      }
+    ? {}
     : {}),
   // In production, clean JSON structure is preferred
   timestamp: pino.stdTimeFunctions.isoTime,

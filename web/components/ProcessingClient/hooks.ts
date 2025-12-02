@@ -92,7 +92,7 @@ export function useVideoProcessing() {
       setVideoId(existingId);
       void loadResults(existingId);
     }
-  }, [searchParams, loadResults, setVideoId, authLoading, user]);
+  }, [searchParams, loadResults, authLoading, user]);
 
   return {
     // State
