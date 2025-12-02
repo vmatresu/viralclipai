@@ -23,11 +23,16 @@ async def get_video_info(
     
     uid = user["uid"]
     
-    if not saas.user_owns_video(uid, video_id):
+    # Check ownership in DB first
+    is_owner = saas.user_owns_video(uid, video_id)
+    
+    # Load highlights metadata (from storage)
+    highlights_data = storage.load_highlights(uid, video_id)
+    
+    # If not in DB and not in storage, then it truly doesn't exist (or isn't yours)
+    if not is_owner and not highlights_data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
     
-    # Load highlights metadata
-    highlights_data = storage.load_highlights(uid, video_id)
     highlights_map: Dict[int, Dict[str, str]] = {}
     for h in highlights_data.get("highlights", []):
         h_id = h.get("id")
