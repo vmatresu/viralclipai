@@ -16,3 +16,4 @@ highlights.json
 firebase-service-account.json
 firebase-credentials.json
 web/.env.local
+.docker-deps-cache

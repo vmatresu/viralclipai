@@ -209,7 +209,10 @@ scan: ## Scan images for vulnerabilities (requires docker scout)
 # Development Helpers
 # -----------------------------------------------------------------------------
 
-dev: up-dev logs-dev ## Start development environment and show logs
+dev: ## Start development environment with smart rebuild detection
+	@./scripts/docker-dev.sh
+
+dev:legacy: up-dev logs-dev ## Start development environment (legacy, direct docker-compose)
 
 prod: build up logs ## Build and start production environment
 
