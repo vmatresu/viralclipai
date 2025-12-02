@@ -4,7 +4,11 @@
  * Displays processing results and clips.
  */
 
+import { Sparkles } from "lucide-react";
+
 import { ClipGrid, type Clip } from "../ClipGrid";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface ResultsProps {
   videoId: string;
@@ -24,23 +28,25 @@ export function Results({
   return (
     <section className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-white">🎉 Results</h2>
-        <button
-          onClick={onReset}
-          className="text-sm text-blue-400 hover:text-blue-300 hover:underline"
-        >
+        <h2 className="text-2xl font-bold flex items-center gap-2">
+          <Sparkles className="h-6 w-6 text-primary" />
+          Results
+        </h2>
+        <Button onClick={onReset} variant="ghost" size="sm">
           Process Another Video
-        </button>
+        </Button>
       </div>
       {customPromptUsed && (
-        <div className="glass rounded-xl p-4 border border-gray-700">
-          <h3 className="text-sm font-semibold text-gray-200 mb-1">
-            Custom prompt used
-          </h3>
-          <p className="text-xs text-gray-300 whitespace-pre-wrap">
-            {customPromptUsed}
-          </p>
-        </div>
+        <Card className="glass">
+          <CardHeader>
+            <CardTitle className="text-sm">Custom prompt used</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <CardDescription className="text-xs whitespace-pre-wrap">
+              {customPromptUsed}
+            </CardDescription>
+          </CardContent>
+        </Card>
       )}
       <ClipGrid videoId={videoId} clips={clips} log={log} />
     </section>
