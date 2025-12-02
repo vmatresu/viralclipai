@@ -1,11 +1,10 @@
 "use client";
 
-import { Suspense } from "react";
+import { Sparkles, Video, Users } from "lucide-react";
 import Link from "next/link";
+import { Suspense } from "react";
 
 import { ProcessingClient } from "@/components/ProcessingClient";
-import { analyticsEvents } from "@/lib/analytics";
-import { usePageView } from "@/lib/usePageView";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -14,7 +13,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Sparkles, Video, Users } from "lucide-react";
+import { analyticsEvents } from "@/lib/analytics";
+import { usePageView } from "@/lib/usePageView";
 
 export default function HomePage() {
   usePageView("home");

@@ -1,16 +1,16 @@
 "use client";
 
-import { useState } from "react";
 import { Download, Link2, Play } from "lucide-react";
+import { useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { analyticsEvents } from "@/lib/analytics";
 import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
 
 export interface Clip {
   name: string;

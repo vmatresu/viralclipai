@@ -103,7 +103,7 @@ export function isValidFirebaseConfig(config: {
   authDomain?: string;
   projectId?: string;
 }): boolean {
-  return !!(
+  return Boolean(
     config.apiKey &&
     config.apiKey.trim() !== "" &&
     config.authDomain &&

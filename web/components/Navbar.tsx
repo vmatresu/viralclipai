@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import {
   Home,
   DollarSign,
@@ -12,10 +11,11 @@ import {
   LogIn,
   LogOut,
 } from "lucide-react";
+import Link from "next/link";
 
-import { useAuth } from "@/lib/auth";
-import { Button } from "@/components/ui/button";
 import { ThemeSwitcher } from "@/components/theme-switcher";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/lib/auth";
 
 const navLinks = [
   { href: "/", label: "Home", icon: Home },
