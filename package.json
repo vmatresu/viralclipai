@@ -4,7 +4,7 @@
   "description": "Viral Clip AI - AI-powered video clip generation",
   "private": true,
   "scripts": {
-    "dev": "./scripts/docker-dev.sh",
+    "dev": "./scripts/dev-hybrid.sh",
     "dev:api": "docker-compose -f docker-compose.dev.yml up -d api && docker-compose -f docker-compose.dev.yml logs -f api",
     "dev:web": "docker-compose -f docker-compose.dev.yml up -d web && docker-compose -f docker-compose.dev.yml logs -f web",
     "dev:build": "docker-compose -f docker-compose.dev.yml build",

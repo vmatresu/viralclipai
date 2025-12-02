@@ -1,0 +1,80 @@
+# =============================================================================
+# Backend Docker Compose Configuration
+# =============================================================================
+# Focuses only on the API service for hybrid development.
+# Frontend runs locally via `npm run dev`.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Backend API Service (Development)
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+      args:
+        BUILD_DATE: ${BUILD_DATE:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}
+        VCS_REF: ${VCS_REF:-$(git rev-parse --short HEAD 2>/dev/null || echo 'dev')}
+        VERSION: ${VERSION:-dev}
+    image: viralclipai-api:dev
+    pull_policy: build
+    container_name: viralclipai-api-dev
+    env_file:
+      - .env.api.dev
+    environment:
+      - ENVIRONMENT=development
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=DEBUG
+      # Ensure CORS allows local frontend
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:8000
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      # Mount source code for hot reload
+      - .:/app
+      # Exclude node_modules and other build artifacts
+      - /app/venv
+      - /app/__pycache__
+      - /app/.pytest_cache
+      # Persistent volumes for logs and videos
+      - api-logs-dev:/app/logs
+      - api-videos-dev:/app/videos
+    networks:
+      - viral-clip-ai-network-dev
+    restart: unless-stopped
+    # Development: more permissive resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
+    # Development: allow file writes
+    read_only: false
+    # Logging for development
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        labels: "service=api,environment=development"
+
+# -----------------------------------------------------------------------------
+# Networks
+# -----------------------------------------------------------------------------
+networks:
+  viral-clip-ai-network-dev:
+    driver: bridge
+    name: viral-clip-ai-network-dev
+
+# -----------------------------------------------------------------------------
+# Volumes
+# -----------------------------------------------------------------------------
+volumes:
+  api-logs-dev:
+    name: viral-clip-ai-api-logs-dev
+    driver: local
+  api-videos-dev:
+    name: viral-clip-ai-api-videos-dev
+    driver: local
