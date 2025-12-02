@@ -161,9 +161,37 @@ class GeminiClient:
         return transcript_text
 
     def build_prompt(self, base_prompt: str, transcript_text: str) -> str:
+        # Enforce the critical JSON schema regardless of the base prompt provided
+        # This ensures that even if a user provides a custom topic (which replaces base_prompt in workflow.py),
+        # we still get the correct machine-readable format.
+        schema_instruction = """
+        IMPORTANT: You must strictly follow this output format.
+        Return ONLY a single JSON object with this schema:
+        {
+          "video_url": "URL",
+          "video_title": "The Main Title of the YouTube Video",
+          "highlights": [
+            {
+              "id": 1,
+              "title": "Viral Title",
+              "start": "HH:MM:SS",
+              "end": "HH:MM:SS",
+              "pad_before_seconds": 1.0,
+              "pad_after_seconds": 2.0,
+              "duration": 0,
+              "summary": "Brief summary of the clip",
+              "reason": "Why this is viral",
+              "description": "Engaging social media caption with hashtags"
+            }
+          ]
+        }
+        """
+
         return textwrap.dedent(
             f"""
             {base_prompt}
+
+            {schema_instruction}
 
             Here is the TRANSCRIPT of the video with timestamps. 
             Use these exact timestamps for the 'start' and 'end' fields.
