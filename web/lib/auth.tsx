@@ -7,6 +7,9 @@ import {
   getAuth,
   onAuthStateChanged,
   signInWithPopup,
+  sendSignInLinkToEmail,
+  isSignInWithEmailLink,
+  signInWithEmailLink,
   type User,
 } from "firebase/auth";
 import {
@@ -71,6 +74,9 @@ type AuthContextValue = {
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   getIdToken: () => Promise<string | null>;
+  sendEmailLink: (email: string) => Promise<void>;
+  finishEmailSignIn: (email: string, link: string) => Promise<void>;
+  isEmailLink: (link: string) => boolean;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -110,6 +116,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const sendEmailLink = useCallback(async (email: string) => {
+    const auth = getAuthInstance();
+    const actionCodeSettings = {
+      // URL you want to redirect back to. The domain (www.example.com) for this
+      // URL must be in the authorized domains list in the Firebase Console.
+      url: `${window.location.origin}/auth/finish`,
+      handleCodeInApp: true,
+    };
+    
+    await sendSignInLinkToEmail(auth, email, actionCodeSettings);
+    window.localStorage.setItem('emailForSignIn', email);
+    void analyticsEvents.signInAttempted(); // Consider adding a specific event for email link
+  }, []);
+
+  const finishEmailSignIn = useCallback(async (email: string, link: string) => {
+    const auth = getAuthInstance();
+    try {
+       const result = await signInWithEmailLink(auth, email, link);
+       window.localStorage.removeItem('emailForSignIn');
+       if (result.user) {
+           analyticsEvents.userSignedIn(result.user.uid);
+       }
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        void analyticsEvents.signInFailed(message);
+        throw error;
+    }
+  }, []);
+
+  const isEmailLink = useCallback((link: string) => {
+      const auth = getAuthInstance();
+      return isSignInWithEmailLink(auth, link);
+  }, []);
+
   const signOut = useCallback(async () => {
     const auth = getAuthInstance();
     await firebaseSignOut(auth);
@@ -129,6 +169,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signInWithGoogle,
     signOut,
     getIdToken,
+    sendEmailLink,
+    finishEmailSignIn,
+    isEmailLink,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

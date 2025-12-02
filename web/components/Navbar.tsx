@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { SignInDialog } from "@/components/SignInDialog";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
@@ -28,7 +29,7 @@ const navLinks = [
 ];
 
 export function Navbar() {
-  const { user, loading, signInWithGoogle, signOut } = useAuth();
+  const { user, loading, signOut } = useAuth();
 
   return (
     <nav className="glass fixed top-0 w-full z-50 border-b">
@@ -65,15 +66,7 @@ export function Navbar() {
             })}
             <ThemeSwitcher />
             {!loading && !user && (
-              <Button
-                onClick={signInWithGoogle}
-                variant="ghost"
-                size="sm"
-                className="gap-2"
-              >
-                <LogIn className="h-4 w-4" />
-                <span className="hidden sm:inline">Sign in</span>
-              </Button>
+              <SignInDialog />
             )}
             {!loading && user && (
               <div className="flex items-center gap-2">
