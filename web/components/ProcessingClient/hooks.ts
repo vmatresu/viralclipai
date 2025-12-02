@@ -5,7 +5,7 @@
  */
 
 import { useSearchParams } from "next/navigation";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { analyticsEvents } from "@/lib/analytics";
 import { apiFetch } from "@/lib/apiClient";
@@ -15,7 +15,7 @@ import { type Clip } from "../ClipGrid";
 
 export function useVideoProcessing() {
   const searchParams = useSearchParams();
-  const { getIdToken } = useAuth();
+  const { getIdToken, loading: authLoading, user } = useAuth();
 
   const [url, setUrl] = useState("");
   const [style, setStyle] = useState("split");
@@ -85,6 +85,14 @@ export function useVideoProcessing() {
     },
     [getIdToken]
   );
+
+  useEffect(() => {
+    const existingId = searchParams.get("id");
+    if (existingId && !authLoading && user) {
+      setVideoId(existingId);
+      void loadResults(existingId);
+    }
+  }, [searchParams, loadResults, setVideoId, authLoading, user]);
 
   return {
     // State

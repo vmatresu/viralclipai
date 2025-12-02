@@ -52,16 +52,16 @@ export function ProcessingClient() {
     searchParams,
   } = useVideoProcessing();
 
-  const { getIdToken } = useAuth();
+  const { getIdToken, loading: authLoading, user } = useAuth();
   const hasResults = clips.length > 0;
 
   useEffect(() => {
     const existingId = searchParams.get("id");
-    if (existingId) {
+    if (existingId && !authLoading && user) {
       setVideoId(existingId);
       void loadResults(existingId);
     }
-  }, [searchParams, loadResults, setVideoId]);
+  }, [searchParams, loadResults, setVideoId, authLoading, user]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
