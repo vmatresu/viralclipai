@@ -63,6 +63,7 @@ The Next.js app uses `.env`-style files in `web/`.
 - `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` – Firebase storage bucket.
 - `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` – Firebase messaging sender ID.
 - `NEXT_PUBLIC_FIREBASE_APP_ID` – Firebase app ID.
+- `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` – (Optional) Firebase Analytics measurement ID for Google Analytics 4 integration.
 
 ### Local Development
 

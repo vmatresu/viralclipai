@@ -3,8 +3,9 @@
 import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
+import { analyticsEvents } from "@/lib/analytics";
 import { useSearchParams } from "next/navigation";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Clip, ClipGrid } from "./ClipGrid";
 
 const STYLES = [
@@ -29,6 +30,7 @@ export function ProcessingClient() {
   const [clips, setClips] = useState<Clip[]>([]);
   const [customPrompt, setCustomPrompt] = useState("");
   const [customPromptUsed, setCustomPromptUsed] = useState<string | null>(null);
+  const processingStartTime = useRef<number | null>(null);
 
   const hasResults = useMemo(() => clips.length > 0, [clips]);
 
@@ -56,13 +58,27 @@ export function ProcessingClient() {
             token,
           }
         );
-        setClips(data.clips || []);
+        const clipsData = data.clips || [];
+        setClips(clipsData);
         setCustomPromptUsed(data.custom_prompt ?? null);
+        
+        // Track processing completion with actual clips count
+        if (processingStartTime.current) {
+          const durationMs = Date.now() - processingStartTime.current;
+          analyticsEvents.videoProcessingCompleted({
+            videoId: id,
+            style,
+            clipsGenerated: clipsData.length,
+            durationMs,
+            hasCustomPrompt: customPrompt.trim().length > 0,
+          });
+          processingStartTime.current = null;
+        }
       } catch (err: any) {
         setError(err.message || "Error loading results");
       }
     },
-    [getIdToken]
+    [getIdToken, style, customPrompt]
   );
 
   useEffect(() => {
@@ -83,6 +99,7 @@ export function ProcessingClient() {
     setClips([]);
     setVideoId(null);
     setCustomPromptUsed(null);
+    processingStartTime.current = Date.now();
 
     try {
       const token = await getIdToken();
@@ -92,6 +109,13 @@ export function ProcessingClient() {
         setSubmitting(false);
         return;
       }
+
+      // Track processing start
+      analyticsEvents.videoProcessingStarted({
+        style,
+        hasCustomPrompt: customPrompt.trim().length > 0,
+        videoUrl: url,
+      });
 
       const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || window.location.origin;
       const baseUrl = new URL(apiBase);
@@ -119,9 +143,17 @@ export function ProcessingClient() {
           setProgress(data.value ?? 0);
         } else if (data.type === "error") {
           ws.close();
-          setError(data.message || "An unexpected error occurred.");
+          const errorMessage = data.message || "An unexpected error occurred.";
+          setError(errorMessage);
           setErrorDetails(data.details || null);
           setSubmitting(false);
+          
+          // Track processing failure
+          analyticsEvents.videoProcessingFailed({
+            errorType: data.details || "unknown",
+            errorMessage,
+            style,
+          });
         } else if (data.type === "done") {
           ws.close();
           const id = data.videoId as string;
@@ -129,6 +161,9 @@ export function ProcessingClient() {
           const newUrl = new URL(window.location.href);
           newUrl.searchParams.set("id", id);
           window.history.pushState({}, "", newUrl.toString());
+          
+          // Track processing completion after loading results
+          // loadResults will track completion internally
           loadResults(id);
         }
       };
@@ -145,8 +180,16 @@ export function ProcessingClient() {
       };
     } catch (err: any) {
       frontendLogger.error("Failed to start processing", err);
-      setError(err.message || "Failed to start processing");
+      const errorMessage = err.message || "Failed to start processing";
+      setError(errorMessage);
       setSubmitting(false);
+      
+      // Track processing failure
+      analyticsEvents.videoProcessingFailed({
+        errorType: "initialization_error",
+        errorMessage,
+        style,
+      });
     }
   }
 

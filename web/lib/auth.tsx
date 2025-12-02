@@ -18,6 +18,7 @@ import {
   User,
 } from "firebase/auth";
 import { frontendLogger } from "@/lib/logger";
+import { initAnalytics, analyticsEvents } from "@/lib/analytics";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -26,6 +27,7 @@ const firebaseConfig = {
   storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
 let authInstance: ReturnType<typeof getAuth> | null = null;
@@ -62,23 +64,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Initialize Firebase app first (via getAuthInstance), then analytics
     const auth = getAuthInstance();
+    
+    // Initialize analytics after Firebase app is ready
+    initAnalytics();
+
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
+      // Track sign in event with user ID
+      if (u) {
+        analyticsEvents.userSignedIn(u.uid);
+      }
     });
     return () => unsub();
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
+    analyticsEvents.signInAttempted();
     const auth = getAuthInstance();
     const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (error: any) {
+      analyticsEvents.signInFailed(error?.message || "Unknown error");
+      throw error;
+    }
   }, []);
 
   const signOut = useCallback(async () => {
     const auth = getAuthInstance();
     await firebaseSignOut(auth);
+    analyticsEvents.userSignedOut();
   }, []);
 
   const getIdToken = useCallback(async (): Promise<string | null> => {

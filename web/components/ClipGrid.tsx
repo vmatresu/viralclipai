@@ -3,6 +3,7 @@
 import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
+import { analyticsEvents } from "@/lib/analytics";
 import { useState } from "react";
 
 export interface Clip {
@@ -46,10 +47,25 @@ export function ClipGrid({ videoId, clips, log }: ClipGridProps) {
         }
       );
       log("Clip published to TikTok successfully.", "success");
+      
+      // Track successful TikTok publish
+      analyticsEvents.clipPublishedTikTok({
+        clipId: clip.name,
+        clipName: clip.name,
+        success: true,
+      });
     } catch (err: any) {
       frontendLogger.error("TikTok publish failed", err);
-      log(`TikTok publish failed: ${err.message || "Unknown error"}`, "error");
+      const errorMessage = err.message || "Unknown error";
+      log(`TikTok publish failed: ${errorMessage}`, "error");
       alert("TikTok publish failed. Check console for details.");
+      
+      // Track failed TikTok publish
+      analyticsEvents.clipPublishedFailed({
+        clipId: clip.name,
+        clipName: clip.name,
+        errorType: errorMessage,
+      });
     } finally {
       setPublishing(null);
     }
@@ -125,13 +141,29 @@ export function ClipGrid({ videoId, clips, log }: ClipGridProps) {
                 <a
                   href={clip.url}
                   download
+                  onClick={() => {
+                    // Extract style from clip name (e.g., clip_01_01_title_split.mp4 -> split)
+                    const styleMatch = clip.name.match(/_([^_]+)\.(mp4|jpg)$/);
+                    const clipStyle = styleMatch ? styleMatch[1] : "unknown";
+                    analyticsEvents.clipDownloaded({
+                      clipId: clip.name,
+                      clipName: clip.name,
+                      style: clipStyle,
+                    });
+                  }}
                   className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-center py-2 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2"
                 >
                   <span>⬇️ Download</span>
                   <span className="text-xs opacity-75">({clip.size})</span>
                 </a>
                 <button
-                  onClick={() => navigator.clipboard.writeText(clip.url)}
+                  onClick={() => {
+                    navigator.clipboard.writeText(clip.url);
+                    analyticsEvents.clipCopiedLink({
+                      clipId: clip.name,
+                      clipName: clip.name,
+                    });
+                  }}
                   className="px-3 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors"
                   title="Copy Link"
                 >

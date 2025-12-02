@@ -39,6 +39,9 @@ NEXT_PUBLIC_FIREBASE_PROJECT_ID=your-firebase-project-id
 NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
 NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
 NEXT_PUBLIC_FIREBASE_APP_ID=your-app-id
+
+# Optional: Firebase Analytics (Google Analytics 4)
+NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=G-XXXXXXXXXX
 ```
 
 **File Structure:**

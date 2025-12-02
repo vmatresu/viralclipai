@@ -2,6 +2,7 @@
 
 import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
+import { usePageView } from "@/lib/usePageView";
 import { useEffect, useState } from "react";
 
 interface UserVideo {
@@ -14,6 +15,7 @@ interface UserVideo {
 }
 
 export default function HistoryPage() {
+  usePageView("history");
   const { getIdToken } = useAuth();
   const [videos, setVideos] = useState<UserVideo[]>([]);
   const [loading, setLoading] = useState(true);
