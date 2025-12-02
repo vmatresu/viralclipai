@@ -12,7 +12,8 @@
 # -----------------------------------------------------------------------------
 # Stage 1: Base - Common dependencies and configuration
 # -----------------------------------------------------------------------------
-FROM python:3.11-slim-bookworm AS base
+# Using Alpine for smaller image size (~5MB vs ~50MB) and faster builds
+FROM python:3.11-alpine AS base
 
 # Build arguments
 ARG BUILD_DATE
@@ -49,15 +50,11 @@ WORKDIR /app
 FROM base AS system-deps
 
 # Install system dependencies in a single layer for better caching
-# Order: Update, install, clean in one RUN to reduce layers
-RUN apt-get update -qq && \
-    apt-get install -y --no-install-recommends \
-        # Video processing
+# Alpine uses apk instead of apt-get - much faster and smaller (~5MB base vs ~50MB)
+# Build dependencies are installed separately and removed after pip install
+RUN apk add --no-cache \
+        # Video processing (critical)
         ffmpeg \
-        # Build tools for native Python packages
-        build-essential \
-        gcc \
-        g++ \
         # SSL/TLS certificates
         ca-certificates \
         # Process management
@@ -65,9 +62,13 @@ RUN apt-get update -qq && \
         # Network utilities for health checks
         curl \
         && \
-    # Clean up apt cache and temporary files
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
+    # Install build dependencies in virtual package (will be removed later)
+    apk add --no-cache --virtual .build-deps \
+        gcc \
+        musl-dev \
+        libffi-dev \
+        openssl-dev \
+        && \
     # Verify ffmpeg installation
     ffmpeg -version | head -n 1
 
@@ -85,6 +86,8 @@ RUN pip install --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -r /tmp/requirements.txt && \
     # Verify critical packages
     python -c "import fastapi; import uvicorn; import google.generativeai" && \
+    # Remove build dependencies virtual package to reduce image size (Alpine optimization)
+    apk del --no-cache .build-deps && \
     # Clean up pip cache
     rm -rf ~/.cache/pip /tmp/requirements.txt
 
@@ -106,8 +109,9 @@ RUN python -c "from app.main import app; print('Application loaded successfully'
 FROM app-code AS prod-base
 
 # Create non-root user with specific UID/GID for consistency
-RUN groupadd -r -g 1000 appgroup && \
-    useradd -r -u 1000 -g appgroup -d /app -s /sbin/nologin appuser && \
+# Alpine uses addgroup/adduser instead of groupadd/useradd
+RUN addgroup -g 1000 -S appgroup && \
+    adduser -u 1000 -S -G appgroup -h /app -s /sbin/nologin appuser && \
     # Create necessary directories with proper permissions
     mkdir -p /app/logs /app/videos /app/static && \
     chown -R appuser:appgroup /app && \
