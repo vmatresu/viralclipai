@@ -29,7 +29,7 @@ services:
     environment:
       - ENVIRONMENT=development
       - PYTHONUNBUFFERED=1
-      - LOG_LEVEL=DEBUG
+      - LOG_LEVEL=INFO
     ports:
       - "${API_PORT:-8001}:8000"
     volumes:

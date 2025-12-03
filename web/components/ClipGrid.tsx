@@ -1,12 +1,11 @@
 "use client";
 
-import { Download, Link2, Play, Share2, UploadCloud, Trash2, Film } from "lucide-react";
-import { useState, useRef, useEffect } from "react";
+import { Download, Film, Link2, Play, Share2, Trash2, UploadCloud } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -15,18 +14,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { analyticsEvents } from "@/lib/analytics";
 import { apiFetch, deleteClip } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
-import { frontendLogger } from "@/lib/logger";
 import { invalidateClipsCache } from "@/lib/cache";
-import { toast } from "sonner";
+import { frontendLogger } from "@/lib/logger";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
 // Style name mapping for display
 const STYLE_LABELS: Record<string, string> = {
-  split: "Split View",
+  split: "Split View (Fast)",
   left_focus: "Left Focus",
   right_focus: "Right Focus",
   intelligent: "Intelligent Crop",
@@ -164,7 +164,9 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
           throw new Error("Authentication required");
         }
 
-        const baseUrl = API_BASE_URL.endsWith("/") ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+        const baseUrl = API_BASE_URL.endsWith("/")
+          ? API_BASE_URL.slice(0, -1)
+          : API_BASE_URL;
         const fullUrl = baseUrl ? `${baseUrl}${clipUrl}` : clipUrl;
 
         const response = await fetch(fullUrl, {
@@ -218,10 +220,10 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
       }
 
       await deleteClip(videoId, clipToDelete.name, token);
-      
+
       // Invalidate cache since clips have changed (fire and forget)
       void invalidateClipsCache(videoId);
-      
+
       // Clean up blob URL if it exists
       if (blobUrls.current[clipToDelete.name]) {
         URL.revokeObjectURL(blobUrls.current[clipToDelete.name]);
@@ -333,14 +335,16 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
                 id={uniqueId}
                 clip={clip}
                 videoId={videoId}
-                onRef={(el) => { videoRefs.current[clip.name] = el; }}
+                onRef={(el) => {
+                  videoRefs.current[clip.name] = el;
+                }}
                 onPlay={() => handlePlay(clip.name)}
                 getVideoUrl={getVideoUrl}
               />
-              
+
               {/* Custom Play Button Overlay (only visible when paused) */}
               {!isPlaying && (
-                <div 
+                <div
                   className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/10 transition-colors cursor-pointer"
                   onClick={() => {
                     const video = videoRefs.current[clip.name];
@@ -430,7 +434,9 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
                   }}
                 >
                   <a
-                    href={clip.url.startsWith("/") ? `${API_BASE_URL}${clip.url}` : clip.url}
+                    href={
+                      clip.url.startsWith("/") ? `${API_BASE_URL}${clip.url}` : clip.url
+                    }
                     download
                     onClick={async (e) => {
                       // For relative URLs, we need to fetch with auth first
@@ -442,7 +448,9 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
                             toast.error("Please sign in to download clips.");
                             return;
                           }
-                          const baseUrl = API_BASE_URL.endsWith("/") ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+                          const baseUrl = API_BASE_URL.endsWith("/")
+                            ? API_BASE_URL.slice(0, -1)
+                            : API_BASE_URL;
                           const fullUrl = baseUrl ? `${baseUrl}${clip.url}` : clip.url;
                           const response = await fetch(fullUrl, {
                             headers: {
@@ -472,7 +480,7 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
                     Download
                   </a>
                 </Button>
-                
+
                 <Button
                   variant="secondary"
                   size="icon"
@@ -531,13 +539,14 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
           </Card>
         );
       })}
-      
+
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete Clip</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete "{clipToDelete?.title}"? This action cannot be undone and will delete the clip file and thumbnail.
+              Are you sure you want to delete "{clipToDelete?.title}"? This action
+              cannot be undone and will delete the clip file and thumbnail.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

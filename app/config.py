@@ -68,6 +68,11 @@ LOGGING_CONFIG = {
         "botocore.parsers": {"level": "INFO"},
         "botocore.retryhandler": {"level": "INFO"},
         "botocore.regions": {"level": "INFO"},
+        # Suppress verbose s3transfer DEBUG logging, keep INFO and above
+        "s3transfer": {"level": "INFO"},
+        "s3transfer.utils": {"level": "INFO"},
+        "s3transfer.tasks": {"level": "INFO"},
+        "s3transfer.futures": {"level": "INFO"},
         "urllib3": {"level": "INFO"},
     },
     "root": {

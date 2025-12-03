@@ -20,7 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 const STYLES = [
-  { value: "split", label: "Split View", subtitle: "Top/Bottom" },
+  { value: "split", label: "Split View (Fast)", subtitle: "Top/Bottom" },
   { value: "left_focus", label: "Left Focus", subtitle: "Full Height" },
   { value: "right_focus", label: "Right Focus", subtitle: "Full Height" },
   { value: "intelligent", label: "Intelligent Crop", subtitle: "Face Tracking" },
@@ -170,7 +170,7 @@ export function VideoForm({
                 size="sm"
                 onClick={() =>
                   setCustomPrompt(
-                    "**Role:**\n\nYou are an elite short-form video editor. The video format is a split-screen: a viral clip (usually a woman) on the Left, and a male commentator on the Right.\n\n**Your Goal:**\n\nExtract a batch of **3 to 10 viral segments** that prioritize Interaction over simple monologues.\n\n**Segment Structure (The \"Call & Response\" Formula):**\n\n1. **The Setup (Left Side):** Start exactly when the person makes a controversial claim, states a statistic, or complains about men.\n\n2. **The Pivot:** The moment the host pauses the video or speaks up.\n\n3. **The Slam (Right Side):** The host's immediate counter-argument, insult, or reality check.\n\n4. **The End:** Cut after the punchline.\n\n**Constraints:**\n\n* **Quantity:** Extract at least 3 distinct segments.\n\n* **Duration:** Each individual segment must be **20 to 60 seconds** long.\n\n* **Narrative:** [Setup] -> [Reaction] -> [Punchline]."
+                    '**Role:**\n\nYou are an elite short-form video editor. The video format is a split-screen: a viral clip (usually a woman) on the Left, and a male commentator on the Right.\n\n**Your Goal:**\n\nExtract a batch of **3 to 10 viral segments** that prioritize Interaction over simple monologues.\n\n**Segment Structure (The "Call & Response" Formula):**\n\n1. **The Setup (Left Side):** Start exactly when the person makes a controversial claim, states a statistic, or complains about men.\n\n2. **The Pivot:** The moment the host pauses the video or speaks up.\n\n3. **The Slam (Right Side):** The host\'s immediate counter-argument, insult, or reality check.\n\n4. **The End:** Cut after the punchline.\n\n**Constraints:**\n\n* **Quantity:** Extract at least 3 distinct segments.\n\n* **Duration:** Each individual segment must be **20 to 60 seconds** long.\n\n* **Narrative:** [Setup] -> [Reaction] -> [Punchline].'
                   )
                 }
               >
