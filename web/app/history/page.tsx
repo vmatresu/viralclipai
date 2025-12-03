@@ -632,19 +632,17 @@ export default function HistoryPage() {
                     
                     {v.video_url && (
                       <div className="flex items-center gap-2 group/url">
-                        <a
-                          href={v.video_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <button
+                          type="button"
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
                             window.open(v.video_url, '_blank', 'noopener,noreferrer');
                           }}
-                          className="text-sm text-muted-foreground truncate font-mono bg-muted/30 px-2 py-1 rounded hover:text-primary hover:bg-muted/50 transition-colors flex-1 min-w-0"
+                          className="text-sm text-muted-foreground truncate font-mono bg-muted/30 px-2 py-1 rounded hover:text-primary hover:bg-muted/50 transition-colors flex-1 min-w-0 text-left"
                         >
                           {v.video_url}
-                        </a>
+                        </button>
                         <Button
                           variant="ghost"
                           size="icon"
