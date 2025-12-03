@@ -135,3 +135,25 @@ TOKEN_EXPIRY_HOURS = int(os.getenv("TOKEN_EXPIRY_HOURS", "24"))
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
 IS_PRODUCTION = ENVIRONMENT == "production"
 DEBUG = not IS_PRODUCTION
+
+# -----------------------------------------------------------------------------
+# Video Processing Configuration
+# -----------------------------------------------------------------------------
+
+# Parallel processing configuration
+# Maximum concurrent clip rendering workers (default: 2-4 based on CPU count)
+_cpu_count = os.cpu_count() or 4
+MAX_CLIP_WORKERS = int(os.getenv("MAX_CLIP_WORKERS", str(min(4, max(2, _cpu_count // 2)))))
+# Minimum workers (fallback)
+MIN_CLIP_WORKERS = 2
+# Maximum workers (hard limit)
+MAX_CLIP_WORKERS_LIMIT = 8
+
+# Progress reporting thresholds
+PROGRESS_INITIAL = 10
+PROGRESS_PARALLEL_OPS_COMPLETE = 30
+PROGRESS_HIGHLIGHTS_SAVED = 50
+PROGRESS_COMPLETE = 100
+
+# Default style fallback
+DEFAULT_STYLE = "split"
