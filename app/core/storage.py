@@ -245,50 +245,29 @@ def delete_clip(uid: str, video_id: str, clip_name: str) -> int:
     # Thumbnail is typically the same name but with .jpg extension
     thumbnail_key = clip_key.rsplit(".", 1)[0] + ".jpg"
     
-    objects_to_delete: List[Dict[str, str]] = []
-    
-    # Check if clip exists
-    try:
-        client.head_object(Bucket=R2_BUCKET_NAME, Key=clip_key)
-        objects_to_delete.append({"Key": clip_key})
-    except ClientError as e:
-        error_code = e.response.get("Error", {}).get("Code", "")
-        if error_code != "404":
-            logger.error("Error checking clip %s: %s", clip_key, e)
-            raise
-        # Clip doesn't exist, but continue to check thumbnail
-    
-    # Check if thumbnail exists
-    try:
-        client.head_object(Bucket=R2_BUCKET_NAME, Key=thumbnail_key)
-        objects_to_delete.append({"Key": thumbnail_key})
-    except ClientError as e:
-        error_code = e.response.get("Error", {}).get("Code", "")
-        if error_code != "404":
-            logger.error("Error checking thumbnail %s: %s", thumbnail_key, e)
-            raise
-        # Thumbnail doesn't exist, that's fine
-    
-    if not objects_to_delete:
-        logger.warning("Clip %s/%s/%s not found", uid, video_id, clip_name)
-        return 0
-    
+    # Always attempt to delete both clip and thumbnail - deletion is idempotent
+    objects_to_delete = [
+        {"Key": clip_key},
+        {"Key": thumbnail_key}
+    ]
+
     # Delete objects
     try:
         response = client.delete_objects(
             Bucket=R2_BUCKET_NAME,
             Delete={"Objects": objects_to_delete, "Quiet": True}
         )
-        
-        deleted_count = len(objects_to_delete)
+
+        # Count successful deletions (R2 returns deleted objects in response)
+        deleted_objects = response.get("Deleted", [])
+        deleted_count = len(deleted_objects)
+
         if response.get("Errors"):
             logger.warning(
                 "Some objects failed to delete for clip %s/%s/%s: %s",
                 uid, video_id, clip_name, response["Errors"]
             )
-            # Count only successful deletions
-            deleted_count = len(objects_to_delete) - len(response["Errors"])
-        
+
         logger.info(
             "Deleted %d object(s) for clip %s/%s/%s",
             deleted_count, uid, video_id, clip_name

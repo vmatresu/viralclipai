@@ -516,8 +516,10 @@ async def delete_clip(
     
     # Verify ownership before deletion
     is_owner = saas.user_owns_video(uid, video_id)
-    highlights_data = storage.load_highlights(uid, video_id)
-    
+
+    # Only load highlights if Firestore ownership check fails
+    highlights_data = {} if is_owner else storage.load_highlights(uid, video_id)
+
     if not is_owner and not highlights_data:
         logger.warning(f"User {uid} attempted to delete clip from video {video_id} they don't own")
         raise HTTPException(
