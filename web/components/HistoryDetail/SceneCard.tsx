@@ -76,7 +76,10 @@ export function SceneCard({
               )}
             </div>
             {highlight.reason && (
-              <p className="text-xs text-muted-foreground line-clamp-2">
+              <p
+                className="text-xs text-muted-foreground line-clamp-2"
+                title={highlight.reason}
+              >
                 {highlight.reason}
               </p>
             )}

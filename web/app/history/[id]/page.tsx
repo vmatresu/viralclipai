@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, AlertCircle, Play, Sparkles } from "lucide-react";
+import { ArrowLeft, AlertCircle, ChevronDown, ChevronRight, Play, Sparkles } from "lucide-react";
 import Link from "next/link";
 
 import { apiFetch, getVideoHighlights } from "@/lib/apiClient";
@@ -41,6 +41,7 @@ export default function HistoryDetailPage() {
   const [selectedScenes, setSelectedScenes] = useState<Set<number>>(new Set());
   const [selectedStyles, setSelectedStyles] = useState<Set<string>>(new Set());
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true);
 
   const {
     isProcessing: isReprocessing,
@@ -276,57 +277,77 @@ export default function HistoryDetailPage() {
       )}
 
       <Card className="glass">
-        <CardHeader>
+        <CardHeader
+          className="cursor-pointer hover:bg-accent/50 transition-colors"
+          onClick={() => setIsCollapsed(!isCollapsed)}
+        >
           <CardTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-primary" />
             Select Scenes to Reprocess
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto h-6 w-6 p-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsCollapsed(!isCollapsed);
+              }}
+            >
+              {isCollapsed ? (
+                <ChevronRight className="h-4 w-4" />
+              ) : (
+                <ChevronDown className="h-4 w-4" />
+              )}
+            </Button>
           </CardTitle>
           <CardDescription>
             Choose scenes and styles to generate new clips. This feature is
             available for Pro and Enterprise plans.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
-          <StyleSelector
-            selectedStyles={selectedStyles}
-            disabled={isProcessing || isReprocessing}
-            onStyleToggle={handleStyleToggle}
-          />
+        {!isCollapsed && (
+          <CardContent className="space-y-6">
+            <StyleSelector
+              selectedStyles={selectedStyles}
+              disabled={isProcessing || isReprocessing}
+              onStyleToggle={handleStyleToggle}
+            />
 
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold">
-              Select Scenes ({selectedScenes.size} selected)
-            </h3>
-            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-              {highlightsData.highlights.map((highlight) => (
-                <SceneCard
-                  key={highlight.id}
-                  highlight={highlight}
-                  selected={selectedScenes.has(highlight.id)}
-                  disabled={isProcessing || isReprocessing}
-                  onToggle={handleSceneToggle}
-                  formatTime={formatTime}
-                />
-              ))}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold">
+                Select Scenes ({selectedScenes.size} selected)
+              </h3>
+              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                {highlightsData.highlights.map((highlight) => (
+                  <SceneCard
+                    key={highlight.id}
+                    highlight={highlight}
+                    selected={selectedScenes.has(highlight.id)}
+                    disabled={isProcessing || isReprocessing}
+                    onToggle={handleSceneToggle}
+                    formatTime={formatTime}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
 
-          <div className="flex items-center justify-between pt-4 border-t">
-            <p className="text-sm text-muted-foreground">
-              {canReprocess
-                ? `Will generate ${totalClipsToGenerate} new clip(s)`
-                : "Select scenes and styles to reprocess"}
-            </p>
-            <Button
-              onClick={handleReprocess}
-              disabled={!canReprocess}
-              size="lg"
-            >
-              <Play className="h-4 w-4 mr-2" />
-              Reprocess Selected
-            </Button>
-          </div>
-        </CardContent>
+            <div className="flex items-center justify-between pt-4 border-t">
+              <p className="text-sm text-muted-foreground">
+                {canReprocess
+                  ? `Will generate ${totalClipsToGenerate} new clip(s)`
+                  : "Select scenes and styles to reprocess"}
+              </p>
+              <Button
+                onClick={handleReprocess}
+                disabled={!canReprocess}
+                size="lg"
+              >
+                <Play className="h-4 w-4 mr-2" />
+                Reprocess Selected
+              </Button>
+            </div>
+          </CardContent>
+        )}
       </Card>
 
       <Card className="glass">
