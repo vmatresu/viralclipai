@@ -28,6 +28,13 @@ class ClipTask:
     scene_id: int = 0
     scene_description: Optional[str] = None
     priority: int = 99
+    
+    # Fields for segment-based processing
+    source_path: Optional[Path] = None
+    processing_start: Optional[str] = None
+    processing_end: Optional[str] = None
+    processing_pad_before: Optional[float] = None
+    processing_pad_after: Optional[float] = None
 
 
 @dataclass

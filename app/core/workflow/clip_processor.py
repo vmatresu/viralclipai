@@ -27,12 +27,22 @@ from app.core.repositories.models import ClipMetadata
 logger = logging.getLogger(__name__)
 
 
+def _format_timedelta(seconds: float) -> str:
+    """Format seconds to HH:MM:SS.mmm string."""
+    import math
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = seconds % 60
+    return f"{hours:02d}:{minutes:02d}:{secs:06.3f}"
+
+
 def create_clip_tasks(
     highlights: List[Dict[str, Any]],
     styles: List[str],
     clips_dir: Path,
     crop_mode: str,
     target_aspect: str,
+    segment_map: Optional[Dict[int, Path]] = None,
 ) -> List[ClipTask]:
     """
     Create clip rendering tasks from highlights and styles.
@@ -43,6 +53,7 @@ def create_clip_tasks(
         clips_dir: Directory for clip output files
         crop_mode: Crop mode setting
         target_aspect: Target aspect ratio
+        segment_map: Optional map of scene_id to pre-cut segment path
 
     Returns:
         List of ClipTask objects
@@ -58,6 +69,28 @@ def create_clip_tasks(
         pad_after = float(highlight.get("pad_after_seconds", 0) or 0)
         priority = highlight.get("priority", 99)
         safe_title = sanitize_filename(title)
+
+        # Determine segment-based processing parameters if available
+        source_path = None
+        processing_start = None
+        processing_end = None
+        processing_pad_before = None
+        processing_pad_after = None
+
+        if segment_map and clip_id in segment_map:
+            source_path = segment_map[clip_id]
+            # Segment is cut exactly to include padding
+            # So duration is (end - start) + pad_before + pad_after
+            # We start at 0 and go to duration
+            start_sec = _parse_time(start)
+            end_sec = _parse_time(end)
+            duration = (end_sec - start_sec) + pad_before + pad_after
+            
+            processing_start = "00:00:00.000"
+            processing_end = _format_timedelta(duration)
+            # Padding is already in the segment, so we don't add it again during processing
+            processing_pad_before = 0.0
+            processing_pad_after = 0.0
 
         for style in styles:
             # Use just priority for ordering (clip_01, clip_02, etc.)
@@ -92,6 +125,11 @@ def create_clip_tasks(
                     scene_id=clip_id,
                     scene_description=highlight.get("description"),
                     priority=priority,
+                    source_path=source_path,
+                    processing_start=processing_start,
+                    processing_end=processing_end,
+                    processing_pad_before=processing_pad_before,
+                    processing_pad_after=processing_pad_after,
                 )
             )
 
@@ -151,18 +189,26 @@ async def process_clip(
                 f"✂️ Rendering clip: {task.title} ({task.style})",
             )
 
+            # Determine input file and processing parameters
+            input_file = task.source_path if task.source_path else video_file
+            
+            p_start = task.processing_start if task.processing_start is not None else task.start
+            p_end = task.processing_end if task.processing_end is not None else task.end
+            p_pad_before = task.processing_pad_before if task.processing_pad_before is not None else task.pad_before
+            p_pad_after = task.processing_pad_after if task.processing_pad_after is not None else task.pad_after
+
             # Render the clip
             await asyncio.to_thread(
                 clipper.run_ffmpeg_clip_with_crop,
-                task.start,
-                task.end,
+                p_start,
+                p_end,
                 task.out_path,
                 task.style,
-                video_file,
+                input_file,
                 task.effective_crop_mode,
                 task.effective_target_aspect,
-                task.pad_before,
-                task.pad_after,
+                p_pad_before,
+                p_pad_after,
                 shot_cache,
             )
 

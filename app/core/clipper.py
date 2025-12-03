@@ -83,6 +83,16 @@ class EncodingConfig:
             "-c:a", self.audio_codec,
             "-b:a", self.audio_bitrate,
         ]
+    
+    def with_crf(self, crf: int) -> "EncodingConfig":
+        """Return a new config with updated CRF."""
+        return EncodingConfig(
+            codec=self.codec,
+            preset=self.preset,
+            crf=crf,
+            audio_codec=self.audio_codec,
+            audio_bitrate=self.audio_bitrate,
+        )
 
 # ============================================================================
 # Utility Functions
@@ -393,27 +403,55 @@ def run_intelligent_crop(
 # ============================================================================
 
 def _extract_video_halves(
-    segment_path: Path,
+    video_path: Path,
+    start_str: str,
+    end_str: str,
     left_output: Path,
     right_output: Path,
     encoding_config: EncodingConfig,
+    pad_before_seconds: float = 0.0,
+    pad_after_seconds: float = 0.0,
 ) -> None:
     """
-    Extract left and right halves from a video segment.
+    Extract left and right halves from a video segment directly from source.
     
     Args:
-        segment_path: Path to source video segment.
+        video_path: Path to source video.
+        start_str: Start timestamp.
+        end_str: End timestamp.
         left_output: Path for left half output.
         right_output: Path for right half output.
         encoding_config: Encoding configuration to use.
+        pad_before_seconds: Seconds to add before start.
+        pad_after_seconds: Seconds to add after end.
         
     Raises:
         RuntimeError: If extraction fails.
     """
+    try:
+        t_start = parse_time(start_str)
+        t_end = parse_time(end_str)
+
+        if pad_before_seconds > 0:
+            t_start = max(
+                t_start - timedelta(seconds=pad_before_seconds),
+                datetime(1900, 1, 1),
+            )
+        if pad_after_seconds > 0:
+            t_end = t_end + timedelta(seconds=pad_after_seconds)
+
+        duration = (t_end - t_start).total_seconds()
+        start_seconds = (t_start - datetime(1900, 1, 1)).total_seconds()
+    except ValueError as e:
+        logger.error(f"Time parsing failed: {e}")
+        raise
+
     # Left half: crop width/2 from 0,0
     cmd_left = [
         "ffmpeg", "-y",
-        "-i", str(segment_path),
+        "-ss", f"{start_seconds:.3f}",
+        "-t", f"{duration:.3f}",
+        "-i", str(video_path),
         "-vf", "crop=iw/2:ih:0:0",
     ] + encoding_config.to_ffmpeg_args() + [
         "-c:a", "copy",  # Copy audio without re-encoding
@@ -423,7 +461,9 @@ def _extract_video_halves(
     # Right half: crop width/2 from width/2,0
     cmd_right = [
         "ffmpeg", "-y",
-        "-i", str(segment_path),
+        "-ss", f"{start_seconds:.3f}",
+        "-t", f"{duration:.3f}",
+        "-i", str(video_path),
         "-vf", "crop=iw/2:ih:iw/2:0",
     ] + encoding_config.to_ffmpeg_args() + [
         "-c:a", "copy",  # Copy audio without re-encoding
@@ -496,10 +536,9 @@ def run_intelligent_split_crop(
     Run intelligent cropping on both left and right halves and stack them.
     
     This function processes a video by:
-    1. Extracting the time segment
-    2. Splitting into left and right halves
-    3. Applying intelligent face-tracking crop to each half
-    4. Stacking the halves vertically (left on top, right on bottom)
+    1. Extracting the left and right halves directly from source
+    2. Applying intelligent face-tracking crop to each half
+    3. Stacking the halves vertically (left on top, right on bottom)
     
     Args:
         video_file: Path to source video.
@@ -525,25 +564,25 @@ def run_intelligent_split_crop(
     # Create temp dir for intermediate files
     temp_dir = Path(tempfile.mkdtemp())
     try:
-        # Step 1: Extract time segment (avoids analyzing whole video)
-        segment_path = temp_dir / "segment.mp4"
-        run_ffmpeg_clip(
+        # Step 1: Extract left and right halves directly from source
+        # This replaces the previous 2-step process (Segment -> Split)
+        left_half = temp_dir / "left.mp4"
+        right_half = temp_dir / "right.mp4"
+        
+        _extract_video_halves(
+            video_path=video_file,
             start_str=start_str,
             end_str=end_str,
-            out_path=segment_path,
-            style="original",  # No crop, just trim
-            video_file=video_file,
+            left_output=left_half,
+            right_output=right_half,
+            encoding_config=encoding_config,
             pad_before_seconds=pad_before_seconds,
             pad_after_seconds=pad_after_seconds,
         )
 
-        # Step 2: Extract left and right halves
-        left_half = temp_dir / "left.mp4"
-        right_half = temp_dir / "right.mp4"
-        _extract_video_halves(segment_path, left_half, right_half, encoding_config)
-
-        # Step 3: Run intelligent crop on each half
-        duration = get_video_duration(segment_path)
+        # Step 2: Run intelligent crop on each half
+        # We use the full duration since the halves are already trimmed
+        duration = get_video_duration(left_half)
         end_time_str = str(timedelta(seconds=duration))
         
         left_cropped = temp_dir / "left_crop.mp4"
@@ -567,10 +606,16 @@ def run_intelligent_split_crop(
             shot_cache=shot_cache,
         )
 
-        # Step 4: Stack halves vertically
-        _stack_split_view_videos(left_cropped, right_cropped, out_path, encoding_config)
+        # Step 3: Stack halves vertically
+        # Optimization: Increase CRF for final stacking to reduce file size
+        # Split views have high visual complexity, so we increase CRF (lower quality)
+        # slightly to avoid file size bloat vs single view clips.
+        # +4 CRF roughly halves the bitrate/filesize
+        final_encoding_config = encoding_config.with_crf(encoding_config.crf + 4)
         
-        # Step 5: Generate thumbnail
+        _stack_split_view_videos(left_cropped, right_cropped, out_path, final_encoding_config)
+        
+        # Step 4: Generate thumbnail
         thumb_path = out_path.with_suffix(".jpg")
         generate_thumbnail(out_path, thumb_path)
 
@@ -583,6 +628,71 @@ def run_intelligent_split_crop(
             shutil.rmtree(temp_dir, ignore_errors=True)
     
     return out_path
+
+
+def extract_segment(
+    video_path: Path,
+    start_str: str,
+    end_str: str,
+    out_path: Path,
+    pad_before_seconds: float = 0.0,
+    pad_after_seconds: float = 0.0,
+) -> None:
+    """
+    Extract a high-quality intermediate segment from the source video.
+    
+    Used to create smaller working files for each scene, allowing the
+    large original video to be deleted early.
+    
+    Args:
+        video_path: Path to source video.
+        start_str: Start timestamp.
+        end_str: End timestamp.
+        out_path: Output path for the segment.
+        pad_before_seconds: Seconds to include before start.
+        pad_after_seconds: Seconds to include after end.
+        
+    Raises:
+        RuntimeError: If extraction fails.
+    """
+    try:
+        t_start = parse_time(start_str)
+        t_end = parse_time(end_str)
+
+        if pad_before_seconds > 0:
+            t_start = max(
+                t_start - timedelta(seconds=pad_before_seconds),
+                datetime(1900, 1, 1),
+            )
+        if pad_after_seconds > 0:
+            t_end = t_end + timedelta(seconds=pad_after_seconds)
+
+        duration = (t_end - t_start).total_seconds()
+        start_seconds = (t_start - datetime(1900, 1, 1)).total_seconds()
+    except ValueError as e:
+        logger.error(f"Time parsing failed: {e}")
+        raise
+
+    # Use high quality settings for intermediate segment
+    # CRF 18 is visually lossless for most purposes
+    cmd = [
+        "ffmpeg", "-y",
+        "-ss", f"{start_seconds:.3f}",
+        "-t", f"{duration:.3f}",
+        "-i", str(video_path),
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-crf", "18",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        str(out_path),
+    ]
+
+    try:
+        run_ffmpeg(cmd, suppress_warnings=True, log_level="error", check=True)
+    except RuntimeError as e:
+        logger.error(f"Segment extraction failed: {e}")
+        raise RuntimeError(f"Segment extraction failed for {out_path.name}: {e}") from e
 
 
 def run_ffmpeg_clip_with_crop(

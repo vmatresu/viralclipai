@@ -225,6 +225,41 @@ async def process_video_workflow(
             get_shot_cache() if crop_mode == "intelligent" else None
         )
 
+        # Extract segments and delete original video
+        segments_dir = workdir / "segments"
+        segments_dir.mkdir(parents=True, exist_ok=True)
+        segment_map: Dict[int, Path] = {}
+
+        logger.info("Extracting segments from source video...")
+        await send_log(websocket, "✂️ Extracting scene segments...")
+
+        for highlight in highlights:
+            clip_id = highlight.get("id", 0)
+            start = highlight["start"]
+            end = highlight["end"]
+            pad_before = float(highlight.get("pad_before_seconds", 0) or 0)
+            pad_after = float(highlight.get("pad_after_seconds", 0) or 0)
+            
+            segment_filename = f"segment_{clip_id}.mp4"
+            segment_path = segments_dir / segment_filename
+            
+            await asyncio.to_thread(
+                clipper.extract_segment,
+                video_file,
+                start,
+                end,
+                segment_path,
+                pad_before,
+                pad_after,
+            )
+            segment_map[clip_id] = segment_path
+
+        # Delete original video to save space
+        if video_file.exists():
+            video_file.unlink()
+            logger.info("Deleted source video file after segment extraction.")
+            await send_log(websocket, "🗑️ Deleted original video to save space.")
+
         # Create and process clip tasks
         clip_tasks = create_clip_tasks(
             highlights,
@@ -232,6 +267,7 @@ async def process_video_workflow(
             clips_dir,
             crop_mode,
             target_aspect,
+            segment_map=segment_map,
         )
 
         await process_clips_parallel(
@@ -246,6 +282,12 @@ async def process_video_workflow(
             video_file.unlink()
             logger.info("Cleaned up source video file.")
             await send_log(websocket, "🧹 Cleaned up source video file.")
+
+        # Cleanup segments directory
+        if segments_dir.exists():
+            import shutil
+            shutil.rmtree(segments_dir, ignore_errors=True)
+            logger.info("Cleaned up segments directory.")
 
         logger.info("Job complete.")
 
