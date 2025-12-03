@@ -1,0 +1,22 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="brandGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#4338ca;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Video frame - clean and modern -->
+  <rect x="4" y="5" width="22" height="22" rx="3.5" fill="url(#brandGradient)" opacity="0.1"/>
+  <rect x="4" y="5" width="22" height="22" rx="3.5" stroke="url(#brandGradient)" stroke-width="1.8" fill="none"/>
+  
+  <!-- Play button icon -->
+  <path d="M11 12L11 20L18 16L11 12Z" fill="url(#brandGradient)"/>
+  
+  <!-- Highlighted viral moment - "V" shape for Viral (distinctive and memorable) -->
+  <path d="M6 23L15 20.5L15 26.5L6 23Z" fill="url(#brandGradient)"/>
+  <path d="M15 20.5L24 23L15 26.5L15 20.5Z" fill="url(#brandGradient)" opacity="0.9"/>
+  
+  <!-- AI sparkle indicator - represents intelligence -->
+  <circle cx="15" cy="23.5" r="1.4" fill="white" opacity="1"/>
+</svg>
