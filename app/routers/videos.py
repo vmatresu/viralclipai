@@ -7,6 +7,7 @@ from app.core.firebase_client import get_current_user
 from app.core import saas, storage
 from app.core.security import ValidationError, validate_video_id, validate_clip_name
 from app.core.cache import get_video_info_cache
+from app.core.reprocessing import reprocess_scenes_workflow
 from app.schemas import (
     VideoInfoResponse,
     UserVideosResponse,
@@ -16,6 +17,10 @@ from app.schemas import (
     DeleteClipResponse,
     UpdateVideoTitleRequest,
     UpdateVideoTitleResponse,
+    HighlightsResponse,
+    HighlightInfo,
+    ReprocessScenesRequest,
+    ReprocessScenesResponse,
 )
 
 router = APIRouter(prefix="/api", tags=["Videos"])
@@ -476,6 +481,64 @@ async def delete_clip(
         )
 
 
+@router.get("/videos/{video_id}/highlights", response_model=HighlightsResponse)
+async def get_video_highlights(
+    video_id: str,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> HighlightsResponse:
+    """Get highlights/scenes for a video."""
+    from app.config import logger
+    
+    # Validate video_id to prevent path traversal
+    try:
+        video_id = validate_video_id(video_id)
+    except ValidationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.message)
+    
+    uid = user["uid"]
+    
+    # Check ownership
+    is_owner = saas.user_owns_video(uid, video_id)
+    if not is_owner:
+        logger.warning(f"User {uid} attempted to access highlights for video {video_id} they don't own")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Video not found"
+        )
+    
+    # Load highlights from storage
+    highlights_data = storage.load_highlights(uid, video_id)
+    if not highlights_data or "highlights" not in highlights_data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Highlights not found for this video"
+        )
+    
+    # Get video metadata
+    video_metadata = saas.get_video_metadata(uid, video_id)
+    
+    # Convert highlights to response format
+    highlights_list = []
+    for h in highlights_data.get("highlights", []):
+        highlights_list.append(HighlightInfo(
+            id=h.get("id", 0),
+            title=h.get("title", ""),
+            start=h.get("start", ""),
+            end=h.get("end", ""),
+            duration=h.get("duration", 0),
+            hook_category=h.get("hook_category"),
+            reason=h.get("reason"),
+            description=h.get("description"),
+        ))
+    
+    return HighlightsResponse(
+        video_id=video_id,
+        video_url=video_metadata.get("video_url") if video_metadata else highlights_data.get("video_url"),
+        video_title=video_metadata.get("video_title") if video_metadata else highlights_data.get("video_title"),
+        highlights=highlights_list,
+    )
+
+
 @router.patch("/videos/{video_id}/title", response_model=UpdateVideoTitleResponse)
 async def update_video_title(
     video_id: str,
@@ -539,3 +602,121 @@ async def update_video_title(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update video title"
         )
+
+
+@router.post("/videos/{video_id}/reprocess", response_model=ReprocessScenesResponse)
+async def reprocess_scenes(
+    video_id: str,
+    request: ReprocessScenesRequest,
+    background_tasks: BackgroundTasks,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> ReprocessScenesResponse:
+    """
+    Reprocess specific scenes from an existing video with new styles.
+    
+    This endpoint:
+    1. Validates video ownership
+    2. Checks if video is currently processing (prevents concurrent processing)
+    3. Checks if user has pro/enterprise plan
+    4. Initiates background reprocessing via WebSocket
+    
+    Returns immediately with job confirmation. Processing happens in background.
+    """
+    from app.config import logger
+    
+    # Validate video_id to prevent path traversal
+    try:
+        video_id = validate_video_id(video_id)
+    except ValidationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.message)
+    
+    uid = user["uid"]
+    
+    # Check ownership
+    is_owner = saas.user_owns_video(uid, video_id)
+    if not is_owner:
+        logger.warning(f"User {uid} attempted to reprocess video {video_id} they don't own")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Video not found"
+        )
+    
+    # Check if video is currently processing
+    if saas.is_video_processing(uid, video_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Video is currently processing. Please wait for it to complete before reprocessing."
+        )
+    
+    # Check plan restrictions (pro/enterprise only)
+    if not saas.has_pro_or_enterprise_plan(uid):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Scene reprocessing is only available for Pro and Enterprise plans. Please upgrade to access this feature."
+        )
+    
+    # Load highlights to validate scene IDs
+    highlights_data = storage.load_highlights(uid, video_id)
+    if not highlights_data or "highlights" not in highlights_data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Highlights not found for this video"
+        )
+    
+    # Validate scene IDs exist and are within reasonable limits
+    available_scene_ids = {
+        h.get("id")
+        for h in highlights_data.get("highlights", [])
+        if h.get("id") is not None and isinstance(h.get("id"), int)
+    }
+    
+    # Security: Validate scene IDs are integers and within reasonable range
+    validated_scene_ids = []
+    for scene_id in request.scene_ids:
+        if not isinstance(scene_id, int):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid scene ID type: {scene_id}. Must be an integer."
+            )
+        if scene_id < 1 or scene_id > 10000:  # Reasonable upper limit
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Scene ID out of range: {scene_id}. Must be between 1 and 10000."
+            )
+        validated_scene_ids.append(scene_id)
+    
+    invalid_scene_ids = set(validated_scene_ids) - available_scene_ids
+    if invalid_scene_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid scene IDs: {sorted(invalid_scene_ids)}. Available scene IDs: {sorted(available_scene_ids)}"
+        )
+    
+    # Calculate total clips to validate plan limits
+    total_clips = len(validated_scene_ids) * len(request.styles)
+    
+    # Validate plan limits before starting
+    from app.core.workflow.validators import validate_plan_limits
+    try:
+        validate_plan_limits(uid, total_clips)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e)
+        )
+    
+    # Update video status to processing to prevent concurrent submissions
+    saas.update_video_status(uid, video_id, "processing")
+    
+    logger.info(
+        f"Reprocessing initiated for video {video_id} by user {uid}: "
+        f"{len(validated_scene_ids)} scenes, {len(request.styles)} styles, "
+        f"{total_clips} total clips"
+    )
+    
+    return ReprocessScenesResponse(
+        success=True,
+        video_id=video_id,
+        message=f"Reprocessing initiated for {len(validated_scene_ids)} scene(s) with {len(request.styles)} style(s). Please connect via WebSocket to monitor progress.",
+        job_id=video_id,  # Using video_id as job_id for now
+    )

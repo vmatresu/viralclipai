@@ -36,7 +36,15 @@ from app.core.utils import (
     extract_youtube_id,
     sanitize_filename,
     generate_run_id,
-    fetch_youtube_title,
+)
+from app.core.workflow.data_processor import (
+    normalize_video_title,
+    extract_highlights,
+    normalize_highlights,
+)
+from app.core.workflow.validators import (
+    resolve_styles,
+    validate_plan_limits,
 )
 from app.core.gemini import GeminiClient
 from app.core import clipper
@@ -261,146 +269,10 @@ async def execute_parallel_operations(
 
 
 # ============================================================================
-# Data Processing
+# Data Processing & Validation
 # ============================================================================
-
-
-def normalize_video_title(
-    data: Dict[str, Any],
-    fetched_title: Optional[str],
-    youtube_id: str,
-) -> str:
-    """
-    Normalize video title from multiple sources.
-
-    Args:
-        data: Analysis data dictionary
-        fetched_title: Title fetched from YouTube API
-        youtube_id: YouTube video ID
-
-    Returns:
-        Normalized video title
-    """
-    if fetched_title:
-        return fetched_title
-
-    title = data.get("video_title")
-    if title and title != "The Main Title of the YouTube Video":
-        return title
-
-    return f"Video {youtube_id}"
-
-
-def extract_highlights(data: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """
-    Extract highlights list from analysis data.
-
-    Args:
-        data: Analysis data dictionary
-
-    Returns:
-        List of highlight dictionaries
-
-    Raises:
-        ValueError: If no valid highlights found
-    """
-    # Check standard key first
-    if "highlights" in data and isinstance(data["highlights"], list):
-        return data["highlights"]
-
-    # Fallback: Look for any list that looks like highlight data
-    for key, value in data.items():
-        if isinstance(value, list) and len(value) > 0:
-            first_item = value[0]
-            if isinstance(first_item, dict) and "start" in first_item and "end" in first_item:
-                logger.info(f"Found alternate highlights key: {key}")
-                return value
-
-    raise ValueError("No valid highlights found in AI response")
-
-
-def normalize_highlights(highlights: List[Dict[str, Any]]) -> None:
-    """
-    Normalize highlight entries with default values.
-
-    Args:
-        highlights: List of highlight dictionaries (modified in-place)
-    """
-    for idx, highlight in enumerate(highlights, start=1):
-        highlight.setdefault("id", idx)
-        highlight.setdefault("priority", idx)
-        highlight.setdefault("title", f"Clip {idx}")
-
-
-def resolve_styles(styles: List[str]) -> List[str]:
-    """
-    Resolve and normalize style list, handling 'all' special case.
-
-    Args:
-        styles: List of style strings
-
-    Returns:
-        Normalized list of unique styles
-    """
-    styles_to_process: List[str] = []
-
-    for style in styles:
-        if style == "all":
-            # "all" means include all available styles
-            styles_to_process.extend(
-                clipper.AVAILABLE_STYLES
-                + ["intelligent", "intelligent_split", "original"]
-            )
-        elif style not in styles_to_process:
-            styles_to_process.append(style)
-
-    # Remove duplicates while preserving order
-    seen: set = set()
-    unique_styles: List[str] = []
-    for style in styles_to_process:
-        if style not in seen:
-            seen.add(style)
-            unique_styles.append(style)
-
-    # Ensure at least one style is selected
-    if not unique_styles:
-        unique_styles = [DEFAULT_STYLE]
-
-    return unique_styles
-
-
-# ============================================================================
-# Plan Validation
-# ============================================================================
-
-
-def validate_plan_limits(
-    user_id: Optional[str],
-    total_clips: int,
-) -> None:
-    """
-    Validate user plan limits.
-
-    Args:
-        user_id: User ID (None for anonymous)
-        total_clips: Total number of clips to be generated
-
-    Raises:
-        ValueError: If plan limits are exceeded
-    """
-    if user_id is None or total_clips == 0:
-        return
-
-    plan_id, max_clips = saas.get_plan_limits_for_user(user_id)
-    used = saas.get_monthly_usage(user_id)
-
-    if used + total_clips > max_clips:
-        msg = (
-            f"Plan limit reached for user {user_id}: "
-            f"plan={plan_id}, used={used}, requested={total_clips}, max={max_clips}"
-        )
-        logger.warning(msg)
-        raise ValueError("Clip limit reached for your current plan.")
+# Functions moved to separate modules for better organization
+# Imported at top of file
 
 
 # ============================================================================
@@ -839,3 +711,10 @@ async def process_video_workflow(
                 logger.info("Cleaned up source video file after error.")
             except Exception as e:
                 logger.warning(f"Failed to cleanup video file: {e}")
+
+
+# Reprocessing workflow moved to app.core.reprocessing module
+# Import here for backward compatibility
+from app.core.reprocessing import reprocess_scenes_workflow
+
+__all__ = ["reprocess_scenes_workflow"]

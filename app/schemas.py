@@ -47,6 +47,29 @@ class WSProcessRequest(BaseSchema):
     prompt: Optional[str] = Field(default=None, max_length=MAX_PROMPT_LENGTH, description="Custom prompt")
     crop_mode: str = Field(default="none", description="Crop mode: none, center, manual, intelligent")
     target_aspect: str = Field(default="9:16", description="Target aspect ratio for intelligent crop")
+
+
+class WSReprocessRequest(BaseSchema):
+    """WebSocket scene reprocessing request."""
+    token: str = Field(..., min_length=1, description="Firebase auth token")
+    video_id: str = Field(..., min_length=1, description="Video ID to reprocess scenes from")
+    scene_ids: List[int] = Field(..., min_length=1, max_length=50, description="List of scene IDs to reprocess")
+    styles: List[str] = Field(..., min_length=1, max_length=10, description="Styles to apply to each scene")
+    crop_mode: str = Field(default="none", description="Crop mode: none, center, manual, intelligent")
+    target_aspect: str = Field(default="9:16", description="Target aspect ratio for intelligent crop")
+    
+    @field_validator("styles")
+    @classmethod
+    def validate_styles_field(cls, v: List[str]) -> List[str]:
+        if not v or len(v) == 0:
+            raise ValueError("At least one style is required")
+        # Validate each style
+        validated_styles = []
+        for style in v:
+            validated_style = validate_style(style)
+            if validated_style not in validated_styles:  # Remove duplicates
+                validated_styles.append(validated_style)
+        return validated_styles
     
     @field_validator("url")
     @classmethod
@@ -387,3 +410,50 @@ class UpdateVideoTitleResponse(BaseSchema):
     video_id: str
     title: str
     message: Optional[str] = None
+
+
+class HighlightInfo(BaseSchema):
+    """Information about a single highlight/scene."""
+    id: int
+    title: str
+    start: str
+    end: str
+    duration: int
+    hook_category: Optional[str] = None
+    reason: Optional[str] = None
+    description: Optional[str] = None
+
+
+class HighlightsResponse(BaseSchema):
+    """Response containing highlights for a video."""
+    video_id: str
+    video_url: Optional[str] = None
+    video_title: Optional[str] = None
+    highlights: List[HighlightInfo]
+
+
+class ReprocessScenesRequest(BaseSchema):
+    """Request to reprocess specific scenes with styles."""
+    scene_ids: List[int] = Field(..., min_length=1, max_length=50, description="List of scene IDs to reprocess")
+    styles: List[str] = Field(..., min_length=1, max_length=10, description="Styles to apply to each scene")
+    
+    @field_validator("styles")
+    @classmethod
+    def validate_styles_field(cls, v: List[str]) -> List[str]:
+        if not v or len(v) == 0:
+            raise ValueError("At least one style is required")
+        # Validate each style
+        validated_styles = []
+        for style in v:
+            validated_style = validate_style(style)
+            if validated_style not in validated_styles:  # Remove duplicates
+                validated_styles.append(validated_style)
+        return validated_styles
+
+
+class ReprocessScenesResponse(BaseSchema):
+    """Response after initiating scene reprocessing."""
+    success: bool
+    video_id: str
+    message: str
+    job_id: Optional[str] = None

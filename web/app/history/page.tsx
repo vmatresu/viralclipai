@@ -612,7 +612,7 @@ export default function HistoryPage() {
           return (
             <Link
               key={id}
-              href={`/?id=${encodeURIComponent(id)}`}
+              href={`/history/${encodeURIComponent(id)}`}
               className={`block glass p-6 rounded-xl hover:shadow-md transition-all border ${
                 isSelected ? "border-primary/50 bg-primary/5" : "border-border/50"
               } hover:bg-muted/30`}

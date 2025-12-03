@@ -218,3 +218,57 @@ export async function updateVideoTitle(
     }
   );
 }
+
+/**
+ * Get highlights for a video
+ */
+export async function getVideoHighlights(
+  videoId: string,
+  token: string
+): Promise<{
+  video_id: string;
+  video_url?: string;
+  video_title?: string;
+  highlights: Array<{
+    id: number;
+    title: string;
+    start: string;
+    end: string;
+    duration: number;
+    hook_category?: string;
+    reason?: string;
+    description?: string;
+  }>;
+}> {
+  return apiFetch(
+    `/api/videos/${encodeURIComponent(videoId)}/highlights`,
+    {
+      method: "GET",
+      token,
+    }
+  );
+}
+
+/**
+ * Reprocess scenes from a video
+ */
+export async function reprocessScenes(
+  videoId: string,
+  sceneIds: number[],
+  styles: string[],
+  token: string
+): Promise<{
+  success: boolean;
+  video_id: string;
+  message: string;
+  job_id?: string;
+}> {
+  return apiFetch(
+    `/api/videos/${encodeURIComponent(videoId)}/reprocess`,
+    {
+      method: "POST",
+      token,
+      body: { scene_ids: sceneIds, styles },
+    }
+  );
+}

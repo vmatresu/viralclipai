@@ -180,7 +180,25 @@ def get_video_metadata(uid: str, video_id: str) -> Optional[Dict[str, Any]]:
     return {
         "video_title": data.get("video_title"),
         "video_url": data.get("video_url"),
+        "status": data.get("status", "completed"),
     }
+
+
+def is_video_processing(uid: str, video_id: str) -> bool:
+    """Check if a video is currently processing."""
+    db = get_firestore_client()
+    doc = db.collection("users").document(uid).collection("videos").document(video_id).get()
+    if not doc.exists:
+        return False
+    data = doc.to_dict() or {}
+    return data.get("status") == "processing"
+
+
+def has_pro_or_enterprise_plan(uid: str) -> bool:
+    """Check if user has pro or enterprise (studio) plan."""
+    user = get_or_create_user(uid)
+    plan_id = user.get("plan", "free")
+    return plan_id in ["pro", "studio"]
 
 
 def update_video_title(uid: str, video_id: str, new_title: str) -> bool:
