@@ -22,6 +22,7 @@ import {
 } from "react";
 
 import { analyticsEvents, initAnalytics } from "@/lib/analytics";
+import { clearAllClipsCache } from "@/lib/cache";
 import { frontendLogger } from "@/lib/logger";
 import { isValidFirebaseConfig } from "@/lib/security/validation";
 
@@ -157,6 +158,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     const auth = getAuthInstance();
     await firebaseSignOut(auth);
+    // SECURITY: Clear all cached clips data when user signs out
+    // This prevents signed-out users from accessing cached video data
+    await clearAllClipsCache();
     void analyticsEvents.userSignedOut();
   }, []);
 

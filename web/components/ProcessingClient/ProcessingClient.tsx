@@ -58,6 +58,9 @@ export function ProcessingClient() {
 
   const { getIdToken, loading: authLoading, user } = useAuth();
   const hasResults = clips.length > 0;
+  
+  // SECURITY: Don't show results if user is not authenticated
+  const canShowResults = user !== null && !authLoading;
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -280,7 +283,8 @@ export function ProcessingClient() {
       {error && <ErrorDisplay error={error} errorDetails={errorDetails} />}
 
       {/* Results Section */}
-      {videoId && !error && (
+      {/* SECURITY: Only show results when user is authenticated */}
+      {videoId && !error && canShowResults && (
         <Results
           videoId={videoId}
           clips={clips}

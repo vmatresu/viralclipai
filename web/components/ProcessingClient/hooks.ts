@@ -73,10 +73,21 @@ export function useVideoProcessing() {
       try {
         setSubmitting(false);
         
-        // Check cache first
+        // SECURITY: Always check authentication first before accessing any data
+        const token = await getIdToken();
+        if (!token) {
+          // Clear any cached data if user is not authenticated
+          setClips([]);
+          setCustomPromptUsed(null);
+          setVideoTitle(null);
+          setVideoUrl(null);
+          throw new Error("You must be signed in to view your clips.");
+        }
+        
+        // Only check cache after authentication is verified
         const cachedData = await getCachedClips(id);
         if (cachedData) {
-          // Use cached data
+          // Use cached data (user is authenticated at this point)
           setClips(cachedData.clips);
           setCustomPromptUsed(cachedData.custom_prompt ?? null);
           setVideoTitle(cachedData.video_title ?? null);
@@ -98,11 +109,7 @@ export function useVideoProcessing() {
           return;
         }
         
-        // Cache miss - fetch from API
-        const token = await getIdToken();
-        if (!token) {
-          throw new Error("You must be signed in to view your clips.");
-        }
+        // Cache miss - fetch from API (token already verified above)
         const data = await apiFetch<{ clips: Clip[]; custom_prompt?: string; video_title?: string; video_url?: string }>(
           `/api/videos/${id}`,
           {
@@ -148,9 +155,18 @@ export function useVideoProcessing() {
 
   useEffect(() => {
     const existingId = searchParams.get("id");
+    
+    // SECURITY: Only load results if user is authenticated
     if (existingId && !authLoading && user) {
       setVideoId(existingId);
       void loadResults(existingId);
+    } else if (!user && !authLoading) {
+      // User is signed out - clear any displayed data
+      setVideoId(null);
+      setClips([]);
+      setCustomPromptUsed(null);
+      setVideoTitle(null);
+      setVideoUrl(null);
     }
   }, [searchParams, loadResults, authLoading, user]);
 
