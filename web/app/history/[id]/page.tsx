@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   ChevronDown,
   ChevronRight,
+  Copy,
   Play,
   Sparkles,
 } from "lucide-react";
@@ -146,11 +147,9 @@ export default function HistoryDetailPage() {
 
         // Debug logging to help identify stuck processing videos
         if (statusIsProcessing && hasHighlights) {
-          console.log(
-            `Video ${videoId} has status 'processing' but has highlights - treating as completed`
-          );
+          // Video has status 'processing' but has highlights - treating as completed
         } else if (isActuallyProcessing) {
-          console.log(`Video ${videoId} is processing according to API`);
+          // Video is processing according to API
         }
       } catch (err) {
         if (!cancelled) {
@@ -214,6 +213,17 @@ export default function HistoryDetailPage() {
       return next;
     });
   }, []);
+
+  const handleCopyUrl = useCallback(async () => {
+    if (highlightsData?.video_url) {
+      try {
+        await navigator.clipboard.writeText(highlightsData.video_url);
+        toast.success("URL copied to clipboard");
+      } catch (_err) {
+        toast.error("Failed to copy URL");
+      }
+    }
+  }, [highlightsData?.video_url]);
 
   const handleReprocess = useCallback(async () => {
     if (selectedScenes.size === 0 || selectedStyles.size === 0) {
@@ -301,7 +311,7 @@ export default function HistoryDetailPage() {
         <AlertCircle className="h-12 w-12 text-destructive" />
         <div className="space-y-2">
           <h3 className="text-xl font-semibold">Failed to load highlights</h3>
-          <p className="text-muted-foreground">{error || "Highlights not found"}</p>
+          <p className="text-muted-foreground">{error ?? "Highlights not found"}</p>
         </div>
         <Button variant="outline" onClick={() => router.back()}>
           Go Back
@@ -318,12 +328,23 @@ export default function HistoryDetailPage() {
         </Button>
         <div className="flex-1">
           <h1 className="text-3xl font-bold tracking-tight">
-            {highlightsData.video_title || "Video Highlights"}
+            {highlightsData.video_title ?? "Video Highlights"}
           </h1>
           {highlightsData.video_url && (
-            <p className="text-sm text-muted-foreground mt-1 truncate">
-              {highlightsData.video_url}
-            </p>
+            <div className="flex items-center gap-2 mt-1">
+              <p className="text-sm text-muted-foreground truncate flex-1">
+                {highlightsData.video_url}
+              </p>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 flex-shrink-0"
+                onClick={handleCopyUrl}
+                title="Copy URL"
+              >
+                <Copy className="h-4 w-4" />
+              </Button>
+            </div>
           )}
         </div>
       </div>

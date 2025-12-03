@@ -139,8 +139,30 @@ class VideoMetadata(BaseModel):
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "VideoMetadata":
-        """Create from Firestore document dictionary."""
-        return cls.model_validate(data)
+        """Create from Firestore document dictionary with backward compatibility."""
+        # Handle missing required fields for backward compatibility
+        processed_data = data.copy()
+        
+        # Set default values for fields that might be missing in old documents
+        if "user_id" not in processed_data:
+            processed_data["user_id"] = "unknown"
+        if "youtube_id" not in processed_data:
+            # Extract youtube_id from video_url if possible
+            video_url = processed_data.get("video_url", "")
+            if "youtube.com/watch?v=" in video_url:
+                processed_data["youtube_id"] = video_url.split("v=")[1].split("&")[0]
+            elif "youtu.be/" in video_url:
+                processed_data["youtube_id"] = video_url.split("youtu.be/")[1].split("?")[0]
+            else:
+                processed_data["youtube_id"] = "unknown"
+        if "updated_at" not in processed_data:
+            processed_data["updated_at"] = processed_data.get("created_at", datetime.now())
+        if "highlights_json_key" not in processed_data:
+            processed_data["highlights_json_key"] = f"highlights/{processed_data.get('video_id', 'unknown')}.json"
+        if "created_by" not in processed_data:
+            processed_data["created_by"] = processed_data.get("user_id", "unknown")
+        
+        return cls.model_validate(processed_data)
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to Firestore-compatible dictionary."""
