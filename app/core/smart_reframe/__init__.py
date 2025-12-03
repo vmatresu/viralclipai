@@ -39,13 +39,31 @@ from app.core.smart_reframe.models import (
     CropPlan,
 )
 from app.core.smart_reframe.config import IntelligentCropConfig
-from app.core.smart_reframe.reframer import Reframer
+from app.core.smart_reframe.reframer import Reframer, analyze_and_render
+from app.core.smart_reframe.cache import ShotDetectionCache, get_shot_cache, detect_shots_cached
+from app.core.smart_reframe.config_factory import (
+    get_production_config,
+    get_fast_config,
+    get_balanced_config,
+    get_quality_config,
+    get_config_from_env,
+)
 
 __all__ = [
     # Main class
     "Reframer",
+    "analyze_and_render",
     # Configuration
     "IntelligentCropConfig",
+    "get_production_config",
+    "get_fast_config",
+    "get_balanced_config",
+    "get_quality_config",
+    "get_config_from_env",
+    # Caching
+    "ShotDetectionCache",
+    "get_shot_cache",
+    "detect_shots_cached",
     # Data models
     "AspectRatio",
     "BoundingBox",

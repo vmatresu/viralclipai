@@ -22,6 +22,7 @@ from app.core.smart_reframe.content_analyzer import ContentAnalyzer
 from app.core.smart_reframe.smoother import compute_camera_plans
 from app.core.smart_reframe.crop_planner import compute_crop_plans
 from app.core.smart_reframe.renderer import Renderer
+from app.core.smart_reframe.cache import detect_shots_cached, ShotDetectionCache
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,7 @@ class Reframer:
         self,
         target_aspect_ratios: Optional[list[AspectRatio]] = None,
         config: Optional[IntelligentCropConfig] = None,
+        shot_cache: Optional[ShotDetectionCache] = None,
     ):
         """
         Initialize the reframer.
@@ -63,6 +65,7 @@ class Reframer:
             target_aspect_ratios: List of target aspect ratios.
                                   Defaults to [9:16] if not provided.
             config: Configuration options. Uses defaults if not provided.
+            shot_cache: Optional shot detection cache for performance.
         """
         if target_aspect_ratios is None:
             target_aspect_ratios = [AspectRatio(width=9, height=16)]
@@ -71,6 +74,7 @@ class Reframer:
 
         self.target_aspect_ratios = target_aspect_ratios
         self.config = config
+        self.shot_cache = shot_cache
 
         # Initialize pipeline components
         self._shot_detector = ShotDetector(config)
@@ -110,9 +114,12 @@ class Reframer:
         else:
             effective_duration = video_meta.duration
 
-        # Step 1: Shot detection
+        # Step 1: Shot detection (with caching)
         logger.info("Step 1/4: Detecting shots...")
-        shots = self._shot_detector.detect_shots(input_path, time_range)
+        if self.shot_cache is not None and time_range is None:
+            shots = detect_shots_cached(input_path, self.config, time_range, self.shot_cache)
+        else:
+            shots = self._shot_detector.detect_shots(input_path, time_range)
         logger.info(f"  Found {len(shots)} shots")
 
         # If no shots detected, create one covering the whole range

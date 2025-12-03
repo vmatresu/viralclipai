@@ -4,6 +4,8 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, Literal
 
+from app.core.utils.ffmpeg import run_ffmpeg
+
 logger = logging.getLogger(__name__)
 
 AVAILABLE_STYLES = ["split", "left_focus", "right_focus"]
@@ -122,7 +124,7 @@ def run_ffmpeg_clip(
     ])
 
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        run_ffmpeg(cmd, suppress_warnings=True, log_level="error", check=True)
         
         # Generate thumbnail
         thumb_path = out_path.with_suffix(".jpg")
@@ -135,13 +137,13 @@ def run_ffmpeg_clip(
             str(thumb_path)
         ]
         try:
-            subprocess.run(cmd_thumb, check=True, capture_output=True, text=True)
-        except subprocess.CalledProcessError as e:
-            logger.warning(f"Thumbnail generation failed for {out_path.name}: {e.stderr}")
+            run_ffmpeg(cmd_thumb, suppress_warnings=True, log_level="error", check=True)
+        except RuntimeError as e:
+            logger.warning(f"Thumbnail generation failed for {out_path.name}: {e}")
 
-    except subprocess.CalledProcessError as e:
-        logger.error(f"ffmpeg failed:\n{e.stderr}")
-        raise RuntimeError(f"FFmpeg clipping failed for {out_path.name}: {e.stderr}") from e
+    except RuntimeError as e:
+        logger.error(f"ffmpeg failed: {e}")
+        raise RuntimeError(f"FFmpeg clipping failed for {out_path.name}: {e}") from e
 
 
 def run_intelligent_crop(
@@ -152,6 +154,7 @@ def run_intelligent_crop(
     target_aspect: str = "9:16",
     pad_before_seconds: float = 0.0,
     pad_after_seconds: float = 0.0,
+    shot_cache=None,
 ) -> Path:
     """
     Run the intelligent cropping pipeline on a video segment.
@@ -167,6 +170,7 @@ def run_intelligent_crop(
         target_aspect: Target aspect ratio (e.g., "9:16", "4:5", "1:1").
         pad_before_seconds: Seconds to add before start.
         pad_after_seconds: Seconds to add after end.
+        shot_cache: Optional shot detection cache for performance.
 
     Returns:
         Path to the rendered output video.
@@ -174,8 +178,8 @@ def run_intelligent_crop(
     from app.core.smart_reframe import (
         Reframer,
         AspectRatio,
-        IntelligentCropConfig,
     )
+    from app.core.smart_reframe.config_factory import get_production_config
 
     try:
         # Parse timestamps
@@ -196,18 +200,14 @@ def run_intelligent_crop(
         # Parse aspect ratio
         aspect = AspectRatio.from_string(target_aspect)
 
-        # Configure for reasonable speed on cloud VMs
-        config = IntelligentCropConfig(
-            fps_sample=3.0,
-            analysis_resolution=480,
-            render_preset="fast",
-            render_crf=18,
-        )
+        # Use optimized production configuration
+        config = get_production_config()
 
-        # Create reframer
+        # Create reframer with cache support
         reframer = Reframer(
             target_aspect_ratios=[aspect],
             config=config,
+            shot_cache=shot_cache,
         )
 
         try:
@@ -256,6 +256,7 @@ def run_ffmpeg_clip_with_crop(
     target_aspect: str = "9:16",
     pad_before_seconds: float = 0.0,
     pad_after_seconds: float = 0.0,
+    shot_cache=None,
 ):
     """
     Run FFmpeg clip with optional intelligent cropping.
@@ -273,6 +274,7 @@ def run_ffmpeg_clip_with_crop(
         target_aspect: Target aspect ratio for intelligent mode.
         pad_before_seconds: Seconds to pad before start.
         pad_after_seconds: Seconds to pad after end.
+        shot_cache: Optional shot detection cache for performance optimization.
     """
     if crop_mode == "intelligent":
         run_intelligent_crop(
@@ -283,6 +285,7 @@ def run_ffmpeg_clip_with_crop(
             target_aspect=target_aspect,
             pad_before_seconds=pad_before_seconds,
             pad_after_seconds=pad_after_seconds,
+            shot_cache=shot_cache,
         )
     else:
         # Use traditional clipping

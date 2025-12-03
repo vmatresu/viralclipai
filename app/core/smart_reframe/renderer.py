@@ -404,20 +404,25 @@ class Renderer:
             self._run_ffmpeg(cmd)
 
     def _run_ffmpeg(self, cmd: list[str]):
-        """Run an FFmpeg command."""
+        """Run an FFmpeg command with improved error handling."""
+        from app.core.utils.ffmpeg import run_ffmpeg
+        
         logger.debug(f"Running: {' '.join(cmd)}")
 
         try:
-            result = subprocess.run(
+            result = run_ffmpeg(
                 cmd,
+                suppress_warnings=True,
+                log_level="error",  # Suppress warnings, keep errors
                 check=True,
-                capture_output=True,
-                text=True,
             )
             logger.debug(f"FFmpeg stdout: {result.stdout}")
-        except subprocess.CalledProcessError as e:
-            logger.error(f"FFmpeg failed: {e.stderr}")
-            raise RuntimeError(f"FFmpeg rendering failed: {e.stderr}") from e
+        except RuntimeError as e:
+            # Re-raise as-is (already formatted)
+            raise
+        except Exception as e:
+            logger.error(f"FFmpeg failed: {e}")
+            raise RuntimeError(f"FFmpeg rendering failed: {e}") from e
 
 
 def render_with_letterbox(
@@ -480,8 +485,10 @@ def render_with_letterbox(
 
     logger.debug(f"Running letterbox render: {' '.join(cmd)}")
 
+    from app.core.utils.ffmpeg import run_ffmpeg
+    
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
-    except subprocess.CalledProcessError as e:
-        logger.error(f"FFmpeg letterbox render failed: {e.stderr}")
-        raise RuntimeError(f"FFmpeg rendering failed: {e.stderr}") from e
+        run_ffmpeg(cmd, suppress_warnings=True, log_level="error", check=True)
+    except RuntimeError as e:
+        logger.error(f"FFmpeg letterbox render failed: {e}")
+        raise

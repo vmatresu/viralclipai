@@ -162,6 +162,11 @@ async def process_video_workflow(
 
         # 3. Clipping
         completed_clips = 0
+        
+        # Initialize shot detection cache for performance optimization
+        # This allows reusing shot detection results across multiple clips
+        from app.core.smart_reframe.cache import get_shot_cache
+        shot_cache = get_shot_cache() if crop_mode == "intelligent" else None
 
         for h in highlights:
             clip_id = h.get("id")
@@ -195,6 +200,7 @@ async def process_video_workflow(
                     target_aspect,
                     pad_before,
                     pad_after,
+                    shot_cache,  # Pass cache for performance
                 )
 
                 # Upload rendered clip and thumbnail to S3

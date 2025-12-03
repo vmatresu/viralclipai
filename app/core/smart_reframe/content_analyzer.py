@@ -196,6 +196,13 @@ class ContentAnalyzer:
             detections = []
             start_frame = int(shot.start_time * fps)
             end_frame = int(shot.end_time * fps)
+            
+            # Early exit optimization: sample first few frames to check for faces
+            # If no faces found in first samples, skip detailed analysis
+            early_exit_samples = 3
+            early_exit_frame_count = 0
+            early_exit_threshold = 0.1  # Check first 10% of shot
+            early_exit_frame_limit = start_frame + int((end_frame - start_frame) * early_exit_threshold)
 
             cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
             frame_idx = start_frame
@@ -226,6 +233,18 @@ class ContentAnalyzer:
 
                 # Update tracker
                 tracked = tracker.update(raw_dets)
+
+                # Early exit optimization: check first few frames
+                if frame_idx < early_exit_frame_limit:
+                    if len(raw_dets) == 0:
+                        early_exit_frame_count += 1
+                        if early_exit_frame_count >= early_exit_samples:
+                            # No faces found in early samples, skip detailed analysis
+                            logger.debug(f"  Early exit: No faces detected in first {early_exit_samples} samples")
+                            break
+                    else:
+                        # Faces found, reset counter and continue with full analysis
+                        early_exit_frame_count = 0
 
                 # Create Detection objects
                 for track_id, bbox, score in tracked:
