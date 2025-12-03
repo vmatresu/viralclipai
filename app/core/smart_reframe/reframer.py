@@ -147,6 +147,7 @@ class Reframer:
             video_meta.height,
             video_meta.fps,
             self.config,
+            input_path,  # Pass video path for activity analysis
         )
         logger.info(f"  Generated {len(camera_plans)} camera plans")
 

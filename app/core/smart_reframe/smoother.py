@@ -8,6 +8,7 @@ to create smooth, professional-looking reframing.
 import logging
 from typing import Optional
 
+import cv2
 import numpy as np
 
 from app.core.smart_reframe.models import (
@@ -17,9 +18,15 @@ from app.core.smart_reframe.models import (
     Shot,
     ShotDetections,
     BoundingBox,
+    Detection,
 )
 from app.core.smart_reframe.config import IntelligentCropConfig
 from app.core.smart_reframe.saliency import SaliencyEstimator
+from app.core.smart_reframe.face_activity import (
+    FaceActivityAnalyzer,
+    TemporalActivityTracker,
+)
+from app.core.utils.opencv import suppress_ffmpeg_warnings
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +40,12 @@ class CameraSmoother:
         self.config = config
         self.fps = fps
         self.saliency = SaliencyEstimator()
+        self.activity_analyzer: Optional[FaceActivityAnalyzer] = None
+        self.activity_tracker: Optional[TemporalActivityTracker] = None
+        
+        if config.enable_multi_face_activity:
+            self.activity_analyzer = FaceActivityAnalyzer(config)
+            self.activity_tracker = TemporalActivityTracker(config)
 
     def compute_camera_plan(
         self,
@@ -105,6 +118,21 @@ class CameraSmoother:
         """
         Compute raw focus points from detections.
         """
+        # Check if we need activity analysis for multi-face scenarios
+        # Only analyze if there are multiple distinct tracks
+        unique_tracks = len(set(d.track_id for d in detections.detections))
+        needs_activity_analysis = (
+            self.config.enable_multi_face_activity
+            and video_path is not None
+            and self.activity_analyzer is not None
+            and self.activity_tracker is not None
+            and unique_tracks > 1  # Only needed for multiple faces
+        )
+        
+        # Analyze activity if needed
+        if needs_activity_analysis:
+            self._analyze_face_activity(shot, detections, video_path, frame_width, frame_height)
+
         # Group detections by time
         time_to_dets: dict[float, list] = {}
         for det in detections.detections:
@@ -131,7 +159,7 @@ class CameraSmoother:
             if closest_time is not None:
                 dets = time_to_dets[closest_time]
                 focus = self._compute_focus_from_detections(
-                    dets, frame_width, frame_height
+                    dets, frame_width, frame_height, t
                 )
                 keyframes.append(
                     CameraKeyframe(
@@ -164,12 +192,15 @@ class CameraSmoother:
 
     def _compute_focus_from_detections(
         self,
-        detections: list,
+        detections: list[Detection],
         frame_width: int,
         frame_height: int,
+        current_time: float,
     ) -> BoundingBox:
         """
         Compute focus region from a set of detections.
+        
+        Uses activity-based selection for multi-face scenarios.
         """
         if not detections:
             return BoundingBox(
@@ -179,6 +210,35 @@ class CameraSmoother:
                 height=frame_height * 0.6,
             )
 
+        # Check if this is a multi-face scenario requiring activity analysis
+        if (
+            len(detections) > 1
+            and self.config.enable_multi_face_activity
+            and self.activity_tracker is not None
+        ):
+            # Check if faces are far apart
+            faces_far_apart = self._are_faces_far_apart(detections, frame_width)
+            
+            if faces_far_apart:
+                # Use activity-based selection
+                selected_track_id = self.activity_tracker.select_active_face(
+                    [d.track_id for d in detections],
+                    current_time
+                )
+                
+                if selected_track_id is not None:
+                    # Find detection with selected track ID
+                    selected_det = next(
+                        (d for d in detections if d.track_id == selected_track_id),
+                        None
+                    )
+                    if selected_det:
+                        focus_box = selected_det.bbox.pad(
+                            selected_det.bbox.width * self.config.subject_padding
+                        )
+                        return focus_box.clamp(frame_width, frame_height)
+
+        # Fallback to original logic
         if self.config.prefer_primary_subject and len(detections) > 1:
             # Use the largest/most confident detection
             primary = max(detections, key=lambda d: d.bbox.area * d.score)
@@ -186,20 +246,146 @@ class CameraSmoother:
                 primary.bbox.width * self.config.subject_padding
             )
         else:
-            # Combine all detections
-            boxes = [d.bbox for d in detections]
-            combined = BoundingBox.union(boxes)
-            if combined:
-                focus_box = combined.pad(combined.width * self.config.subject_padding)
+            # Check if faces are close enough to combine
+            faces_far_apart = self._are_faces_far_apart(detections, frame_width)
+            if not faces_far_apart:
+                # Combine all detections (they're close together)
+                boxes = [d.bbox for d in detections]
+                combined = BoundingBox.union(boxes)
+                if combined:
+                    focus_box = combined.pad(combined.width * self.config.subject_padding)
+                else:
+                    focus_box = BoundingBox(
+                        x=frame_width * 0.2,
+                        y=frame_height * 0.2,
+                        width=frame_width * 0.6,
+                        height=frame_height * 0.6,
+                    )
             else:
-                focus_box = BoundingBox(
-                    x=frame_width * 0.2,
-                    y=frame_height * 0.2,
-                    width=frame_width * 0.6,
-                    height=frame_height * 0.6,
+                # Faces far apart but activity analysis not enabled/available
+                # Use primary subject as fallback
+                primary = max(detections, key=lambda d: d.bbox.area * d.score)
+                focus_box = primary.bbox.pad(
+                    primary.bbox.width * self.config.subject_padding
                 )
 
         return focus_box.clamp(frame_width, frame_height)
+
+    def _are_faces_far_apart(
+        self, detections: list[Detection], frame_width: int
+    ) -> bool:
+        """
+        Check if faces are far apart (should use activity-based selection).
+        
+        Args:
+            detections: List of detections.
+            frame_width: Frame width for normalization.
+            
+        Returns:
+            True if faces are far apart.
+        """
+        if len(detections) < 2:
+            return False
+        
+        # Compute distance between face centers
+        centers = [(d.bbox.cx, d.bbox.cy) for d in detections]
+        
+        max_distance = 0.0
+        for i in range(len(centers)):
+            for j in range(i + 1, len(centers)):
+                dx = centers[i][0] - centers[j][0]
+                dy = centers[i][1] - centers[j][1]
+                distance = np.sqrt(dx**2 + dy**2)
+                max_distance = max(max_distance, distance)
+        
+        # Normalize by frame width
+        normalized_distance = max_distance / frame_width
+        
+        return normalized_distance > self.config.multi_face_separation_threshold
+
+    def _analyze_face_activity(
+        self,
+        shot: Shot,
+        detections: ShotDetections,
+        video_path: str,
+        frame_width: int,
+        frame_height: int,
+    ):
+        """
+        Analyze face activity for multi-face scenarios.
+        
+        Reads video frames and computes activity scores for each face.
+        """
+        if self.activity_analyzer is None or self.activity_tracker is None:
+            return
+        
+        try:
+            with suppress_ffmpeg_warnings():
+                cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                logger.warning(f"Failed to open video for activity analysis: {video_path}")
+                return
+
+            try:
+                fps = cap.get(cv2.CAP_PROP_FPS)
+                start_frame = int(shot.start_time * fps)
+                end_frame = int(shot.end_time * fps)
+                
+                # Sample at activity analysis rate (can be lower than detection rate)
+                activity_sample_rate = max(1, int(fps / min(self.config.fps_sample * 2, 10)))
+                
+                # Group detections by frame
+                detections_by_frame: dict[int, list[Detection]] = {}
+                for det in detections.detections:
+                    if shot.start_time <= det.time <= shot.end_time:
+                        frame_num = int(det.time * fps)
+                        if frame_num not in detections_by_frame:
+                            detections_by_frame[frame_num] = []
+                        detections_by_frame[frame_num].append(det)
+                
+                cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+                frame_idx = start_frame
+                
+                while frame_idx < end_frame:
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    
+                    timestamp = frame_idx / fps
+                    
+                    # Get detections at this frame (or nearby)
+                    frame_dets = detections_by_frame.get(frame_idx, [])
+                    
+                    # If no exact match, find closest
+                    if not frame_dets:
+                        closest_frame = None
+                        min_diff = float("inf")
+                        for det_frame in detections_by_frame:
+                            diff = abs(det_frame - frame_idx)
+                            if diff < min_diff and diff < activity_sample_rate:
+                                min_diff = diff
+                                closest_frame = det_frame
+                        if closest_frame is not None:
+                            frame_dets = detections_by_frame[closest_frame]
+                    
+                    # Compute activity scores
+                    for det in frame_dets:
+                        activity_score = self.activity_analyzer.compute_activity_score(
+                            frame, det
+                        )
+                        self.activity_tracker.update_activity(
+                            det.track_id, activity_score, timestamp
+                        )
+                    
+                    # Skip frames
+                    frame_idx += activity_sample_rate
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                    
+            finally:
+                cap.release()
+                
+        except Exception as e:
+            logger.warning(f"Error during face activity analysis: {e}")
 
     def _classify_camera_mode(self, keyframes: list[CameraKeyframe]) -> CameraMode:
         """
@@ -378,6 +564,7 @@ def compute_camera_plans(
     frame_height: int,
     fps: float,
     config: Optional[IntelligentCropConfig] = None,
+    video_path: Optional[str] = None,
 ) -> list[ShotCameraPlan]:
     """
     Compute camera plans for all shots.
@@ -389,6 +576,7 @@ def compute_camera_plans(
         frame_height: Source video height.
         fps: Video frame rate.
         config: Configuration options.
+        video_path: Optional path to video file for activity analysis.
 
     Returns:
         List of ShotCameraPlan objects.
@@ -405,8 +593,12 @@ def compute_camera_plans(
     for shot in shots:
         detections = det_map.get(shot.id, ShotDetections(shot_id=shot.id))
         plan = smoother.compute_camera_plan(
-            shot, detections, frame_width, frame_height
+            shot, detections, frame_width, frame_height, video_path
         )
         plans.append(plan)
+
+    # Cleanup activity analyzer resources
+    if smoother.activity_analyzer is not None:
+        smoother.activity_analyzer.close()
 
     return plans

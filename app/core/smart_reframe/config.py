@@ -150,6 +150,58 @@ class IntelligentCropConfig(BaseModel):
         le=1.0,
         description="Subjects within this fraction of frame width grouped together",
     )
+    
+    # Multi-face activity detection
+    enable_multi_face_activity: bool = Field(
+        default=True,
+        description="Enable activity-based face selection for multi-face scenarios",
+    )
+    multi_face_separation_threshold: float = Field(
+        default=0.4,
+        ge=0.2,
+        le=0.8,
+        description="Distance threshold (as fraction of frame width) to consider faces 'far apart'",
+    )
+    enable_mouth_detection: bool = Field(
+        default=True,
+        description="Enable MediaPipe Face Mesh for mouth movement detection (adds processing time)",
+    )
+    face_activity_window: float = Field(
+        default=0.5,
+        ge=0.2,
+        le=2.0,
+        description="Time window in seconds for computing face activity scores",
+    )
+    min_switch_duration: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=3.0,
+        description="Minimum time in seconds before switching to a different face",
+    )
+    activity_weight_mouth: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="Weight for mouth movement in activity score (0.0 = disabled)",
+    )
+    activity_weight_motion: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Weight for motion/optical flow in activity score",
+    )
+    activity_weight_size_change: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=1.0,
+        description="Weight for face size changes in activity score",
+    )
+    activity_smoothing_window: float = Field(
+        default=0.3,
+        ge=0.1,
+        le=1.0,
+        description="Smoothing window for activity scores to reduce jitter",
+    )
 
     # Performance
     num_workers: int = Field(
