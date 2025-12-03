@@ -28,6 +28,8 @@ export function useVideoProcessing() {
   const [clips, setClips] = useState<Clip[]>([]);
   const [customPrompt, setCustomPrompt] = useState("");
   const [customPromptUsed, setCustomPromptUsed] = useState<string | null>(null);
+  const [videoTitle, setVideoTitle] = useState<string | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const processingStartTime = useRef<number | null>(null);
   // Store processing parameters at start time for accurate analytics tracking
   const processingStyles = useRef<string[]>(["split"]);
@@ -54,7 +56,7 @@ export function useVideoProcessing() {
         if (!token) {
           throw new Error("You must be signed in to view your clips.");
         }
-        const data = await apiFetch<{ clips: Clip[]; custom_prompt?: string }>(
+        const data = await apiFetch<{ clips: Clip[]; custom_prompt?: string; video_title?: string; video_url?: string }>(
           `/api/videos/${id}`,
           {
             token,
@@ -63,6 +65,8 @@ export function useVideoProcessing() {
         const clipsData = data.clips || [];
         setClips(clipsData);
         setCustomPromptUsed(data.custom_prompt ?? null);
+        setVideoTitle(data.video_title ?? null);
+        setVideoUrl(data.video_url ?? null);
 
         // Track processing completion with actual clips count
         // Use stored values from when processing started, not current form values
@@ -112,6 +116,8 @@ export function useVideoProcessing() {
     setCustomPrompt,
     customPromptUsed,
     setCustomPromptUsed,
+    videoTitle,
+    videoUrl,
     processingStartTime,
     processingStyles,
     processingCustomPrompt,
@@ -124,6 +130,8 @@ export function useVideoProcessing() {
     setErrorDetails,
     setVideoId,
     setClips,
+    setVideoTitle,
+    setVideoUrl,
     searchParams,
   };
 }

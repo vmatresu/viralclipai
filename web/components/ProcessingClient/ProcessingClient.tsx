@@ -38,6 +38,8 @@ export function ProcessingClient() {
     customPrompt,
     setCustomPrompt,
     customPromptUsed,
+    videoTitle,
+    videoUrl,
     processingStartTime,
     processingStyles,
     processingCustomPrompt,
@@ -49,6 +51,8 @@ export function ProcessingClient() {
     setErrorDetails,
     setVideoId,
     setClips,
+    setVideoTitle,
+    setVideoUrl,
     searchParams,
   } = useVideoProcessing();
 
@@ -225,6 +229,9 @@ export function ProcessingClient() {
   function handleReset() {
     setVideoId(null);
     setClips([]);
+    setVideoTitle(null);
+    setVideoUrl(null);
+    setCustomPromptUsed(null);
     const newUrl = new URL(window.location.href);
     newUrl.searchParams.delete("id");
     window.history.pushState({}, "", newUrl.toString());
@@ -274,9 +281,14 @@ export function ProcessingClient() {
           videoId={videoId}
           clips={clips}
           customPromptUsed={customPromptUsed}
+          videoTitle={videoTitle}
+          videoUrl={videoUrl}
           log={log}
           onReset={handleReset}
           onClipDeleted={handleClipDeleted}
+          onTitleUpdated={(newTitle) => {
+            setVideoTitle(newTitle);
+          }}
         />
       )}
     </div>

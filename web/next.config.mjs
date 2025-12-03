@@ -33,7 +33,7 @@ const nextConfig = {
       "img-src 'self' data: https: blob:",
       "font-src 'self' data:",
       "connect-src 'self' https://*.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://apis.google.com https://accounts.google.com https://*.firebaseapp.com https://*.firebaseio.com wss://* ws://* http://localhost:8000 ws://localhost:8000",
-      "frame-src 'self' https://accounts.google.com https://*.googleapis.com https://*.firebaseapp.com",
+      "frame-src 'self' https://accounts.google.com https://*.googleapis.com https://*.firebaseapp.com https://www.youtube.com https://youtube.com https://*.youtube.com",
       "media-src 'self' blob: https:",
       "object-src 'none'",
       "base-uri 'self'",

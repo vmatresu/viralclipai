@@ -181,6 +181,16 @@ class AdminPromptRequest(BaseSchema):
         return sanitize_text(v, MAX_PROMPT_LENGTH)
 
 
+class UpdateVideoTitleRequest(BaseSchema):
+    """Request to update video title."""
+    title: str = Field(..., min_length=1, max_length=MAX_TITLE_LENGTH)
+    
+    @field_validator("title")
+    @classmethod
+    def sanitize_title(cls, v: str) -> str:
+        return sanitize_text(v, MAX_TITLE_LENGTH)
+
+
 # -----------------------------------------------------------------------------
 # API Response Models
 # -----------------------------------------------------------------------------
@@ -202,6 +212,8 @@ class VideoInfoResponse(BaseSchema):
     id: str
     clips: List[ClipInfo]
     custom_prompt: Optional[str] = None
+    video_title: Optional[str] = None
+    video_url: Optional[str] = None
 
 
 class VideoSummary(BaseSchema):
@@ -321,3 +333,11 @@ class DeleteClipResponse(BaseSchema):
     clip_name: str
     message: Optional[str] = None
     files_deleted: Optional[int] = None
+
+
+class UpdateVideoTitleResponse(BaseSchema):
+    """Response after updating video title."""
+    success: bool
+    video_id: str
+    title: str
+    message: Optional[str] = None

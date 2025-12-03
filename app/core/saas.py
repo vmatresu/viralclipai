@@ -84,6 +84,44 @@ def user_owns_video(uid: str, run_id: str) -> bool:
     return doc.exists
 
 
+def get_video_metadata(uid: str, video_id: str) -> Optional[Dict[str, Any]]:
+    """Get video metadata (title, URL) from Firestore."""
+    db = get_firestore_client()
+    doc = db.collection("users").document(uid).collection("videos").document(video_id).get()
+    if not doc.exists:
+        return None
+    data = doc.to_dict() or {}
+    return {
+        "video_title": data.get("video_title"),
+        "video_url": data.get("video_url"),
+    }
+
+
+def update_video_title(uid: str, video_id: str, new_title: str) -> bool:
+    """Update video title in Firestore.
+    
+    Args:
+        uid: User ID
+        video_id: Video ID to update
+        new_title: New title to set
+        
+    Returns:
+        True if video was updated, False if it didn't exist
+        
+    Raises:
+        Exception: If update fails
+    """
+    db = get_firestore_client()
+    doc_ref = db.collection("users").document(uid).collection("videos").document(video_id)
+    doc = doc_ref.get()
+    
+    if not doc.exists:
+        return False
+    
+    doc_ref.update({"video_title": new_title})
+    return True
+
+
 def list_user_videos(uid: str) -> List[Dict[str, Any]]:
     db = get_firestore_client()
     col = db.collection("users").document(uid).collection("videos")

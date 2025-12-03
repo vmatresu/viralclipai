@@ -190,3 +190,31 @@ export async function deleteClip(
     }
   );
 }
+
+/**
+ * Update video title
+ */
+export async function updateVideoTitle(
+  videoId: string,
+  title: string,
+  token: string
+): Promise<{
+  success: boolean;
+  video_id: string;
+  title: string;
+  message?: string;
+}> {
+  return apiFetch<{
+    success: boolean;
+    video_id: string;
+    title: string;
+    message?: string;
+  }>(
+    `/api/videos/${encodeURIComponent(videoId)}/title`,
+    {
+      method: "PATCH",
+      token,
+      body: { title },
+    }
+  );
+}

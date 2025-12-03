@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Clock, Film, AlertCircle, Trash2, CheckSquare, Square } from "lucide-react";
+import { Clock, Film, AlertCircle, Trash2, CheckSquare, Square, Copy, Check } from "lucide-react";
 
-import { apiFetch, deleteVideo, bulkDeleteVideos } from "@/lib/apiClient";
+import { apiFetch, deleteVideo, bulkDeleteVideos, updateVideoTitle } from "@/lib/apiClient";
+import { EditableTitle } from "@/components/EditableTitle";
+import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { usePageView } from "@/lib/usePageView";
 import { Button } from "@/components/ui/button";
@@ -36,6 +38,7 @@ export default function HistoryPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ type: "single" | "bulk" | "all"; videoId?: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
 
   const loadVideos = useCallback(async () => {
     if (authLoading || !user) {
@@ -171,6 +174,92 @@ export default function HistoryPage() {
     } finally {
       setDeleting(false);
     }
+  };
+
+  const handleCopyUrl = async (url: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedUrl(url);
+      setTimeout(() => setCopiedUrl(null), 2000);
+    } catch (err) {
+      // Fallback for older browsers
+      const textArea = document.createElement("textarea");
+      textArea.value = url;
+      textArea.style.position = "fixed";
+      textArea.style.opacity = "0";
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand("copy");
+        setCopiedUrl(url);
+        setTimeout(() => setCopiedUrl(null), 2000);
+      } catch (fallbackErr) {
+        console.error("Failed to copy URL:", fallbackErr);
+      }
+      document.body.removeChild(textArea);
+    }
+  };
+
+  const handleTitleUpdate = async (videoId: string, newTitle: string) => {
+    try {
+      const token = await getIdToken();
+      if (!token) {
+        throw new Error("Authentication required");
+      }
+      await updateVideoTitle(videoId, newTitle, token);
+      // Update local state
+      setVideos((prev) =>
+        prev.map((v) => {
+          const id = v.video_id ?? v.id ?? "";
+          if (id === videoId) {
+            return { ...v, video_title: newTitle };
+          }
+          return v;
+        })
+      );
+      toast.success("Title updated successfully");
+    } catch (error) {
+      toast.error("Failed to update title");
+      throw error;
+    }
+  };
+
+  const getDisplayTitle = (title: string | undefined, videoUrl: string | undefined): string => {
+    // Check for placeholder or empty titles
+    if (!title || title.trim() === "") {
+      return "Untitled Video";
+    }
+    
+    // Check for common placeholder patterns
+    const placeholderPatterns = [
+      /^the main title of the/i,
+      /^main title/i,
+      /^video title/i,
+      /^title/i,
+      /^untitled/i,
+      /^generated clips/i,
+    ];
+    
+    const trimmedTitle = title.trim();
+    if (placeholderPatterns.some(pattern => pattern.test(trimmedTitle))) {
+      // Try to extract YouTube ID from URL as fallback
+      if (videoUrl) {
+        try {
+          const urlObj = new URL(videoUrl);
+          const videoId = urlObj.searchParams.get("v") || urlObj.pathname.split("/").pop();
+          if (videoId && videoId.length > 5) {
+            return `YouTube Video (${videoId.substring(0, 8)}...)`;
+          }
+        } catch {
+          // URL parsing failed, use generic fallback
+        }
+      }
+      return "Untitled Video";
+    }
+    
+    return trimmedTitle;
   };
 
   if (authLoading) {
@@ -365,22 +454,55 @@ export default function HistoryPage() {
                       <Square className="h-5 w-5 text-muted-foreground" />
                     )}
                   </button>
-                  <a
-                    href={`/?id=${encodeURIComponent(id)}`}
-                    className="flex-1 min-w-0 space-y-2 group"
-                  >
+                  <div className="flex-1 min-w-0 space-y-2 group">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="text-lg font-bold text-foreground group-hover:text-primary transition-colors truncate">
-                        {v.video_title || "Generated Clips"}
-                      </h3>
-                      <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80">
+                      <div
+                        onClick={(e) => {
+                          // Prevent navigation when clicking on editable title
+                          e.stopPropagation();
+                        }}
+                        className="flex-1 min-w-0"
+                      >
+                        <EditableTitle
+                          title={v.video_title || "Untitled Video"}
+                          onSave={(newTitle) => handleTitleUpdate(id, newTitle)}
+                          className="truncate"
+                        />
+                      </div>
+                      <a
+                        href={`/?id=${encodeURIComponent(id)}`}
+                        className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                      >
                         ID: {id.substring(0, 8)}...
-                      </span>
+                      </a>
                     </div>
                     
-                    <div className="text-sm text-muted-foreground truncate font-mono bg-muted/30 px-2 py-1 rounded w-fit max-w-full">
-                      {v.video_url}
-                    </div>
+                    {v.video_url && (
+                      <div className="flex items-center gap-2 group/url">
+                        <a
+                          href={v.video_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-sm text-muted-foreground truncate font-mono bg-muted/30 px-2 py-1 rounded hover:text-primary hover:bg-muted/50 transition-colors flex-1 min-w-0"
+                        >
+                          {v.video_url}
+                        </a>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 flex-shrink-0"
+                          onClick={(e) => handleCopyUrl(v.video_url!, e)}
+                          aria-label="Copy URL"
+                        >
+                          {copiedUrl === v.video_url ? (
+                            <Check className="h-4 w-4 text-green-500" />
+                          ) : (
+                            <Copy className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                    )}
                     
                     {v.custom_prompt && (
                       <div className="mt-2 text-xs text-muted-foreground bg-muted/20 p-2 rounded border border-border/30">
@@ -388,7 +510,7 @@ export default function HistoryPage() {
                         <span className="italic">{v.custom_prompt}</span>
                       </div>
                     )}
-                  </a>
+                  </div>
                 </div>
                 
                 <div className="flex items-center gap-3 sm:flex-row flex-row-reverse justify-end">

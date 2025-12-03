@@ -13,6 +13,8 @@ from app.schemas import (
     BulkDeleteVideosRequest,
     BulkDeleteVideosResponse,
     DeleteClipResponse,
+    UpdateVideoTitleRequest,
+    UpdateVideoTitleResponse,
 )
 
 router = APIRouter(prefix="/api", tags=["Videos"])
@@ -56,10 +58,15 @@ async def get_video_info(
     
     clips = storage.list_clips_with_metadata(uid, video_id, highlights_map)
     
+    # Get video metadata (title, URL) from Firestore
+    video_metadata = saas.get_video_metadata(uid, video_id) if is_owner else None
+    
     return VideoInfoResponse(
         id=video_id,
         clips=clips,
         custom_prompt=highlights_data.get("custom_prompt"),
+        video_title=video_metadata.get("video_title") if video_metadata else None,
+        video_url=video_metadata.get("video_url") if video_metadata else None,
     )
 
 
@@ -433,4 +440,65 @@ async def delete_clip(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete clip"
+        )
+
+
+@router.patch("/videos/{video_id}/title", response_model=UpdateVideoTitleResponse)
+async def update_video_title(
+    video_id: str,
+    request: UpdateVideoTitleRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> UpdateVideoTitleResponse:
+    """
+    Update the title of a video.
+    
+    This endpoint:
+    1. Validates video ownership
+    2. Updates the video title in Firestore
+    
+    Returns 404 if video doesn't exist or user doesn't own it.
+    """
+    from app.config import logger
+    
+    # Validate video_id to prevent path traversal
+    try:
+        video_id = validate_video_id(video_id)
+    except ValidationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.message)
+    
+    uid = user["uid"]
+    
+    # Verify ownership before update
+    is_owner = saas.user_owns_video(uid, video_id)
+    if not is_owner:
+        logger.warning(f"User {uid} attempted to update title for video {video_id} they don't own")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Video not found"
+        )
+    
+    try:
+        updated = saas.update_video_title(uid, video_id, request.title)
+        if not updated:
+            logger.warning(f"Video {video_id} not found in database during title update")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Video not found"
+            )
+        
+        logger.info(f"Successfully updated title for video {video_id} for user {uid}")
+        
+        return UpdateVideoTitleResponse(
+            success=True,
+            video_id=video_id,
+            title=request.title,
+            message="Title updated successfully",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating title for video {video_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update video title"
         )
