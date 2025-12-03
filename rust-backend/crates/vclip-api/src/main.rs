@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use tracing::{error, info};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-use vclip_api::{create_router, ApiConfig, AppState};
+use vclip_api::{create_router, metrics, ApiConfig, AppState};
 
 #[tokio::main]
 async fn main() {
@@ -33,8 +33,20 @@ async fn main() {
         }
     };
 
+    // Initialize metrics
+    let metrics_enabled = std::env::var("METRICS_ENABLED")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(true);
+
+    let metrics_handle = if metrics_enabled {
+        info!("Prometheus metrics enabled at /metrics");
+        Some(metrics::init_metrics())
+    } else {
+        None
+    };
+
     // Create router
-    let app = create_router(state);
+    let app = create_router(state, metrics_handle);
 
     // Bind and serve
     let addr: SocketAddr = format!("{}:{}", config.host, config.port)

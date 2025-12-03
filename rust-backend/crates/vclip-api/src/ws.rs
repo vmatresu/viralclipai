@@ -1,16 +1,48 @@
-//! WebSocket handlers.
+//! WebSocket handlers with backpressure support.
+
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
 use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
-use tracing::{info, warn};
+use tokio::sync::mpsc;
+use tokio::time::interval;
+use tracing::{debug, info, warn};
 
 use vclip_models::{AspectRatio, CropMode, Style, VideoStatus, WsMessage};
 use vclip_queue::ProcessVideoJob;
 
+use crate::metrics;
 use crate::state::AppState;
+
+/// Global counter for active WebSocket connections.
+static ACTIVE_WS_CONNECTIONS: AtomicI64 = AtomicI64::new(0);
+
+/// Configuration for WebSocket backpressure.
+const WS_SEND_BUFFER_SIZE: usize = 32;
+const WS_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
+const WS_CLIENT_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Send a WebSocket message with backpressure handling.
+async fn send_ws_message(tx: &mpsc::Sender<Message>, msg: WsMessage) -> bool {
+    let json = match serde_json::to_string(&msg) {
+        Ok(j) => j,
+        Err(_) => return false,
+    };
+    // Use try_send for non-blocking, fall back to blocking send
+    match tx.try_send(Message::Text(json.clone())) {
+        Ok(_) => true,
+        Err(mpsc::error::TrySendError::Full(_)) => {
+            // Channel full - apply backpressure by blocking
+            debug!("WebSocket send buffer full, applying backpressure");
+            tx.send(Message::Text(json)).await.is_ok()
+        }
+        Err(mpsc::error::TrySendError::Closed(_)) => false,
+    }
+}
 
 /// WebSocket process request.
 #[derive(Debug, Deserialize)]
@@ -53,26 +85,62 @@ pub async fn ws_process(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(|socket| handle_process_socket(socket, state))
+    // Track connection
+    let count = ACTIVE_WS_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
+    metrics::set_ws_active_connections(count);
+    metrics::record_ws_connection("process");
+
+    ws.on_upgrade(|socket| async move {
+        handle_process_socket(socket, state).await;
+        // Decrement on disconnect
+        let count = ACTIVE_WS_CONNECTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
+        metrics::set_ws_active_connections(count);
+    })
 }
 
-/// Handle process WebSocket connection.
+/// Handle process WebSocket connection with backpressure.
 async fn handle_process_socket(socket: WebSocket, state: AppState) {
-    let (mut sender, mut receiver) = socket.split();
+    let (ws_sender, mut receiver) = socket.split();
 
-    // Wait for initial request message
-    let request: WsProcessRequest = match receiver.next().await {
-        Some(Ok(Message::Text(text))) => match serde_json::from_str(&text) {
-            Ok(req) => req,
-            Err(e) => {
-                let error = WsMessage::error(format!("Invalid request: {}", e));
-                let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
-                return;
+    // Create a bounded channel for backpressure
+    let (tx, mut rx) = mpsc::channel::<Message>(WS_SEND_BUFFER_SIZE);
+
+    // Spawn a task to handle sending messages with backpressure
+    let send_task = tokio::spawn(async move {
+        let mut ws_sender = ws_sender;
+        while let Some(msg) = rx.recv().await {
+            if ws_sender.send(msg).await.is_err() {
+                break;
             }
-        },
-        _ => {
-            let error = WsMessage::error("Expected JSON message");
-            let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
+        }
+        ws_sender
+    });
+
+    // Wait for initial request message with timeout
+    let request: WsProcessRequest = match tokio::time::timeout(
+        WS_CLIENT_TIMEOUT,
+        receiver.next(),
+    )
+    .await
+    {
+        Ok(Some(Ok(Message::Text(text)))) => {
+            metrics::record_ws_message_received("process");
+            match serde_json::from_str(&text) {
+                Ok(req) => req,
+                Err(e) => {
+                    let error = WsMessage::error(format!("Invalid request: {}", e));
+                    let _ = tx.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
+                    drop(tx);
+                    let _ = send_task.await;
+                    return;
+                }
+            }
+        }
+        Ok(_) | Err(_) => {
+            let error = WsMessage::error("Expected JSON message or connection timeout");
+            let _ = tx.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
+            drop(tx);
+            let _ = send_task.await;
             return;
         }
     };
@@ -82,7 +150,9 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
         Ok(c) => c,
         Err(e) => {
             let error = WsMessage::error(format!("Authentication failed: {}", e));
-            let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
+            let _ = tx.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
+            drop(tx);
+            let _ = send_task.await;
             return;
         }
     };
@@ -95,17 +165,15 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
         warn!("Failed to get/create user {}: {}", uid, e);
     }
 
-    // Parse styles
-    let styles: Vec<Style> = request
-        .styles
-        .unwrap_or_else(|| vec!["split".to_string()])
-        .iter()
-        .filter_map(|s| s.parse().ok())
-        .collect();
+    // Parse styles with "all" expansion support
+    let style_strs = request.styles.unwrap_or_else(|| vec!["split".to_string()]);
+    let styles = Style::expand_styles(&style_strs);
 
     if styles.is_empty() {
         let error = WsMessage::error("No valid styles specified");
-        let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
+        let _ = tx.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
+        drop(tx);
+        let _ = send_task.await;
         return;
     }
 
@@ -124,42 +192,89 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
     // Enqueue job
     match state.queue.enqueue_process(job).await {
         Ok(_) => {
+            metrics::record_job_enqueued("process_video");
             let log = WsMessage::log("Job enqueued, processing will begin shortly...");
-            let _ = sender.send(Message::Text(serde_json::to_string(&log).unwrap())).await;
+            send_ws_message(&tx, log).await;
         }
         Err(e) => {
             let error = WsMessage::error(format!("Failed to enqueue job: {}", e));
-            let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
+            let _ = tx.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
+            drop(tx);
+            let _ = send_task.await;
             return;
         }
     }
 
-    // Subscribe to progress events
+    // Subscribe to progress events with heartbeat
     match state.progress.subscribe(&job_id).await {
         Ok(mut stream) => {
-            while let Some(event) = stream.next().await {
-                let json = match serde_json::to_string(&event.message) {
-                    Ok(j) => j,
-                    Err(_) => continue,
-                };
+            let mut heartbeat = interval(WS_HEARTBEAT_INTERVAL);
+            let mut last_activity = std::time::Instant::now();
 
-                if sender.send(Message::Text(json)).await.is_err() {
-                    warn!("WebSocket send failed, client disconnected");
-                    break;
-                }
+            loop {
+                tokio::select! {
+                    // Progress event from worker
+                    event = stream.next() => {
+                        match event {
+                            Some(event) => {
+                                last_activity = std::time::Instant::now();
+                                let msg_type = match &event.message {
+                                    WsMessage::Log { .. } => "log",
+                                    WsMessage::Progress { .. } => "progress",
+                                    WsMessage::ClipUploaded { .. } => "clip_uploaded",
+                                    WsMessage::Done { .. } => "done",
+                                    WsMessage::Error { .. } => "error",
+                                };
+                                metrics::record_ws_message_sent("process", msg_type);
 
-                // Check for completion
-                if matches!(event.message, WsMessage::Done { .. } | WsMessage::Error { .. }) {
-                    break;
+                                if !send_ws_message(&tx, event.message.clone()).await {
+                                    warn!("WebSocket send failed, client disconnected");
+                                    break;
+                                }
+
+                                // Check for completion
+                                if matches!(event.message, WsMessage::Done { .. } | WsMessage::Error { .. }) {
+                                    break;
+                                }
+                            }
+                            None => break, // Stream ended
+                        }
+                    }
+                    // Heartbeat to keep connection alive
+                    _ = heartbeat.tick() => {
+                        // Send ping if no recent activity
+                        if last_activity.elapsed() > WS_HEARTBEAT_INTERVAL / 2 {
+                            if tx.send(Message::Ping(vec![])).await.is_err() {
+                                warn!("Heartbeat failed, client disconnected");
+                                break;
+                            }
+                        }
+                    }
+                    // Client message (for pong responses)
+                    client_msg = receiver.next() => {
+                        match client_msg {
+                            Some(Ok(Message::Pong(_))) => {
+                                last_activity = std::time::Instant::now();
+                            }
+                            Some(Ok(Message::Close(_))) | None => {
+                                info!("Client closed connection");
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
                 }
             }
         }
         Err(e) => {
             let error = WsMessage::error(format!("Failed to subscribe to progress: {}", e));
-            let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
+            let _ = tx.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
         }
     }
 
+    // Clean up
+    drop(tx);
+    let _ = send_task.await;
     info!("WebSocket process ended for user {}", uid);
 }
 
@@ -254,12 +369,8 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
         Ok(true) => {}
     }
 
-    // Parse styles
-    let styles: Vec<Style> = request
-        .styles
-        .iter()
-        .filter_map(|s| s.parse().ok())
-        .collect();
+    // Parse styles with "all" expansion support
+    let styles = Style::expand_styles(&request.styles);
 
     if styles.is_empty() {
         let error = WsMessage::error("No valid styles specified");

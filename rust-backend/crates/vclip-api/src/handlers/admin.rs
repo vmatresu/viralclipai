@@ -60,13 +60,9 @@ pub async fn enqueue_synthetic_job(
         return Err(ApiError::forbidden("Admin access required"));
     }
 
-    // Parse styles
-    let styles: Vec<Style> = request
-        .styles
-        .unwrap_or_else(|| vec!["split".to_string()])
-        .iter()
-        .filter_map(|s| s.parse().ok())
-        .collect();
+    // Parse styles with "all" expansion support
+    let style_strs = request.styles.unwrap_or_else(|| vec!["split".to_string()]);
+    let styles = Style::expand_styles(&style_strs);
 
     if styles.is_empty() {
         return Err(ApiError::bad_request("No valid styles specified"));

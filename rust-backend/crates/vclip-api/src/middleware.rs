@@ -7,15 +7,19 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::body::Body;
-use axum::http::{HeaderValue, Request, Response};
+use axum::extract::{ConnectInfo, State};
+use axum::http::{HeaderValue, Request, Response, StatusCode};
 use axum::middleware::Next;
+use axum::response::IntoResponse;
 use governor::{Quota, RateLimiter};
 use governor::clock::DefaultClock;
 use governor::state::{InMemoryState, NotKeyed};
 use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
-use tracing::{info, Span};
+use tracing::{info, warn, Span};
 use uuid::Uuid;
+
+use crate::metrics;
 
 /// Rate limiter type alias.
 pub type GlobalRateLimiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
@@ -177,4 +181,60 @@ pub async fn request_logging(
     }
 
     response
+}
+
+/// Rate limiting middleware using IP-based rate limiter.
+/// This should be applied to routes that need rate limiting.
+pub async fn rate_limit_middleware(
+    State(rate_limiter): State<Arc<RateLimiterCache>>,
+    request: Request<Body>,
+    next: Next,
+) -> Response<Body> {
+    // Extract client IP from request
+    let ip = extract_client_ip(&request);
+
+    if let Some(ip) = ip {
+        if !rate_limiter.check(ip).await {
+            warn!(ip = %ip, "Rate limit exceeded");
+            metrics::record_rate_limit_hit(request.uri().path());
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                [("Retry-After", "1")],
+                "Rate limit exceeded. Please try again later.",
+            )
+                .into_response();
+        }
+    }
+
+    next.run(request).await
+}
+
+/// Extract client IP from request headers or connection info.
+fn extract_client_ip(request: &Request<Body>) -> Option<IpAddr> {
+    // Try X-Forwarded-For header first (for proxied requests)
+    if let Some(forwarded) = request.headers().get("X-Forwarded-For") {
+        if let Ok(forwarded_str) = forwarded.to_str() {
+            // Take the first IP in the chain (original client)
+            if let Some(first_ip) = forwarded_str.split(',').next() {
+                if let Ok(ip) = first_ip.trim().parse() {
+                    return Some(ip);
+                }
+            }
+        }
+    }
+
+    // Try X-Real-IP header
+    if let Some(real_ip) = request.headers().get("X-Real-IP") {
+        if let Ok(ip_str) = real_ip.to_str() {
+            if let Ok(ip) = ip_str.parse() {
+                return Some(ip);
+            }
+        }
+    }
+
+    // Fall back to connection info (requires ConnectInfo extractor in router)
+    request
+        .extensions()
+        .get::<ConnectInfo<std::net::SocketAddr>>()
+        .map(|ci| ci.0.ip())
 }

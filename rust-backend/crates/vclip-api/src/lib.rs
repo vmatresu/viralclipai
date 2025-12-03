@@ -5,11 +5,13 @@
 //! - WebSocket endpoints for processing
 //! - Firebase ID token verification
 //! - Rate limiting and security headers
+//! - Prometheus metrics
 
 pub mod auth;
 pub mod config;
 pub mod error;
 pub mod handlers;
+pub mod metrics;
 pub mod middleware;
 pub mod routes;
 pub mod services;

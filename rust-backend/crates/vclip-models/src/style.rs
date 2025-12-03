@@ -23,7 +23,7 @@ pub enum Style {
 }
 
 impl Style {
-    /// All available styles.
+    /// All available styles (excluding Original for "all" expansion).
     pub const ALL: &'static [Style] = &[
         Style::Original,
         Style::Split,
@@ -31,6 +31,41 @@ impl Style {
         Style::RightFocus,
         Style::IntelligentSplit,
     ];
+
+    /// Styles included when user requests "all".
+    /// Excludes Original as it's typically not wanted in batch processing.
+    pub const ALL_FOR_EXPANSION: &'static [Style] = &[
+        Style::Split,
+        Style::LeftFocus,
+        Style::RightFocus,
+        Style::IntelligentSplit,
+    ];
+
+    /// Expand a list of style strings, handling "all" keyword.
+    /// Returns None for invalid styles (they are filtered out).
+    pub fn expand_styles(style_strs: &[String]) -> Vec<Style> {
+        let mut result = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        for s in style_strs {
+            let lower = s.to_lowercase();
+            if lower == "all" {
+                // Expand "all" to all available styles
+                for style in Self::ALL_FOR_EXPANSION {
+                    if seen.insert(*style) {
+                        result.push(*style);
+                    }
+                }
+            } else if let Ok(style) = lower.parse::<Style>() {
+                if seen.insert(style) {
+                    result.push(style);
+                }
+            }
+            // Invalid styles are silently filtered out
+        }
+
+        result
+    }
 
     /// Returns the style name as used in filenames.
     pub fn as_filename_part(&self) -> &'static str {
@@ -64,7 +99,8 @@ impl FromStr for Style {
             "split" => Ok(Style::Split),
             "left_focus" => Ok(Style::LeftFocus),
             "right_focus" => Ok(Style::RightFocus),
-            "intelligent_split" => Ok(Style::IntelligentSplit),
+            // Support both "intelligent" and "intelligent_split" for Python parity
+            "intelligent" | "intelligent_split" => Ok(Style::IntelligentSplit),
             _ => Err(StyleParseError(s.to_string())),
         }
     }
@@ -232,6 +268,54 @@ mod tests {
             Style::IntelligentSplit
         );
         assert!("unknown".parse::<Style>().is_err());
+    }
+
+    #[test]
+    fn test_intelligent_alias() {
+        // "intelligent" should parse to IntelligentSplit for Python parity
+        assert_eq!(
+            "intelligent".parse::<Style>().unwrap(),
+            Style::IntelligentSplit
+        );
+        assert_eq!(
+            "INTELLIGENT".parse::<Style>().unwrap(),
+            Style::IntelligentSplit
+        );
+    }
+
+    #[test]
+    fn test_expand_styles_all() {
+        let styles = Style::expand_styles(&["all".to_string()]);
+        assert_eq!(styles.len(), 4);
+        assert!(styles.contains(&Style::Split));
+        assert!(styles.contains(&Style::LeftFocus));
+        assert!(styles.contains(&Style::RightFocus));
+        assert!(styles.contains(&Style::IntelligentSplit));
+        // "all" should not include Original
+        assert!(!styles.contains(&Style::Original));
+    }
+
+    #[test]
+    fn test_expand_styles_mixed() {
+        let styles = Style::expand_styles(&[
+            "split".to_string(),
+            "original".to_string(),
+            "invalid".to_string(),
+        ]);
+        assert_eq!(styles.len(), 2);
+        assert!(styles.contains(&Style::Split));
+        assert!(styles.contains(&Style::Original));
+    }
+
+    #[test]
+    fn test_expand_styles_dedup() {
+        let styles = Style::expand_styles(&[
+            "split".to_string(),
+            "all".to_string(),
+            "split".to_string(),
+        ]);
+        // Should deduplicate: split appears once, all expands but split already seen
+        assert_eq!(styles.len(), 4);
     }
 
     #[test]
