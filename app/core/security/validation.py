@@ -92,7 +92,8 @@ def validate_prompt(prompt: Optional[str]) -> Optional[str]:
 
 def validate_style(style: str) -> str:
     """Validate clip style parameter."""
-    ALLOWED_STYLES = {"split", "vertical", "horizontal", "all"}
+    # Match AVAILABLE_STYLES from app.core.clipper plus "all" and "intelligent"
+    ALLOWED_STYLES = {"split", "left_focus", "right_focus", "all", "intelligent"}
     
     if not style or not isinstance(style, str):
         return "split"  # Default
