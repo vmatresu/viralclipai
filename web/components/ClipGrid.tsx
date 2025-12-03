@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Link2, Play, Share2, UploadCloud, Trash2 } from "lucide-react";
+import { Download, Link2, Play, Share2, UploadCloud, Trash2, Film } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,21 @@ import { frontendLogger } from "@/lib/logger";
 import { toast } from "sonner";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+
+// Style name mapping for display
+const STYLE_LABELS: Record<string, string> = {
+  split: "Split View",
+  left_focus: "Left Focus",
+  right_focus: "Right Focus",
+  intelligent: "Intelligent Crop",
+  intelligent_split: "Intelligent Split View",
+  original: "Original",
+};
+
+function getStyleLabel(style?: string): string | null {
+  if (!style) return null;
+  return STYLE_LABELS[style] || style;
+}
 
 interface VideoPlayerProps {
   id: string;
@@ -104,6 +119,7 @@ export interface Clip {
   url: string;
   thumbnail?: string | null;
   size: string;
+  style?: string;
 }
 
 interface ClipGridProps {
@@ -338,13 +354,24 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
               {/* Header: Title & Badges */}
               <div>
                 <div className="flex items-start justify-between gap-4 mb-2">
-                  <h4
-                    className="font-bold text-xl leading-tight text-foreground group-hover:text-primary transition-colors line-clamp-2"
-                    title={clip.title}
-                  >
-                    {clip.title}
-                  </h4>
-                  <span className="px-2 py-1 text-xs font-medium bg-secondary text-secondary-foreground rounded-md whitespace-nowrap">
+                  <div className="flex-1 min-w-0">
+                    <h4
+                      className="font-bold text-xl leading-tight text-foreground group-hover:text-primary transition-colors line-clamp-2"
+                      title={clip.title}
+                    >
+                      {clip.title}
+                    </h4>
+                    {/* Style Tag */}
+                    {clip.style && (
+                      <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 bg-primary/10 text-primary border border-primary/20 rounded-md">
+                        <Film className="h-3 w-3" />
+                        <span className="text-xs font-medium">
+                          {getStyleLabel(clip.style) || clip.style}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <span className="px-2 py-1 text-xs font-medium bg-secondary text-secondary-foreground rounded-md whitespace-nowrap shrink-0">
                     {clip.size}
                   </span>
                 </div>

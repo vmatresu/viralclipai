@@ -107,6 +107,29 @@ def list_clips_with_metadata(uid: str, video_id: str, highlights_map: Dict[int, 
             thumb_url = generate_presigned_url(thumb_key, expires_in=url_expiry)
         title_text = filename
         description_text = ""
+        style = None
+        
+        # Extract style from filename: clip_XX_XX_title_style.mp4
+        # Style is the part before .mp4 after the last underscore
+        # Note: Some styles like "intelligent_split" contain underscores, so we need to check
+        # for known styles by trying to match them from the end of the filename
+        # The style is always preceded by an underscore in the filename format
+        try:
+            if filename.endswith(".mp4"):
+                name_without_ext = filename[:-4]  # Remove .mp4
+                # Known styles ordered by length (longest first) to avoid partial matches
+                # This ensures "intelligent_split" is matched before "split"
+                known_styles = ["intelligent_split", "left_focus", "right_focus", "intelligent", "split", "original"]
+                # Try to match each style by checking if filename ends with "_style"
+                # We only check for "_style" pattern since the filename format always has underscore before style
+                for known_style in known_styles:
+                    if name_without_ext.endswith(f"_{known_style}"):
+                        style = known_style
+                        break
+        except Exception:
+            pass
+        
+        # Extract title and description from highlights map
         try:
             parts = filename.split("_")
             if len(parts) >= 3 and parts[0] == "clip":
@@ -120,16 +143,17 @@ def list_clips_with_metadata(uid: str, video_id: str, highlights_map: Dict[int, 
         # Use relative URL for video clips to go through backend proxy with CORS headers
         # This ensures proper CORS handling for video playback
         url = f"/api/videos/{video_id}/clips/{filename}"
-        clips.append(
-            {
-                "name": filename,
-                "title": title_text,
-                "description": description_text,
-                "url": url,
-                "thumbnail": thumb_url,
-                "size": f"{size_mb:.1f} MB",
-            }
-        )
+        clip_data = {
+            "name": filename,
+            "title": title_text,
+            "description": description_text,
+            "url": url,
+            "thumbnail": thumb_url,
+            "size": f"{size_mb:.1f} MB",
+        }
+        if style:
+            clip_data["style"] = style
+        clips.append(clip_data)
     clips.sort(key=lambda item: item["name"])
     return clips
 
