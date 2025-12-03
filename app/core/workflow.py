@@ -8,7 +8,7 @@ from typing import Optional
 from fastapi import WebSocket
 
 from app.config import PROMPT_PATH, VIDEOS_DIR
-from app.core.utils import extract_youtube_id, sanitize_filename, generate_run_id
+from app.core.utils import extract_youtube_id, sanitize_filename, generate_run_id, fetch_youtube_title
 from app.core.gemini import GeminiClient
 from app.core import clipper
 from app.core import saas, storage
@@ -59,6 +59,11 @@ async def process_video_workflow(
         # We still extract ID for info, but not for folder name
         youtube_id = extract_youtube_id(url)
         
+        # Fetch the actual YouTube video title early
+        logger.info("Fetching video metadata...")
+        await send_log(websocket, "📋 Fetching video metadata...")
+        actual_video_title = await asyncio.to_thread(fetch_youtube_title, url)
+        
         # Create unique run folder
         run_id = generate_run_id()
         workdir = VIDEOS_DIR / run_id
@@ -74,6 +79,15 @@ async def process_video_workflow(
         
         client = GeminiClient()
         data = await asyncio.to_thread(client.get_highlights, base_prompt, url, workdir)
+        
+        # Replace placeholder title with actual YouTube title if available
+        if actual_video_title:
+            data["video_title"] = actual_video_title
+            logger.info(f"Using fetched YouTube title: {actual_video_title}")
+        elif not data.get("video_title") or data.get("video_title") == "The Main Title of the YouTube Video":
+            # Fallback if title fetching failed and Gemini returned placeholder
+            data["video_title"] = f"Video {youtube_id}"
+            logger.info(f"Using fallback title: Video {youtube_id}")
         
         logger.info("AI analysis complete.")
         await send_log(websocket, "✅ AI analysis complete.")
@@ -264,7 +278,8 @@ async def process_video_workflow(
 
         # Record usage for this job
         if user_id is not None and total_clips > 0:
-            video_title = data.get("video_title") or f"Video {youtube_id}"
+            # Use the title from data (which should be the actual YouTube title by now)
+            video_title = data.get("video_title") or actual_video_title or f"Video {youtube_id}"
             saas.record_video_job(
                 user_id,
                 run_id,

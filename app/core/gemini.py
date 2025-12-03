@@ -169,7 +169,7 @@ class GeminiClient:
         Return ONLY a single JSON object with this schema:
         {
           "video_url": "URL",
-          "video_title": "The Main Title of the YouTube Video",
+          "video_title": "Actual title of the YouTube video",
           "highlights": [
             {
               "id": 1,

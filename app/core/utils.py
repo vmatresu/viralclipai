@@ -1,7 +1,11 @@
 import urllib.parse as up
 import hashlib
 import uuid
+import subprocess
+import logging
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 def generate_run_id() -> str:
     """
@@ -37,3 +41,44 @@ def sanitize_filename(text: str, max_len: int = 60) -> str:
     text = text.lower().strip().replace(" ", "-")
     safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in text)
     return safe[:max_len] if safe else "clip"
+
+def fetch_youtube_title(url: str) -> str | None:
+    """
+    Fetches the YouTube video title using yt-dlp without downloading the video.
+    
+    Args:
+        url: YouTube video URL
+        
+    Returns:
+        Video title as a string, or None if fetching fails
+    """
+    try:
+        logger.info(f"Fetching title for {url} using yt-dlp...")
+        result = subprocess.run(
+            [
+                "yt-dlp",
+                "--print", "%(title)s",
+                "--no-warnings",
+                url,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        title = result.stdout.strip()
+        if title:
+            logger.info(f"Fetched title: {title}")
+            return title
+        else:
+            logger.warning(f"No title returned from yt-dlp for {url}")
+            return None
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"yt-dlp failed to fetch title: {e.stderr}")
+        return None
+    except subprocess.TimeoutExpired:
+        logger.warning(f"yt-dlp timed out while fetching title for {url}")
+        return None
+    except Exception as e:
+        logger.warning(f"Unexpected error fetching title: {e}")
+        return None
