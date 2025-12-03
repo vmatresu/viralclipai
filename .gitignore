@@ -19,3 +19,4 @@ web/.env.local
 .docker-deps-cache
 .cache/
 web/tsconfig.tsbuildinfo
+.env.api.dev.rust
