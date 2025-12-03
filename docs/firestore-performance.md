@@ -2,52 +2,67 @@
 
 ## Query Optimization
 
-### 1. Use Indexes
-Firestore requires composite indexes for queries with multiple filters or ordering.
+### 1. Required Indexes
 
-**Required Indexes:**
-```javascript
-// firestore.indexes.json
-{
-  "indexes": [
-    {
-      "collectionGroup": "clips",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "priority", "order": "ASCENDING" },
-        { "fieldPath": "created_at", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "clips",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "style", "order": "ASCENDING" },
-        { "fieldPath": "created_at", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "clips",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "scene_id", "order": "ASCENDING" },
-        { "fieldPath": "created_at", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "videos",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "created_at", "order": "DESCENDING" }
-      ]
-    }
-  ]
-}
+Firestore requires composite indexes for queries with multiple filters or ordering. The following indexes are configured for optimal performance:
+
+#### Videos Collection Indexes
+
+**User Videos Query** (for history page)
+
+- Collection: `users/{uid}/videos`
+- Fields: `created_at` (descending)
+- Used by: `VideoRepository.list_videos(order_by="created_at")`
+
+**Status Query** (for processing status)
+
+- Collection: `users/{uid}/videos`
+- Fields: `status`, `created_at` (descending)
+- Used by: Status polling
+
+#### Clips Collection Indexes
+
+**Video Clips Query** (for clip grid)
+
+- Collection: `users/{uid}/videos/{video_id}/clips`
+- Fields: `status`, `priority`, `created_at` (ascending)
+- Used by: `ClipRepository.list_clips(status="completed", order_by="priority")`
+
+**Style Filter Query** (for filtering by style)
+
+- Collection: `users/{uid}/videos/{video_id}/clips`
+- Fields: `style`, `created_at` (ascending)
+- Used by: Style filtering in UI
+
+**Scene Filter Query** (for filtering by scene)
+
+- Collection: `users/{uid}/videos/{video_id}/clips`
+- Fields: `scene_id`, `priority` (ascending)
+- Used by: Scene-based filtering
+
+### Creating Indexes
+
+#### Firebase Console (Recommended)
+
+1. Go to [Firebase Console](https://console.firebase.google.com/)
+2. Select your project → **Firestore Database** → **Indexes**
+3. Click **Create Index**
+4. Enter collection path and fields as specified above
+
+#### Firebase CLI
+
+```bash
+firebase deploy --only firestore:indexes
 ```
 
+### Index Status Monitoring
+
+- Check status in Firebase Console under **Firestore Database** → **Indexes**
+- Indexes show "Building" status initially and may take time for large collections
+- Monitor usage under **Usage** → **Index Operations**
+
 ### 2. Limit Query Results
+
 Always use `limit()` when possible to reduce data transfer:
 
 ```python
@@ -59,6 +74,7 @@ clips = clips_repo.list_clips(status="completed")
 ```
 
 ### 3. Use Field Selection
+
 Firestore allows selecting specific fields to reduce data transfer:
 
 ```python
@@ -67,6 +83,7 @@ query = collection.select(["filename", "style", "status"])
 ```
 
 ### 4. Batch Operations
+
 Use batch writes for multiple operations:
 
 ```python
@@ -81,6 +98,7 @@ for clip in clips_list:
 ## Caching Strategy
 
 ### 1. Application-Level Caching
+
 Cache frequently accessed data:
 
 ```python
@@ -95,6 +113,7 @@ def get_video_cached(video_id: str):
 ```
 
 ### 2. Cache Invalidation
+
 Invalidate cache on updates:
 
 ```python
@@ -104,6 +123,7 @@ cache.invalidate(f"{user_id}:{video_id}")
 ```
 
 ### 3. Firestore Real-time Listeners
+
 Use Firestore listeners for real-time updates (optional):
 
 ```python
@@ -119,13 +139,13 @@ def on_clip_snapshot(doc_snapshot, changes, read_time):
 
 ### Expected Performance
 
-| Operation | R2-based | Firestore-based | Improvement |
-|-----------|----------|-----------------|-------------|
-| List 10 clips | 500ms | 50ms | **10x** |
-| List 100 clips | 2000ms | 100ms | **20x** |
-| Filter by style | 2000ms | 80ms | **25x** |
-| Count clips | 1500ms | 30ms | **50x** |
-| Get video info | 3000ms | 150ms | **20x** |
+| Operation       | R2-based | Firestore-based | Improvement |
+| --------------- | -------- | --------------- | ----------- |
+| List 10 clips   | 500ms    | 50ms            | **10x**     |
+| List 100 clips  | 2000ms   | 100ms           | **20x**     |
+| Filter by style | 2000ms   | 80ms            | **25x**     |
+| Count clips     | 1500ms   | 30ms            | **50x**     |
+| Get video info  | 3000ms   | 150ms           | **20x**     |
 
 ### Factors Affecting Performance
 
@@ -138,6 +158,7 @@ def on_clip_snapshot(doc_snapshot, changes, read_time):
 ## Best Practices
 
 ### 1. Write Path
+
 ```python
 # 1. Create metadata in Firestore (fast)
 clip_metadata = ClipMetadata(...)
@@ -151,6 +172,7 @@ clips_repo.update_clip_status(clip_id, "completed")
 ```
 
 ### 2. Read Path
+
 ```python
 # 1. Query metadata from Firestore (fast)
 clips = clips_repo.list_clips(status="completed")
@@ -161,6 +183,7 @@ for clip in clips:
 ```
 
 ### 3. Error Handling
+
 ```python
 try:
     clips_repo.create_clip(clip_metadata)
@@ -171,6 +194,7 @@ except ClipRepositoryError as e:
 ```
 
 ### 4. Transactions
+
 Use transactions for atomic operations:
 
 ```python
@@ -183,6 +207,7 @@ with clips_repo.transaction() as transaction:
 ## Monitoring
 
 Track these metrics:
+
 - **Query Latency**: Average time for Firestore queries
 - **Write Latency**: Average time for Firestore writes
 - **Error Rate**: Percentage of failed operations
@@ -192,19 +217,21 @@ Track these metrics:
 ## Troubleshooting
 
 ### Slow Queries
+
 1. Check if indexes are created
 2. Verify query complexity
 3. Check document size
 4. Review query patterns
 
 ### High Costs
+
 1. Monitor read/write operations
 2. Use caching to reduce reads
 3. Batch operations to reduce writes
 4. Use field selection to reduce data transfer
 
 ### Consistency Issues
+
 1. Use transactions for related operations
 2. Implement retry logic for failed operations
 3. Monitor error logs for patterns
-

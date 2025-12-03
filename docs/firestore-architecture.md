@@ -323,13 +323,11 @@ async def get_video_info(uid: str, video_id: str):
 ## Performance Benefits
 
 ### Before (R2-based)
-
 - **List Clips**: ~500-2000ms (paginated R2 list + parse filenames)
 - **Get Video Info**: ~1000-3000ms (load highlights.json + list clips)
 - **Filter by Style**: ~1000-3000ms (list all + filter in memory)
 
 ### After (Firestore-based)
-
 - **List Clips**: ~50-200ms (single Firestore query, indexed)
 - **Get Video Info**: ~100-300ms (Firestore query + highlights.json only if needed)
 - **Filter by Style**: ~50-200ms (indexed Firestore query)
