@@ -28,11 +28,12 @@ const nextConfig = {
     // In production, consider using nonces or hashes for stricter CSP
     const cspDirectives = [
       "default-src 'self'",
-      `script-src 'self' 'unsafe-inline' ${isDev ? "'unsafe-eval'" : ""} https://www.googletagmanager.com https://www.google-analytics.com`,
-      "style-src 'self' 'unsafe-inline'",
+      `script-src 'self' 'unsafe-inline' ${isDev ? "'unsafe-eval'" : ""} https://www.googletagmanager.com https://www.google-analytics.com https://apis.google.com https://accounts.google.com`,
+      "style-src 'self' 'unsafe-inline' https://accounts.google.com",
       "img-src 'self' data: https: blob:",
       "font-src 'self' data:",
-      "connect-src 'self' https://*.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com wss://* ws://* http://localhost:8000 ws://localhost:8000",
+      "connect-src 'self' https://*.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://apis.google.com https://accounts.google.com https://*.firebaseapp.com https://*.firebaseio.com wss://* ws://* http://localhost:8000 ws://localhost:8000",
+      "frame-src 'self' https://accounts.google.com https://*.googleapis.com https://*.firebaseapp.com",
       "media-src 'self' blob: https:",
       "object-src 'none'",
       "base-uri 'self'",
@@ -86,7 +87,7 @@ const nextConfig = {
           },
           {
             key: "X-Frame-Options",
-            value: "DENY",
+            value: "SAMEORIGIN",
           },
           {
             key: "X-Content-Type-Options",
@@ -112,13 +113,16 @@ const nextConfig = {
             key: "X-Permitted-Cross-Domain-Policies",
             value: "none",
           },
+          // Note: COEP and COOP are relaxed to allow Google Sign-In popups/iframes
+          // Google Sign-In requires cross-origin popups, so we need unsafe-none for COOP
+          // Consider using signInWithRedirect instead of signInWithPopup for stricter security
           {
             key: "Cross-Origin-Embedder-Policy",
-            value: "require-corp",
+            value: "unsafe-none",
           },
           {
             key: "Cross-Origin-Opener-Policy",
-            value: "same-origin",
+            value: "unsafe-none",
           },
           {
             key: "Cross-Origin-Resource-Policy",
