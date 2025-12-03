@@ -199,6 +199,24 @@ export function VideoForm({
                 Please select at least one style
               </p>
             )}
+            {styles.length > 0 && (
+              <div className="mt-4">
+                <p className="text-sm font-medium mb-2">SELECTED STYLES:</p>
+                <div className="flex flex-wrap gap-2">
+                  {styles.map((styleValue) => {
+                    const style = STYLES.find((s) => s.value === styleValue);
+                    return style ? (
+                      <span
+                        key={styleValue}
+                        className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-primary/10 text-primary border border-primary/20"
+                      >
+                        {style.label}
+                      </span>
+                    ) : null;
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           <Button

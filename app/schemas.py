@@ -32,7 +32,6 @@ class BaseSchema(BaseModel):
     model_config = ConfigDict(
         str_strip_whitespace=True,
         str_min_length=0,
-        extra="allow",  # Allow extra fields for backward compatibility (e.g., "style")
     )
 
 
@@ -48,23 +47,6 @@ class WSProcessRequest(BaseSchema):
     prompt: Optional[str] = Field(default=None, max_length=MAX_PROMPT_LENGTH, description="Custom prompt")
     crop_mode: str = Field(default="none", description="Crop mode: none, center, manual, intelligent")
     target_aspect: str = Field(default="9:16", description="Target aspect ratio for intelligent crop")
-    
-    @model_validator(mode="before")
-    @classmethod
-    def handle_style_backward_compat(cls, data: Any) -> Any:
-        """Handle backward compatibility: convert 'style' to 'styles' array."""
-        if isinstance(data, dict):
-            # If 'styles' is not present but 'style' is, convert it
-            if "styles" not in data and "style" in data:
-                style_value = data["style"]
-                if isinstance(style_value, str):
-                    data["styles"] = [style_value]
-                elif isinstance(style_value, list):
-                    data["styles"] = style_value
-            # If neither is present, set default
-            elif "styles" not in data:
-                data["styles"] = ["split"]
-        return data
     
     @field_validator("url")
     @classmethod
