@@ -1,0 +1,60 @@
+//! Worker configuration.
+
+use std::time::Duration;
+
+/// Worker configuration.
+#[derive(Debug, Clone)]
+pub struct WorkerConfig {
+    /// Maximum concurrent jobs
+    pub max_concurrent_jobs: usize,
+    /// Maximum concurrent FFmpeg processes per job
+    pub max_ffmpeg_processes: usize,
+    /// Job timeout
+    pub job_timeout: Duration,
+    /// Graceful shutdown timeout
+    pub shutdown_timeout: Duration,
+    /// Work directory for temporary files
+    pub work_dir: String,
+}
+
+impl Default for WorkerConfig {
+    fn default() -> Self {
+        Self {
+            max_concurrent_jobs: 2,
+            max_ffmpeg_processes: 4,
+            job_timeout: Duration::from_secs(3600), // 1 hour
+            shutdown_timeout: Duration::from_secs(30),
+            work_dir: "/tmp/vclip".to_string(),
+        }
+    }
+}
+
+impl WorkerConfig {
+    /// Create config from environment variables.
+    pub fn from_env() -> Self {
+        Self {
+            max_concurrent_jobs: std::env::var("WORKER_MAX_JOBS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(2),
+            max_ffmpeg_processes: std::env::var("WORKER_MAX_FFMPEG")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(4),
+            job_timeout: Duration::from_secs(
+                std::env::var("WORKER_JOB_TIMEOUT")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(3600),
+            ),
+            shutdown_timeout: Duration::from_secs(
+                std::env::var("WORKER_SHUTDOWN_TIMEOUT")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(30),
+            ),
+            work_dir: std::env::var("WORKER_WORK_DIR")
+                .unwrap_or_else(|_| "/tmp/vclip".to_string()),
+        }
+    }
+}

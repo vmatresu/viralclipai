@@ -1,0 +1,115 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/vclip-models",
+    "crates/vclip-media",
+    "crates/vclip-storage",
+    "crates/vclip-firestore",
+    "crates/vclip-ml-client",
+    "crates/vclip-queue",
+    "crates/vclip-api",
+    "crates/vclip-worker",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["ViralClip Team"]
+license = "MIT"
+repository = "https://github.com/viralclipai/viralclipai"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1.41", features = ["full", "tracing"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Schema generation
+schemars = { version = "0.8", features = ["chrono"] }
+
+# HTTP/WebSocket
+axum = { version = "0.7", features = ["ws", "macros"] }
+axum-extra = { version = "0.9", features = ["typed-header"] }
+tower = { version = "0.5", features = ["full"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "request-id", "limit", "compression-gzip"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "multipart"] }
+hyper = { version = "1.5", features = ["full"] }
+
+# Auth/JWT
+jsonwebtoken = "9.3"
+
+# AWS SDK (for R2)
+aws-config = { version = "1.1", features = ["behavior-version-latest"] }
+aws-sdk-s3 = "1.15"
+aws-credential-types = "1.1"
+aws-types = "1.1"
+
+# GCP Auth (for Firestore)
+gcp_auth = "0.12"
+
+# Redis/Queue
+redis = { version = "0.27", features = ["tokio-comp", "streams"] }
+apalis = { version = "0.6", features = ["retry", "timeout", "tracing"] }
+apalis-redis = "0.6"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Logging/Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+tracing-opentelemetry = "0.27"
+opentelemetry = "0.26"
+opentelemetry_sdk = { version = "0.26", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.26", features = ["tonic"] }
+
+# Metrics
+metrics = "0.24"
+metrics-exporter-prometheus = "0.16"
+
+# Rate limiting
+governor = "0.7"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID
+uuid = { version = "1.11", features = ["v4", "serde"] }
+
+# Validation
+validator = { version = "0.19", features = ["derive"] }
+
+# Configuration
+config = "0.14"
+dotenvy = "0.15"
+
+# Process management (for FFmpeg)
+which = "7.0"
+
+# Testing
+tokio-test = "0.4"
+mockall = "0.13"
+wiremock = "0.6"
+tempfile = "3.14"
+
+# Internal crates
+vclip-models = { path = "crates/vclip-models" }
+vclip-media = { path = "crates/vclip-media" }
+vclip-storage = { path = "crates/vclip-storage" }
+vclip-firestore = { path = "crates/vclip-firestore" }
+vclip-ml-client = { path = "crates/vclip-ml-client" }
+vclip-queue = { path = "crates/vclip-queue" }
+vclip-api = { path = "crates/vclip-api" }
+vclip-worker = { path = "crates/vclip-worker" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = true

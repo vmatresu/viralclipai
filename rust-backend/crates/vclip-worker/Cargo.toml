@@ -1,0 +1,33 @@
+[package]
+name = "vclip-worker"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Video processing worker"
+
+[[bin]]
+name = "vclip-worker"
+path = "src/main.rs"
+
+[dependencies]
+vclip-models = { workspace = true }
+vclip-media = { workspace = true }
+vclip-storage = { workspace = true }
+vclip-firestore = { workspace = true }
+vclip-ml-client = { workspace = true }
+vclip-queue = { workspace = true }
+
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+dotenvy = { workspace = true }
+tempfile = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }

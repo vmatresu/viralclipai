@@ -1,0 +1,221 @@
+//! Firestore REST API types.
+
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+/// Firestore document value types.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Value {
+    NullValue(()),
+    BooleanValue(bool),
+    IntegerValue(String), // Firestore sends integers as strings
+    DoubleValue(f64),
+    TimestampValue(String),
+    StringValue(String),
+    BytesValue(String),
+    ReferenceValue(String),
+    GeoPointValue(GeoPoint),
+    ArrayValue(ArrayValue),
+    MapValue(MapValue),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeoPoint {
+    pub latitude: f64,
+    pub longitude: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArrayValue {
+    pub values: Option<Vec<Value>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MapValue {
+    pub fields: Option<HashMap<String, Value>>,
+}
+
+/// Firestore document.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Document {
+    /// Full resource name
+    pub name: Option<String>,
+    /// Document fields
+    pub fields: Option<HashMap<String, Value>>,
+    /// Create time
+    pub create_time: Option<String>,
+    /// Update time
+    pub update_time: Option<String>,
+}
+
+/// Request to create a document.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateDocumentRequest {
+    pub fields: HashMap<String, Value>,
+}
+
+/// Request to update a document.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDocumentRequest {
+    pub fields: HashMap<String, Value>,
+}
+
+/// List documents response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListDocumentsResponse {
+    pub documents: Option<Vec<Document>>,
+    pub next_page_token: Option<String>,
+}
+
+/// Convert a Rust value to Firestore Value.
+pub trait ToFirestoreValue {
+    fn to_firestore_value(&self) -> Value;
+}
+
+impl ToFirestoreValue for String {
+    fn to_firestore_value(&self) -> Value {
+        Value::StringValue(self.clone())
+    }
+}
+
+impl ToFirestoreValue for &str {
+    fn to_firestore_value(&self) -> Value {
+        Value::StringValue(self.to_string())
+    }
+}
+
+impl ToFirestoreValue for i64 {
+    fn to_firestore_value(&self) -> Value {
+        Value::IntegerValue(self.to_string())
+    }
+}
+
+impl ToFirestoreValue for i32 {
+    fn to_firestore_value(&self) -> Value {
+        Value::IntegerValue((*self as i64).to_string())
+    }
+}
+
+impl ToFirestoreValue for u32 {
+    fn to_firestore_value(&self) -> Value {
+        Value::IntegerValue((*self as i64).to_string())
+    }
+}
+
+impl ToFirestoreValue for u64 {
+    fn to_firestore_value(&self) -> Value {
+        Value::IntegerValue((*self as i64).to_string())
+    }
+}
+
+impl ToFirestoreValue for f64 {
+    fn to_firestore_value(&self) -> Value {
+        Value::DoubleValue(*self)
+    }
+}
+
+impl ToFirestoreValue for bool {
+    fn to_firestore_value(&self) -> Value {
+        Value::BooleanValue(*self)
+    }
+}
+
+impl ToFirestoreValue for DateTime<Utc> {
+    fn to_firestore_value(&self) -> Value {
+        Value::TimestampValue(self.to_rfc3339())
+    }
+}
+
+impl<T: ToFirestoreValue> ToFirestoreValue for Option<T> {
+    fn to_firestore_value(&self) -> Value {
+        match self {
+            Some(v) => v.to_firestore_value(),
+            None => Value::NullValue(()),
+        }
+    }
+}
+
+impl<T: ToFirestoreValue> ToFirestoreValue for Vec<T> {
+    fn to_firestore_value(&self) -> Value {
+        Value::ArrayValue(ArrayValue {
+            values: Some(self.iter().map(|v| v.to_firestore_value()).collect()),
+        })
+    }
+}
+
+/// Convert Firestore Value to Rust type.
+pub trait FromFirestoreValue: Sized {
+    fn from_firestore_value(value: &Value) -> Option<Self>;
+}
+
+impl FromFirestoreValue for String {
+    fn from_firestore_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::StringValue(s) => Some(s.clone()),
+            _ => None,
+        }
+    }
+}
+
+impl FromFirestoreValue for i64 {
+    fn from_firestore_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::IntegerValue(s) => s.parse().ok(),
+            Value::DoubleValue(f) => Some(*f as i64),
+            _ => None,
+        }
+    }
+}
+
+impl FromFirestoreValue for u32 {
+    fn from_firestore_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::IntegerValue(s) => s.parse().ok(),
+            Value::DoubleValue(f) => Some(*f as u32),
+            _ => None,
+        }
+    }
+}
+
+impl FromFirestoreValue for u64 {
+    fn from_firestore_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::IntegerValue(s) => s.parse().ok(),
+            Value::DoubleValue(f) => Some(*f as u64),
+            _ => None,
+        }
+    }
+}
+
+impl FromFirestoreValue for f64 {
+    fn from_firestore_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::DoubleValue(f) => Some(*f),
+            Value::IntegerValue(s) => s.parse().ok(),
+            _ => None,
+        }
+    }
+}
+
+impl FromFirestoreValue for bool {
+    fn from_firestore_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::BooleanValue(b) => Some(*b),
+            _ => None,
+        }
+    }
+}
+
+impl FromFirestoreValue for DateTime<Utc> {
+    fn from_firestore_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::TimestampValue(s) => DateTime::parse_from_rfc3339(s).ok().map(|dt| dt.into()),
+            _ => None,
+        }
+    }
+}

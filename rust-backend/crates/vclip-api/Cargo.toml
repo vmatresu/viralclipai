@@ -1,0 +1,42 @@
+[package]
+name = "vclip-api"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Axum HTTP/WS API server"
+
+[[bin]]
+name = "vclip-api"
+path = "src/main.rs"
+
+[dependencies]
+vclip-models = { workspace = true }
+vclip-storage = { workspace = true }
+vclip-firestore = { workspace = true }
+vclip-queue = { workspace = true }
+
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+dotenvy = { workspace = true }
+
+axum = { workspace = true }
+axum-extra = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+hyper = { workspace = true }
+
+jsonwebtoken = { workspace = true }
+reqwest = { workspace = true }
+governor = { workspace = true }
+validator = { workspace = true }
+futures-util = "0.3"
+
+[dev-dependencies]
+tokio-test = { workspace = true }
