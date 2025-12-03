@@ -46,7 +46,7 @@ export class LocalStorageAdapter implements IStorageAdapter {
   /**
    * Set a value in storage
    */
-  async set<T>(key: string, value: T): Promise<void> {
+  set<T>(key: string, value: T): Promise<void> {
     try {
       const prefixedKey = this.getPrefixedKey(key);
       const serialized = JSON.stringify(value);
@@ -65,7 +65,7 @@ export class LocalStorageAdapter implements IStorageAdapter {
   /**
    * Remove a value from storage
    */
-  async remove(key: string): Promise<void> {
+  remove(key: string): Promise<void> {
     try {
       const prefixedKey = this.getPrefixedKey(key);
       localStorage.removeItem(prefixedKey);
@@ -94,36 +94,36 @@ export class LocalStorageAdapter implements IStorageAdapter {
   /**
    * Get all keys with the prefix
    */
-  async keys(): Promise<string[]> {
+  keys(): Promise<string[]> {
     const keys: string[] = [];
     try {
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key && key.startsWith(this.prefix)) {
+        if (key?.startsWith(this.prefix)) {
           keys.push(key);
         }
       }
     } catch (error) {
       this.logger.warn("Failed to get cache keys", { error });
     }
-    return keys;
+    return Promise.resolve(keys);
   }
 
   /**
    * Estimate size of a stored value in bytes
    */
-  async size(key: string): Promise<number> {
+  size(key: string): Promise<number> {
     try {
       const prefixedKey = this.getPrefixedKey(key);
       const item = localStorage.getItem(prefixedKey);
       if (item === null) {
-        return 0;
+        return Promise.resolve(0);
       }
       // Estimate: UTF-16 encoding uses 2 bytes per character
-      return item.length * 2;
+      return Promise.resolve(item.length * 2);
     } catch (error) {
       this.logger.warn("Failed to get cache entry size", { key, error });
-      return 0;
+      return Promise.resolve(0);
     }
   }
 

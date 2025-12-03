@@ -486,7 +486,7 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
                   variant="secondary"
                   size="icon"
                   className="shrink-0"
-                  onClick={async () => {
+                  onClick={() => {
                     const urlToCopy = clip.url.startsWith("/")
                       ? `${API_BASE_URL}${clip.url}`
                       : clip.url;

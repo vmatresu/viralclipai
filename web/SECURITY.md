@@ -70,4 +70,3 @@ Do not open public issues for security vulnerabilities.
 - [x] Authentication secured
 - [x] Security linting enabled
 - [x] Content Security Policy configured
-

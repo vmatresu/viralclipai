@@ -23,24 +23,29 @@ Production-ready caching system for clips data with LRU eviction, versioning, an
 ## Features
 
 ### ✅ LRU Eviction
+
 - Automatically evicts least-recently-used entries when limits are reached
 - Configurable max entries and max size
 
 ### ✅ Cache Versioning
+
 - Schema versioning for cache migrations
 - Automatic invalidation of incompatible cache entries
 
 ### ✅ Error Handling
+
 - Graceful degradation on storage errors
 - Automatic cleanup of corrupted entries
 - Quota exceeded handling with eviction
 
 ### ✅ Observability
+
 - Cache statistics (hits, misses, evictions)
 - Event system for monitoring
 - Comprehensive logging
 
 ### ✅ Security
+
 - Key sanitization to prevent XSS
 - Namespaced keys to prevent collisions
 - Safe error handling
@@ -78,7 +83,7 @@ import { useClipsCache } from "@/lib/cache/useClipsCache";
 
 function MyComponent() {
   const cache = useClipsCache();
-  
+
   const loadData = async (videoId: string) => {
     const cached = await cache.get(videoId);
     if (!cached) {
@@ -137,4 +142,3 @@ The modular architecture makes testing easy:
 - LRU eviction prevents unbounded growth
 - Periodic cleanup runs in background
 - Size estimation prevents quota errors
-

@@ -5,11 +5,13 @@ This document summarizes all security improvements and upgrades made to the Vira
 ## Dependencies Updated
 
 ### Critical Security Fixes
+
 - **Next.js**: `14.1.0` → `^14.2.33` - Fixes 8 critical vulnerabilities including SSRF, cache poisoning, DoS, and authorization bypass
 - **Firebase**: `^9.23.0` → `^12.6.0` - Fixes @grpc/grpc-js memory allocation vulnerability
 - **ESLint Config Next**: `14.1.0` → `^14.2.33` - Fixes glob command injection vulnerability
 
 ### Other Updates
+
 - **React**: `18.2.0` → `^18.3.1` - Latest stable patch version
 - **React DOM**: `18.2.0` → `^18.3.1` - Latest stable patch version
 - **SWR**: `^2.2.0` → `^2.2.5` - Latest patch version
@@ -22,6 +24,7 @@ This document summarizes all security improvements and upgrades made to the Vira
 ## Security Headers Added
 
 ### Enhanced Headers in `next.config.mjs`
+
 1. **Content-Security-Policy (CSP)**: Comprehensive policy restricting resource loading
 2. **Permissions-Policy**: Restricts browser features and APIs
 3. **Cross-Origin-Embedder-Policy**: Requires CORP for embedded resources
@@ -34,6 +37,7 @@ This document summarizes all security improvements and upgrades made to the Vira
 ## Security Utilities Created
 
 ### New Security Module (`lib/security/`)
+
 1. **validation.ts**: Input validation and sanitization functions
    - `isValidUrl()` - URL validation
    - `sanitizeUrl()` - URL sanitization
@@ -58,6 +62,7 @@ This document summarizes all security improvements and upgrades made to the Vira
 ## Code Security Improvements
 
 ### API Client (`lib/apiClient.ts`)
+
 - ✅ Path traversal attack prevention
 - ✅ URL sanitization
 - ✅ Error message sanitization (prevents information leakage)
@@ -66,6 +71,7 @@ This document summarizes all security improvements and upgrades made to the Vira
 - ✅ Safe error handling
 
 ### Processing Client (`components/ProcessingClient/ProcessingClient.tsx`)
+
 - ✅ URL validation and sanitization
 - ✅ WebSocket URL validation
 - ✅ Message size limits (1MB max)
@@ -75,12 +81,14 @@ This document summarizes all security improvements and upgrades made to the Vira
 - ✅ Error message sanitization
 
 ### Authentication (`lib/auth.tsx`)
+
 - ✅ Firebase configuration validation
 - ✅ Runtime configuration checks
 
 ## ESLint Security Rules Added
 
 Added `eslint-plugin-security` with rules:
+
 - `detect-object-injection` - Warns about object injection vulnerabilities
 - `detect-non-literal-regexp` - Warns about regex injection
 - `detect-unsafe-regex` - Errors on unsafe regex patterns
@@ -119,6 +127,7 @@ Added `eslint-plugin-security` with rules:
 ## Breaking Changes
 
 ⚠️ **Note**: Some dependency updates may require code changes:
+
 - Firebase SDK v12 has some API changes from v9
 - Next.js 14.2.x should be backward compatible with 14.1.x
 
@@ -132,4 +141,3 @@ Added `eslint-plugin-security` with rules:
 - [ ] No console errors
 - [ ] Security headers are present in responses
 - [ ] CSP doesn't block legitimate resources
-

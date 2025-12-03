@@ -17,7 +17,7 @@ import {
 import { analyticsEvents } from "@/lib/analytics";
 import { usePageView } from "@/lib/usePageView";
 
-export default function HomePage() {
+function HomePageContent() {
   usePageView("home");
   const searchParams = useSearchParams();
   const videoId = searchParams.get("id");
@@ -113,5 +113,13 @@ export default function HomePage() {
         </Suspense>
       </section>
     </div>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={<div className="text-muted-foreground">Loading...</div>}>
+      <HomePageContent />
+    </Suspense>
   );
 }

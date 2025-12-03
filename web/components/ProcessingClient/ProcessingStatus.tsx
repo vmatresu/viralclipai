@@ -41,7 +41,10 @@ export function ProcessingStatus({ progress, logs }: ProcessingStatusProps) {
               <p className="text-muted-foreground">
                 Your video is being processed in the background. You can navigate away
                 and check your{" "}
-                <Link href="/history" className="text-primary hover:underline font-medium">
+                <Link
+                  href="/history"
+                  className="text-primary hover:underline font-medium"
+                >
                   history page
                 </Link>{" "}
                 to see progress. Processing will continue even if you close this tab.
