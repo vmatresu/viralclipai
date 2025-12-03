@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Clock, Film, AlertCircle, Trash2, CheckSquare, Square, Copy, Check, TrendingUp, Zap } from "lucide-react";
+import { Clock, Film, AlertCircle, Trash2, CheckSquare, Square, Copy, Check, TrendingUp, Zap, Calendar } from "lucide-react";
 import Link from "next/link";
 
 import { apiFetch, deleteVideo, bulkDeleteVideos, updateVideoTitle } from "@/lib/apiClient";
@@ -557,20 +557,31 @@ export default function HistoryPage() {
         </div>
       )}
       
-      <div className="grid gap-4">
+      <div className="grid gap-4 max-w-4xl">
         {videos.map((v) => {
           const id = v.video_id ?? v.id ?? "";
           const isSelected = selectedVideos.has(id);
           // Format date if possible
           let dateStr = v.created_at ?? "";
+          let fullDateStr = v.created_at ?? "";
           try {
             if (dateStr) {
-              dateStr = new Date(dateStr).toLocaleDateString(undefined, {
+              const dateObj = new Date(dateStr);
+              dateStr = dateObj.toLocaleDateString(undefined, {
                 year: 'numeric',
                 month: 'long',
                 day: 'numeric',
                 hour: '2-digit',
                 minute: '2-digit'
+              });
+              fullDateStr = dateObj.toLocaleDateString(undefined, {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                timeZoneName: 'short'
               });
             }
           } catch (e) {
@@ -673,9 +684,12 @@ export default function HistoryPage() {
                 </div>
                 
                 <div className="flex items-center gap-3 sm:flex-row flex-row-reverse justify-end">
-                  <div className="text-xs text-muted-foreground whitespace-nowrap flex items-center gap-1 sm:text-right">
-                    <Clock className="h-3 w-3" />
-                    {dateStr}
+                  <div 
+                    className="text-xs text-muted-foreground whitespace-nowrap flex items-center gap-1.5 sm:text-right hover:text-foreground transition-colors cursor-help group/date"
+                    title={fullDateStr}
+                  >
+                    <Calendar className="h-3.5 w-3.5 group-hover/date:text-primary transition-colors" />
+                    <span className="group-hover/date:text-foreground transition-colors">{dateStr}</span>
                   </div>
                   <Button
                     variant="ghost"
