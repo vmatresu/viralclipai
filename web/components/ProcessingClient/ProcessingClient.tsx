@@ -25,8 +25,8 @@ export function ProcessingClient() {
   const {
     url,
     setUrl,
-    style,
-    setStyle,
+    styles,
+    setStyles,
     logs,
     setLogs,
     progress,
@@ -39,7 +39,7 @@ export function ProcessingClient() {
     setCustomPrompt,
     customPromptUsed,
     processingStartTime,
-    processingStyle,
+    processingStyles,
     processingCustomPrompt,
     log,
     loadResults,
@@ -66,7 +66,7 @@ export function ProcessingClient() {
     setVideoId(null);
     // Store processing parameters at start time for accurate analytics tracking
     processingStartTime.current = Date.now();
-    processingStyle.current = style;
+    processingStyles.current = [...styles];
     processingCustomPrompt.current = customPrompt;
 
     try {
@@ -92,7 +92,7 @@ export function ProcessingClient() {
 
       // Track processing start
       void analyticsEvents.videoProcessingStarted({
-        style,
+        style: styles.join(","),
         hasCustomPrompt: sanitizedPrompt.length > 0,
         videoUrl: sanitizedUrl,
       });
@@ -107,7 +107,7 @@ export function ProcessingClient() {
           ws.send(
             JSON.stringify({
               url: sanitizedUrl,
-              style,
+              styles: styles.length > 0 ? styles : ["split"], // Fallback to default if none selected
               token,
               prompt: sanitizedPrompt || undefined,
             })
@@ -161,7 +161,7 @@ export function ProcessingClient() {
                 void analyticsEvents.videoProcessingFailed({
                     errorType: errorDetails ?? "unknown",
                     errorMessage,
-                    style,
+                    style: styles.join(","),
                 });
             } else if (typedMessage.type === "done") {
                 ws.close();
@@ -217,7 +217,7 @@ export function ProcessingClient() {
       void analyticsEvents.videoProcessingFailed({
         errorType: "initialization_error",
         errorMessage,
-        style,
+        style: styles.join(","),
       });
     }
   }
@@ -253,8 +253,8 @@ export function ProcessingClient() {
         <VideoForm
           url={url}
           setUrl={setUrl}
-          style={style}
-          setStyle={setStyle}
+          styles={styles}
+          setStyles={setStyles}
           customPrompt={customPrompt}
           setCustomPrompt={setCustomPrompt}
           onSubmit={onSubmit}

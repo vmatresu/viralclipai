@@ -31,8 +31,8 @@ const STYLES = [
 interface VideoFormProps {
   url: string;
   setUrl: (url: string) => void;
-  style: string;
-  setStyle: (style: string) => void;
+  styles: string[];
+  setStyles: (styles: string[]) => void;
   customPrompt: string;
   setCustomPrompt: (prompt: string) => void;
   onSubmit: (e: FormEvent) => void;
@@ -42,13 +42,33 @@ interface VideoFormProps {
 export function VideoForm({
   url,
   setUrl,
-  style,
-  setStyle,
+  styles,
+  setStyles,
   customPrompt,
   setCustomPrompt,
   onSubmit,
   submitting,
 }: VideoFormProps) {
+  const toggleStyle = (styleValue: string) => {
+    if (styleValue === "all") {
+      // "All Styles" is a special case - toggle all available styles
+      const allStyleValues = STYLES.filter(s => s.value !== "all").map(s => s.value);
+      if (styles.length === allStyleValues.length && styles.every(s => allStyleValues.includes(s))) {
+        // If all are selected, deselect all
+        setStyles([]);
+      } else {
+        // Otherwise, select all
+        setStyles([...allStyleValues]);
+      }
+    } else {
+      // Toggle individual style
+      if (styles.includes(styleValue)) {
+        setStyles(styles.filter(s => s !== styleValue));
+      } else {
+        setStyles([...styles, styleValue]);
+      }
+    }
+  };
   return (
     <Card className="glass shadow-2xl">
       <CardHeader>
@@ -140,42 +160,50 @@ export function VideoForm({
           <div className="space-y-2">
             <Label className="uppercase tracking-wider">Output Style</Label>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              {STYLES.map((s) => (
-                <label
-                  key={s.value}
-                  htmlFor={`style-${s.value}`}
-                  className="cursor-pointer"
-                >
-                  <input
-                    id={`style-${s.value}`}
-                    type="radio"
-                    name="style"
-                    value={s.value}
-                    checked={style === s.value}
-                    onChange={() => setStyle(s.value)}
-                    className="peer sr-only"
-                    aria-label={`${s.label} - ${s.subtitle}`}
-                  />
-                  <div
-                    className={cn(
-                      "p-4 rounded-xl border transition-all text-center",
-                      "bg-card hover:bg-accent",
-                      "peer-checked:border-primary peer-checked:bg-primary/10"
-                    )}
+              {STYLES.map((s) => {
+                const isSelected = s.value === "all" 
+                  ? STYLES.filter(st => st.value !== "all").every(st => styles.includes(st.value))
+                  : styles.includes(s.value);
+                return (
+                  <label
+                    key={s.value}
+                    htmlFor={`style-${s.value}`}
+                    className="cursor-pointer"
                   >
-                    <span className="font-medium block">{s.label}</span>
-                    <span className="block text-xs text-muted-foreground mt-1">
-                      {s.subtitle}
-                    </span>
-                  </div>
-                </label>
-              ))}
+                    <input
+                      id={`style-${s.value}`}
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleStyle(s.value)}
+                      className="peer sr-only"
+                      aria-label={`${s.label} - ${s.subtitle}`}
+                    />
+                    <div
+                      className={cn(
+                        "p-4 rounded-xl border transition-all text-center",
+                        "bg-card hover:bg-accent",
+                        isSelected && "border-primary bg-primary/10"
+                      )}
+                    >
+                      <span className="font-medium block">{s.label}</span>
+                      <span className="block text-xs text-muted-foreground mt-1">
+                        {s.subtitle}
+                      </span>
+                    </div>
+                  </label>
+                );
+              })}
             </div>
+            {styles.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                Please select at least one style
+              </p>
+            )}
           </div>
 
           <Button
             type="submit"
-            disabled={submitting}
+            disabled={submitting || styles.length === 0}
             variant="brand"
             size="lg"
             className="w-full gap-2"

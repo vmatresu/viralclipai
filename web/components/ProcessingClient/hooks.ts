@@ -18,7 +18,7 @@ export function useVideoProcessing() {
   const { getIdToken, loading: authLoading, user } = useAuth();
 
   const [url, setUrl] = useState("");
-  const [style, setStyle] = useState("split");
+  const [styles, setStyles] = useState<string[]>(["split"]);
   const [logs, setLogs] = useState<string[]>([]);
   const [progress, setProgress] = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -30,7 +30,7 @@ export function useVideoProcessing() {
   const [customPromptUsed, setCustomPromptUsed] = useState<string | null>(null);
   const processingStartTime = useRef<number | null>(null);
   // Store processing parameters at start time for accurate analytics tracking
-  const processingStyle = useRef<string>("split");
+  const processingStyles = useRef<string[]>(["split"]);
   const processingCustomPrompt = useRef<string>("");
 
   const log = useCallback(
@@ -70,7 +70,7 @@ export function useVideoProcessing() {
           const durationMs = Date.now() - processingStartTime.current;
           void analyticsEvents.videoProcessingCompleted({
             videoId: id,
-            style: processingStyle.current,
+            style: processingStyles.current.join(","),
             clipsGenerated: clipsData.length,
             durationMs,
             hasCustomPrompt: processingCustomPrompt.current.trim().length > 0,
@@ -98,8 +98,8 @@ export function useVideoProcessing() {
     // State
     url,
     setUrl,
-    style,
-    setStyle,
+    styles,
+    setStyles,
     logs,
     setLogs,
     progress,
@@ -113,7 +113,7 @@ export function useVideoProcessing() {
     customPromptUsed,
     setCustomPromptUsed,
     processingStartTime,
-    processingStyle,
+    processingStyles,
     processingCustomPrompt,
     // Actions
     log,

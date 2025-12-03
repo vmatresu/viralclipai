@@ -93,6 +93,17 @@ class Renderer:
 
         return output_paths
 
+    def _get_time_range(self, crop_plan: CropPlan) -> tuple[float, float]:
+        """
+        Get the overall time range from the crop plan's shots.
+        """
+        if not crop_plan.shots:
+            return 0.0, crop_plan.video.duration
+
+        start_time = min(shot.start_time for shot in crop_plan.shots)
+        end_time = max(shot.end_time for shot in crop_plan.shots)
+        return start_time, end_time
+
     def _is_static_crop(self, crop_plans: list[ShotCropPlan]) -> bool:
         """
         Check if all crop windows are essentially static.
@@ -146,6 +157,9 @@ class Renderer:
         width = int(sorted(w.width for w in all_windows)[len(all_windows) // 2])
         height = int(sorted(w.height for w in all_windows)[len(all_windows) // 2])
 
+        # Get time range from shots
+        start_time, end_time = self._get_time_range(full_plan)
+
         # Build FFmpeg command
         vf_filters = [f"crop={width}:{height}:{x}:{y}"]
 
@@ -160,20 +174,15 @@ class Renderer:
         cmd = [
             "ffmpeg",
             "-y",
-            "-i",
-            input_path,
-            "-vf",
-            vf,
-            "-c:v",
-            "libx264",
-            "-preset",
-            self.config.render_preset,
-            "-crf",
-            str(self.config.render_crf),
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
+            "-ss", f"{start_time:.3f}",
+            "-i", input_path,
+            "-t", f"{end_time - start_time:.3f}",
+            "-vf", vf,
+            "-c:v", "libx264",
+            "-preset", self.config.render_preset,
+            "-crf", str(self.config.render_crf),
+            "-c:a", "aac",
+            "-b:a", "128k",
             output_path,
         ]
 
@@ -332,24 +341,15 @@ class Renderer:
         cmd = [
             "ffmpeg",
             "-y",
-            "-ss",
-            f"{start:.3f}",
-            "-t",
-            f"{duration:.3f}",
-            "-i",
-            input_path,
-            "-vf",
-            vf,
-            "-c:v",
-            "libx264",
-            "-preset",
-            self.config.render_preset,
-            "-crf",
-            str(self.config.render_crf),
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
+            "-ss", f"{start:.3f}",
+            "-i", input_path,
+            "-t", f"{duration:.3f}",
+            "-vf", vf,
+            "-c:v", "libx264",
+            "-preset", self.config.render_preset,
+            "-crf", str(self.config.render_crf),
+            "-c:a", "aac",
+            "-b:a", "128k",
             output_path,
         ]
 

@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 async def process_video_workflow(
     websocket: WebSocket,
     url: str,
-    style: str,
+    styles: list[str],
     user_id: Optional[str] = None,
     custom_prompt: Optional[str] = None,
     crop_mode: str = "none",
@@ -91,12 +91,28 @@ async def process_video_workflow(
             h.setdefault("title", f"Clip {idx}")
 
         # Determine how many clips will be produced for plan enforcement
-        # If style is 'all', we include the standard styles plus 'intelligent' if requested or by default?
-        # The user wants 'intelligent' included in ALL.
-        if style == "all":
-            styles_to_process = clipper.AVAILABLE_STYLES + ["intelligent", "original"]
-        else:
-            styles_to_process = [style]
+        # Process the selected styles, handling "all" as a special case
+        styles_to_process = []
+        for style in styles:
+            if style == "all":
+                # "all" means include all available styles
+                styles_to_process.extend(clipper.AVAILABLE_STYLES + ["intelligent", "original"])
+            else:
+                if style not in styles_to_process:  # Avoid duplicates
+                    styles_to_process.append(style)
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_styles = []
+        for style in styles_to_process:
+            if style not in seen:
+                seen.add(style)
+                unique_styles.append(style)
+        styles_to_process = unique_styles
+        
+        # Ensure at least one style is selected
+        if not styles_to_process:
+            styles_to_process = ["split"]  # Default fallback
             
         total_clips = len(highlights) * len(styles_to_process)
 

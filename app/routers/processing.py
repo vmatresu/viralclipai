@@ -73,7 +73,7 @@ async def websocket_endpoint(websocket: WebSocket):
         await process_video_workflow(
             websocket,
             request_data.url,
-            request_data.style,
+            request_data.styles,
             user_id=uid,
             custom_prompt=request_data.prompt,
         )

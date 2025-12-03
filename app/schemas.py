@@ -7,7 +7,7 @@ Provides type-safe, validated data structures for all API endpoints.
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 
 from app.core.security import (
     MAX_DESCRIPTION_LENGTH,
@@ -32,7 +32,7 @@ class BaseSchema(BaseModel):
     model_config = ConfigDict(
         str_strip_whitespace=True,
         str_min_length=0,
-        extra="forbid",  # Reject unknown fields
+        extra="allow",  # Allow extra fields for backward compatibility (e.g., "style")
     )
 
 
@@ -44,26 +44,51 @@ class WSProcessRequest(BaseSchema):
     """WebSocket video processing request."""
     token: str = Field(..., min_length=1, description="Firebase auth token")
     url: str = Field(..., min_length=1, max_length=MAX_URL_LENGTH, description="Video URL")
-    style: str = Field(default="split", description="Clip style")
+    styles: Optional[List[str]] = Field(default=None, min_length=1, max_length=10, description="Clip styles")
     prompt: Optional[str] = Field(default=None, max_length=MAX_PROMPT_LENGTH, description="Custom prompt")
     crop_mode: str = Field(default="none", description="Crop mode: none, center, manual, intelligent")
     target_aspect: str = Field(default="9:16", description="Target aspect ratio for intelligent crop")
+    
+    @model_validator(mode="before")
+    @classmethod
+    def handle_style_backward_compat(cls, data: Any) -> Any:
+        """Handle backward compatibility: convert 'style' to 'styles' array."""
+        if isinstance(data, dict):
+            # If 'styles' is not present but 'style' is, convert it
+            if "styles" not in data and "style" in data:
+                style_value = data["style"]
+                if isinstance(style_value, str):
+                    data["styles"] = [style_value]
+                elif isinstance(style_value, list):
+                    data["styles"] = style_value
+            # If neither is present, set default
+            elif "styles" not in data:
+                data["styles"] = ["split"]
+        return data
     
     @field_validator("url")
     @classmethod
     def validate_url(cls, v: str) -> str:
         return validate_video_url(v)
     
-    @field_validator("style")
+    @field_validator("styles")
     @classmethod
-    def validate_style_field(cls, v: str) -> str:
-        return validate_style(v)
+    def validate_styles_field(cls, v: Optional[List[str]]) -> List[str]:
+        if not v or len(v) == 0:
+            return ["split"]  # Default to split if empty
+        # Validate each style
+        validated_styles = []
+        for style in v:
+            validated_style = validate_style(style)
+            if validated_style not in validated_styles:  # Remove duplicates
+                validated_styles.append(validated_style)
+        return validated_styles if validated_styles else ["split"]
     
     @field_validator("prompt")
     @classmethod
     def validate_prompt_field(cls, v: Optional[str]) -> Optional[str]:
         return validate_prompt(v)
-
+    
     @field_validator("crop_mode")
     @classmethod
     def validate_crop_mode_field(cls, v: str) -> str:
@@ -71,7 +96,7 @@ class WSProcessRequest(BaseSchema):
         if v not in allowed:
             raise ValueError(f"crop_mode must be one of: {allowed}")
         return v
-
+    
     @field_validator("target_aspect")
     @classmethod
     def validate_target_aspect_field(cls, v: str) -> str:
