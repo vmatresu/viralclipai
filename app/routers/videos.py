@@ -62,36 +62,41 @@ async def get_video_info(
     
     try:
         clips_repo = ClipRepository(uid, video_id)
-        clip_metadatas = clips_repo.list_clips(status="completed", order_by="priority")
+        clip_metadatas = clips_repo.list_clips(status="completed")
         
         # Convert Firestore clips to API response format
         for clip_metadata in clip_metadatas:
             # Generate presigned URL for thumbnail if available
             thumbnail_url = None
-            if clip_metadata.has_thumbnail and clip_metadata.thumbnail_r2_key:
+            if clip_metadata.get("has_thumbnail") and clip_metadata.get("thumbnail_r2_key"):
                 thumbnail_url = generate_presigned_url(
-                    clip_metadata.thumbnail_r2_key,
+                    clip_metadata["thumbnail_r2_key"],
                     expires_in=3600
                 )
             
             # Generate direct presigned URL for video (bypasses backend proxy for faster loading)
             direct_url = None
-            if clip_metadata.r2_key:
+            if clip_metadata.get("r2_key"):
                 direct_url = generate_presigned_url(
-                    clip_metadata.r2_key,
+                    clip_metadata["r2_key"],
                     expires_in=3600  # 1 hour expiry
                 )
             
             clips.append({
-                "name": clip_metadata.filename,
-                "title": clip_metadata.scene_title,
-                "description": clip_metadata.scene_description or "",
-                "url": f"/api/videos/{video_id}/clips/{clip_metadata.filename}",  # Fallback proxy URL
+                "name": clip_metadata.get("filename"),
+                "title": clip_metadata.get("scene_title"),
+                "description": clip_metadata.get("scene_description") or "",
+                "url": f"/api/videos/{video_id}/clips/{clip_metadata.get('filename')}",  # Fallback proxy URL
                 "direct_url": direct_url,  # Direct R2 presigned URL for faster loading
                 "thumbnail": thumbnail_url,
-                "size": f"{clip_metadata.file_size_mb:.1f} MB",
-                "style": clip_metadata.style,
+                "size": f"{clip_metadata.get('file_size_mb', 0):.1f} MB",
+                "style": clip_metadata.get("style"),
             })
+        
+        if not clips:
+            # If no clips found in Firestore, try R2 fallback
+            # This handles cases where metadata wasn't saved or video is legacy
+            raise Exception("No clips found in Firestore")
         
         # Get video metadata from Firestore
         video_repo = VideoRepository(uid)

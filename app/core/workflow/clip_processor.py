@@ -229,7 +229,20 @@ async def process_clip(
                     )
                     
                     # Create in Firestore
-                    clips_repo.create_clip(clip_metadata)
+                    clips_repo.create_clip(
+                        clip_id=clip_metadata.clip_id,
+                        filename=clip_metadata.filename,
+                        scene_id=clip_metadata.scene_id,
+                        scene_title=clip_metadata.scene_title,
+                        style=clip_metadata.style,
+                        start_time=clip_metadata.start_time,
+                        end_time=clip_metadata.end_time,
+                        duration_seconds=clip_metadata.duration_seconds,
+                        priority=clip_metadata.priority,
+                        scene_description=clip_metadata.scene_description,
+                        file_size_bytes=clip_metadata.file_size_bytes,
+                        has_thumbnail=clip_metadata.has_thumbnail,
+                    )
                     
                     # Update status to completed after successful upload
                     clips_repo.update_clip_status(
