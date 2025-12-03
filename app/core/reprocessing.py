@@ -14,7 +14,7 @@ from fastapi import WebSocket
 
 from app.config import VIDEOS_DIR, PROGRESS_INITIAL, PROGRESS_HIGHLIGHTS_SAVED, PROGRESS_COMPLETE
 from app.core import saas, storage, clipper
-from app.core import workflow
+from app.core.workflow import resolve_prompt
 from app.core.utils import extract_youtube_id
 from app.core.websocket_messages import (
     send_log,
@@ -220,7 +220,7 @@ async def reprocess_scenes_workflow(
         await send_progress(websocket, PROGRESS_INITIAL)
         
         # Initialize context
-        base_prompt = workflow.resolve_prompt(service.get_custom_prompt())
+        base_prompt = resolve_prompt(service.get_custom_prompt())
         youtube_id = extract_youtube_id(video_url)
         run_id = video_id  # Use same video ID for reprocessing
         workdir = VIDEOS_DIR / run_id
