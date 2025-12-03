@@ -101,6 +101,30 @@ python -m app.main
 
 and run the Next.js app from `web/` with `npm install` and `npm run dev`.
 
+## 🔒 Code Quality & Commit Gating
+
+This project enforces strict code quality standards through automated commit gating:
+
+### Pre-commit Checks
+All commits automatically run the following validations:
+- **TypeScript Type Checking**: Ensures type safety and no compilation errors
+- **ESLint Linting**: Code style, consistency, and quality checks
+- **Build Validation**: Ensures the Next.js application builds successfully
+
+### Development Workflow
+```bash
+# Install dependencies (automatically sets up commit hooks)
+npm install
+
+# Run quality checks manually
+npm run check          # All checks
+npm run type-check     # TypeScript only
+npm run lint          # ESLint only
+npm run build         # Build only
+```
+
+If any check fails, the commit is blocked. See `web/COMMIT_GATING.md` for detailed information.
+
 ## 🎯 Usage
 
 1. **Input YouTube URL**: Paste any YouTube video URL in the input field
