@@ -118,7 +118,7 @@ async def process_video_workflow(
         for style in styles:
             if style == "all":
                 # "all" means include all available styles
-                styles_to_process.extend(clipper.AVAILABLE_STYLES + ["intelligent", "original"])
+                styles_to_process.extend(clipper.AVAILABLE_STYLES + ["intelligent", "intelligent_split", "original"])
             else:
                 if style not in styles_to_process:  # Avoid duplicates
                     styles_to_process.append(style)
@@ -210,8 +210,11 @@ async def process_video_workflow(
                 await send_log(websocket, f"✂️ Rendering clip: {title} ({s})")
                 
                 # Determine effective crop mode
-                # If the style is explicitly 'intelligent', force intelligent crop mode
-                effective_crop_mode = "intelligent" if s == "intelligent" else crop_mode
+                # If the style is explicitly 'intelligent' or 'intelligent_split', force intelligent crop mode
+                effective_crop_mode = "intelligent" if s in ["intelligent", "intelligent_split"] else crop_mode
+                
+                # For intelligent_split, ensure 9:16 aspect ratio
+                effective_target_aspect = "9:16" if s == "intelligent_split" else target_aspect
                 
                 await asyncio.to_thread(
                     clipper.run_ffmpeg_clip_with_crop,
@@ -221,7 +224,7 @@ async def process_video_workflow(
                     s,
                     video_file,
                     effective_crop_mode,
-                    target_aspect,
+                    effective_target_aspect,
                     pad_before,
                     pad_after,
                     shot_cache,  # Pass cache for performance

@@ -10,6 +10,7 @@ import {
   Settings,
   LogIn,
   LogOut,
+  HelpCircle,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -22,6 +23,7 @@ const navLinks = [
   { href: "/", label: "Home", icon: Home },
   { href: "/pricing", label: "Pricing", icon: DollarSign },
   { href: "/docs", label: "Docs", icon: BookOpen },
+  { href: "/faq", label: "FAQ", icon: HelpCircle },
   { href: "/about", label: "About", icon: Info },
   { href: "/contact", label: "Contact", icon: Mail },
   { href: "/history", label: "History", icon: History },

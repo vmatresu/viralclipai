@@ -8,7 +8,7 @@ from app.core.utils.ffmpeg import run_ffmpeg
 
 logger = logging.getLogger(__name__)
 
-AVAILABLE_STYLES = ["split", "left_focus", "right_focus"]
+AVAILABLE_STYLES = ["split", "left_focus", "right_focus", "intelligent_split"]
 CROP_MODES = ["none", "center", "manual", "intelligent"]
 
 def ensure_dirs(workdir: Path) -> Path:
@@ -71,6 +71,10 @@ def build_vf_filter(style: str, crop_mode: str = "none") -> Optional[str]:
             "pad=1080:1920:(ow-iw)/2:(oh-ih)/2"
         )
     elif style == "original":
+        return None
+    elif style == "intelligent_split":
+        # This style uses intelligent cropping, so no filter here
+        # The intelligent cropping is handled separately
         return None
     return "scale=-2:1920,crop=1080:1920"
 
@@ -268,7 +272,7 @@ def run_ffmpeg_clip_with_crop(
         start_str: Start timestamp.
         end_str: End timestamp.
         out_path: Output path for the clip.
-        style: Style for traditional cropping (split, left_focus, right_focus).
+        style: Style for traditional cropping (split, left_focus, right_focus, original).
         video_file: Path to source video.
         crop_mode: Cropping mode (none, center, manual, intelligent).
         target_aspect: Target aspect ratio for intelligent mode.
@@ -276,7 +280,19 @@ def run_ffmpeg_clip_with_crop(
         pad_after_seconds: Seconds to pad after end.
         shot_cache: Optional shot detection cache for performance optimization.
     """
-    if crop_mode == "intelligent":
+    # "original" style always preserves original format, regardless of crop_mode
+    if style == "original":
+        run_ffmpeg_clip(
+            start_str=start_str,
+            end_str=end_str,
+            out_path=out_path,
+            style=style,
+            video_file=video_file,
+            pad_before_seconds=pad_before_seconds,
+            pad_after_seconds=pad_after_seconds,
+        )
+    # "intelligent_split" style uses intelligent cropping for 9:16 output
+    elif style == "intelligent_split" or crop_mode == "intelligent":
         run_intelligent_crop(
             video_file=video_file,
             out_path=out_path,

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Clock, Film, AlertCircle, Trash2, CheckSquare, Square, Copy, Check } from "lucide-react";
+import { Clock, Film, AlertCircle, Trash2, CheckSquare, Square, Copy, Check, TrendingUp, Zap } from "lucide-react";
+import Link from "next/link";
 
 import { apiFetch, deleteVideo, bulkDeleteVideos, updateVideoTitle } from "@/lib/apiClient";
 import { EditableTitle } from "@/components/EditableTitle";
@@ -18,6 +19,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 interface UserVideo {
   id?: string;
@@ -26,6 +34,12 @@ interface UserVideo {
   video_url?: string;
   created_at?: string;
   custom_prompt?: string;
+}
+
+interface PlanUsage {
+  plan: string;
+  max_clips_per_month: number;
+  clips_used_this_month: number;
 }
 
 export default function HistoryPage() {
@@ -39,6 +53,8 @@ export default function HistoryPage() {
   const [deleteTarget, setDeleteTarget] = useState<{ type: "single" | "bulk" | "all"; videoId?: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+  const [planUsage, setPlanUsage] = useState<PlanUsage | null>(null);
+  const [loadingUsage, setLoadingUsage] = useState(true);
 
   const loadVideos = useCallback(async () => {
     if (authLoading || !user) {
@@ -74,7 +90,10 @@ export default function HistoryPage() {
       
       if (!user) {
         // Not logged in - stop loading but don't error yet (let UI handle it)
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setLoadingUsage(false);
+        }
         return;
       }
 
@@ -83,11 +102,16 @@ export default function HistoryPage() {
         if (!token) {
           throw new Error("Failed to get authentication token");
         }
-        const data = (await apiFetch<{ videos: UserVideo[] }>("/api/user/videos", {
-          token,
-        })) as { videos: UserVideo[] };
+        
+        // Load videos and plan usage in parallel
+        const [videosData, usageData] = await Promise.all([
+          apiFetch<{ videos: UserVideo[] }>("/api/user/videos", { token }),
+          apiFetch<PlanUsage>("/api/settings", { token }),
+        ]);
+        
         if (!cancelled) {
-          setVideos(data.videos ?? []);
+          setVideos((videosData as { videos: UserVideo[] }).videos ?? []);
+          setPlanUsage(usageData as PlanUsage);
           setError(null);
           setSelectedVideos(new Set()); // Clear selections when reloading
         }
@@ -98,7 +122,10 @@ export default function HistoryPage() {
           setError(errorMessage);
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setLoadingUsage(false);
+        }
       }
     }
     void load();
@@ -358,6 +385,15 @@ export default function HistoryPage() {
 
   const dialogContent = getDeleteDialogContent();
 
+  const usagePercentage = planUsage
+    ? Math.min((planUsage.clips_used_this_month / planUsage.max_clips_per_month) * 100, 100)
+    : 0;
+  const isHighUsage = usagePercentage >= 80;
+  const isNearLimit = usagePercentage >= 90;
+  const remainingClips = planUsage
+    ? Math.max(0, planUsage.max_clips_per_month - planUsage.clips_used_this_month)
+    : 0;
+
   return (
     <div className="space-y-6 page-container">
       <div className="flex items-center justify-between">
@@ -390,6 +426,114 @@ export default function HistoryPage() {
           )}
         </div>
       </div>
+
+      {/* Plan Usage Card */}
+      {user && (
+        <Card className={`glass ${isHighUsage ? "border-destructive/50 bg-destructive/5" : ""}`}>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  {isHighUsage ? (
+                    <>
+                      <AlertCircle className="h-5 w-5 text-destructive" />
+                      Monthly Plan Usage
+                    </>
+                  ) : (
+                    "Monthly Plan Usage"
+                  )}
+                </CardTitle>
+                <CardDescription>
+                  {planUsage ? (
+                    <>
+                      {planUsage.clips_used_this_month} of {planUsage.max_clips_per_month} clips used this month
+                      {remainingClips > 0 && ` • ${remainingClips} remaining`}
+                    </>
+                  ) : (
+                    "Loading usage information..."
+                  )}
+                </CardDescription>
+              </div>
+              {planUsage && (
+                <div className="text-right">
+                  <div className={`text-2xl font-bold ${isHighUsage ? "text-destructive" : "text-primary"}`}>
+                    {Math.round(usagePercentage)}%
+                  </div>
+                  <div className="text-xs text-muted-foreground uppercase">
+                    {planUsage.plan} Plan
+                  </div>
+                </div>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {planUsage ? (
+              <>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Usage</span>
+                    <span className={isHighUsage ? "text-destructive font-semibold" : "text-muted-foreground"}>
+                      {planUsage.clips_used_this_month} / {planUsage.max_clips_per_month}
+                    </span>
+                  </div>
+                  <div className="relative h-3 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className={`h-full transition-all duration-500 ${
+                        isNearLimit
+                          ? "bg-destructive"
+                          : isHighUsage
+                          ? "bg-destructive/80"
+                          : "bg-primary"
+                      }`}
+                      style={{ width: `${usagePercentage}%` }}
+                    />
+                  </div>
+                </div>
+                {isHighUsage && (
+                  <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 space-y-3">
+                    <div className="flex items-start gap-3">
+                      <Zap className="h-5 w-5 text-destructive mt-0.5 flex-shrink-0" />
+                      <div className="flex-1 space-y-2">
+                        <p className="font-semibold text-destructive">
+                          {isNearLimit
+                            ? "You're almost out of clips this month!"
+                            : "You're running low on clips this month"}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {isNearLimit
+                            ? `Only ${remainingClips} clip${remainingClips !== 1 ? "s" : ""} remaining. Upgrade to Pro for more clips and unlock unlimited potential!`
+                            : `You've used ${Math.round(usagePercentage)}% of your monthly limit. Upgrade to Pro to get more clips and never worry about limits again.`}
+                        </p>
+                        <Button asChild variant="default" size="sm" className="mt-2">
+                          <Link href="/pricing">
+                            <TrendingUp className="h-4 w-4 mr-2" />
+                            Upgrade to Pro
+                          </Link>
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {!isHighUsage && remainingClips < 10 && (
+                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
+                    <p className="text-sm text-muted-foreground">
+                      <span className="font-semibold text-foreground">{remainingClips} clips remaining</span> this month.{" "}
+                      <Link href="/pricing" className="text-primary hover:underline">
+                        Upgrade to Pro
+                      </Link>{" "}
+                      for more capacity.
+                    </p>
+                  </div>
+                )}
+              </>
+            ) : loadingUsage ? (
+              <div className="text-sm text-muted-foreground">Loading usage information...</div>
+            ) : (
+              <div className="text-sm text-muted-foreground">Unable to load usage information.</div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {videos.length > 0 && (
         <div className="flex items-center gap-2 pb-2 border-b">
