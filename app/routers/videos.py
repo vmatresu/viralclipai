@@ -442,15 +442,20 @@ async def delete_clip(
                 detail="Failed to delete clip"
             )
         
-        if files_deleted == 0:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Clip not found"
-            )
-        
         # Invalidate cache for this video since clips changed
         cache = get_video_info_cache()
         cache.invalidate(f"{uid}:{video_id}")
+        
+        if files_deleted == 0:
+            # Clip doesn't exist - treat as success for idempotency
+            logger.info(f"Clip {clip_name} from video {video_id} for user {uid} was already deleted (idempotent operation)")
+            return DeleteClipResponse(
+                success=True,
+                video_id=video_id,
+                clip_name=clip_name,
+                message="Clip already deleted",
+                files_deleted=0,
+            )
         
         logger.info(f"Successfully deleted clip {clip_name} from video {video_id} for user {uid} ({files_deleted} files)")
         
