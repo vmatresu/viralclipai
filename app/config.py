@@ -14,7 +14,7 @@ PROMPT_PATH = PROJECT_ROOT / "prompt.txt"
 STATIC_DIR = APP_DIR / "static"
 
 # Logging Setup
-LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s - %(message)s"
 LOG_FILE_PATH = os.getenv(
     "LOG_FILE_PATH",
@@ -58,6 +58,17 @@ LOGGING_CONFIG = {
         # Let uvicorn log to console using its own handlers
         "uvicorn.error": {"level": "INFO"},
         "uvicorn.access": {"level": "INFO"},
+        # Suppress verbose botocore/boto3 logging to improve performance
+        "botocore": {"level": "WARNING"},
+        "boto3": {"level": "WARNING"},
+        "botocore.hooks": {"level": "ERROR"},
+        "botocore.auth": {"level": "ERROR"},
+        "botocore.endpoint": {"level": "ERROR"},
+        "botocore.httpsession": {"level": "ERROR"},
+        "botocore.parsers": {"level": "ERROR"},
+        "botocore.retryhandler": {"level": "ERROR"},
+        "botocore.regions": {"level": "ERROR"},
+        "urllib3": {"level": "WARNING"},
     },
     "root": {
         "handlers": ["console"],
