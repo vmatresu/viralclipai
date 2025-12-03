@@ -5,9 +5,10 @@ Handles normalization, extraction, and transformation of video data
 following Single Responsibility Principle.
 """
 
-from typing import Dict, Any, List, Optional
+import logging
+from typing import Any, Dict, List, Optional
 
-from app.core.utils import fetch_youtube_title
+logger = logging.getLogger(__name__)
 
 
 def normalize_video_title(
@@ -34,11 +35,6 @@ def normalize_video_title(
         return title
 
     return f"Video {youtube_id}"
-
-
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 def extract_highlights(data: Dict[str, Any]) -> List[Dict[str, Any]]:

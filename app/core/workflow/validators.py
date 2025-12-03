@@ -5,10 +5,13 @@ Handles validation of styles, plan limits, and other workflow inputs
 following Single Responsibility Principle.
 """
 
+import logging
 from typing import List, Optional
 
-from app.core import clipper, saas
 from app.config import DEFAULT_STYLE
+from app.core import clipper, saas
+
+logger = logging.getLogger(__name__)
 
 
 def resolve_styles(styles: List[str]) -> List[str]:
@@ -46,11 +49,6 @@ def resolve_styles(styles: List[str]) -> List[str]:
         unique_styles = [DEFAULT_STYLE]
 
     return unique_styles
-
-
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 def validate_plan_limits(
