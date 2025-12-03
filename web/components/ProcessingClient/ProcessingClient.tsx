@@ -14,6 +14,7 @@ import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
 import { limitLength, sanitizeUrl } from "@/lib/security/validation";
 import { getWebSocketUrl, createWebSocketConnection } from "@/lib/websocket-client";
+import { handleWSMessage, type MessageHandlerCallbacks } from "@/lib/websocket/messageHandler";
 
 import { ErrorDisplay } from "./ErrorDisplay";
 import { useVideoProcessing } from "./hooks";
@@ -121,86 +122,54 @@ export function ProcessingClient() {
           );
         },
         // onMessage
-        (message: any) => { // Using any here as strict type parsing is done inside createWebSocketConnection/here
-            // Note: createWebSocketConnection parses JSON but returns `any`.
-            // We should validate the structure here.
-            
-            if (!message || typeof message !== "object") {
-               frontendLogger.error("Invalid WebSocket message format", { message });
-               ws.close();
-               setError("Invalid message format");
-               setSubmitting(false);
-               return;
-            }
-
-            const typedMessage = message as {
-                type?: string;
-                message?: string;
-                value?: number;
-                videoId?: string;
-                details?: string;
-                timestamp?: string;
+        (message: unknown) => {
+            const callbacks: MessageHandlerCallbacks = {
+                onLog: (logMessage, timestamp) => {
+                    log(logMessage, "info", timestamp);
+                },
+                onProgress: (progressValue) => {
+                    setProgress(progressValue);
+                },
+                onError: (errorMessage, errorDetails) => {
+                    ws.close();
+                    setError(errorMessage);
+                    setErrorDetails(errorDetails ?? null);
+                    toast.error(errorMessage);
+                    setSubmitting(false);
+                    void analyticsEvents.videoProcessingFailed({
+                        errorType: errorDetails ?? "unknown",
+                        errorMessage,
+                        style: styles.join(","),
+                    });
+                },
+                onDone: (videoId) => {
+                    ws.close();
+                    setVideoId(videoId);
+                    const newUrl = new URL(window.location.href);
+                    newUrl.searchParams.set("id", videoId);
+                    window.history.pushState({}, "", newUrl.toString());
+                    toast.success("Video processed successfully!");
+                    void loadResults(videoId);
+                },
+                onClipUploaded: (videoId, clipCount, totalClips) => {
+                    // If we're currently viewing this video, reload results
+                    if (videoId === searchParams.get("id")) {
+                        void loadResults(videoId);
+                    }
+                    // Log progress
+                    if (clipCount > 0 && totalClips > 0) {
+                        log(`📦 Clip ${clipCount}/${totalClips} uploaded`, "success");
+                    }
+                },
             };
 
-            if (typedMessage.type === "log") {
-                const logMessage = typeof typedMessage.message === "string"
-                    ? typedMessage.message.substring(0, 1000)
-                    : "Unknown log message";
-                const timestamp = typeof typedMessage.timestamp === "string"
-                    ? typedMessage.timestamp
-                    : undefined;
-                log(logMessage, "info", timestamp);
-            } else if (typedMessage.type === "progress") {
-                const progressValue = typeof typedMessage.value === "number" && typedMessage.value >= 0 && typedMessage.value <= 100
-                    ? typedMessage.value
-                    : 0;
-                setProgress(progressValue);
-            } else if (typedMessage.type === "error") {
+            const handled = handleWSMessage(message, callbacks, searchParams.get("id"));
+            if (!handled) {
+                // Invalid message - close connection for security
+                frontendLogger.error("Invalid WebSocket message format", { message });
                 ws.close();
-                const errorMessage = typeof typedMessage.message === "string"
-                    ? typedMessage.message.substring(0, 500)
-                    : "An unexpected error occurred.";
-                const errorDetails = typeof typedMessage.details === "string"
-                    ? typedMessage.details.substring(0, 200)
-                    : null;
-                
-                setError(errorMessage);
-                setErrorDetails(errorDetails);
-                toast.error(errorMessage);
+                setError("Invalid message format");
                 setSubmitting(false);
-
-                void analyticsEvents.videoProcessingFailed({
-                    errorType: errorDetails ?? "unknown",
-                    errorMessage,
-                    style: styles.join(","),
-                });
-            } else if (typedMessage.type === "done") {
-                ws.close();
-                const id = typeof typedMessage.videoId === "string" && typedMessage.videoId.trim() !== ""
-                    ? typedMessage.videoId.trim()
-                    : null;
-
-                if (!id) {
-                    setError("Invalid video ID received");
-                    toast.error("Invalid video ID received");
-                    setSubmitting(false);
-                    return;
-                }
-
-                const sanitizedId = id.replace(/[^a-zA-Z0-9_-]/g, "");
-                if (sanitizedId !== id) {
-                    frontendLogger.warn("Video ID contained invalid characters", { id });
-                }
-
-                setVideoId(sanitizedId);
-                const newUrl = new URL(window.location.href);
-                newUrl.searchParams.set("id", sanitizedId);
-                window.history.pushState({}, "", newUrl.toString());
-                
-                toast.success("Video processed successfully!");
-                void loadResults(sanitizedId);
-            } else {
-                frontendLogger.warn("Unknown WebSocket message type", { type: typedMessage.type });
             }
         },
         // onError

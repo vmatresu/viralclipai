@@ -41,6 +41,13 @@ from app.core.utils import (
 from app.core.gemini import GeminiClient
 from app.core import clipper
 from app.core import saas, storage
+from app.core.websocket_messages import (
+    send_log,
+    send_error,
+    send_progress,
+    send_done,
+    send_clip_uploaded,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,69 +90,6 @@ class ProcessingContext:
     crop_mode: str
     target_aspect: str
     custom_prompt: Optional[str] = None
-
-
-# ============================================================================
-# WebSocket Communication
-# ============================================================================
-
-
-async def send_log(websocket: WebSocket, message: str) -> None:
-    """
-    Send a timestamped log message via WebSocket.
-
-    Args:
-        websocket: WebSocket connection
-        message: Log message to send
-    """
-    timestamp = datetime.now(timezone.utc).isoformat()
-    try:
-        await websocket.send_json({
-            "type": "log",
-            "message": message,
-            "timestamp": timestamp,
-        })
-    except Exception as e:
-        logger.warning(f"Failed to send log message via WebSocket: {e}")
-
-
-async def send_error(
-    websocket: WebSocket,
-    message: str,
-    details: Optional[str] = None,
-) -> None:
-    """
-    Send an error message via WebSocket.
-
-    Args:
-        websocket: WebSocket connection
-        message: Error message
-        details: Optional error details/traceback
-    """
-    timestamp = datetime.now(timezone.utc).isoformat()
-    try:
-        await websocket.send_json({
-            "type": "error",
-            "message": message,
-            "details": details,
-            "timestamp": timestamp,
-        })
-    except Exception as e:
-        logger.warning(f"Failed to send error message via WebSocket: {e}")
-
-
-async def send_progress(websocket: WebSocket, value: int) -> None:
-    """
-    Send progress update via WebSocket.
-
-    Args:
-        websocket: WebSocket connection
-        value: Progress value (0-100)
-    """
-    try:
-        await websocket.send_json({"type": "progress", "value": value})
-    except Exception as e:
-        logger.warning(f"Failed to send progress update via WebSocket: {e}")
 
 
 # ============================================================================
@@ -611,13 +555,30 @@ async def process_clip(
                         "image/jpeg",
                     )
 
-            # Update progress (thread-safe)
+            # Update progress and notify frontend (thread-safe)
             async with completed_lock:
                 completed_count[0] += 1
                 progress = PROGRESS_HIGHLIGHTS_SAVED + int(
                     (completed_count[0] / total_clips) * (PROGRESS_COMPLETE - PROGRESS_HIGHLIGHTS_SAVED)
                 )
                 await send_progress(context.websocket, progress)
+                
+                # Send clip_uploaded message for each clip to update frontend cache
+                # This allows history page to show clips as they come in
+                if context.user_id is not None:
+                    await send_clip_uploaded(
+                        context.websocket,
+                        context.run_id,
+                        completed_count[0],
+                        total_clips,
+                    )
+                    
+                    # Invalidate backend cache on first clip so history page shows updated data
+                    if completed_count[0] == 1:
+                        from app.core.cache import get_video_info_cache
+                        cache = get_video_info_cache()
+                        cache.invalidate(f"{context.user_id}:{context.run_id}")
+                        logger.info(f"First clip uploaded for video {context.run_id}, cache invalidated")
 
         except Exception as e:
             logger.error(
@@ -784,6 +745,24 @@ async def process_video_workflow(
                 f"{user_id}/{run_id}/highlights.json",
                 "application/json",
             )
+            
+            # Create history entry early with "processing" status
+            # This allows users to see the video in history while processing
+            final_title = (
+                analysis_data.get("video_title")
+                or video_title
+                or f"Video {youtube_id}"
+            )
+            saas.record_video_job(
+                user_id,
+                run_id,
+                url,
+                final_title,
+                total_clips,
+                custom_prompt=custom_prompt.strip() if custom_prompt else None,
+                status="processing",
+            )
+            logger.info(f"Created history entry for video {run_id} with processing status")
 
         await send_progress(websocket, PROGRESS_HIGHLIGHTS_SAVED)
 
@@ -818,25 +797,30 @@ async def process_video_workflow(
 
         logger.info("Job complete.")
 
-        # Record usage
+        # Update video status to completed and invalidate cache
         if user_id is not None and total_clips > 0:
             final_title = (
                 analysis_data.get("video_title")
                 or video_title
                 or f"Video {youtube_id}"
             )
-            saas.record_video_job(
+            # Update status to completed (history entry was already created earlier)
+            saas.update_video_status(
                 user_id,
                 run_id,
-                url,
-                final_title,
-                total_clips,
-                custom_prompt=custom_prompt.strip() if custom_prompt else None,
+                "completed",
+                clips_count=total_clips,
             )
+            
+            # Invalidate backend cache so history page shows completed status
+            from app.core.cache import get_video_info_cache
+            cache = get_video_info_cache()
+            cache.invalidate(f"{user_id}:{run_id}")
+            logger.info(f"Updated video {run_id} status to completed and invalidated cache")
 
         await send_progress(websocket, PROGRESS_COMPLETE)
         await send_log(websocket, "✨ All done!")
-        await websocket.send_json({"type": "done", "videoId": run_id})
+        await send_done(websocket, run_id)
 
     except ValueError as e:
         # User-facing validation errors

@@ -94,7 +94,20 @@ def record_video_job(
     video_title: str,
     clips_count: int,
     custom_prompt: Optional[str] = None,
+    status: str = "completed",
 ) -> None:
+    """
+    Record or update a video job in Firestore.
+    
+    Args:
+        uid: User ID
+        run_id: Video run ID
+        video_url: Source video URL
+        video_title: Video title
+        clips_count: Number of clips
+        custom_prompt: Optional custom prompt
+        status: Processing status ("processing" or "completed")
+    """
     db = get_firestore_client()
     col = db.collection("users").document(uid).collection("videos")
     now = datetime.now(timezone.utc)
@@ -103,12 +116,52 @@ def record_video_job(
         "video_url": video_url,
         "video_title": video_title,
         "clips_count": int(clips_count),
+        "status": status,
         "created_at": now,
     }
     if custom_prompt:
         payload["custom_prompt"] = custom_prompt
+    if status == "completed":
+        payload["completed_at"] = now
 
     col.document(run_id).set(payload, merge=True)
+
+
+def update_video_status(
+    uid: str,
+    run_id: str,
+    status: str,
+    clips_count: Optional[int] = None,
+) -> bool:
+    """
+    Update video processing status.
+    
+    Args:
+        uid: User ID
+        run_id: Video run ID
+        status: New status ("processing" or "completed")
+        clips_count: Optional updated clips count
+        
+    Returns:
+        True if video was updated, False if it didn't exist
+    """
+    db = get_firestore_client()
+    doc_ref = db.collection("users").document(uid).collection("videos").document(run_id)
+    doc = doc_ref.get()
+    
+    if not doc.exists:
+        return False
+    
+    update_data: Dict[str, Any] = {
+        "status": status,
+    }
+    if status == "completed":
+        update_data["completed_at"] = datetime.now(timezone.utc)
+    if clips_count is not None:
+        update_data["clips_count"] = int(clips_count)
+    
+    doc_ref.update(update_data)
+    return True
 
 
 def user_owns_video(uid: str, run_id: str) -> bool:

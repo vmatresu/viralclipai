@@ -116,6 +116,14 @@ class WSDoneMessage(BaseSchema):
     videoId: str
 
 
+class WSClipUploadedMessage(BaseSchema):
+    """WebSocket clip upload notification message."""
+    type: str = Field(default="clip_uploaded")
+    videoId: str
+    clipCount: int = Field(..., ge=0, description="Number of clips uploaded so far")
+    totalClips: int = Field(..., ge=0, description="Total number of clips expected")
+
+
 # -----------------------------------------------------------------------------
 # API Request Models
 # -----------------------------------------------------------------------------

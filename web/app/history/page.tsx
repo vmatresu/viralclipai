@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Clock, Film, AlertCircle, Trash2, CheckSquare, Square, Copy, Check, TrendingUp, Zap, Calendar } from "lucide-react";
+import { Clock, Film, AlertCircle, Trash2, CheckSquare, Square, Copy, Check, TrendingUp, Zap, Calendar, Loader2 } from "lucide-react";
 import Link from "next/link";
 
 import { apiFetch, deleteVideo, bulkDeleteVideos, updateVideoTitle } from "@/lib/apiClient";
@@ -10,6 +10,8 @@ import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { usePageView } from "@/lib/usePageView";
 import { invalidateClipsCache, invalidateClipsCacheMany } from "@/lib/cache";
+import { useVideoPolling } from "@/hooks/useVideoPolling";
+import { VideoStatusBadge } from "@/components/VideoStatusBadge";
 import { Button } from "@/components/ui/button";
 import { SignInDialog } from "@/components/SignInDialog";
 import {
@@ -35,6 +37,8 @@ interface UserVideo {
   video_url?: string;
   created_at?: string;
   custom_prompt?: string;
+  status?: "processing" | "completed";
+  clips_count?: number;
 }
 
 interface PlanUsage {
@@ -134,6 +138,16 @@ export default function HistoryPage() {
       cancelled = true;
     };
   }, [getIdToken, user, authLoading]);
+
+  // Poll for processing videos using custom hook
+  useVideoPolling({
+    videos,
+    enabled: !authLoading && !!user,
+    getIdToken,
+    onVideosUpdate: setVideos,
+    pollInterval: 5000,
+    maxInterval: 30000,
+  });
 
   const handleSelectVideo = (videoId: string) => {
     setSelectedVideos((prev) => {
@@ -646,6 +660,10 @@ export default function HistoryPage() {
                         >
                           ID: {id.substring(0, 8)}...
                         </div>
+                        <VideoStatusBadge
+                          status={v.status}
+                          clipsCount={v.clips_count}
+                        />
                       </div>
                     
                     {v.video_url && (
