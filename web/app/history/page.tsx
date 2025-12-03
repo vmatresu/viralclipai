@@ -578,48 +578,57 @@ export default function HistoryPage() {
           }
 
           return (
-            <div
+            <Link
               key={id}
-              className={`glass p-6 rounded-xl hover:shadow-md transition-all border ${
+              href={`/?id=${encodeURIComponent(id)}`}
+              className={`block glass p-6 rounded-xl hover:shadow-md transition-all border ${
                 isSelected ? "border-primary/50 bg-primary/5" : "border-border/50"
-              }`}
+              } hover:bg-muted/30`}
             >
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                <div className="flex items-start gap-3 flex-1 min-w-0">
-                  <button
-                    onClick={() => handleSelectVideo(id)}
-                    className="mt-1 flex-shrink-0"
-                    type="button"
-                    aria-label={isSelected ? "Deselect video" : "Select video"}
-                  >
-                    {isSelected ? (
-                      <CheckSquare className="h-5 w-5 text-primary" />
-                    ) : (
-                      <Square className="h-5 w-5 text-muted-foreground" />
-                    )}
-                  </button>
-                  <div className="flex-1 min-w-0 space-y-2 group">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <div
-                        onClick={(e) => {
-                          // Prevent navigation when clicking on editable title
-                          e.stopPropagation();
-                        }}
-                        className="flex-1 min-w-0"
-                      >
-                        <EditableTitle
-                          title={v.video_title || "Untitled Video"}
-                          onSave={(newTitle) => handleTitleUpdate(id, newTitle)}
-                          className="truncate"
-                        />
+                  <div className="flex items-start gap-3 flex-1 min-w-0">
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleSelectVideo(id);
+                      }}
+                      className="mt-1 flex-shrink-0"
+                      type="button"
+                      aria-label={isSelected ? "Deselect video" : "Select video"}
+                    >
+                      {isSelected ? (
+                        <CheckSquare className="h-5 w-5 text-primary" />
+                      ) : (
+                        <Square className="h-5 w-5 text-muted-foreground" />
+                      )}
+                    </button>
+                    <div className="flex-1 min-w-0 space-y-2 group">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div
+                          onClick={(e) => {
+                            // Prevent navigation when clicking on editable title
+                            e.preventDefault();
+                            e.stopPropagation();
+                          }}
+                          className="flex-1 min-w-0"
+                        >
+                          <EditableTitle
+                            title={v.video_title || "Untitled Video"}
+                            onSave={(newTitle) => handleTitleUpdate(id, newTitle)}
+                            className="truncate"
+                          />
+                        </div>
+                        <div
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                          }}
+                          className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-secondary text-secondary-foreground"
+                        >
+                          ID: {id.substring(0, 8)}...
+                        </div>
                       </div>
-                      <a
-                        href={`/?id=${encodeURIComponent(id)}`}
-                        className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80"
-                      >
-                        ID: {id.substring(0, 8)}...
-                      </a>
-                    </div>
                     
                     {v.video_url && (
                       <div className="flex items-center gap-2 group/url">
@@ -627,7 +636,11 @@ export default function HistoryPage() {
                           href={v.video_url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            window.open(v.video_url, '_blank', 'noopener,noreferrer');
+                          }}
                           className="text-sm text-muted-foreground truncate font-mono bg-muted/30 px-2 py-1 rounded hover:text-primary hover:bg-muted/50 transition-colors flex-1 min-w-0"
                         >
                           {v.video_url}
@@ -636,7 +649,11 @@ export default function HistoryPage() {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 flex-shrink-0"
-                          onClick={(e) => handleCopyUrl(v.video_url!, e)}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleCopyUrl(v.video_url!, e);
+                          }}
                           aria-label="Copy URL"
                         >
                           {copiedUrl === v.video_url ? (
@@ -667,6 +684,7 @@ export default function HistoryPage() {
                     size="icon"
                     onClick={(e) => {
                       e.preventDefault();
+                      e.stopPropagation();
                       handleDeleteClick("single", id);
                     }}
                     disabled={deleting}
@@ -677,7 +695,7 @@ export default function HistoryPage() {
                   </Button>
                 </div>
               </div>
-            </div>
+            </Link>
           );
         })}
       </div>

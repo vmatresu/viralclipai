@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse
 from app.core.firebase_client import get_current_user
 from app.core import saas, storage
 from app.core.security import ValidationError, validate_video_id, validate_clip_name
+from app.core.cache import get_video_info_cache
 from app.schemas import (
     VideoInfoResponse,
     UserVideosResponse,
@@ -34,6 +35,15 @@ async def get_video_info(
     uid = user["uid"]
     from app.config import logger
 
+    # Check cache first
+    cache = get_video_info_cache()
+    cache_key = f"{uid}:{video_id}"
+    cached_response = cache.get(cache_key)
+    
+    if cached_response is not None:
+        logger.debug(f"Cache hit for video info: uid={uid} video_id={video_id}")
+        return cached_response
+
     # Check ownership in DB first
     is_owner = saas.user_owns_video(uid, video_id)
     
@@ -61,13 +71,18 @@ async def get_video_info(
     # Get video metadata (title, URL) from Firestore
     video_metadata = saas.get_video_metadata(uid, video_id) if is_owner else None
     
-    return VideoInfoResponse(
+    response = VideoInfoResponse(
         id=video_id,
         clips=clips,
         custom_prompt=highlights_data.get("custom_prompt"),
         video_title=video_metadata.get("video_title") if video_metadata else None,
         video_url=video_metadata.get("video_url") if video_metadata else None,
     )
+    
+    # Cache the response
+    cache.set(cache_key, response)
+    
+    return response
 
 
 @router.get("/user/videos", response_model=UserVideosResponse)
@@ -249,6 +264,10 @@ async def delete_video(
                 detail="Video not found"
             )
         
+        # Invalidate cache for this video
+        cache = get_video_info_cache()
+        cache.invalidate(f"{uid}:{video_id}")
+        
         logger.info(f"Successfully deleted video {video_id} for user {uid} ({files_deleted} files)")
         
         return DeleteVideoResponse(
@@ -324,6 +343,11 @@ async def bulk_delete_videos(
     
     # Batch delete records from Firestore (more efficient)
     db_results = saas.delete_videos(uid, owned_video_ids)
+    
+    # Invalidate cache for deleted videos
+    cache = get_video_info_cache()
+    for video_id in owned_video_ids:
+        cache.invalidate(f"{uid}:{video_id}")
     
     # Combine results
     deleted_count = 0
@@ -424,6 +448,10 @@ async def delete_clip(
                 detail="Clip not found"
             )
         
+        # Invalidate cache for this video since clips changed
+        cache = get_video_info_cache()
+        cache.invalidate(f"{uid}:{video_id}")
+        
         logger.info(f"Successfully deleted clip {clip_name} from video {video_id} for user {uid} ({files_deleted} files)")
         
         return DeleteClipResponse(
@@ -485,6 +513,10 @@ async def update_video_title(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Video not found"
             )
+        
+        # Invalidate cache for this video since title changed
+        cache = get_video_info_cache()
+        cache.invalidate(f"{uid}:{video_id}")
         
         logger.info(f"Successfully updated title for video {video_id} for user {uid}")
         
