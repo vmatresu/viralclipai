@@ -8,6 +8,7 @@ use vclip_storage::R2Client;
 
 use crate::auth::JwksCache;
 use crate::config::ApiConfig;
+use crate::services::UserService;
 
 /// Shared application state.
 #[derive(Clone)]
@@ -18,6 +19,7 @@ pub struct AppState {
     pub queue: Arc<JobQueue>,
     pub progress: Arc<ProgressChannel>,
     pub jwks: Arc<JwksCache>,
+    pub user_service: UserService,
 }
 
 impl AppState {
@@ -31,14 +33,18 @@ impl AppState {
         let progress = ProgressChannel::new(&redis_url)?;
 
         let jwks = JwksCache::new().await?;
+        
+        let firestore_arc = Arc::new(firestore);
+        let user_service = UserService::new(Arc::clone(&firestore_arc));
 
         Ok(Self {
             config,
             storage: Arc::new(storage),
-            firestore: Arc::new(firestore),
+            firestore: firestore_arc,
             queue: Arc::new(queue),
             progress: Arc::new(progress),
             jwks: Arc::new(jwks),
+            user_service,
         })
     }
 }

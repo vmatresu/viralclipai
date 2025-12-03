@@ -1,7 +1,6 @@
 //! Firebase ID token authentication.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::extract::FromRequestParts;

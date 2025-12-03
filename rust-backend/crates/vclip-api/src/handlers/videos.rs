@@ -3,9 +3,13 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use axum::body::Body;
 use axum::extract::{Path, Query, State};
+use axum::http::{header, HeaderMap, StatusCode};
+use axum::response::Response;
 use axum::Json;
 use serde::{Deserialize, Serialize};
+use tracing::{info, warn};
 
 use vclip_models::VideoId;
 
@@ -47,7 +51,7 @@ pub async fn get_video_info(
     Path(video_id): Path<String>,
     user: AuthUser,
 ) -> ApiResult<Json<VideoInfoResponse>> {
-    let video_id_obj = VideoId::from_string(&video_id);
+    let _video_id_obj = VideoId::from_string(&video_id);
 
     // Load highlights from R2
     let highlights = state
@@ -174,6 +178,11 @@ pub async fn delete_video(
     Path(video_id): Path<String>,
     user: AuthUser,
 ) -> ApiResult<Json<DeleteVideoResponse>> {
+    // Verify ownership
+    if !state.user_service.user_owns_video(&user.uid, &video_id).await? {
+        return Err(ApiError::not_found("Video not found"));
+    }
+
     // Delete files from R2
     let files_deleted = state
         .storage
@@ -187,10 +196,500 @@ pub async fn delete_video(
     );
     video_repo.delete(&VideoId::from_string(&video_id)).await?;
 
+    info!("Deleted video {} for user {} ({} files)", video_id, user.uid, files_deleted);
+
     Ok(Json(DeleteVideoResponse {
         success: true,
         video_id,
         message: Some("Video deleted successfully".to_string()),
         files_deleted: Some(files_deleted),
+    }))
+}
+
+// ============================================================================
+// Bulk Delete Videos
+// ============================================================================
+
+/// Bulk delete videos request.
+#[derive(Debug, Deserialize)]
+pub struct BulkDeleteVideosRequest {
+    pub video_ids: Vec<String>,
+}
+
+/// Bulk delete videos response.
+#[derive(Serialize)]
+pub struct BulkDeleteVideosResponse {
+    pub success: bool,
+    pub deleted_count: u32,
+    pub failed_count: u32,
+    pub results: HashMap<String, BulkDeleteResult>,
+}
+
+#[derive(Serialize)]
+pub struct BulkDeleteResult {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub files_deleted: Option<u32>,
+}
+
+/// Bulk delete videos.
+pub async fn bulk_delete_videos(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(request): Json<BulkDeleteVideosRequest>,
+) -> ApiResult<Json<BulkDeleteVideosResponse>> {
+    if request.video_ids.is_empty() {
+        return Err(ApiError::bad_request("At least one video ID is required"));
+    }
+
+    if request.video_ids.len() > 100 {
+        return Err(ApiError::bad_request("Cannot delete more than 100 videos at once"));
+    }
+
+    let mut results = HashMap::new();
+    let mut deleted_count = 0u32;
+    let mut failed_count = 0u32;
+
+    for video_id in &request.video_ids {
+        // Check ownership
+        let is_owner = state.user_service.user_owns_video(&user.uid, video_id).await.unwrap_or(false);
+        
+        if !is_owner {
+            results.insert(video_id.clone(), BulkDeleteResult {
+                success: false,
+                error: Some("Video not found or access denied".to_string()),
+                files_deleted: None,
+            });
+            failed_count += 1;
+            continue;
+        }
+
+        // Delete files from R2
+        let files_deleted = match state.storage.delete_video_files(&user.uid, video_id).await {
+            Ok(count) => count,
+            Err(e) => {
+                warn!("Failed to delete files for video {}: {}", video_id, e);
+                0
+            }
+        };
+
+        // Delete from Firestore
+        let video_repo = vclip_firestore::VideoRepository::new(
+            (*state.firestore).clone(),
+            &user.uid,
+        );
+        
+        match video_repo.delete(&VideoId::from_string(video_id)).await {
+            Ok(_) => {
+                results.insert(video_id.clone(), BulkDeleteResult {
+                    success: true,
+                    error: None,
+                    files_deleted: Some(files_deleted),
+                });
+                deleted_count += 1;
+                info!("Deleted video {} for user {} ({} files)", video_id, user.uid, files_deleted);
+            }
+            Err(e) => {
+                results.insert(video_id.clone(), BulkDeleteResult {
+                    success: false,
+                    error: Some(format!("Database error: {}", e)),
+                    files_deleted: Some(files_deleted),
+                });
+                failed_count += 1;
+            }
+        }
+    }
+
+    Ok(Json(BulkDeleteVideosResponse {
+        success: deleted_count > 0,
+        deleted_count,
+        failed_count,
+        results,
+    }))
+}
+
+// ============================================================================
+// Clip Streaming
+// ============================================================================
+
+/// Stream a video clip with range request support.
+pub async fn stream_clip(
+    State(state): State<AppState>,
+    Path((video_id, clip_name)): Path<(String, String)>,
+    headers: HeaderMap,
+    user: AuthUser,
+) -> Result<Response, ApiError> {
+    // Validate clip name
+    if clip_name.contains("..") || clip_name.contains('/') || clip_name.contains('\\') {
+        return Err(ApiError::bad_request("Invalid clip name"));
+    }
+
+    // Verify ownership
+    if !state.user_service.user_owns_video(&user.uid, &video_id).await? {
+        return Err(ApiError::not_found("Video not found"));
+    }
+
+    let key = format!("{}/{}/clips/{}", user.uid, video_id, clip_name);
+
+    // Determine content type
+    let content_type = if clip_name.to_lowercase().ends_with(".mp4") {
+        "video/mp4"
+    } else if clip_name.to_lowercase().ends_with(".jpg") || clip_name.to_lowercase().ends_with(".jpeg") {
+        "image/jpeg"
+    } else {
+        "application/octet-stream"
+    };
+
+    // Handle range requests
+    let range_header = headers
+        .get(header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let (bytes, content_length, _) = state
+        .storage
+        .get_object_range(&key, range_header.as_deref())
+        .await
+        .map_err(|e| {
+            if matches!(e, vclip_storage::StorageError::NotFound(_)) {
+                ApiError::not_found("Clip not found")
+            } else {
+                ApiError::Storage(e)
+            }
+        })?;
+
+    // Build response
+    let mut response_builder = Response::builder()
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header(header::CACHE_CONTROL, "public, max-age=3600")
+        .header("Cross-Origin-Resource-Policy", "cross-origin");
+
+    if range_header.is_some() {
+        response_builder = response_builder
+            .status(StatusCode::PARTIAL_CONTENT)
+            .header(header::CONTENT_LENGTH, bytes.len());
+    } else {
+        response_builder = response_builder
+            .status(StatusCode::OK)
+            .header(header::CONTENT_LENGTH, content_length);
+    }
+
+    response_builder
+        .body(Body::from(bytes))
+        .map_err(|e| ApiError::internal(format!("Failed to build response: {}", e)))
+}
+
+// ============================================================================
+// Delete Clip
+// ============================================================================
+
+/// Delete clip response.
+#[derive(Serialize)]
+pub struct DeleteClipResponse {
+    pub success: bool,
+    pub video_id: String,
+    pub clip_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub files_deleted: Option<u32>,
+}
+
+/// Delete a single clip.
+pub async fn delete_clip(
+    State(state): State<AppState>,
+    Path((video_id, clip_name)): Path<(String, String)>,
+    user: AuthUser,
+) -> ApiResult<Json<DeleteClipResponse>> {
+    // Validate clip name
+    if clip_name.contains("..") || clip_name.contains('/') || clip_name.contains('\\') {
+        return Err(ApiError::bad_request("Invalid clip name"));
+    }
+
+    // Verify ownership
+    if !state.user_service.user_owns_video(&user.uid, &video_id).await? {
+        return Err(ApiError::not_found("Video not found"));
+    }
+
+    // Delete clip and thumbnail from R2
+    let files_deleted = state
+        .storage
+        .delete_clip(&user.uid, &video_id, &clip_name)
+        .await?;
+
+    info!("Deleted clip {} from video {} for user {} ({} files)", 
+          clip_name, video_id, user.uid, files_deleted);
+
+    Ok(Json(DeleteClipResponse {
+        success: true,
+        video_id,
+        clip_name,
+        message: Some(if files_deleted > 0 {
+            "Clip deleted successfully".to_string()
+        } else {
+            "Clip already deleted".to_string()
+        }),
+        files_deleted: Some(files_deleted),
+    }))
+}
+
+// ============================================================================
+// Highlights
+// ============================================================================
+
+/// Highlight info.
+#[derive(Serialize)]
+pub struct HighlightInfo {
+    pub id: u32,
+    pub title: String,
+    pub start: String,
+    pub end: String,
+    pub duration: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hook_category: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// Highlights response.
+#[derive(Serialize)]
+pub struct HighlightsResponse {
+    pub video_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video_title: Option<String>,
+    pub highlights: Vec<HighlightInfo>,
+}
+
+/// Get video highlights.
+pub async fn get_video_highlights(
+    State(state): State<AppState>,
+    Path(video_id): Path<String>,
+    user: AuthUser,
+) -> ApiResult<Json<HighlightsResponse>> {
+    // Verify ownership
+    if !state.user_service.user_owns_video(&user.uid, &video_id).await? {
+        return Err(ApiError::not_found("Video not found"));
+    }
+
+    // Load highlights from R2
+    let highlights_data = state
+        .storage
+        .load_highlights(&user.uid, &video_id)
+        .await
+        .map_err(|e| {
+            if matches!(e, vclip_storage::StorageError::NotFound(_)) {
+                ApiError::not_found("Highlights not found for this video")
+            } else {
+                ApiError::Storage(e)
+            }
+        })?;
+
+    let highlights: Vec<HighlightInfo> = highlights_data
+        .highlights
+        .into_iter()
+        .map(|h| HighlightInfo {
+            id: h.id,
+            title: h.title,
+            start: h.start,
+            end: h.end,
+            duration: h.duration,
+            hook_category: h.hook_category,
+            reason: h.reason,
+            description: h.description,
+        })
+        .collect();
+
+    Ok(Json(HighlightsResponse {
+        video_id,
+        video_url: highlights_data.video_url,
+        video_title: highlights_data.video_title,
+        highlights,
+    }))
+}
+
+// ============================================================================
+// Update Video Title
+// ============================================================================
+
+/// Update video title request.
+#[derive(Debug, Deserialize)]
+pub struct UpdateVideoTitleRequest {
+    pub title: String,
+}
+
+/// Update video title response.
+#[derive(Serialize)]
+pub struct UpdateVideoTitleResponse {
+    pub success: bool,
+    pub video_id: String,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// Update video title.
+pub async fn update_video_title(
+    State(state): State<AppState>,
+    Path(video_id): Path<String>,
+    user: AuthUser,
+    Json(request): Json<UpdateVideoTitleRequest>,
+) -> ApiResult<Json<UpdateVideoTitleResponse>> {
+    // Validate title
+    let title = request.title.trim();
+    if title.is_empty() {
+        return Err(ApiError::bad_request("Title cannot be empty"));
+    }
+    if title.len() > 500 {
+        return Err(ApiError::bad_request("Title too long (max 500 characters)"));
+    }
+
+    // Verify ownership
+    if !state.user_service.user_owns_video(&user.uid, &video_id).await? {
+        return Err(ApiError::not_found("Video not found"));
+    }
+
+    // Update title
+    let updated = state
+        .user_service
+        .update_video_title(&user.uid, &video_id, title)
+        .await?;
+
+    if !updated {
+        return Err(ApiError::not_found("Video not found"));
+    }
+
+    info!("Updated title for video {} for user {}", video_id, user.uid);
+
+    Ok(Json(UpdateVideoTitleResponse {
+        success: true,
+        video_id,
+        title: title.to_string(),
+        message: Some("Title updated successfully".to_string()),
+    }))
+}
+
+// ============================================================================
+// Reprocess Scenes (POST endpoint)
+// ============================================================================
+
+/// Reprocess scenes request.
+#[derive(Debug, Deserialize)]
+pub struct ReprocessScenesRequest {
+    pub scene_ids: Vec<u32>,
+    pub styles: Vec<String>,
+}
+
+/// Reprocess scenes response.
+#[derive(Serialize)]
+pub struct ReprocessScenesResponse {
+    pub success: bool,
+    pub video_id: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job_id: Option<String>,
+}
+
+/// Initiate scene reprocessing (POST endpoint).
+pub async fn reprocess_scenes(
+    State(state): State<AppState>,
+    Path(video_id): Path<String>,
+    user: AuthUser,
+    Json(request): Json<ReprocessScenesRequest>,
+) -> ApiResult<Json<ReprocessScenesResponse>> {
+    // Validate request
+    if request.scene_ids.is_empty() {
+        return Err(ApiError::bad_request("At least one scene ID is required"));
+    }
+    if request.scene_ids.len() > 50 {
+        return Err(ApiError::bad_request("Cannot reprocess more than 50 scenes at once"));
+    }
+    if request.styles.is_empty() {
+        return Err(ApiError::bad_request("At least one style is required"));
+    }
+    if request.styles.len() > 10 {
+        return Err(ApiError::bad_request("Cannot use more than 10 styles"));
+    }
+
+    // Verify ownership
+    if !state.user_service.user_owns_video(&user.uid, &video_id).await? {
+        return Err(ApiError::not_found("Video not found"));
+    }
+
+    // Check if video is currently processing
+    if state.user_service.is_video_processing(&user.uid, &video_id).await? {
+        return Err(ApiError::Conflict(
+            "Video is currently processing. Please wait for it to complete before reprocessing.".to_string()
+        ));
+    }
+
+    // Check plan restrictions
+    if !state.user_service.has_pro_or_enterprise_plan(&user.uid).await? {
+        return Err(ApiError::forbidden(
+            "Scene reprocessing is only available for Pro and Enterprise plans. Please upgrade to access this feature."
+        ));
+    }
+
+    // Validate plan limits
+    let total_clips = request.scene_ids.len() as u32 * request.styles.len() as u32;
+    state.user_service.validate_plan_limits(&user.uid, total_clips).await?;
+
+    // Load highlights to validate scene IDs
+    let highlights_data = state
+        .storage
+        .load_highlights(&user.uid, &video_id)
+        .await
+        .map_err(|_| ApiError::not_found("Highlights not found for this video"))?;
+
+    let available_ids: std::collections::HashSet<u32> = highlights_data
+        .highlights
+        .iter()
+        .map(|h| h.id)
+        .collect();
+
+    let invalid_ids: Vec<u32> = request
+        .scene_ids
+        .iter()
+        .filter(|id| !available_ids.contains(id))
+        .copied()
+        .collect();
+
+    if !invalid_ids.is_empty() {
+        return Err(ApiError::bad_request(format!(
+            "Invalid scene IDs: {:?}. Available: {:?}",
+            invalid_ids,
+            available_ids.iter().collect::<Vec<_>>()
+        )));
+    }
+
+    // Update video status to processing
+    state
+        .user_service
+        .update_video_status(&user.uid, &video_id, vclip_models::VideoStatus::Processing)
+        .await?;
+
+    info!(
+        "Reprocessing initiated for video {} by user {}: {} scenes, {} styles",
+        video_id,
+        user.uid,
+        request.scene_ids.len(),
+        request.styles.len()
+    );
+
+    Ok(Json(ReprocessScenesResponse {
+        success: true,
+        video_id: video_id.clone(),
+        message: format!(
+            "Reprocessing initiated for {} scene(s) with {} style(s). Please connect via WebSocket to monitor progress.",
+            request.scene_ids.len(),
+            request.styles.len()
+        ),
+        job_id: Some(video_id),
     }))
 }

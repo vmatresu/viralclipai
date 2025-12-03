@@ -1,22 +1,46 @@
 //! API routes.
 
 use axum::middleware;
-use axum::routing::{delete, get};
+use axum::routing::{delete, get, patch, post};
 use axum::Router;
 
 use crate::handlers::{health, ready};
-use crate::handlers::videos::{delete_video, get_video_info, list_user_videos};
+use crate::handlers::settings::{get_settings, update_settings};
+use crate::handlers::videos::{
+    bulk_delete_videos, delete_clip, delete_video, get_video_highlights, get_video_info,
+    list_user_videos, reprocess_scenes, stream_clip, update_video_title,
+};
 use crate::middleware::{cors_layer, request_id, request_logging, security_headers};
 use crate::state::AppState;
 use crate::ws::{ws_process, ws_reprocess};
 
 /// Create the API router.
 pub fn create_router(state: AppState) -> Router {
-    let api_routes = Router::new()
-        // Videos
+    let video_routes = Router::new()
+        // Single video operations
         .route("/videos/:video_id", get(get_video_info))
         .route("/videos/:video_id", delete(delete_video))
+        // Bulk delete
+        .route("/videos", delete(bulk_delete_videos))
+        // Clip operations
+        .route("/videos/:video_id/clips/:clip_name", get(stream_clip))
+        .route("/videos/:video_id/clips/:clip_name", delete(delete_clip))
+        // Highlights
+        .route("/videos/:video_id/highlights", get(get_video_highlights))
+        // Title update
+        .route("/videos/:video_id/title", patch(update_video_title))
+        // Reprocess
+        .route("/videos/:video_id/reprocess", post(reprocess_scenes))
+        // User videos list
         .route("/user/videos", get(list_user_videos));
+
+    let settings_routes = Router::new()
+        .route("/settings", get(get_settings))
+        .route("/settings", post(update_settings));
+
+    let api_routes = Router::new()
+        .merge(video_routes)
+        .merge(settings_routes);
 
     let ws_routes = Router::new()
         .route("/ws/process", get(ws_process))

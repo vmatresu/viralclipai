@@ -7,10 +7,9 @@ use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use tracing::{info, warn};
 
-use vclip_models::{Style, WsMessage};
+use vclip_models::{Style, VideoStatus, WsMessage};
 use vclip_queue::ProcessVideoJob;
 
-use crate::auth::JwksCache;
 use crate::state::AppState;
 
 /// WebSocket process request.
@@ -91,6 +90,11 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
     let uid = claims.uid().to_string();
     info!("WebSocket process started for user {}", uid);
 
+    // Get or create user
+    if let Err(e) = state.user_service.get_or_create_user(&uid, claims.email.as_deref()).await {
+        warn!("Failed to get/create user {}: {}", uid, e);
+    }
+
     // Parse styles
     let styles: Vec<Style> = request
         .styles
@@ -108,7 +112,7 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
     // Create job
     let job = ProcessVideoJob::new(&uid, &request.url, styles);
     let job_id = job.job_id.clone();
-    let video_id = job.video_id.clone();
+    let _video_id = job.video_id.clone();
 
     // Enqueue job
     match state.queue.enqueue_process(job).await {
@@ -197,6 +201,52 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
         uid, request.video_id
     );
 
+    // Get or create user
+    if let Err(e) = state.user_service.get_or_create_user(&uid, claims.email.as_deref()).await {
+        warn!("Failed to get/create user {}: {}", uid, e);
+    }
+
+    // Check ownership
+    match state.user_service.user_owns_video(&uid, &request.video_id).await {
+        Ok(false) => {
+            let error = WsMessage::error("Video not found or access denied");
+            let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
+            return;
+        }
+        Err(e) => {
+            let error = WsMessage::error(format!("Failed to verify ownership: {}", e));
+            let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
+            return;
+        }
+        Ok(true) => {}
+    }
+
+    // Check if video is currently processing
+    match state.user_service.is_video_processing(&uid, &request.video_id).await {
+        Ok(true) => {
+            let error = WsMessage::error("Video is currently processing. Please wait for it to complete before reprocessing.");
+            let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
+            return;
+        }
+        Err(e) => {
+            warn!("Failed to check processing status: {}", e);
+        }
+        Ok(false) => {}
+    }
+
+    // Check plan restrictions (pro/enterprise only)
+    match state.user_service.has_pro_or_enterprise_plan(&uid).await {
+        Ok(false) => {
+            let error = WsMessage::error("Scene reprocessing is only available for Pro and Enterprise plans. Please upgrade to access this feature.");
+            let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
+            return;
+        }
+        Err(e) => {
+            warn!("Failed to check plan: {}", e);
+        }
+        Ok(true) => {}
+    }
+
     // Parse styles
     let styles: Vec<Style> = request
         .styles
@@ -208,6 +258,19 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
         let error = WsMessage::error("No valid styles specified");
         let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
         return;
+    }
+
+    // Validate plan limits
+    let total_clips = request.scene_ids.len() as u32 * styles.len() as u32;
+    if let Err(e) = state.user_service.validate_plan_limits(&uid, total_clips).await {
+        let error = WsMessage::error(format!("{}", e));
+        let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
+        return;
+    }
+
+    // Update video status to processing
+    if let Err(e) = state.user_service.update_video_status(&uid, &request.video_id, VideoStatus::Processing).await {
+        warn!("Failed to update video status: {}", e);
     }
 
     // Create job

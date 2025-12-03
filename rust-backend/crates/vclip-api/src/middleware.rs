@@ -1,12 +1,27 @@
 //! API middleware.
 
+use std::num::NonZeroU32;
+use std::sync::Arc;
+use std::time::Instant;
+
 use axum::body::Body;
 use axum::http::{HeaderValue, Request, Response};
 use axum::middleware::Next;
-use std::time::Instant;
+use governor::{Quota, RateLimiter};
+use governor::clock::DefaultClock;
+use governor::state::{InMemoryState, NotKeyed};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{info, Span};
 use uuid::Uuid;
+
+/// Rate limiter type alias.
+pub type GlobalRateLimiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
+
+/// Create a global rate limiter.
+pub fn create_rate_limiter(requests_per_second: u32) -> Arc<GlobalRateLimiter> {
+    let quota = Quota::per_second(NonZeroU32::new(requests_per_second).unwrap_or(NonZeroU32::new(100).unwrap()));
+    Arc::new(RateLimiter::direct(quota))
+}
 
 /// Create CORS layer.
 pub fn cors_layer(origins: &[String]) -> CorsLayer {

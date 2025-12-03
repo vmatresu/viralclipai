@@ -13,3 +13,4 @@ pub mod types;
 pub use client::FirestoreClient;
 pub use error::{FirestoreError, FirestoreResult};
 pub use repos::{ClipRepository, VideoRepository};
+pub use types::{Document, FromFirestoreValue, ToFirestoreValue, Value};
