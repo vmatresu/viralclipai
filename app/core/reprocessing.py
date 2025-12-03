@@ -14,16 +14,7 @@ from fastapi import WebSocket
 
 from app.config import VIDEOS_DIR, PROGRESS_INITIAL, PROGRESS_HIGHLIGHTS_SAVED, PROGRESS_COMPLETE
 from app.core import saas, storage, clipper
-from app.core.workflow import (
-    ProcessingContext,
-    resolve_prompt,
-    normalize_highlights,
-    resolve_styles,
-    validate_plan_limits,
-    create_clip_tasks,
-    process_clips_parallel,
-    download_video,
-)
+from app.core import workflow
 from app.core.utils import extract_youtube_id
 from app.core.websocket_messages import (
     send_log,
@@ -31,6 +22,8 @@ from app.core.websocket_messages import (
     send_progress,
     send_done,
 )
+from app.core.repositories.clips import ClipRepository
+from app.core.repositories.videos import VideoRepository
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +197,7 @@ async def reprocess_scenes_workflow(
     if not user_id:
         raise ValueError("User ID is required for reprocessing")
     
-    context: Optional[ProcessingContext] = None
+    context: Optional[workflow.ProcessingContext] = None
     
     try:
         # Initialize service
@@ -227,7 +220,7 @@ async def reprocess_scenes_workflow(
         await send_progress(websocket, PROGRESS_INITIAL)
         
         # Initialize context
-        base_prompt = resolve_prompt(service.get_custom_prompt())
+        base_prompt = workflow.resolve_prompt(service.get_custom_prompt())
         youtube_id = extract_youtube_id(video_url)
         run_id = video_id  # Use same video ID for reprocessing
         workdir = VIDEOS_DIR / run_id
@@ -239,10 +232,10 @@ async def reprocess_scenes_workflow(
         # Download video if not already present
         if not video_file.exists():
             await send_log(websocket, "📥 Downloading video...")
-            await download_video(video_url, video_file)
+            await workflow.download_video(video_url, video_file)
             await send_log(websocket, "✅ Video downloaded")
         
-        context = ProcessingContext(
+        context = workflow.ProcessingContext(
             websocket=websocket,
             url=video_url,
             youtube_id=youtube_id,
@@ -259,15 +252,15 @@ async def reprocess_scenes_workflow(
         )
         
         # Normalize selected highlights
-        normalize_highlights(selected_highlights)
+        workflow.normalize_highlights(selected_highlights)
         
         # Resolve styles
-        styles_to_process = resolve_styles(styles)
+        styles_to_process = workflow.resolve_styles(styles)
         total_clips = len(selected_highlights) * len(styles_to_process)
         
         # Validate plan limits
         try:
-            validate_plan_limits(user_id, total_clips)
+            workflow.validate_plan_limits(user_id, total_clips)
         except ValueError as e:
             await send_error(websocket, str(e))
             return
@@ -282,7 +275,7 @@ async def reprocess_scenes_workflow(
         )
         
         # Create and process clip tasks for selected scenes only
-        clip_tasks = create_clip_tasks(
+        clip_tasks = workflow.create_clip_tasks(
             selected_highlights,
             styles_to_process,
             clips_dir,
@@ -290,7 +283,7 @@ async def reprocess_scenes_workflow(
             target_aspect,
         )
         
-        await process_clips_parallel(
+        await workflow.process_clips_parallel(
             clip_tasks,
             video_file,
             shot_cache,
@@ -312,6 +305,27 @@ async def reprocess_scenes_workflow(
             "completed",
             clips_count=total_clips_count,
         )
+        
+        # Update video statistics in Firestore
+        try:
+            video_repo = VideoRepository(user_id)
+            clips_repo = ClipRepository(user_id, run_id)
+            
+            # Update clip statistics (recalculates from all clips in Firestore)
+            video_repo.update_clip_statistics(run_id)
+            
+            # Update video status to completed
+            video_repo.update_video_status(
+                video_id=run_id,
+                status="completed",
+            )
+            logger.info(f"Updated Firestore video {run_id} statistics after reprocessing")
+        except Exception as e:
+            # Log error but don't fail the reprocessing
+            logger.error(
+                f"Failed to update Firestore video statistics for {run_id}: {e}",
+                exc_info=True,
+            )
         
         # Invalidate cache
         from app.core.cache import get_video_info_cache

@@ -75,8 +75,17 @@ class TTLCache:
 # so this ensures URLs are still valid when served from cache
 _video_info_cache = TTLCache(ttl_seconds=1800)
 
+# Global cache instance for user videos list
+# TTL of 60 seconds - short TTL since list can change frequently
+_user_videos_cache = TTLCache(ttl_seconds=60)
+
 
 def get_video_info_cache() -> TTLCache:
     """Get the global video info cache instance."""
     return _video_info_cache
+
+
+def get_user_videos_cache() -> TTLCache:
+    """Get the global user videos cache instance."""
+    return _user_videos_cache
 

@@ -206,6 +206,20 @@ scan: ## Scan images for vulnerabilities (requires docker scout)
 	docker scout cves viralclipai-web:latest || echo "docker scout not available"
 
 # -----------------------------------------------------------------------------
+# Firebase Deployment
+# -----------------------------------------------------------------------------
+
+firebase-deploy-indexes: ## Deploy Firestore indexes
+	@echo "Deploying Firestore indexes..."
+	firebase deploy --only firestore:indexes
+
+firebase-deploy-rules: ## Deploy Firestore security rules
+	@echo "Deploying Firestore security rules..."
+	firebase deploy --only firestore:rules
+
+firebase-deploy: firebase-deploy-rules firebase-deploy-indexes ## Deploy Firestore rules and indexes
+
+# -----------------------------------------------------------------------------
 # Development Helpers
 # -----------------------------------------------------------------------------
 

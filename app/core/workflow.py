@@ -56,6 +56,9 @@ from app.core.websocket_messages import (
     send_done,
     send_clip_uploaded,
 )
+from app.core.repositories.clips import ClipRepository
+from app.core.repositories.videos import VideoRepository
+from app.core.repositories.models import ClipMetadata, VideoMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +82,9 @@ class ClipTask:
     effective_target_aspect: str
     pad_before: float
     pad_after: float
+    scene_id: int = 0
+    scene_description: Optional[str] = None
+    priority: int = 99
 
 
 @dataclass
@@ -340,6 +346,9 @@ def create_clip_tasks(
                     effective_target_aspect=effective_target_aspect,
                     pad_before=pad_before,
                     pad_after=pad_after,
+                    scene_id=clip_id,
+                    scene_description=highlight.get("description"),
+                    priority=priority,
                 )
             )
 
@@ -408,6 +417,12 @@ async def process_clip(
             # Upload rendered clip and thumbnail to S3
             if context.user_id is not None:
                 s3_key = f"{context.user_id}/{context.run_id}/clips/{task.filename}"
+                
+                # Get file size before upload
+                file_size_bytes = task.out_path.stat().st_size if task.out_path.exists() else 0
+                thumb_path = task.out_path.with_suffix(".jpg")
+                has_thumbnail = thumb_path.exists()
+                
                 await asyncio.to_thread(
                     storage.upload_file,
                     task.out_path,
@@ -415,8 +430,7 @@ async def process_clip(
                     "video/mp4",
                 )
 
-                thumb_path = task.out_path.with_suffix(".jpg")
-                if thumb_path.exists():
+                if has_thumbnail:
                     thumb_key = (
                         f"{context.user_id}/{context.run_id}/clips/{thumb_path.name}"
                     )
@@ -425,6 +439,67 @@ async def process_clip(
                         thumb_path,
                         thumb_key,
                         "image/jpeg",
+                    )
+                
+                # Write clip metadata to Firestore
+                try:
+                    clips_repo = ClipRepository(context.user_id, context.run_id)
+                    clip_id = task.filename.rsplit('.', 1)[0]  # Remove .mp4 extension
+                    
+                    # Calculate duration in seconds
+                    def parse_time(time_str: str) -> float:
+                        parts = time_str.split(":")
+                        hours = int(parts[0])
+                        minutes = int(parts[1])
+                        seconds = float(parts[2])
+                        return hours * 3600 + minutes * 60 + seconds
+                    
+                    duration_seconds = parse_time(task.end) - parse_time(task.start)
+                    
+                    # Create clip metadata
+                    clip_metadata = ClipMetadata(
+                        clip_id=clip_id,
+                        video_id=context.run_id,
+                        user_id=context.user_id,
+                        scene_id=task.scene_id,
+                        scene_title=task.title,
+                        scene_description=task.scene_description,
+                        filename=task.filename,
+                        style=task.style,
+                        priority=task.priority,
+                        start_time=task.start,
+                        end_time=task.end,
+                        duration_seconds=duration_seconds,
+                        file_size_bytes=file_size_bytes,
+                        has_thumbnail=has_thumbnail,
+                        r2_key=s3_key,
+                        thumbnail_r2_key=(
+                            f"{context.user_id}/{context.run_id}/clips/{thumb_path.name}"
+                            if has_thumbnail
+                            else None
+                        ),
+                        status="processing",
+                        created_at=datetime.now(timezone.utc),
+                        created_by=context.user_id,
+                    )
+                    
+                    # Create in Firestore
+                    clips_repo.create_clip(clip_metadata)
+                    
+                    # Update status to completed after successful upload
+                    clips_repo.update_clip_status(
+                        clip_id=clip_id,
+                        status="completed",
+                        file_size_bytes=file_size_bytes,
+                        has_thumbnail=has_thumbnail,
+                    )
+                    
+                    logger.debug(f"Created Firestore metadata for clip {clip_id}")
+                except Exception as e:
+                    # Log error but don't fail the clip processing
+                    logger.error(
+                        f"Failed to write clip metadata to Firestore for {task.filename}: {e}",
+                        exc_info=True,
                     )
 
             # Update progress and notify frontend (thread-safe)
@@ -635,6 +710,52 @@ async def process_video_workflow(
                 status="processing",
             )
             logger.info(f"Created history entry for video {run_id} with processing status")
+            
+            # Create video metadata in Firestore
+            try:
+                video_repo = VideoRepository(user_id)
+                
+                # Calculate highlights summary
+                highlights_summary = {
+                    "total_duration": sum(h.get("duration", 0) for h in highlights),
+                    "categories": list(set(
+                        h.get("hook_category")
+                        for h in highlights
+                        if h.get("hook_category")
+                    )),
+                }
+                
+                # Create video metadata
+                video_metadata = VideoMetadata(
+                    video_id=run_id,
+                    user_id=user_id,
+                    video_url=url,
+                    video_title=final_title,
+                    youtube_id=youtube_id,
+                    status="processing",
+                    created_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(timezone.utc),
+                    highlights_count=len(highlights),
+                    highlights_summary=highlights_summary,
+                    custom_prompt=custom_prompt.strip() if custom_prompt else None,
+                    styles_processed=styles_to_process,
+                    crop_mode=crop_mode,
+                    target_aspect=target_aspect,
+                    clips_count=0,  # Will be updated as clips are created
+                    clips_by_style={},  # Will be updated as clips are created
+                    highlights_json_key=f"{user_id}/{run_id}/highlights.json",
+                    created_by=user_id,
+                )
+                
+                # Create in Firestore
+                video_repo.create_or_update_video(video_metadata)
+                logger.info(f"Created Firestore metadata for video {run_id}")
+            except Exception as e:
+                # Log error but don't fail the workflow
+                logger.error(
+                    f"Failed to write video metadata to Firestore for {run_id}: {e}",
+                    exc_info=True,
+                )
 
         await send_progress(websocket, PROGRESS_HIGHLIGHTS_SAVED)
 
@@ -683,6 +804,27 @@ async def process_video_workflow(
                 "completed",
                 clips_count=total_clips,
             )
+            
+            # Update video status in Firestore and update statistics
+            try:
+                video_repo = VideoRepository(user_id)
+                clips_repo = ClipRepository(user_id, run_id)
+                
+                # Update clip statistics
+                video_repo.update_clip_statistics(run_id)
+                
+                # Update video status to completed
+                video_repo.update_video_status(
+                    video_id=run_id,
+                    status="completed",
+                )
+                logger.info(f"Updated Firestore video {run_id} status to completed")
+            except Exception as e:
+                # Log error but don't fail the workflow
+                logger.error(
+                    f"Failed to update Firestore video status for {run_id}: {e}",
+                    exc_info=True,
+                )
             
             # Invalidate backend cache so history page shows completed status
             from app.core.cache import get_video_info_cache

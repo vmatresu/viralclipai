@@ -226,12 +226,39 @@ def update_video_title(uid: str, video_id: str, new_title: str) -> bool:
     return True
 
 
-def list_user_videos(uid: str) -> List[Dict[str, Any]]:
+def list_user_videos(
+    uid: str,
+    limit: Optional[int] = None,
+    offset_video_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    List user videos with optional pagination.
+    
+    Args:
+        uid: User ID
+        limit: Maximum number of videos to return (default: no limit)
+        offset_video_id: Start after this video ID for pagination
+        
+    Returns:
+        List of video dictionaries
+    """
     db = get_firestore_client()
     col = db.collection("users").document(uid).collection("videos")
-    docs = col.order_by("created_at", direction=firestore.Query.DESCENDING).stream()
+    query = col.order_by("created_at", direction=firestore.Query.DESCENDING)
+    
+    # Apply pagination if offset provided
+    if offset_video_id:
+        # Get the offset document to use as cursor
+        offset_doc = col.document(offset_video_id).get()
+        if offset_doc.exists:
+            query = query.start_after(offset_doc)
+    
+    # Apply limit if provided
+    if limit:
+        query = query.limit(limit)
+    
     results: List[Dict[str, Any]] = []
-    for doc in docs:
+    for doc in query.stream():
         payload = doc.to_dict() or {}
         payload["id"] = doc.id
         results.append(payload)

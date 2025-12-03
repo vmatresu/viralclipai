@@ -5,7 +5,7 @@ Handles validation of styles, plan limits, and other workflow inputs
 following Single Responsibility Principle.
 """
 
-from typing import List
+from typing import List, Optional
 
 from app.core import clipper, saas
 from app.config import DEFAULT_STYLE

@@ -6,7 +6,7 @@ from pydantic import ValidationError as PydanticValidationError
 from app.config import logger
 from app.core.firebase_client import verify_id_token
 from app.core import saas
-from app.core.workflow import process_video_workflow
+from app.core import workflow
 from app.core.security import (
     check_ws_rate_limit,
     log_security_event,
@@ -88,7 +88,7 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.info("WebSocket processing started for user %s", uid)
         
         # Process video with validated inputs
-        await process_video_workflow(
+        await workflow.process_video_workflow(
             websocket,
             request_data.url,
             request_data.styles,

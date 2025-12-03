@@ -1,6 +1,6 @@
 from typing import Dict, Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Response, Request
 from fastapi.responses import StreamingResponse
 
 from app.core.firebase_client import get_current_user
@@ -8,6 +8,9 @@ from app.core import saas, storage
 from app.core.security import ValidationError, validate_video_id, validate_clip_name
 from app.core.cache import get_video_info_cache
 from app.core.reprocessing import reprocess_scenes_workflow
+from app.core.repositories.clips import ClipRepository
+from app.core.repositories.videos import VideoRepository
+from app.core.storage import generate_presigned_url
 from app.schemas import (
     VideoInfoResponse,
     UserVideosResponse,
@@ -52,34 +55,83 @@ async def get_video_info(
     # Check ownership in DB first
     is_owner = saas.user_owns_video(uid, video_id)
     
-    # Load highlights metadata (from storage)
-    highlights_data = storage.load_highlights(uid, video_id)
+    # Try to get clips from Firestore first (fast!)
+    clips = []
+    video_metadata = None
+    custom_prompt = None
     
-    logger.info(f"Debug get_video_info: uid={uid} video_id={video_id} is_owner={is_owner} highlights_found={bool(highlights_data)}")
-
-    # If not in DB and not in storage, then it truly doesn't exist (or isn't yours)
-    if not is_owner and not highlights_data:
-        logger.warning(f"Video not found for user {uid}: {video_id}")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
-    
-    highlights_map: Dict[int, Dict[str, str]] = {}
-    for h in highlights_data.get("highlights", []):
-        h_id = h.get("id")
-        if h_id is not None:
-            highlights_map[int(h_id)] = {
-                "title": h.get("title", ""),
-                "description": h.get("description", ""),
+    try:
+        clips_repo = ClipRepository(uid, video_id)
+        clip_metadatas = clips_repo.list_clips(status="completed", order_by="priority")
+        
+        # Convert Firestore clips to API response format
+        for clip_metadata in clip_metadatas:
+            # Generate presigned URL for thumbnail if available
+            thumbnail_url = None
+            if clip_metadata.has_thumbnail and clip_metadata.thumbnail_r2_key:
+                thumbnail_url = generate_presigned_url(
+                    clip_metadata.thumbnail_r2_key,
+                    expires_in=3600
+                )
+            
+            clips.append({
+                "name": clip_metadata.filename,
+                "title": clip_metadata.scene_title,
+                "description": clip_metadata.scene_description or "",
+                "url": f"/api/videos/{video_id}/clips/{clip_metadata.filename}",
+                "thumbnail": thumbnail_url,
+                "size": f"{clip_metadata.file_size_mb:.1f} MB",
+                "style": clip_metadata.style,
+            })
+        
+        # Get video metadata from Firestore
+        video_repo = VideoRepository(uid)
+        video_meta = video_repo.get_video(video_id)
+        if video_meta:
+            video_metadata = {
+                "video_title": video_meta.video_title,
+                "video_url": video_meta.video_url,
             }
-    
-    clips = storage.list_clips_with_metadata(uid, video_id, highlights_map)
-    
-    # Get video metadata (title, URL) from Firestore
-    video_metadata = saas.get_video_metadata(uid, video_id) if is_owner else None
+            custom_prompt = video_meta.custom_prompt
+        
+        logger.info(f"Retrieved {len(clips)} clips from Firestore for video {video_id}")
+        
+    except Exception as e:
+        # Fallback to R2 listing if Firestore fails (migration period)
+        logger.warning(f"Failed to read from Firestore for video {video_id}, falling back to R2: {e}")
+        
+        # Load highlights metadata (from storage)
+        highlights_data = storage.load_highlights(uid, video_id)
+        
+        # If not in DB and not in storage, then it truly doesn't exist (or isn't yours)
+        if not is_owner and not highlights_data:
+            logger.warning(f"Video not found for user {uid}: {video_id}")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
+        
+        highlights_map: Dict[int, Dict[str, str]] = {}
+        for h in highlights_data.get("highlights", []):
+            h_id = h.get("id")
+            if h_id is not None:
+                highlights_map[int(h_id)] = {
+                    "title": h.get("title", ""),
+                    "description": h.get("description", ""),
+                }
+        
+        clips = storage.list_clips_with_metadata(uid, video_id, highlights_map)
+        custom_prompt = highlights_data.get("custom_prompt")
+        
+        # Get video metadata (title, URL) from Firestore or fallback
+        video_metadata = saas.get_video_metadata(uid, video_id) if is_owner else None
+        if not video_metadata and highlights_data:
+            video_metadata = {
+                "video_title": highlights_data.get("video_title"),
+                "video_url": highlights_data.get("video_url"),
+            }
     
     response = VideoInfoResponse(
         id=video_id,
         clips=clips,
-        custom_prompt=highlights_data.get("custom_prompt"),
+        custom_prompt=custom_prompt,
         video_title=video_metadata.get("video_title") if video_metadata else None,
         video_url=video_metadata.get("video_url") if video_metadata else None,
     )
@@ -93,10 +145,41 @@ async def get_video_info(
 @router.get("/user/videos", response_model=UserVideosResponse)
 async def get_user_videos(
     user: Dict[str, Any] = Depends(get_current_user),
+    limit: Optional[int] = None,
+    offset: Optional[str] = None,
 ) -> UserVideosResponse:
-    """List all videos for the authenticated user."""
+    """
+    List all videos for the authenticated user.
+    
+    Args:
+        limit: Maximum number of videos to return (for pagination)
+        offset: Video ID to start after (for pagination)
+    """
+    from app.config import logger
+    from app.core.cache import get_user_videos_cache
+    
     uid = user["uid"]
-    videos = saas.list_user_videos(uid)
+    
+    # Check cache first (only for non-paginated requests)
+    if not limit and not offset:
+        cache = get_user_videos_cache()
+        cache_key = f"user_videos:{uid}"
+        cached_videos = cache.get(cache_key)
+        
+        if cached_videos is not None:
+            logger.debug(f"Cache hit for user videos: uid={uid}")
+            return UserVideosResponse(videos=cached_videos)
+    
+    # Fetch from Firestore
+    videos = saas.list_user_videos(uid, limit=limit, offset_video_id=offset)
+    
+    # Cache the result (only for non-paginated requests)
+    if not limit and not offset:
+        cache = get_user_videos_cache()
+        cache_key = f"user_videos:{uid}"
+        cache.set(cache_key, videos)
+        logger.debug(f"Cached user videos: uid={uid}, count={len(videos)}")
+    
     return UserVideosResponse(videos=videos)
 
 
@@ -269,9 +352,14 @@ async def delete_video(
                 detail="Video not found"
             )
         
-        # Invalidate cache for this video
+        # Invalidate caches for this video
         cache = get_video_info_cache()
         cache.invalidate(f"{uid}:{video_id}")
+        
+        # Invalidate user videos list cache
+        from app.core.cache import get_user_videos_cache
+        user_videos_cache = get_user_videos_cache()
+        user_videos_cache.invalidate(f"user_videos:{uid}")
         
         logger.info(f"Successfully deleted video {video_id} for user {uid} ({files_deleted} files)")
         
@@ -353,6 +441,11 @@ async def bulk_delete_videos(
     cache = get_video_info_cache()
     for video_id in owned_video_ids:
         cache.invalidate(f"{uid}:{video_id}")
+    
+    # Invalidate user videos list cache
+    from app.core.cache import get_user_videos_cache
+    user_videos_cache = get_user_videos_cache()
+    user_videos_cache.invalidate(f"user_videos:{uid}")
     
     # Combine results
     deleted_count = 0

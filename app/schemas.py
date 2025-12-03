@@ -71,29 +71,6 @@ class WSReprocessRequest(BaseSchema):
                 validated_styles.append(validated_style)
         return validated_styles
     
-    @field_validator("url")
-    @classmethod
-    def validate_url(cls, v: str) -> str:
-        return validate_video_url(v)
-    
-    @field_validator("styles")
-    @classmethod
-    def validate_styles_field(cls, v: Optional[List[str]]) -> List[str]:
-        if not v or len(v) == 0:
-            return ["split"]  # Default to split if empty
-        # Validate each style
-        validated_styles = []
-        for style in v:
-            validated_style = validate_style(style)
-            if validated_style not in validated_styles:  # Remove duplicates
-                validated_styles.append(validated_style)
-        return validated_styles if validated_styles else ["split"]
-    
-    @field_validator("prompt")
-    @classmethod
-    def validate_prompt_field(cls, v: Optional[str]) -> Optional[str]:
-        return validate_prompt(v)
-    
     @field_validator("crop_mode")
     @classmethod
     def validate_crop_mode_field(cls, v: str) -> str:
