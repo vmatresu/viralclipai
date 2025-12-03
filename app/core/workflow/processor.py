@@ -76,6 +76,7 @@ async def process_video_workflow(
         target_aspect: Target aspect ratio
     """
     context: Optional[ProcessingContext] = None
+    segment_manager = None
 
     try:
         # Initialize context
@@ -226,35 +227,19 @@ async def process_video_workflow(
         )
 
         # Extract segments and delete original video
-        segments_dir = workdir / "segments"
-        segments_dir.mkdir(parents=True, exist_ok=True)
-        segment_map: Dict[int, Path] = {}
-
+        from app.core.workflow.segments import SegmentManager
+        
+        segment_manager = SegmentManager(workdir)
+        
         logger.info("Extracting segments from source video...")
-        await send_log(websocket, "✂️ Extracting scene segments...")
+        # Extract segments in parallel
+        segment_map = await segment_manager.extract_segments(
+            highlights, 
+            video_file, 
+            websocket
+        )
 
-        for highlight in highlights:
-            clip_id = highlight.get("id", 0)
-            start = highlight["start"]
-            end = highlight["end"]
-            pad_before = float(highlight.get("pad_before_seconds", 0) or 0)
-            pad_after = float(highlight.get("pad_after_seconds", 0) or 0)
-            
-            segment_filename = f"segment_{clip_id}.mp4"
-            segment_path = segments_dir / segment_filename
-            
-            await asyncio.to_thread(
-                clipper.extract_segment,
-                video_file,
-                start,
-                end,
-                segment_path,
-                pad_before,
-                pad_after,
-            )
-            segment_map[clip_id] = segment_path
-
-        # Delete original video to save space
+        # Delete original video to save space immediately after extraction
         if video_file.exists():
             video_file.unlink()
             logger.info("Deleted source video file after segment extraction.")
@@ -272,22 +257,13 @@ async def process_video_workflow(
 
         await process_clips_parallel(
             clip_tasks,
-            video_file,
+            video_file,  # Note: clip tasks will use source_path (segment) internally
             shot_cache,
             context,
         )
 
-        # Cleanup
-        if video_file.exists():
-            video_file.unlink()
-            logger.info("Cleaned up source video file.")
-            await send_log(websocket, "🧹 Cleaned up source video file.")
-
-        # Cleanup segments directory
-        if segments_dir.exists():
-            import shutil
-            shutil.rmtree(segments_dir, ignore_errors=True)
-            logger.info("Cleaned up segments directory.")
+        # Cleanup segments
+        segment_manager.cleanup()
 
         logger.info("Job complete.")
 
@@ -371,6 +347,9 @@ async def process_video_workflow(
                 )
 
         # Ensure cleanup even on error
+        if segment_manager:
+            segment_manager.cleanup()
+            
         if context and context.video_file.exists():
             try:
                 context.video_file.unlink()

@@ -77,14 +77,42 @@ def get_monthly_usage(uid: str, as_of: Optional[datetime] = None) -> int:
     if as_of is None:
         as_of = datetime.now(timezone.utc)
     month_start = datetime(as_of.year, as_of.month, 1, tzinfo=timezone.utc)
+    
+    # 1. Calculate usage from active videos
     db = get_firestore_client()
     col = db.collection("users").document(uid).collection("videos")
     query = col.where(filter=FieldFilter("created_at", ">=", month_start))
-    total = 0
+    
+    active_usage = 0
     for doc in query.stream():
         payload = doc.to_dict() or {}
-        total += int(payload.get("clips_count", 0))
-    return total
+        active_usage += int(payload.get("clips_count", 0))
+        
+    # 2. Add usage from deleted videos (preserved quota)
+    month_key = as_of.strftime("%Y-%m")
+    usage_doc = db.collection("users").document(uid).collection("usage").document(month_key).get()
+    deleted_usage = 0
+    if usage_doc.exists:
+        deleted_usage = usage_doc.get("deleted_clips_count") or 0
+        
+    return active_usage + deleted_usage
+
+
+def _increment_deleted_usage(uid: str, count: int, ref_date: datetime) -> None:
+    """
+    Increment the counter for deleted clips to preserve quota usage.
+    Only increments if the video belongs to the current month.
+    """
+    now = datetime.now(timezone.utc)
+    # Only track usage for the current month's quota
+    if ref_date.year == now.year and ref_date.month == now.month:
+        db = get_firestore_client()
+        month_key = now.strftime("%Y-%m")
+        usage_ref = db.collection("users").document(uid).collection("usage").document(month_key)
+        usage_ref.set(
+            {"deleted_clips_count": firestore.Increment(count)},
+            merge=True
+        )
 
 
 def record_video_job(
@@ -334,7 +362,11 @@ def set_global_prompt(uid: str, prompt: str) -> str:
 
 def delete_video(uid: str, video_id: str) -> bool:
     """
-    Delete a single video record from Firestore.
+    Hard-delete a single video record from Firestore, but preserve its usage count.
+    
+    1. Get the video metadata to find clips_count and created_at.
+    2. If created in the current month, increment 'deleted_clips_count' in usage stats.
+    3. Permanently delete the video document.
     
     Args:
         uid: User ID
@@ -342,9 +374,6 @@ def delete_video(uid: str, video_id: str) -> bool:
         
     Returns:
         True if video was deleted, False if it didn't exist
-        
-    Raises:
-        Exception: If deletion fails
     """
     db = get_firestore_client()
     doc_ref = db.collection("users").document(uid).collection("videos").document(video_id)
@@ -352,6 +381,16 @@ def delete_video(uid: str, video_id: str) -> bool:
     
     if not doc.exists:
         return False
+        
+    # Preserve quota usage if created in current month
+    data = doc.to_dict() or {}
+    created_at = data.get("created_at")
+    clips_count = int(data.get("clips_count", 0))
+    
+    if created_at and clips_count > 0:
+        # Ensure created_at is datetime (Firestore might return it as such)
+        if isinstance(created_at, datetime):
+            _increment_deleted_usage(uid, clips_count, created_at)
     
     doc_ref.delete()
     return True
@@ -359,7 +398,7 @@ def delete_video(uid: str, video_id: str) -> bool:
 
 def delete_videos(uid: str, video_ids: List[str]) -> Dict[str, bool]:
     """
-    Delete multiple video records from Firestore.
+    Hard-delete multiple video records from Firestore, preserving quota usage.
     
     Args:
         uid: User ID
@@ -367,9 +406,6 @@ def delete_videos(uid: str, video_ids: List[str]) -> Dict[str, bool]:
         
     Returns:
         Dictionary mapping video_id to deletion success status
-        
-    Raises:
-        Exception: If deletion fails
     """
     if not video_ids:
         return {}
@@ -379,7 +415,13 @@ def delete_videos(uid: str, video_ids: List[str]) -> Dict[str, bool]:
     
     results: Dict[str, bool] = {}
     
-    # Use batch writes for efficiency (Firestore allows up to 500 operations per batch)
+    # To optimize usage writes, we'll sum up deleted counts per month
+    # Usually they're all in the current month, but let's be safe
+    deleted_counts_by_month: Dict[str, int] = {}
+    now = datetime.now(timezone.utc)
+    current_month_key = now.strftime("%Y-%m")
+    
+    # Use batch writes for deletion
     batch_size = 500
     for i in range(0, len(video_ids), batch_size):
         batch = db.batch()
@@ -389,6 +431,17 @@ def delete_videos(uid: str, video_ids: List[str]) -> Dict[str, bool]:
             doc_ref = col_ref.document(video_id)
             doc = doc_ref.get()
             if doc.exists:
+                # Track quota usage
+                data = doc.to_dict() or {}
+                created_at = data.get("created_at")
+                clips_count = int(data.get("clips_count", 0))
+                
+                if isinstance(created_at, datetime) and clips_count > 0:
+                    if created_at.year == now.year and created_at.month == now.month:
+                        deleted_counts_by_month[current_month_key] = (
+                            deleted_counts_by_month.get(current_month_key, 0) + clips_count
+                        )
+                
                 batch.delete(doc_ref)
                 results[video_id] = True
             else:
@@ -396,5 +449,15 @@ def delete_videos(uid: str, video_ids: List[str]) -> Dict[str, bool]:
         
         if batch_video_ids:
             batch.commit()
+            
+    # Update usage stats for the current month
+    if current_month_key in deleted_counts_by_month:
+        count = deleted_counts_by_month[current_month_key]
+        if count > 0:
+            usage_ref = db.collection("users").document(uid).collection("usage").document(current_month_key)
+            usage_ref.set(
+                {"deleted_clips_count": firestore.Increment(count)},
+                merge=True
+            )
     
     return results

@@ -675,13 +675,14 @@ def extract_segment(
 
     # Use high quality settings for intermediate segment
     # CRF 18 is visually lossless for most purposes
+    # Preset 'superfast' speeds up extraction significantly with minimal quality loss at this CRF
     cmd = [
         "ffmpeg", "-y",
         "-ss", f"{start_seconds:.3f}",
         "-t", f"{duration:.3f}",
         "-i", str(video_path),
         "-c:v", "libx264",
-        "-preset", "fast",
+        "-preset", "superfast",
         "-crf", "18",
         "-c:a", "aac",
         "-b:a", "192k",
