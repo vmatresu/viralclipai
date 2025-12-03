@@ -9,6 +9,7 @@ import { EditableTitle } from "@/components/EditableTitle";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { usePageView } from "@/lib/usePageView";
+import { invalidateClipsCache, invalidateClipsCacheMany } from "@/lib/cache";
 import { Button } from "@/components/ui/button";
 import { SignInDialog } from "@/components/SignInDialog";
 import {
@@ -171,11 +172,15 @@ export default function HistoryPage() {
 
       if (deleteTarget.type === "single" && deleteTarget.videoId) {
         await deleteVideo(deleteTarget.videoId, token);
+        // Invalidate cache for deleted video (fire and forget)
+        void invalidateClipsCache(deleteTarget.videoId);
         // Remove from local state immediately for better UX
         setVideos((prev) => prev.filter((v) => (v.video_id ?? v.id) !== deleteTarget.videoId));
       } else if (deleteTarget.type === "bulk" && selectedVideos.size > 0) {
         const videoIds = Array.from(selectedVideos);
         await bulkDeleteVideos(videoIds, token);
+        // Invalidate cache for all deleted videos (fire and forget)
+        void invalidateClipsCacheMany(videoIds);
         // Remove deleted videos from local state
         setVideos((prev) => prev.filter((v) => {
           const id = v.video_id ?? v.id ?? "";
@@ -186,6 +191,8 @@ export default function HistoryPage() {
         const allVideoIds = videos.map((v) => v.video_id ?? v.id ?? "").filter(Boolean);
         if (allVideoIds.length > 0) {
           await bulkDeleteVideos(allVideoIds, token);
+          // Invalidate cache for all deleted videos (fire and forget)
+          void invalidateClipsCacheMany(allVideoIds);
           setVideos([]);
           setSelectedVideos(new Set());
         }

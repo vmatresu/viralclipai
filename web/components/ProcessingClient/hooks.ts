@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { analyticsEvents } from "@/lib/analytics";
 import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
+import { getCachedClips, setCachedClips } from "@/lib/cache";
 
 import { type Clip } from "../ClipGrid";
 
@@ -71,6 +72,33 @@ export function useVideoProcessing() {
     async (id: string) => {
       try {
         setSubmitting(false);
+        
+        // Check cache first
+        const cachedData = await getCachedClips(id);
+        if (cachedData) {
+          // Use cached data
+          setClips(cachedData.clips);
+          setCustomPromptUsed(cachedData.custom_prompt ?? null);
+          setVideoTitle(cachedData.video_title ?? null);
+          setVideoUrl(cachedData.video_url ?? null);
+          
+          // Track processing completion with actual clips count
+          // Use stored values from when processing started, not current form values
+          if (processingStartTime.current) {
+            const durationMs = Date.now() - processingStartTime.current;
+            void analyticsEvents.videoProcessingCompleted({
+              videoId: id,
+              style: processingStyles.current.join(","),
+              clipsGenerated: cachedData.clips.length,
+              durationMs,
+              hasCustomPrompt: processingCustomPrompt.current.trim().length > 0,
+            });
+            processingStartTime.current = null;
+          }
+          return;
+        }
+        
+        // Cache miss - fetch from API
         const token = await getIdToken();
         if (!token) {
           throw new Error("You must be signed in to view your clips.");
@@ -82,6 +110,15 @@ export function useVideoProcessing() {
           }
         );
         const clipsData = data.clips || [];
+        
+        // Cache the data for future use (fire and forget)
+        void setCachedClips(id, {
+          clips: clipsData,
+          custom_prompt: data.custom_prompt ?? null,
+          video_title: data.video_title ?? null,
+          video_url: data.video_url ?? null,
+        });
+        
         setClips(clipsData);
         setCustomPromptUsed(data.custom_prompt ?? null);
         setVideoTitle(data.video_title ?? null);

@@ -19,6 +19,7 @@ import { analyticsEvents } from "@/lib/analytics";
 import { apiFetch, deleteClip } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
+import { invalidateClipsCache } from "@/lib/cache";
 import { toast } from "sonner";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
@@ -217,6 +218,9 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
       }
 
       await deleteClip(videoId, clipToDelete.name, token);
+      
+      // Invalidate cache since clips have changed (fire and forget)
+      void invalidateClipsCache(videoId);
       
       // Clean up blob URL if it exists
       if (blobUrls.current[clipToDelete.name]) {
