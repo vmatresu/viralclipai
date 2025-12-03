@@ -1,24 +1,167 @@
-import subprocess
-import logging
-from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Optional, Literal
+"""
+Video clipping and processing module.
 
+This module provides functions for clipping videos with various styles and
+intelligent cropping capabilities. It follows SOLID principles and production
+best practices for maintainability and performance.
+"""
+
+import json
+import logging
+import shutil
+import subprocess
+import tempfile
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, Literal, Optional
+
+from app.core.smart_reframe import AspectRatio, Reframer
+from app.core.smart_reframe.config_factory import get_production_config
+from app.core.smart_reframe.config import IntelligentCropConfig
 from app.core.utils.ffmpeg import run_ffmpeg
 
 logger = logging.getLogger(__name__)
 
+# ============================================================================
+# Constants
+# ============================================================================
+
 AVAILABLE_STYLES = ["split", "left_focus", "right_focus", "intelligent_split"]
 CROP_MODES = ["none", "center", "manual", "intelligent"]
 
+# Video encoding constants
+DEFAULT_AUDIO_BITRATE = "128k"
+THUMBNAIL_SCALE_WIDTH = 480
+THUMBNAIL_TIMESTAMP = "00:00:01"
+
+# Split view constants
+SPLIT_VIEW_TOP_RESOLUTION = (1080, 960)
+SPLIT_VIEW_BOTTOM_RESOLUTION = (1080, 960)
+SPLIT_VIEW_TARGET_ASPECT = "9:8"
+
+# Default encoding settings (fallback when config not available)
+DEFAULT_VIDEO_CODEC = "libx264"
+DEFAULT_AUDIO_CODEC = "aac"
+DEFAULT_PRESET = "fast"
+DEFAULT_CRF = 18  # Used for traditional styles, intelligent uses config
+
+# Minimum video file size threshold (50MB)
+MIN_VIDEO_FILE_SIZE = 50 * 1024 * 1024
+
+
+# ============================================================================
+# Configuration Helpers
+# ============================================================================
+
+@dataclass
+class EncodingConfig:
+    """Video encoding configuration."""
+    codec: str = DEFAULT_VIDEO_CODEC
+    preset: str = DEFAULT_PRESET
+    crf: int = DEFAULT_CRF
+    audio_codec: str = DEFAULT_AUDIO_CODEC
+    audio_bitrate: str = DEFAULT_AUDIO_BITRATE
+
+    @classmethod
+    def from_intelligent_config(cls, config: IntelligentCropConfig) -> "EncodingConfig":
+        """Create encoding config from intelligent crop config."""
+        return cls(
+            codec=DEFAULT_VIDEO_CODEC,
+            preset=config.render_preset,
+            crf=config.render_crf,
+            audio_codec=DEFAULT_AUDIO_CODEC,
+            audio_bitrate=DEFAULT_AUDIO_BITRATE,
+        )
+
+    def to_ffmpeg_args(self) -> list[str]:
+        """Convert to FFmpeg command arguments."""
+        return [
+            "-c:v", self.codec,
+            "-preset", self.preset,
+            "-crf", str(self.crf),
+            "-c:a", self.audio_codec,
+            "-b:a", self.audio_bitrate,
+        ]
+
+# ============================================================================
+# Utility Functions
+# ============================================================================
+
 def ensure_dirs(workdir: Path) -> Path:
+    """Ensure clips directory exists."""
     clips_dir = workdir / "clips"
     clips_dir.mkdir(parents=True, exist_ok=True)
     return clips_dir
 
-def download_video(url: str, video_file: Path):
+
+def get_video_duration(video_path: Path) -> float:
+    """
+    Get video duration in seconds using ffprobe.
+    
+    Args:
+        video_path: Path to video file.
+        
+    Returns:
+        Duration in seconds.
+        
+    Raises:
+        RuntimeError: If ffprobe fails or duration cannot be determined.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v", "quiet",
+                "-print_format", "json",
+                "-show_format",
+                str(video_path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        data = json.loads(result.stdout)
+        return float(data["format"]["duration"])
+    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, ValueError) as e:
+        logger.error(f"Failed to get video duration for {video_path}: {e}")
+        raise RuntimeError(f"Failed to get video duration: {e}") from e
+
+
+def generate_thumbnail(video_path: Path, output_path: Path) -> None:
+    """
+    Generate thumbnail from video.
+    
+    Args:
+        video_path: Path to source video.
+        output_path: Path for thumbnail output.
+    """
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(video_path),
+        "-ss", THUMBNAIL_TIMESTAMP,
+        "-vframes", "1",
+        "-vf", f"scale={THUMBNAIL_SCALE_WIDTH}:-2",
+        str(output_path),
+    ]
+    try:
+        run_ffmpeg(cmd, suppress_warnings=True, log_level="error", check=True)
+    except RuntimeError as e:
+        logger.warning(f"Thumbnail generation failed for {video_path.name}: {e}")
+
+def download_video(url: str, video_file: Path) -> None:
+    """
+    Download video from URL using yt-dlp.
+    
+    Args:
+        url: Video URL to download.
+        video_file: Path where video will be saved.
+        
+    Raises:
+        RuntimeError: If download fails.
+    """
     if video_file.exists():
-        if video_file.stat().st_size > 50 * 1024 * 1024:
+        if video_file.stat().st_size > MIN_VIDEO_FILE_SIZE:
             logger.info(f"Using existing {video_file}")
             return
         logger.info(f"Existing file {video_file} seems too small, re-downloading.")
@@ -43,6 +186,18 @@ def download_video(url: str, video_file: Path):
         raise RuntimeError(f"Video download failed: {e.stderr}") from e
 
 def parse_time(t_str: str) -> datetime:
+    """
+    Parse time string to datetime object.
+    
+    Args:
+        t_str: Time string in format HH:MM:SS or HH:MM:SS.fff.
+        
+    Returns:
+        Datetime object.
+        
+    Raises:
+        ValueError: If time string format is invalid.
+    """
     fmt = "%H:%M:%S.%f" if "." in t_str else "%H:%M:%S"
     return datetime.strptime(t_str, fmt)
 
@@ -118,32 +273,17 @@ def run_ffmpeg_clip(
     if vf_filter:
         cmd.extend(["-vf", vf_filter])
         
-    cmd.extend([
-        "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "18",
-        "-c:a", "aac",
-        "-b:a", "128k",
-        str(out_path),
-    ])
+    # Use default encoding config for traditional styles
+    encoding_config = EncodingConfig()
+    cmd.extend(encoding_config.to_ffmpeg_args())
+    cmd.append(str(out_path))
 
     try:
         run_ffmpeg(cmd, suppress_warnings=True, log_level="error", check=True)
         
         # Generate thumbnail
         thumb_path = out_path.with_suffix(".jpg")
-        cmd_thumb = [
-            "ffmpeg", "-y",
-            "-i", str(out_path),
-            "-ss", "00:00:01",
-            "-vframes", "1",
-            "-vf", "scale=480:-2",
-            str(thumb_path)
-        ]
-        try:
-            run_ffmpeg(cmd_thumb, suppress_warnings=True, log_level="error", check=True)
-        except RuntimeError as e:
-            logger.warning(f"Thumbnail generation failed for {out_path.name}: {e}")
+        generate_thumbnail(out_path, thumb_path)
 
     except RuntimeError as e:
         logger.error(f"ffmpeg failed: {e}")
@@ -158,7 +298,7 @@ def run_intelligent_crop(
     target_aspect: str = "9:16",
     pad_before_seconds: float = 0.0,
     pad_after_seconds: float = 0.0,
-    shot_cache=None,
+    shot_cache: Optional[Any] = None,
 ) -> Path:
     """
     Run the intelligent cropping pipeline on a video segment.
@@ -178,12 +318,10 @@ def run_intelligent_crop(
 
     Returns:
         Path to the rendered output video.
+        
+    Raises:
+        RuntimeError: If intelligent cropping fails.
     """
-    from app.core.smart_reframe import (
-        Reframer,
-        AspectRatio,
-    )
-    from app.core.smart_reframe.config_factory import get_production_config
 
     try:
         # Parse timestamps
@@ -250,6 +388,101 @@ def run_intelligent_crop(
         raise RuntimeError(f"Intelligent crop failed for {out_path.name}: {e}") from e
 
 
+# ============================================================================
+# Split View Processing Functions
+# ============================================================================
+
+def _extract_video_halves(
+    segment_path: Path,
+    left_output: Path,
+    right_output: Path,
+    encoding_config: EncodingConfig,
+) -> None:
+    """
+    Extract left and right halves from a video segment.
+    
+    Args:
+        segment_path: Path to source video segment.
+        left_output: Path for left half output.
+        right_output: Path for right half output.
+        encoding_config: Encoding configuration to use.
+        
+    Raises:
+        RuntimeError: If extraction fails.
+    """
+    # Left half: crop width/2 from 0,0
+    cmd_left = [
+        "ffmpeg", "-y",
+        "-i", str(segment_path),
+        "-vf", "crop=iw/2:ih:0:0",
+    ] + encoding_config.to_ffmpeg_args() + [
+        "-c:a", "copy",  # Copy audio without re-encoding
+        str(left_output),
+    ]
+    
+    # Right half: crop width/2 from width/2,0
+    cmd_right = [
+        "ffmpeg", "-y",
+        "-i", str(segment_path),
+        "-vf", "crop=iw/2:ih:iw/2:0",
+    ] + encoding_config.to_ffmpeg_args() + [
+        "-c:a", "copy",  # Copy audio without re-encoding
+        str(right_output),
+    ]
+    
+    try:
+        run_ffmpeg(cmd_left, suppress_warnings=True, log_level="error", check=True)
+        run_ffmpeg(cmd_right, suppress_warnings=True, log_level="error", check=True)
+    except RuntimeError as e:
+        logger.error(f"Failed to extract video halves: {e}")
+        raise RuntimeError(f"Video half extraction failed: {e}") from e
+
+
+def _stack_split_view_videos(
+    top_video: Path,
+    bottom_video: Path,
+    output_path: Path,
+    encoding_config: EncodingConfig,
+) -> None:
+    """
+    Stack two videos vertically (top and bottom).
+    
+    Args:
+        top_video: Path to top video (left half).
+        bottom_video: Path to bottom video (right half).
+        output_path: Path for stacked output.
+        encoding_config: Encoding configuration to use.
+        
+    Raises:
+        RuntimeError: If stacking fails.
+    """
+    top_w, top_h = SPLIT_VIEW_TOP_RESOLUTION
+    bottom_w, bottom_h = SPLIT_VIEW_BOTTOM_RESOLUTION
+    
+    filter_complex = (
+        f"[0:v]scale={top_w}:{top_h}:force_original_aspect_ratio=decrease,"
+        f"pad={top_w}:{top_h}:(ow-iw)/2:(oh-ih)/2[top];"
+        f"[1:v]scale={bottom_w}:{bottom_h}:force_original_aspect_ratio=decrease,"
+        f"pad={bottom_w}:{bottom_h}:(ow-iw)/2:(oh-ih)/2[bottom];"
+        "[top][bottom]vstack"
+    )
+    
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(top_video),
+        "-i", str(bottom_video),
+        "-filter_complex", filter_complex,
+    ] + encoding_config.to_ffmpeg_args() + [
+        str(output_path),
+    ]
+    
+    try:
+        run_ffmpeg(cmd, suppress_warnings=True, log_level="error", check=True)
+    except RuntimeError as e:
+        logger.error(f"Failed to stack split view videos: {e}")
+        raise RuntimeError(f"Video stacking failed: {e}") from e
+
+
 def run_intelligent_split_crop(
     video_file: Path,
     out_path: Path,
@@ -257,124 +490,97 @@ def run_intelligent_split_crop(
     end_str: str,
     pad_before_seconds: float = 0.0,
     pad_after_seconds: float = 0.0,
-    shot_cache=None,
+    shot_cache: Optional[Any] = None,
 ) -> Path:
     """
     Run intelligent cropping on both left and right halves and stack them.
-    Face tracks left half and puts on top, face tracks right half and puts on bottom.
+    
+    This function processes a video by:
+    1. Extracting the time segment
+    2. Splitting into left and right halves
+    3. Applying intelligent face-tracking crop to each half
+    4. Stacking the halves vertically (left on top, right on bottom)
+    
+    Args:
+        video_file: Path to source video.
+        out_path: Path for output video.
+        start_str: Start timestamp (HH:MM:SS or HH:MM:SS.fff).
+        end_str: End timestamp (HH:MM:SS or HH:MM:SS.fff).
+        pad_before_seconds: Seconds to add before start.
+        pad_after_seconds: Seconds to add after end.
+        shot_cache: Optional shot detection cache for performance.
+        
+    Returns:
+        Path to the rendered output video.
+        
+    Raises:
+        RuntimeError: If processing fails at any stage.
     """
-    import tempfile
-    import shutil
-
     logger.info(f"Running Intelligent Split for {out_path.name}")
+    
+    # Get production encoding config for consistency
+    intelligent_config = get_production_config()
+    encoding_config = EncodingConfig.from_intelligent_config(intelligent_config)
     
     # Create temp dir for intermediate files
     temp_dir = Path(tempfile.mkdtemp())
     try:
-        # 1. Cut the time segment first (source segment)
-        # This avoids analyzing the whole video or complex offset math
+        # Step 1: Extract time segment (avoids analyzing whole video)
         segment_path = temp_dir / "segment.mp4"
         run_ffmpeg_clip(
             start_str=start_str,
             end_str=end_str,
             out_path=segment_path,
-            style="original", # No crop, just trim
+            style="original",  # No crop, just trim
             video_file=video_file,
             pad_before_seconds=pad_before_seconds,
-            pad_after_seconds=pad_after_seconds
+            pad_after_seconds=pad_after_seconds,
         )
 
-        # 2. Extract Left and Right halves
+        # Step 2: Extract left and right halves
         left_half = temp_dir / "left.mp4"
         right_half = temp_dir / "right.mp4"
-        
-        # Left: crop width/2 from 0,0
-        cmd_left = [
-            "ffmpeg", "-y", "-i", str(segment_path),
-            "-vf", "crop=iw/2:ih:0:0",
-            "-c:v", "libx264", "-preset", "fast", "-c:a", "copy",
-            str(left_half)
-        ]
-        # Right: crop width/2 from width/2,0
-        cmd_right = [
-            "ffmpeg", "-y", "-i", str(segment_path),
-            "-vf", "crop=iw/2:ih:iw/2:0",
-            "-c:v", "libx264", "-preset", "fast", "-c:a", "copy",
-            str(right_half)
-        ]
-        
-        subprocess.run(cmd_left, check=True, capture_output=True)
-        subprocess.run(cmd_right, check=True, capture_output=True)
+        _extract_video_halves(segment_path, left_half, right_half, encoding_config)
 
-        # 3. Run Intelligent Crop (face tracking) on each half
-        # Helper to get duration
-        def get_duration(p: Path) -> float:
-            import json
-            res = subprocess.run(
-                ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(p)],
-                capture_output=True, text=True
-            )
-            data = json.loads(res.stdout)
-            return float(data["format"]["duration"])
-
-        dur = get_duration(segment_path)
-        end_time_str = str(timedelta(seconds=dur))
+        # Step 3: Run intelligent crop on each half
+        duration = get_video_duration(segment_path)
+        end_time_str = str(timedelta(seconds=duration))
         
         left_cropped = temp_dir / "left_crop.mp4"
         right_cropped = temp_dir / "right_crop.mp4"
         
-        # Face track left half and crop to 9:8 aspect (for top)
+        # Face track and crop each half to 9:8 aspect
         run_intelligent_crop(
-            left_half, 
-            left_cropped, 
-            "00:00:00", 
-            end_time_str, 
-            target_aspect="9:8",
-            shot_cache=shot_cache
+            left_half,
+            left_cropped,
+            "00:00:00",
+            end_time_str,
+            target_aspect=SPLIT_VIEW_TARGET_ASPECT,
+            shot_cache=shot_cache,
         )
-        # Face track right half and crop to 9:8 aspect (for bottom)
         run_intelligent_crop(
-            right_half, 
-            right_cropped, 
-            "00:00:00", 
-            end_time_str, 
-            target_aspect="9:8",
-            shot_cache=shot_cache
+            right_half,
+            right_cropped,
+            "00:00:00",
+            end_time_str,
+            target_aspect=SPLIT_VIEW_TARGET_ASPECT,
+            shot_cache=shot_cache,
         )
 
-        # 4. Stack them (left on top, right on bottom)
-        cmd_stack = [
-            "ffmpeg", "-y",
-            "-i", str(left_cropped),
-            "-i", str(right_cropped),
-            "-filter_complex",
-            "[0:v]scale=1080:960:force_original_aspect_ratio=decrease,pad=1080:960:(ow-iw)/2:(oh-ih)/2[top];"
-            "[1:v]scale=1080:960:force_original_aspect_ratio=decrease,pad=1080:960:(ow-iw)/2:(oh-ih)/2[bottom];"
-            "[top][bottom]vstack",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-            "-c:a", "aac", "-b:a", "128k",
-            str(out_path)
-        ]
+        # Step 4: Stack halves vertically
+        _stack_split_view_videos(left_cropped, right_cropped, out_path, encoding_config)
         
-        subprocess.run(cmd_stack, check=True, capture_output=True, text=True)
-        
-        # Thumbnail
+        # Step 5: Generate thumbnail
         thumb_path = out_path.with_suffix(".jpg")
-        cmd_thumb = [
-            "ffmpeg", "-y",
-            "-i", str(out_path),
-            "-ss", "00:00:01",
-            "-vframes", "1",
-            "-vf", "scale=480:-2",
-            str(thumb_path)
-        ]
-        subprocess.run(cmd_thumb, check=True, capture_output=True)
+        generate_thumbnail(out_path, thumb_path)
 
     except Exception as e:
-        logger.error(f"Smart split failed: {e}")
-        raise RuntimeError(f"Smart split failed: {e}") from e
+        logger.error(f"Intelligent split crop failed for {out_path.name}: {e}")
+        raise RuntimeError(f"Intelligent split crop failed: {e}") from e
     finally:
-        shutil.rmtree(temp_dir)
+        # Always cleanup temp directory
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir, ignore_errors=True)
     
     return out_path
 
