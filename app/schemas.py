@@ -251,6 +251,61 @@ class AdminPromptResponse(BaseSchema):
     prompt: str
 
 
+# -----------------------------------------------------------------------------
+# Plan Management Schemas
+# -----------------------------------------------------------------------------
+
+class PlanLimitRequest(BaseSchema):
+    """Request to update plan limits."""
+    name: str = Field(..., min_length=1, max_length=100)
+    value: int = Field(..., ge=0)
+    description: Optional[str] = Field(None, max_length=500)
+
+
+class PlanCreateRequest(BaseSchema):
+    """Request to create a new plan."""
+    id: str = Field(..., min_length=1, max_length=50)
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    price_monthly: Optional[float] = Field(None, ge=0)
+    price_yearly: Optional[float] = Field(None, ge=0)
+    limits: Dict[str, int] = Field(default_factory=dict)
+    features: List[str] = Field(default_factory=list)
+    status: str = Field(default="active")
+
+
+class PlanUpdateRequest(BaseSchema):
+    """Request to update an existing plan."""
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    price_monthly: Optional[float] = Field(None, ge=0)
+    price_yearly: Optional[float] = Field(None, ge=0)
+    limits: Optional[Dict[str, int]] = None
+    features: Optional[List[str]] = None
+    status: Optional[str] = None
+
+
+class PlanResponse(BaseSchema):
+    """Response containing plan information."""
+    id: str
+    name: str
+    description: Optional[str] = None
+    price_monthly: Optional[float] = None
+    price_yearly: Optional[float] = None
+    status: str
+    limits: Dict[str, int]
+    features: List[str]
+    created_at: datetime
+    updated_at: datetime
+    created_by: Optional[str] = None
+    updated_by: Optional[str] = None
+
+
+class PlansListResponse(BaseSchema):
+    """Response containing list of plans."""
+    plans: List[PlanResponse]
+
+
 class TikTokPublishResponse(BaseSchema):
     """Response after publishing to TikTok."""
     model_config = ConfigDict(extra="allow")

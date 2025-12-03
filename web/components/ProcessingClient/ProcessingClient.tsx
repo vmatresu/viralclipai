@@ -136,13 +136,17 @@ export function ProcessingClient() {
                 value?: number;
                 videoId?: string;
                 details?: string;
+                timestamp?: string;
             };
 
             if (typedMessage.type === "log") {
                 const logMessage = typeof typedMessage.message === "string"
                     ? typedMessage.message.substring(0, 1000)
                     : "Unknown log message";
-                log(logMessage);
+                const timestamp = typeof typedMessage.timestamp === "string"
+                    ? typedMessage.timestamp
+                    : undefined;
+                log(logMessage, "info", timestamp);
             } else if (typedMessage.type === "progress") {
                 const progressValue = typeof typedMessage.value === "number" && typedMessage.value >= 0 && typedMessage.value <= 100
                     ? typedMessage.value

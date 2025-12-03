@@ -36,14 +36,33 @@ export function useVideoProcessing() {
   const processingCustomPrompt = useRef<string>("");
 
   const log = useCallback(
-    (msg: string, type: "info" | "error" | "success" = "info") => {
+    (msg: string, type: "info" | "error" | "success" = "info", timestamp?: string) => {
       let prefix = ">";
       if (type === "error") {
         prefix = "[ERROR]";
       } else if (type === "success") {
         prefix = "[OK]";
       }
-      setLogs((prev) => [...prev, `${prefix} ${msg}`]);
+      
+      // Format timestamp if provided (ISO 8601 format from server)
+      let timestampStr = "";
+      if (timestamp) {
+        try {
+          const date = new Date(timestamp);
+          // Format as HH:MM:SS (local time)
+          timestampStr = date.toLocaleTimeString("en-US", {
+            hour12: false,
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          });
+          timestampStr = `[${timestampStr}] `;
+        } catch {
+          // If timestamp parsing fails, ignore it
+        }
+      }
+      
+      setLogs((prev) => [...prev, `${timestampStr}${prefix} ${msg}`]);
     },
     []
   );

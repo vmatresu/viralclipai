@@ -65,6 +65,20 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------------------------------
+    // Plans Collection
+    // Pattern: /plans/{planId}
+    // ------------------------------------------------------------------------
+    match /plans/{planId} {
+      // All authenticated users can read active plans (for pricing page, etc.)
+      allow read: if isAuthenticated();
+      
+      // Only superadmins can create/update/delete plans
+      // Writes are restricted to Backend API (via Admin SDK) to ensure
+      // business logic is strictly enforced
+      allow write: if false;
+    }
+
+    // ------------------------------------------------------------------------
     // Default Deny
     // ------------------------------------------------------------------------
     // All other collections/documents are denied by default

@@ -4,13 +4,27 @@ from typing import Any, Dict, List, Optional, Tuple
 from google.cloud import firestore
 
 from app.core.firebase_client import get_firestore_client
+from app.core.plans.service import PlanService
 
+# Legacy constant for backward compatibility
+# Plans are now managed via PlanService and stored in Firestore
 PLANS: Dict[str, Dict[str, int]] = {
     "free": {"max_clips_per_month": 20},
     "pro": {"max_clips_per_month": 500},
 }
 
 SUPERADMIN_ROLE = "superadmin"
+
+# Global plan service instance
+_plan_service: Optional[PlanService] = None
+
+
+def get_plan_service() -> PlanService:
+    """Get the global plan service instance."""
+    global _plan_service
+    if _plan_service is None:
+        _plan_service = PlanService()
+    return _plan_service
 
 
 def get_or_create_user(uid: str, email: Optional[str] = None) -> Dict[str, Any]:
@@ -34,10 +48,28 @@ def get_or_create_user(uid: str, email: Optional[str] = None) -> Dict[str, Any]:
 
 
 def get_plan_limits_for_user(uid: str) -> Tuple[str, int]:
+    """
+    Get plan limits for a user.
+    
+    Uses the new PlanService to fetch limits from Firestore with fallback
+    to legacy hardcoded plans for backward compatibility.
+    """
     user = get_or_create_user(uid)
     plan_id = user.get("plan", "free")
-    plan = PLANS.get(plan_id, PLANS["free"])
-    return plan_id, int(plan.get("max_clips_per_month", PLANS["free"]["max_clips_per_month"]))
+    
+    # Try to get limits from Firestore via PlanService
+    try:
+        plan_service = get_plan_service()
+        max_clips = plan_service.get_plan_limit_value(
+            plan_id,
+            "max_clips_per_month",
+            default=PLANS.get("free", {}).get("max_clips_per_month", 20)
+        )
+        return plan_id, max_clips
+    except Exception:
+        # Fallback to legacy hardcoded plans
+        plan = PLANS.get(plan_id, PLANS["free"])
+        return plan_id, int(plan.get("max_clips_per_month", PLANS["free"]["max_clips_per_month"]))
 
 
 def get_monthly_usage(uid: str, as_of: Optional[datetime] = None) -> int:

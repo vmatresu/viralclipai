@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError as PydanticValidationError
 
@@ -34,8 +36,13 @@ async def websocket_endpoint(websocket: WebSocket):
         except PydanticValidationError as e:
             errors = e.errors()
             error_msg = "; ".join(f"{err['loc'][0]}: {err['msg']}" for err in errors[:3])
+            timestamp = datetime.now(timezone.utc).isoformat()
             await websocket.send_json(
-                {"type": "error", "message": f"Invalid request: {error_msg}"}
+                {
+                    "type": "error",
+                    "message": f"Invalid request: {error_msg}",
+                    "timestamp": timestamp,
+                }
             )
             log_security_event(
                 "ws_validation_failed",
@@ -49,8 +56,13 @@ async def websocket_endpoint(websocket: WebSocket):
             decoded = verify_id_token(request_data.token)
         except Exception as e:
             logger.warning(f"WebSocket auth failed for token starting with {request_data.token[:10]}... Error: {str(e)}")
+            timestamp = datetime.now(timezone.utc).isoformat()
             await websocket.send_json(
-                {"type": "error", "message": f"Authentication failed: {str(e)}"}
+                {
+                    "type": "error",
+                    "message": f"Authentication failed: {str(e)}",
+                    "timestamp": timestamp,
+                }
             )
             log_security_event("ws_auth_failed", request=websocket)
             return
@@ -59,8 +71,13 @@ async def websocket_endpoint(websocket: WebSocket):
         email = decoded.get("email")
         
         if not uid:
+            timestamp = datetime.now(timezone.utc).isoformat()
             await websocket.send_json(
-                {"type": "error", "message": "Invalid authentication payload"}
+                {
+                    "type": "error",
+                    "message": "Invalid authentication payload",
+                    "timestamp": timestamp,
+                }
             )
             return
         
@@ -84,9 +101,11 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.exception("WebSocket error for user %s: %s", uid or "unknown", e)
         try:
             # Don't expose internal errors to client
+            timestamp = datetime.now(timezone.utc).isoformat()
             await websocket.send_json({
                 "type": "error",
-                "message": "An error occurred while processing your video. Please try again."
+                "message": "An error occurred while processing your video. Please try again.",
+                "timestamp": timestamp,
             })
         except Exception:
             pass

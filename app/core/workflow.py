@@ -1,6 +1,7 @@
 import json
 import asyncio
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -13,6 +14,22 @@ from app.core import clipper
 from app.core import saas, storage
 
 logger = logging.getLogger(__name__)
+
+
+async def send_log(websocket: WebSocket, message: str) -> None:
+    """
+    Send a timestamped log message via WebSocket.
+    
+    Args:
+        websocket: WebSocket connection
+        message: Log message to send
+    """
+    timestamp = datetime.now(timezone.utc).isoformat()
+    await websocket.send_json({
+        "type": "log",
+        "message": message,
+        "timestamp": timestamp,
+    })
 
 async def process_video_workflow(
     websocket: WebSocket,
@@ -48,18 +65,18 @@ async def process_video_workflow(
         workdir.mkdir(parents=True, exist_ok=True)
         
         logger.info(f"Starting job for Video ID: {youtube_id} in {workdir}")
-        await websocket.send_json({"type": "log", "message": f"🚀 Starting job for Video ID: {youtube_id}"})
+        await send_log(websocket, f"🚀 Starting job for Video ID: {youtube_id}")
         await websocket.send_json({"type": "progress", "value": 10})
 
         # 1. Gemini Analysis
         logger.info("Analyzing video with AI...")
-        await websocket.send_json({"type": "log", "message": "🤖 Analyzing video with AI..."})
+        await send_log(websocket, "🤖 Analyzing video with AI...")
         
         client = GeminiClient()
         data = await asyncio.to_thread(client.get_highlights, base_prompt, url, workdir)
         
         logger.info("AI analysis complete.")
-        await websocket.send_json({"type": "log", "message": "✅ AI analysis complete."})
+        await send_log(websocket, "✅ AI analysis complete.")
         await websocket.send_json({"type": "progress", "value": 30})
 
         data["video_url"] = url
@@ -82,7 +99,12 @@ async def process_video_workflow(
         
         if not highlights:
             logger.warning("No valid highlights found in AI response.")
-            await websocket.send_json({"type": "error", "message": "AI failed to identify clips in the video."})
+            timestamp = datetime.now(timezone.utc).isoformat()
+            await websocket.send_json({
+                "type": "error",
+                "message": "AI failed to identify clips in the video.",
+                "timestamp": timestamp,
+            })
             return
 
         for idx, h in enumerate(highlights, start=1):
@@ -125,11 +147,13 @@ async def process_video_workflow(
                     f"plan={plan_id}, used={used}, requested={total_clips}, max={max_clips}"
                 )
                 logger.warning(msg)
+                timestamp = datetime.now(timezone.utc).isoformat()
                 await websocket.send_json(
                     {
                         "type": "error",
                         "message": "Clip limit reached for your current plan.",
                         "details": msg,
+                        "timestamp": timestamp,
                     }
                 )
                 return
@@ -152,12 +176,12 @@ async def process_video_workflow(
         clips_dir = clipper.ensure_dirs(workdir)
 
         logger.info("Downloading video...")
-        await websocket.send_json({"type": "log", "message": "📥 Downloading video..."})
+        await send_log(websocket, "📥 Downloading video...")
         
         await asyncio.to_thread(clipper.download_video, url, video_file)
         
         logger.info("Download complete.")
-        await websocket.send_json({"type": "log", "message": "✅ Download complete."})
+        await send_log(websocket, "✅ Download complete.")
         await websocket.send_json({"type": "progress", "value": 50})
 
         # 3. Clipping
@@ -183,7 +207,7 @@ async def process_video_workflow(
                 out_path = clips_dir / filename
                 
                 logger.info(f"Rendering clip: {title} ({s})")
-                await websocket.send_json({"type": "log", "message": f"✂️ Rendering clip: {title} ({s})"})
+                await send_log(websocket, f"✂️ Rendering clip: {title} ({s})")
                 
                 # Determine effective crop mode
                 # If the style is explicitly 'intelligent', force intelligent crop mode
@@ -231,7 +255,7 @@ async def process_video_workflow(
         if video_file.exists():
             video_file.unlink()
             logger.info("Cleaned up source video file.")
-            await websocket.send_json({"type": "log", "message": "🧹 Cleaned up source video file."})
+            await send_log(websocket, "🧹 Cleaned up source video file.")
 
         logger.info("Job complete.")
 
@@ -248,11 +272,17 @@ async def process_video_workflow(
             )
 
         await websocket.send_json({"type": "progress", "value": 100})
-        await websocket.send_json({"type": "log", "message": "✨ All done!"})
+        await send_log(websocket, "✨ All done!")
         await websocket.send_json({"type": "done", "videoId": run_id})
 
     except Exception as e:
         import traceback
         trace = traceback.format_exc()
         logger.error(f"Error processing video: {e}\n{trace}")
-        await websocket.send_json({"type": "error", "message": str(e), "details": trace})
+        timestamp = datetime.now(timezone.utc).isoformat()
+        await websocket.send_json({
+            "type": "error",
+            "message": str(e),
+            "details": trace,
+            "timestamp": timestamp,
+        })

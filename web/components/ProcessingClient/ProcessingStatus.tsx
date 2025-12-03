@@ -37,6 +37,7 @@ export function ProcessingStatus({ progress, logs }: ProcessingStatusProps) {
             ) : (
               logs.map((l, idx) => (
                 <div key={idx} className="text-foreground">
+                  {/* Timestamps are already formatted in the log string */}
                   {l}
                 </div>
               ))

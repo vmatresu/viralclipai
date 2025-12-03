@@ -38,6 +38,7 @@ from app.middleware import (
 from app.routers import processing, videos, settings, publishing, admin
 from app.version import __version__
 from app.schemas import HealthResponse
+from app.core.plans.service import PlanService
 
 
 # -----------------------------------------------------------------------------
@@ -48,6 +49,16 @@ from app.schemas import HealthResponse
 async def lifespan(app: FastAPI):
     """Application startup and shutdown events."""
     logger.info("Starting Viral Clip AI v%s", __version__)
+    
+    # Initialize default plans in Firestore (idempotent)
+    try:
+        plan_service = PlanService()
+        plan_service.ensure_default_plans_exist()
+        logger.info("Default plans initialized")
+    except Exception as e:
+        logger.warning("Failed to initialize default plans: %s", e)
+        # Don't fail startup if plan initialization fails
+    
     yield
     logger.info("Shutting down Viral Clip AI")
 
