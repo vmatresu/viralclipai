@@ -130,24 +130,30 @@ def list_clips_with_metadata(uid: str, video_id: str, highlights_map: Dict[int, 
             pass
         
         # Extract title and description from highlights map
+        # Filename format: clip_{priority:02d}_{safe_title}_{style}.mp4
+        # Priority matches the highlight ID
         try:
             parts = filename.split("_")
-            if len(parts) >= 3 and parts[0] == "clip":
-                clip_id = int(parts[2])
-                if clip_id in highlights_map:
-                    meta = highlights_map[clip_id]
+            if len(parts) >= 2 and parts[0] == "clip":
+                clip_priority = int(parts[1])  # priority is at index 1 (e.g., "01")
+                if clip_priority in highlights_map:
+                    meta = highlights_map[clip_priority]
                     title_text = meta.get("title", title_text)
                     description_text = meta.get("description", "")
         except Exception:
             pass
-        # Use relative URL for video clips to go through backend proxy with CORS headers
-        # This ensures proper CORS handling for video playback
+        
+        # Generate direct presigned URL for video (bypasses backend proxy for faster loading)
+        direct_url = generate_presigned_url(key, expires_in=url_expiry)
+        
+        # Use relative URL as fallback for video clips
         url = f"/api/videos/{video_id}/clips/{filename}"
         clip_data = {
             "name": filename,
             "title": title_text,
             "description": description_text,
-            "url": url,
+            "url": url,  # Fallback proxy URL
+            "direct_url": direct_url,  # Direct R2 presigned URL for faster loading
             "thumbnail": thumb_url,
             "size": f"{size_mb:.1f} MB",
         }

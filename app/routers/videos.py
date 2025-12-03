@@ -74,11 +74,20 @@ async def get_video_info(
                     expires_in=3600
                 )
             
+            # Generate direct presigned URL for video (bypasses backend proxy for faster loading)
+            direct_url = None
+            if clip_metadata.r2_key:
+                direct_url = generate_presigned_url(
+                    clip_metadata.r2_key,
+                    expires_in=3600  # 1 hour expiry
+                )
+            
             clips.append({
                 "name": clip_metadata.filename,
                 "title": clip_metadata.scene_title,
                 "description": clip_metadata.scene_description or "",
-                "url": f"/api/videos/{video_id}/clips/{clip_metadata.filename}",
+                "url": f"/api/videos/{video_id}/clips/{clip_metadata.filename}",  # Fallback proxy URL
+                "direct_url": direct_url,  # Direct R2 presigned URL for faster loading
                 "thumbnail": thumbnail_url,
                 "size": f"{clip_metadata.file_size_mb:.1f} MB",
                 "style": clip_metadata.style,

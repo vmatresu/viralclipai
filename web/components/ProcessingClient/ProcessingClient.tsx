@@ -13,11 +13,11 @@ import { analyticsEvents } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
 import { limitLength, sanitizeUrl } from "@/lib/security/validation";
+import { createWebSocketConnection, getWebSocketUrl } from "@/lib/websocket-client";
 import {
   handleWSMessage,
   type MessageHandlerCallbacks,
 } from "@/lib/websocket/messageHandler";
-import { getWebSocketUrl, createWebSocketConnection } from "@/lib/websocket-client";
 
 import { ErrorDisplay } from "./ErrorDisplay";
 import { useVideoProcessing } from "./hooks";
@@ -156,9 +156,9 @@ export function ProcessingClient() {
               void loadResults(videoId);
             },
             onClipUploaded: (videoId, clipCount, totalClips) => {
-              // If we're currently viewing this video, reload results
+              // If we're currently viewing this video, force reload results (bypasses cache)
               if (videoId === searchParams.get("id")) {
-                void loadResults(videoId);
+                void loadResults(videoId, true); // forceRefresh=true to bypass cache
               }
               // Log progress
               if (clipCount > 0 && totalClips > 0) {

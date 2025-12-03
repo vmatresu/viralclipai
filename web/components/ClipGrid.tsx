@@ -45,7 +45,7 @@ interface VideoPlayerProps {
   videoId: string;
   onRef: (el: HTMLVideoElement | null) => void;
   onPlay: () => void;
-  getVideoUrl: (clipUrl: string, clipName: string) => Promise<string>;
+  getVideoUrl: (clip: Clip) => Promise<string>;
 }
 
 function VideoPlayer({ id, clip, onRef, onPlay, getVideoUrl }: VideoPlayerProps) {
@@ -58,7 +58,7 @@ function VideoPlayer({ id, clip, onRef, onPlay, getVideoUrl }: VideoPlayerProps)
     async function loadVideo() {
       try {
         setLoading(true);
-        const url = await getVideoUrl(clip.url, clip.name);
+        const url = await getVideoUrl(clip);
         if (!cancelled) {
           setVideoUrl(url);
         }
@@ -79,7 +79,7 @@ function VideoPlayer({ id, clip, onRef, onPlay, getVideoUrl }: VideoPlayerProps)
     return () => {
       cancelled = true;
     };
-  }, [clip.url, clip.name, getVideoUrl]);
+  }, [clip, getVideoUrl]);
 
   if (loading) {
     return (
@@ -118,6 +118,7 @@ export interface Clip {
   title: string;
   description: string;
   url: string;
+  direct_url?: string | null; // Presigned R2 URL for faster loading
   thumbnail?: string | null;
   size: string;
   style?: string;
@@ -149,15 +150,22 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
     };
   }, []);
 
-  // Function to get video URL with authentication
-  const getVideoUrl = async (clipUrl: string, clipName: string): Promise<string> => {
+  // Function to get video URL - prefer direct_url (presigned R2) for faster loading
+  const getVideoUrl = async (clip: Clip): Promise<string> => {
+    const clipName = clip.name;
+
     // If it's already a blob URL, return it
     if (blobUrls.current[clipName]) {
       return blobUrls.current[clipName];
     }
 
-    // If it's a relative URL (API endpoint), fetch with auth and create blob
-    if (clipUrl.startsWith("/")) {
+    // Prefer direct_url (presigned R2 URL) for much faster loading
+    if (clip.direct_url) {
+      return clip.direct_url;
+    }
+
+    // Fallback: fetch through backend proxy with auth (slower but works)
+    if (clip.url.startsWith("/")) {
       try {
         const token = await getIdToken();
         if (!token) {
@@ -167,7 +175,7 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
         const baseUrl = API_BASE_URL.endsWith("/")
           ? API_BASE_URL.slice(0, -1)
           : API_BASE_URL;
-        const fullUrl = baseUrl ? `${baseUrl}${clipUrl}` : clipUrl;
+        const fullUrl = baseUrl ? `${baseUrl}${clip.url}` : clip.url;
 
         const response = await fetch(fullUrl, {
           headers: {
@@ -190,7 +198,7 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
     }
 
     // If it's already a full URL (presigned URL), return as-is
-    return clipUrl;
+    return clip.url;
   };
 
   const handlePlay = (clipName: string) => {

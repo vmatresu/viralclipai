@@ -18,7 +18,7 @@ interface SettingsResponse {
 }
 
 export default function SettingsPage() {
-  const { getIdToken } = useAuth();
+  const { getIdToken, user, loading: authLoading } = useAuth();
   const [data, setData] = useState<SettingsResponse | null>(null);
   const [accessToken, setAccessToken] = useState("");
   const [accountId, setAccountId] = useState("");
@@ -34,68 +34,78 @@ export default function SettingsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    async function load() {
-      try {
-        const token = await getIdToken();
-        if (!token) {
-          setStatus("Please sign in to view your settings.");
-          setLoading(false);
-          return;
+
+    if (!authLoading) {
+      async function load() {
+        try {
+          if (!user) {
+            setStatus("Please sign in to view your settings.");
+            setLoading(false);
+            return;
+          }
+
+          const token = await getIdToken();
+          if (!token) {
+            setStatus("Unable to retrieve authentication token.");
+            setLoading(false);
+            return;
+          }
+          const res = await apiFetch<SettingsResponse>("/api/settings", {
+            token,
+          });
+          if (!cancelled) {
+            setData(res);
+            setAccessToken(res.settings?.tiktok_access_token ?? "");
+            setAccountId(res.settings?.tiktok_account_id ?? "");
+          }
+        } catch (err: unknown) {
+          if (!cancelled) {
+            const errorMessage =
+              err instanceof Error ? err.message : "Failed to load settings";
+            setStatus(errorMessage);
+          }
+        } finally {
+          if (!cancelled) setLoading(false);
         }
-        const res = await apiFetch<SettingsResponse>("/api/settings", {
-          token,
-        });
-        if (!cancelled) {
-          setData(res);
-          setAccessToken(res.settings?.tiktok_access_token ?? "");
-          setAccountId(res.settings?.tiktok_account_id ?? "");
-        }
-      } catch (err: unknown) {
-        if (!cancelled) {
-          const errorMessage =
-            err instanceof Error ? err.message : "Failed to load settings";
-          setStatus(errorMessage);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
       }
+      void load();
     }
-    void load();
+
     return () => {
       cancelled = true;
     };
-  }, [getIdToken]);
+  }, [getIdToken, user, authLoading]);
 
   // Load admin prompt if user is superadmin
   useEffect(() => {
-    if (!data?.role || data.role !== "superadmin") {
-      return;
-    }
-
     let cancelled = false;
-    async function loadPrompt() {
-      try {
-        setPromptLoading(true);
-        const token = await getIdToken();
-        if (!token) return;
 
-        const res = await apiFetch<{ prompt: string }>("/api/admin/prompt", {
-          token,
-        });
-        if (!cancelled) {
-          setPrompt(res.prompt);
+    if (data?.role === "superadmin") {
+      async function loadPrompt() {
+        try {
+          setPromptLoading(true);
+          const token = await getIdToken();
+          if (!token) return;
+
+          const res = await apiFetch<{ prompt: string }>("/api/admin/prompt", {
+            token,
+          });
+          if (!cancelled) {
+            setPrompt(res.prompt);
+          }
+        } catch (err: unknown) {
+          if (!cancelled) {
+            const errorMessage =
+              err instanceof Error ? err.message : "Failed to load prompt";
+            setPromptStatus(errorMessage);
+          }
+        } finally {
+          if (!cancelled) setPromptLoading(false);
         }
-      } catch (err: unknown) {
-        if (!cancelled) {
-          const errorMessage =
-            err instanceof Error ? err.message : "Failed to load prompt";
-          setPromptStatus(errorMessage);
-        }
-      } finally {
-        if (!cancelled) setPromptLoading(false);
       }
+      void loadPrompt();
     }
-    void loadPrompt();
+
     return () => {
       cancelled = true;
     };

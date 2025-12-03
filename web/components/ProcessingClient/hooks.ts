@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { analyticsEvents } from "@/lib/analytics";
 import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
-import { getCachedClips, setCachedClips } from "@/lib/cache";
+import { getCachedClips, invalidateClipsCache, setCachedClips } from "@/lib/cache";
 
 import { type Clip } from "../ClipGrid";
 
@@ -69,7 +69,7 @@ export function useVideoProcessing() {
   );
 
   const loadResults = useCallback(
-    async (id: string) => {
+    async (id: string, forceRefresh: boolean = false) => {
       try {
         setSubmitting(false);
 
@@ -84,32 +84,39 @@ export function useVideoProcessing() {
           throw new Error("You must be signed in to view your clips.");
         }
 
-        // Only check cache after authentication is verified
-        const cachedData = await getCachedClips(id);
-        if (cachedData) {
-          // Use cached data (user is authenticated at this point)
-          setClips(cachedData.clips);
-          setCustomPromptUsed(cachedData.custom_prompt ?? null);
-          setVideoTitle(cachedData.video_title ?? null);
-          setVideoUrl(cachedData.video_url ?? null);
-
-          // Track processing completion with actual clips count
-          // Use stored values from when processing started, not current form values
-          if (processingStartTime.current) {
-            const durationMs = Date.now() - processingStartTime.current;
-            void analyticsEvents.videoProcessingCompleted({
-              videoId: id,
-              style: processingStyles.current.join(","),
-              clipsGenerated: cachedData.clips.length,
-              durationMs,
-              hasCustomPrompt: processingCustomPrompt.current.trim().length > 0,
-            });
-            processingStartTime.current = null;
-          }
-          return;
+        // Skip cache when force refreshing (e.g., after clip upload)
+        if (forceRefresh) {
+          await invalidateClipsCache(id);
         }
 
-        // Cache miss - fetch from API (token already verified above)
+        // Only check cache after authentication is verified (unless force refresh)
+        if (!forceRefresh) {
+          const cachedData = await getCachedClips(id);
+          if (cachedData) {
+            // Use cached data (user is authenticated at this point)
+            setClips(cachedData.clips);
+            setCustomPromptUsed(cachedData.custom_prompt ?? null);
+            setVideoTitle(cachedData.video_title ?? null);
+            setVideoUrl(cachedData.video_url ?? null);
+
+            // Track processing completion with actual clips count
+            // Use stored values from when processing started, not current form values
+            if (processingStartTime.current) {
+              const durationMs = Date.now() - processingStartTime.current;
+              void analyticsEvents.videoProcessingCompleted({
+                videoId: id,
+                style: processingStyles.current.join(","),
+                clipsGenerated: cachedData.clips.length,
+                durationMs,
+                hasCustomPrompt: processingCustomPrompt.current.trim().length > 0,
+              });
+              processingStartTime.current = null;
+            }
+            return;
+          }
+        }
+
+        // Cache miss or force refresh - fetch from API (token already verified above)
         const data = await apiFetch<{
           clips: Clip[];
           custom_prompt?: string;

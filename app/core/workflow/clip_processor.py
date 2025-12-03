@@ -60,7 +60,9 @@ def create_clip_tasks(
         safe_title = sanitize_filename(title)
 
         for style in styles:
-            filename = f"clip_{priority:02d}_{clip_id:02d}_{safe_title}_{style}.mp4"
+            # Use just priority for ordering (clip_01, clip_02, etc.)
+            # clip_id is still tracked internally for scene reference
+            filename = f"clip_{priority:02d}_{safe_title}_{style}.mp4"
             out_path = clips_dir / filename
 
             # Determine effective crop mode
