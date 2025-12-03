@@ -338,10 +338,12 @@ async def reprocess_scenes_workflow(
                 exc_info=True,
             )
         
-        # Invalidate cache
-        from app.core.cache import get_video_info_cache
+        # Invalidate caches
+        from app.core.cache import get_video_info_cache, get_user_videos_cache
         cache = get_video_info_cache()
         cache.invalidate(f"{user_id}:{run_id}")
+        user_videos_cache = get_user_videos_cache()
+        user_videos_cache.invalidate(f"user_videos:{user_id}")
         
         logger.info(
             f"Reprocessing complete for video {run_id}: {total_clips} new clips"
@@ -370,19 +372,23 @@ async def reprocess_scenes_workflow(
         # 1. Main workflow cleanup (if new video processing)
         # 2. Manual cleanup job (periodic maintenance)
         # 3. Disk space management (if storage is full)
-        
+
         # Ensure video status is reset if processing failed
-        if context and user_id:
+        if user_id:
             try:
                 # Check if we're still in processing state (indicates error)
-                current_status = saas.get_video_metadata(user_id, video_id)
-                if current_status and current_status.get("status") == "processing":
-                    # Only reset if we're still processing (error case)
-                    # Successful completion already updated status above
-                    logger.warning(
-                        f"Reprocessing failed for video {video_id}, "
-                        "status may need manual review"
-                    )
+                current_status = saas.is_video_processing(user_id, video_id)
+                if current_status:
+                    # Reset status to completed on error to prevent stuck processing state
+                    saas.update_video_status(user_id, video_id, "completed")
+                    logger.info(f"Reset video {video_id} status to completed after reprocessing error")
+
+                    # Invalidate caches so history page shows correct status
+                    from app.core.cache import get_video_info_cache, get_user_videos_cache
+                    cache = get_video_info_cache()
+                    cache.invalidate(f"{user_id}:{video_id}")
+                    user_videos_cache = get_user_videos_cache()
+                    user_videos_cache.invalidate(f"user_videos:{user_id}")
             except Exception as cleanup_error:
                 logger.error(
                     f"Error during reprocessing cleanup: {cleanup_error}",

@@ -1,8 +1,8 @@
 "use client";
 
 import {
-  ArrowLeft,
   AlertCircle,
+  ArrowLeft,
   ChevronDown,
   ChevronRight,
   Play,
@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { ProcessingStatus } from "@/components/HistoryDetail/ProcessingStatus";
@@ -27,6 +27,14 @@ import {
 import { useReprocessing } from "@/hooks/useReprocessing";
 import { apiFetch, getVideoHighlights } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
+
+interface UserSettings {
+  plan: string;
+  max_clips_per_month: number;
+  clips_used_this_month: number;
+  role?: string;
+  settings: Record<string, unknown>;
+}
 
 interface HighlightsData {
   video_id: string;
@@ -47,6 +55,7 @@ export default function HistoryDetailPage() {
   const [selectedStyles, setSelectedStyles] = useState<Set<string>>(new Set());
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(true);
+  const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
 
   const { isProcessing: isReprocessing, reprocess } = useReprocessing({
     videoId,
@@ -83,9 +92,27 @@ export default function HistoryDetailPage() {
     }
   }, [getIdToken, user, authLoading, videoId]);
 
+  const loadUserSettings = useCallback(async () => {
+    if (authLoading || !user) {
+      return;
+    }
+
+    try {
+      const token = await getIdToken();
+      if (!token) {
+        return;
+      }
+      const settings = await apiFetch<UserSettings>("/api/settings", { token });
+      setUserSettings(settings);
+    } catch (err) {
+      console.error("Failed to load user settings:", err);
+    }
+  }, [getIdToken, user, authLoading]);
+
   useEffect(() => {
     void loadHighlights();
-  }, [loadHighlights]);
+    void loadUserSettings();
+  }, [loadHighlights, loadUserSettings]);
 
   // Check if video is processing with proper cleanup
   useEffect(() => {
@@ -107,10 +134,29 @@ export default function HistoryDetailPage() {
         if (cancelled) return;
 
         const video = data.videos.find((v) => (v.video_id ?? v.id) === videoId);
-        setIsProcessing(video?.status === "processing");
+        // Only set as processing if status is explicitly "processing"
+        // AND we don't have highlights loaded yet (to handle stuck processing state)
+        const statusIsProcessing = video?.status === "processing";
+        const hasHighlights = highlightsData && highlightsData.highlights.length > 0;
+
+        // If we have highlights, the video is effectively complete regardless of status
+        // This handles cases where the status got stuck as "processing"
+        const isActuallyProcessing = statusIsProcessing && !hasHighlights;
+        setIsProcessing(isActuallyProcessing);
+
+        // Debug logging to help identify stuck processing videos
+        if (statusIsProcessing && hasHighlights) {
+          console.log(
+            `Video ${videoId} has status 'processing' but has highlights - treating as completed`
+          );
+        } else if (isActuallyProcessing) {
+          console.log(`Video ${videoId} is processing according to API`);
+        }
       } catch (err) {
         if (!cancelled) {
           console.error("Failed to check video status:", err);
+          // On error, assume not processing to avoid false positives
+          setIsProcessing(false);
         }
       }
     };
@@ -122,7 +168,7 @@ export default function HistoryDetailPage() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [user, videoId, getIdToken]);
+  }, [user, videoId, getIdToken, highlightsData]);
 
   const handleSceneToggle = useCallback((sceneId: number) => {
     setSelectedScenes((prev) => {
@@ -211,6 +257,10 @@ export default function HistoryDetailPage() {
     );
   }, [selectedScenes.size, selectedStyles.size, isProcessing, isReprocessing]);
 
+  const hasProOrStudioPlan = useMemo(() => {
+    return userSettings?.plan === "pro" || userSettings?.plan === "studio";
+  }, [userSettings?.plan]);
+
   if (authLoading) {
     return (
       <div className="flex flex-col items-center justify-center py-24 space-y-4">
@@ -280,75 +330,77 @@ export default function HistoryDetailPage() {
 
       {(isProcessing || isReprocessing) && <ProcessingStatus videoId={videoId} />}
 
-      <Card className="glass">
-        <CardHeader
-          className="cursor-pointer hover:bg-accent/50 transition-colors"
-          onClick={() => setIsCollapsed(!isCollapsed)}
-        >
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-primary" />
-            Select Scenes to Reprocess
-            <Button
-              variant="ghost"
-              size="sm"
-              className="ml-auto h-6 w-6 p-0"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsCollapsed(!isCollapsed);
-              }}
-            >
-              {isCollapsed ? (
-                <ChevronRight className="h-4 w-4" />
-              ) : (
-                <ChevronDown className="h-4 w-4" />
-              )}
-            </Button>
-          </CardTitle>
-          <CardDescription>
-            Choose scenes and styles to generate new clips. This feature is available
-            for Pro and Enterprise plans.
-          </CardDescription>
-        </CardHeader>
-        {!isCollapsed && (
-          <CardContent className="space-y-6">
-            <StyleSelector
-              selectedStyles={selectedStyles}
-              disabled={isProcessing || isReprocessing}
-              onStyleToggle={handleStyleToggle}
-            />
-
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold">
-                Select Scenes ({selectedScenes.size} selected)
-              </h3>
-              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                {highlightsData.highlights.map((highlight) => (
-                  <SceneCard
-                    key={highlight.id}
-                    highlight={highlight}
-                    selected={selectedScenes.has(highlight.id)}
-                    disabled={isProcessing || isReprocessing}
-                    onToggle={handleSceneToggle}
-                    formatTime={formatTime}
-                  />
-                ))}
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between pt-4 border-t">
-              <p className="text-sm text-muted-foreground">
-                {canReprocess
-                  ? `Will generate ${totalClipsToGenerate} new clip(s)`
-                  : "Select scenes and styles to reprocess"}
-              </p>
-              <Button onClick={handleReprocess} disabled={!canReprocess} size="lg">
-                <Play className="h-4 w-4 mr-2" />
-                Reprocess Selected
+      {hasProOrStudioPlan && (
+        <Card className="glass">
+          <CardHeader
+            className="cursor-pointer hover:bg-accent/50 transition-colors"
+            onClick={() => setIsCollapsed(!isCollapsed)}
+          >
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-primary" />
+              Select Scenes to Reprocess
+              <Button
+                variant="ghost"
+                size="sm"
+                className="ml-auto h-6 w-6 p-0"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsCollapsed(!isCollapsed);
+                }}
+              >
+                {isCollapsed ? (
+                  <ChevronRight className="h-4 w-4" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                )}
               </Button>
-            </div>
-          </CardContent>
-        )}
-      </Card>
+            </CardTitle>
+            <CardDescription>
+              Choose scenes and styles to generate new clips. This feature is available
+              for Pro and Enterprise plans.
+            </CardDescription>
+          </CardHeader>
+          {!isCollapsed && (
+            <CardContent className="space-y-6">
+              <StyleSelector
+                selectedStyles={selectedStyles}
+                disabled={isProcessing || isReprocessing}
+                onStyleToggle={handleStyleToggle}
+              />
+
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold">
+                  Select Scenes ({selectedScenes.size} selected)
+                </h3>
+                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                  {highlightsData.highlights.map((highlight) => (
+                    <SceneCard
+                      key={highlight.id}
+                      highlight={highlight}
+                      selected={selectedScenes.has(highlight.id)}
+                      disabled={isProcessing || isReprocessing}
+                      onToggle={handleSceneToggle}
+                      formatTime={formatTime}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-4 border-t">
+                <p className="text-sm text-muted-foreground">
+                  {canReprocess
+                    ? `Will generate ${totalClipsToGenerate} new clip(s)`
+                    : "Select scenes and styles to reprocess"}
+                </p>
+                <Button onClick={handleReprocess} disabled={!canReprocess} size="lg">
+                  <Play className="h-4 w-4 mr-2" />
+                  Reprocess Selected
+                </Button>
+              </div>
+            </CardContent>
+          )}
+        </Card>
+      )}
 
       <Card className="glass">
         <CardHeader>

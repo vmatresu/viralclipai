@@ -284,11 +284,13 @@ async def process_video_workflow(
                     exc_info=True,
                 )
             
-            # Invalidate backend cache so history page shows completed status
-            from app.core.cache import get_video_info_cache
+            # Invalidate backend caches so history page shows completed status
+            from app.core.cache import get_video_info_cache, get_user_videos_cache
             cache = get_video_info_cache()
             cache.invalidate(f"{user_id}:{run_id}")
-            logger.info(f"Updated video {run_id} status to completed and invalidated cache")
+            user_videos_cache = get_user_videos_cache()
+            user_videos_cache.invalidate(f"user_videos:{user_id}")
+            logger.info(f"Updated video {run_id} status to completed and invalidated caches")
 
         await send_progress(websocket, PROGRESS_COMPLETE)
         await send_log(websocket, "✨ All done!")
@@ -304,6 +306,28 @@ async def process_video_workflow(
         logger.error(f"Error processing video: {e}\n{error_trace}")
         await send_error(websocket, str(e), details=error_trace)
     finally:
+        # Ensure video status is reset if processing failed
+        if user_id is not None and run_id:
+            try:
+                # Check if we're still in processing state (indicates error)
+                current_status = saas.is_video_processing(user_id, run_id)
+                if current_status:
+                    # Reset status to completed on error to prevent stuck processing state
+                    saas.update_video_status(user_id, run_id, "completed")
+                    logger.info(f"Reset video {run_id} status to completed after processing error")
+
+                    # Invalidate caches so history page shows correct status
+                    from app.core.cache import get_video_info_cache, get_user_videos_cache
+                    cache = get_video_info_cache()
+                    cache.invalidate(f"{user_id}:{run_id}")
+                    user_videos_cache = get_user_videos_cache()
+                    user_videos_cache.invalidate(f"user_videos:{user_id}")
+            except Exception as cleanup_error:
+                logger.error(
+                    f"Error during processing cleanup for {run_id}: {cleanup_error}",
+                    exc_info=True,
+                )
+
         # Ensure cleanup even on error
         if context and context.video_file.exists():
             try:

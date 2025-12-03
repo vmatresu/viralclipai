@@ -253,3 +253,66 @@ async def delete_plan(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+
+
+# -----------------------------------------------------------------------------
+# Video Status Management Endpoints
+# -----------------------------------------------------------------------------
+
+@router.post("/videos/{user_id}/{video_id}/fix-status")
+async def fix_video_status(
+    user_id: str,
+    video_id: str,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Fix a stuck video status by resetting it to 'completed'.
+    
+    This is useful for videos that got stuck in 'processing' state
+    due to errors or disconnections.
+    
+    Superadmin only.
+    """
+    admin_uid = require_superadmin(user)
+    
+    # Check if video exists
+    if not saas.user_owns_video(user_id, video_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Video '{video_id}' not found for user '{user_id}'"
+        )
+    
+    # Get current status
+    current_status = saas.is_video_processing(user_id, video_id)
+    
+    if not current_status:
+        return {
+            "success": True,
+            "message": "Video is not in processing state",
+            "video_id": video_id,
+            "user_id": user_id,
+            "was_stuck": False,
+        }
+    
+    # Reset status to completed
+    saas.update_video_status(user_id, video_id, "completed")
+    
+    # Invalidate caches
+    from app.core.cache import get_video_info_cache, get_user_videos_cache
+    cache = get_video_info_cache()
+    cache.invalidate(f"{user_id}:{video_id}")
+    user_videos_cache = get_user_videos_cache()
+    user_videos_cache.invalidate(f"user_videos:{user_id}")
+    
+    logger.info(
+        "Admin %s fixed stuck video status: user=%s, video=%s",
+        admin_uid, user_id, video_id
+    )
+    
+    return {
+        "success": True,
+        "message": "Video status reset to completed",
+        "video_id": video_id,
+        "user_id": user_id,
+        "was_stuck": True,
+    }
