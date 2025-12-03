@@ -407,7 +407,8 @@ class Renderer:
         """Run an FFmpeg command with improved error handling."""
         from app.core.utils.ffmpeg import run_ffmpeg
         
-        logger.debug(f"Running: {' '.join(cmd)}")
+        # Note: run_ffmpeg will modify cmd to add -loglevel, so log after calling
+        logger.debug(f"Running FFmpeg command (log level will be added automatically)")
 
         try:
             result = run_ffmpeg(
@@ -416,7 +417,8 @@ class Renderer:
                 log_level="error",  # Suppress warnings, keep errors
                 check=True,
             )
-            logger.debug(f"FFmpeg stdout: {result.stdout}")
+            if result.stdout:
+                logger.debug(f"FFmpeg stdout: {result.stdout}")
         except RuntimeError as e:
             # Re-raise as-is (already formatted)
             raise

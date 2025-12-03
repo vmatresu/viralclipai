@@ -251,7 +251,10 @@ class Reframer:
 
     def _get_video_meta(self, video_path: str) -> VideoMeta:
         """Extract video metadata using OpenCV."""
-        cap = cv2.VideoCapture(video_path)
+        from app.core.utils.opencv import suppress_ffmpeg_warnings
+        
+        with suppress_ffmpeg_warnings():
+            cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             raise RuntimeError(f"Failed to open video: {video_path}")
 

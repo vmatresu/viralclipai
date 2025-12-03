@@ -13,6 +13,7 @@ import numpy as np
 
 from app.core.smart_reframe.models import Shot
 from app.core.smart_reframe.config import IntelligentCropConfig
+from app.core.utils.opencv import suppress_ffmpeg_warnings
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,8 @@ class ShotDetector:
         Returns:
             List of Shot objects representing continuous scenes.
         """
-        cap = cv2.VideoCapture(video_path)
+        with suppress_ffmpeg_warnings():
+            cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             raise RuntimeError(f"Failed to open video: {video_path}")
 

@@ -71,15 +71,18 @@ def run_ffmpeg(
     Raises:
         RuntimeError: If FFmpeg fails and check=True.
     """
+    # Create a copy to avoid modifying the original
+    cmd = list(cmd)
+    
     # Add log level to suppress verbose output
     if suppress_warnings:
         # Insert log level after 'ffmpeg' and before other args
         # Use 'error' level to suppress warnings but keep errors
-        if "-loglevel" not in cmd and log_level not in cmd:
+        if "-loglevel" not in cmd:
             # Find position after 'ffmpeg' or '-y'
             insert_pos = 1
-            if cmd[0] == "ffmpeg" and len(cmd) > 1:
-                if cmd[1] == "-y":
+            if len(cmd) > 0 and cmd[0] == "ffmpeg":
+                if len(cmd) > 1 and cmd[1] == "-y":
                     insert_pos = 2
                 else:
                     insert_pos = 1

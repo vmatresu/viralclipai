@@ -99,12 +99,41 @@ class BoundingBox(BaseModel):
         )
 
     def clamp(self, frame_width: int, frame_height: int) -> "BoundingBox":
-        """Clamp box to frame boundaries."""
-        x = max(0, min(self.x, frame_width - 1))
-        y = max(0, min(self.y, frame_height - 1))
-        x2 = max(0, min(self.x2, frame_width))
-        y2 = max(0, min(self.y2, frame_height))
-        return BoundingBox(x=x, y=y, width=x2 - x, height=y2 - y)
+        """
+        Clamp box to frame boundaries while preserving center when possible.
+        
+        This is important for face detection where we want to maintain
+        the center position even when the expanded box exceeds boundaries.
+        """
+        # Get current center
+        center_x = self.cx
+        center_y = self.cy
+        
+        # Clamp center to valid range (with half-width/height margin)
+        half_width = self.width / 2
+        half_height = self.height / 2
+        
+        # Clamp center, ensuring box stays within bounds
+        # If box is too large, center it in that dimension
+        if self.width > frame_width:
+            clamped_cx = frame_width / 2
+        else:
+            clamped_cx = max(half_width, min(center_x, frame_width - half_width))
+            
+        if self.height > frame_height:
+            clamped_cy = frame_height / 2
+        else:
+            clamped_cy = max(half_height, min(center_y, frame_height - half_height))
+        
+        # Reconstruct box centered on clamped center
+        x = clamped_cx - half_width
+        y = clamped_cy - half_height
+        
+        # Final clamp to ensure box is fully within frame
+        x = max(0, min(x, frame_width - self.width))
+        y = max(0, min(y, frame_height - self.height))
+        
+        return BoundingBox(x=x, y=y, width=self.width, height=self.height)
 
     @classmethod
     def union(cls, boxes: list["BoundingBox"]) -> Optional["BoundingBox"]:
