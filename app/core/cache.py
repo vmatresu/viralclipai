@@ -38,17 +38,17 @@ class TTLCache:
             if age >= self._ttl_seconds:
                 # Expired, remove it
                 del self._cache[key]
-                logger.debug(f"Cache expired for key: {key}")
+                # Debug: logger.debug(f"Cache expired for key: {key}")
                 return None
             
-            logger.debug(f"Cache hit for key: {key} (age: {age:.1f}s)")
+            # Debug: logger.debug(f"Cache hit for key: {key} (age: {age:.1f}s)")
             return value
     
     def set(self, key: str, value: Any) -> None:
         """Store value in cache with current timestamp."""
         with self._lock:
             self._cache[key] = (value, time.time())
-            logger.debug(f"Cache set for key: {key}")
+            # Debug: logger.debug(f"Cache set for key: {key}")
     
     def invalidate(self, key: Optional[str] = None) -> None:
         """
@@ -60,10 +60,10 @@ class TTLCache:
         with self._lock:
             if key is None:
                 self._cache.clear()
-                logger.debug("Cache cleared")
+                logger.info("Cache cleared")
             elif key in self._cache:
                 del self._cache[key]
-                logger.debug(f"Cache invalidated for key: {key}")
+                logger.info(f"Cache invalidated for key: {key}")
     
     def clear(self) -> None:
         """Clear all cache entries."""
