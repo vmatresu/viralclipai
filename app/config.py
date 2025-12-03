@@ -100,7 +100,7 @@ ALLOWED_HOSTS = _split_csv(
 CORS_ORIGINS = _split_csv(
     os.getenv(
         "CORS_ORIGINS",
-        "http://localhost:8000,http://localhost:3000,http://localhost:3003,https://viralvideoai.io,https://www.viralvideoai.io",
+        "http://localhost:8000,http://localhost:3000,http://localhost:3002,http://localhost:3003,https://viralvideoai.io,https://www.viralvideoai.io",
     )
 )
 
