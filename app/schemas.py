@@ -221,6 +221,7 @@ class UserSettingsResponse(BaseSchema):
     plan: str
     max_clips_per_month: int
     clips_used_this_month: int
+    role: Optional[str] = None  # User role (e.g., "superadmin")
 
 
 class SettingsUpdateResponse(BaseSchema):

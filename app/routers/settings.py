@@ -17,11 +17,16 @@ async def get_settings(
     settings = saas.get_user_settings(uid)
     plan_id, max_clips = saas.get_plan_limits_for_user(uid)
     used = saas.get_monthly_usage(uid)
+    # Get user role for frontend to determine admin access
+    user_role = None
+    if saas.is_super_admin(uid):
+        user_role = "superadmin"
     return UserSettingsResponse(
         settings=settings,
         plan=plan_id,
         max_clips_per_month=max_clips,
         clips_used_this_month=used,
+        role=user_role,
     )
 
 

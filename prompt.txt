@@ -12,7 +12,7 @@ Extract a batch of **3 to 10 viral segments** that prioritize Interaction over s
 
 **Constraints:**
 * **Quantity:** Extract at least 3 distinct segments.
-* **Duration:** Each individual segment must be **20 to 60 seconds** long.
+* **Duration:** Each individual segment must be **20 to 90 seconds** long.
 * **Narrative:** [Setup] -> [Reaction] -> [Punchline].
 * **Audio:** Ensure the cut timestamp doesn't sever a word.
 * **Padding:** For each segment, choose small `pad_before_seconds` and `pad_after_seconds` values (typically between 0.5 and 2.0 seconds) so the conversation is not cut off abruptly.
