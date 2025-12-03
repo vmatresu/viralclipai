@@ -193,7 +193,7 @@ mod tests {
         );
         assert_eq!(
             sanitize_path("/api/videos/550e8400-e29b-41d4-a716-446655440000"),
-            "/api/videos/:video_id"
+            "/api/videos/:id"
         );
     }
 }
