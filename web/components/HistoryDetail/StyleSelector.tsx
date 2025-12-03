@@ -1,12 +1,19 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 const STYLES = [
-  { value: "split", label: "Split View" },
-  { value: "left_focus", label: "Left Focus" },
-  { value: "right_focus", label: "Right Focus" },
-  { value: "intelligent_split", label: "Intelligent Split" },
+  { value: "split", label: "Split View (Fast)", subtitle: "Top/Bottom" },
+  { value: "left_focus", label: "Left Focus", subtitle: "Full Height" },
+  { value: "right_focus", label: "Right Focus", subtitle: "Full Height" },
+  { value: "intelligent", label: "Intelligent Crop", subtitle: "Face Tracking" },
+  {
+    value: "intelligent_split",
+    label: "Intelligent Split View",
+    subtitle: "Face Tracking Left/Right",
+  },
+  { value: "original", label: "Original", subtitle: "No Cropping" },
+  { value: "all", label: "All Styles", subtitle: "Generate All" },
 ] as const;
 
 interface StyleSelectorProps {
@@ -20,23 +27,98 @@ export function StyleSelector({
   disabled = false,
   onStyleToggle,
 }: StyleSelectorProps) {
+  const toggleStyle = (styleValue: string) => {
+    if (styleValue === "all") {
+      // "All Styles" is a special case - toggle all available styles
+      const allStyleValues = STYLES.filter((s) => s.value !== "all").map(
+        (s) => s.value
+      );
+      if (
+        selectedStyles.size === allStyleValues.length &&
+        allStyleValues.every((s) => selectedStyles.has(s))
+      ) {
+        // If all are selected, deselect all
+        onStyleToggle("all"); // This will trigger the parent to clear all
+      } else {
+        // Otherwise, select all
+        allStyleValues.forEach((style) => {
+          if (!selectedStyles.has(style)) {
+            onStyleToggle(style);
+          }
+        });
+      }
+    } else {
+      // Toggle individual style
+      onStyleToggle(styleValue);
+    }
+  };
+
   return (
     <div className="space-y-3">
       <h3 className="text-sm font-semibold">Select Styles</h3>
-      <div className="flex flex-wrap gap-2">
-        {STYLES.map((style) => (
-          <Button
-            key={style.value}
-            variant={selectedStyles.has(style.value) ? "default" : "outline"}
-            size="sm"
-            onClick={() => onStyleToggle(style.value)}
-            disabled={disabled}
-          >
-            {selectedStyles.has(style.value) && "✓ "}
-            {style.label}
-          </Button>
-        ))}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        {STYLES.map((s) => {
+          const isSelected =
+            s.value === "all"
+              ? STYLES.filter((st) => st.value !== "all").every((st) =>
+                  selectedStyles.has(st.value)
+                )
+              : selectedStyles.has(s.value);
+          return (
+            <label
+              key={s.value}
+              htmlFor={`style-${s.value}`}
+              className="cursor-pointer"
+            >
+              <input
+                id={`style-${s.value}`}
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => toggleStyle(s.value)}
+                className="peer sr-only"
+                aria-label={`${s.label} - ${s.subtitle}`}
+                disabled={disabled}
+              />
+              <div
+                className={cn(
+                  "p-4 rounded-xl border transition-all text-center",
+                  "bg-card hover:bg-accent",
+                  isSelected && "border-primary bg-primary/10",
+                  disabled && "opacity-50 cursor-not-allowed"
+                )}
+              >
+                <span className="font-medium block">{s.label}</span>
+                <span className="block text-xs text-muted-foreground mt-1">
+                  {s.subtitle}
+                </span>
+              </div>
+            </label>
+          );
+        })}
       </div>
+      {selectedStyles.size === 0 && (
+        <p className="text-sm text-muted-foreground">
+          Please select at least one style
+        </p>
+      )}
+      {selectedStyles.size > 0 && (
+        <div className="mt-4">
+          <p className="text-sm font-medium mb-2">SELECTED STYLES:</p>
+          <div className="flex flex-wrap gap-2">
+            {Array.from(selectedStyles).map((styleValue) => {
+              const style = STYLES.find((s) => s.value === styleValue);
+              return style ? (
+                <span
+                  key={styleValue}
+                  className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-primary/10 text-primary border border-primary/20"
+                >
+                  {style.label}
+                </span>
+              ) : null;
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

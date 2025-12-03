@@ -137,12 +137,26 @@ export default function HistoryDetailPage() {
   }, []);
 
   const handleStyleToggle = useCallback((style: string) => {
+    const ALL_STYLES = ["split", "left_focus", "right_focus", "intelligent", "intelligent_split", "original"];
+
     setSelectedStyles((prev) => {
       const next = new Set(prev);
-      if (next.has(style)) {
-        next.delete(style);
+      if (style === "all") {
+        // "All Styles" is a special case - toggle all available styles
+        if (ALL_STYLES.every((s) => next.has(s))) {
+          // If all are selected, deselect all
+          ALL_STYLES.forEach((s) => next.delete(s));
+        } else {
+          // Otherwise, select all
+          ALL_STYLES.forEach((s) => next.add(s));
+        }
       } else {
-        next.add(style);
+        // Toggle individual style
+        if (next.has(style)) {
+          next.delete(style);
+        } else {
+          next.add(style);
+        }
       }
       return next;
     });
