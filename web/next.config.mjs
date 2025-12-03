@@ -1,10 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // Force webpack instead of Turbopack
-  webpack: (config) => {
-    return config;
-  },
+  // Use Turbopack (default in Next.js 16)
+  turbopack: {},
   // Enable standalone output for Docker production builds
   // This creates a minimal production image with only necessary files
   output: "standalone",
