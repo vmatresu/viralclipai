@@ -94,7 +94,7 @@ async def process_video_workflow(
         # If style is 'all', we include the standard styles plus 'intelligent' if requested or by default?
         # The user wants 'intelligent' included in ALL.
         if style == "all":
-            styles_to_process = clipper.AVAILABLE_STYLES + ["intelligent"]
+            styles_to_process = clipper.AVAILABLE_STYLES + ["intelligent", "original"]
         else:
             styles_to_process = [style]
             

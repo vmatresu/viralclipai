@@ -44,7 +44,7 @@ def parse_time(t_str: str) -> datetime:
     fmt = "%H:%M:%S.%f" if "." in t_str else "%H:%M:%S"
     return datetime.strptime(t_str, fmt)
 
-def build_vf_filter(style: str, crop_mode: str = "none") -> str:
+def build_vf_filter(style: str, crop_mode: str = "none") -> Optional[str]:
     if style == "split":
         return (
             "scale=1920:-2,split=2[full][full2];"
@@ -68,6 +68,8 @@ def build_vf_filter(style: str, crop_mode: str = "none") -> str:
             "scale=1080:1920:force_original_aspect_ratio=decrease,"
             "pad=1080:1920:(ow-iw)/2:(oh-ih)/2"
         )
+    elif style == "original":
+        return None
     return "scale=-2:1920,crop=1080:1920"
 
 def run_ffmpeg_clip(
@@ -105,14 +107,19 @@ def run_ffmpeg_clip(
         "-ss", f"{start_seconds:.3f}",
         "-t", f"{duration:.3f}",
         "-i", str(video_file),
-        "-vf", vf_filter,
+    ]
+    
+    if vf_filter:
+        cmd.extend(["-vf", vf_filter])
+        
+    cmd.extend([
         "-c:v", "libx264",
         "-preset", "fast",
         "-crf", "18",
         "-c:a", "aac",
         "-b:a", "128k",
         str(out_path),
-    ]
+    ])
 
     try:
         subprocess.run(cmd, check=True, capture_output=True, text=True)

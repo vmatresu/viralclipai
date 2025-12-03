@@ -24,6 +24,7 @@ const STYLES = [
   { value: "left_focus", label: "Left Focus", subtitle: "Full Height" },
   { value: "right_focus", label: "Right Focus", subtitle: "Full Height" },
   { value: "intelligent", label: "Intelligent Crop", subtitle: "Face Tracking" },
+  { value: "original", label: "Original", subtitle: "No Cropping" },
   { value: "all", label: "All Styles", subtitle: "Generate All" },
 ];
 
