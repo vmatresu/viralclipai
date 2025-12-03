@@ -1,6 +1,6 @@
 /**
  * Cache Types & Interfaces
- * 
+ *
  * Centralized type definitions for the caching system.
  */
 
@@ -97,7 +97,7 @@ export interface IStorageAdapter {
 /**
  * Cache event types for observability
  */
-export type CacheEventType = 
+export type CacheEventType =
   | "hit"
   | "miss"
   | "set"
@@ -112,4 +112,3 @@ export interface CacheEvent {
   timestamp: number;
   metadata?: Record<string, unknown>;
 }
-

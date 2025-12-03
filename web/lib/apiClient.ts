@@ -65,7 +65,9 @@ export async function apiFetch<T = unknown>(
       throw new Error("Invalid API base URL configuration");
     }
     // Remove trailing slash from base if present to prevent double slashes
-    const cleanBase = sanitizedBase.endsWith("/") ? sanitizedBase.slice(0, -1) : sanitizedBase;
+    const cleanBase = sanitizedBase.endsWith("/")
+      ? sanitizedBase.slice(0, -1)
+      : sanitizedBase;
     url = `${cleanBase}${sanitizedPath}`;
   } else {
     // Relative URL - ensure it's safe
@@ -125,23 +127,30 @@ export async function apiFetch<T = unknown>(
 /**
  * Delete a single video
  */
-export async function deleteVideo(
+export function deleteVideo(
   videoId: string,
   token: string
-): Promise<{ success: boolean; video_id: string; message?: string; files_deleted?: number }> {
-  return apiFetch<{ success: boolean; video_id: string; message?: string; files_deleted?: number }>(
-    `/api/videos/${encodeURIComponent(videoId)}`,
-    {
-      method: "DELETE",
-      token,
-    }
-  );
+): Promise<{
+  success: boolean;
+  video_id: string;
+  message?: string;
+  files_deleted?: number;
+}> {
+  return apiFetch<{
+    success: boolean;
+    video_id: string;
+    message?: string;
+    files_deleted?: number;
+  }>(`/api/videos/${encodeURIComponent(videoId)}`, {
+    method: "DELETE",
+    token,
+  });
 }
 
 /**
  * Delete multiple videos
  */
-export async function bulkDeleteVideos(
+export function bulkDeleteVideos(
   videoIds: string[],
   token: string
 ): Promise<{
@@ -154,7 +163,10 @@ export async function bulkDeleteVideos(
     success: boolean;
     deleted_count: number;
     failed_count: number;
-    results: Record<string, { success: boolean; error?: string; files_deleted?: number }>;
+    results: Record<
+      string,
+      { success: boolean; error?: string; files_deleted?: number }
+    >;
   }>("/api/videos", {
     method: "DELETE",
     token,
@@ -165,7 +177,7 @@ export async function bulkDeleteVideos(
 /**
  * Delete a single clip from a video
  */
-export async function deleteClip(
+export function deleteClip(
   videoId: string,
   clipName: string,
   token: string
@@ -194,7 +206,7 @@ export async function deleteClip(
 /**
  * Update video title
  */
-export async function updateVideoTitle(
+export function updateVideoTitle(
   videoId: string,
   title: string,
   token: string
@@ -209,20 +221,17 @@ export async function updateVideoTitle(
     video_id: string;
     title: string;
     message?: string;
-  }>(
-    `/api/videos/${encodeURIComponent(videoId)}/title`,
-    {
-      method: "PATCH",
-      token,
-      body: { title },
-    }
-  );
+  }>(`/api/videos/${encodeURIComponent(videoId)}/title`, {
+    method: "PATCH",
+    token,
+    body: { title },
+  });
 }
 
 /**
  * Get highlights for a video
  */
-export async function getVideoHighlights(
+export function getVideoHighlights(
   videoId: string,
   token: string
 ): Promise<{
@@ -240,19 +249,16 @@ export async function getVideoHighlights(
     description?: string;
   }>;
 }> {
-  return apiFetch(
-    `/api/videos/${encodeURIComponent(videoId)}/highlights`,
-    {
-      method: "GET",
-      token,
-    }
-  );
+  return apiFetch(`/api/videos/${encodeURIComponent(videoId)}/highlights`, {
+    method: "GET",
+    token,
+  });
 }
 
 /**
  * Reprocess scenes from a video
  */
-export async function reprocessScenes(
+export function reprocessScenes(
   videoId: string,
   sceneIds: number[],
   styles: string[],
@@ -263,12 +269,9 @@ export async function reprocessScenes(
   message: string;
   job_id?: string;
 }> {
-  return apiFetch(
-    `/api/videos/${encodeURIComponent(videoId)}/reprocess`,
-    {
-      method: "POST",
-      token,
-      body: { scene_ids: sceneIds, styles },
-    }
-  );
+  return apiFetch(`/api/videos/${encodeURIComponent(videoId)}/reprocess`, {
+    method: "POST",
+    token,
+    body: { scene_ids: sceneIds, styles },
+  });
 }

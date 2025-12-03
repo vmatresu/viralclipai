@@ -225,8 +225,9 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
       void invalidateClipsCache(videoId);
 
       // Clean up blob URL if it exists
-      if (blobUrls.current[clipToDelete.name]) {
-        URL.revokeObjectURL(blobUrls.current[clipToDelete.name]);
+      const blobUrl = blobUrls.current[clipToDelete.name];
+      if (blobUrl) {
+        URL.revokeObjectURL(blobUrl);
         delete blobUrls.current[clipToDelete.name];
       }
 
@@ -348,7 +349,7 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
                   className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/10 transition-colors cursor-pointer"
                   onClick={() => {
                     const video = videoRefs.current[clip.name];
-                    if (video) video.play();
+                    if (video) void video.play();
                   }}
                 >
                   <div className="w-16 h-16 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center pl-1 shadow-lg transform group-hover:scale-110 transition-transform">

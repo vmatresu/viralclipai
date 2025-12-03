@@ -4,21 +4,15 @@
  * Displays processing results and clips.
  */
 
-import { useState, useEffect } from "react";
 import { Sparkles } from "lucide-react";
+import { useState, useEffect } from "react";
+import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { EditableTitle } from "@/components/EditableTitle";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { updateVideoTitle } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
-import { toast } from "sonner";
 
 import { ClipGrid, type Clip } from "../ClipGrid";
 
@@ -47,50 +41,18 @@ function extractYouTubeId(url: string): string | null {
       if (videoId) return videoId;
       // Handle /shorts/, /embed/, /v/ paths
       const pathParts = urlObj.pathname.split("/").filter(Boolean);
-      if (pathParts.length >= 2 && ["shorts", "embed", "v"].includes(pathParts[0])) {
-        return pathParts[1];
+      if (
+        pathParts.length >= 2 &&
+        pathParts[0] &&
+        ["shorts", "embed", "v"].includes(pathParts[0])
+      ) {
+        return pathParts[1] || null;
       }
     }
   } catch {
     // Invalid URL
   }
   return null;
-}
-
-function getDisplayTitle(title: string | null | undefined, videoUrl: string | null | undefined): string {
-  // Check for placeholder or empty titles
-  if (!title || title.trim() === "") {
-    return "Untitled Video";
-  }
-  
-  // Check for common placeholder patterns
-  const placeholderPatterns = [
-    /^the main title of the/i,
-    /^main title/i,
-    /^video title/i,
-    /^title$/i,
-    /^untitled/i,
-    /^generated clips/i,
-  ];
-  
-  const trimmedTitle = title.trim();
-  if (placeholderPatterns.some(pattern => pattern.test(trimmedTitle))) {
-    // Try to extract YouTube ID from URL as fallback
-    if (videoUrl) {
-      try {
-        const urlObj = new URL(videoUrl);
-        const videoId = urlObj.searchParams.get("v") || urlObj.pathname.split("/").pop();
-        if (videoId && videoId.length > 5) {
-          return `YouTube Video (${videoId.substring(0, 8)}...)`;
-        }
-      } catch {
-        // URL parsing failed, use generic fallback
-      }
-    }
-    return "Untitled Video";
-  }
-  
-  return trimmedTitle;
 }
 
 export function Results({
@@ -107,7 +69,6 @@ export function Results({
   const { getIdToken } = useAuth();
   const [currentTitle, setCurrentTitle] = useState(videoTitle);
   const youtubeId = videoUrl ? extractYouTubeId(videoUrl) : null;
-  const displayTitle = getDisplayTitle(currentTitle, videoUrl);
 
   useEffect(() => {
     setCurrentTitle(videoTitle);
@@ -149,10 +110,7 @@ export function Results({
           </CardHeader>
           <CardContent className="space-y-4">
             {currentTitle && (
-              <EditableTitle
-                title={currentTitle}
-                onSave={handleTitleSave}
-              />
+              <EditableTitle title={currentTitle} onSave={handleTitleSave} />
             )}
             {videoUrl && (
               <>
@@ -188,7 +146,9 @@ export function Results({
       {customPromptUsed && (
         <Card className="glass">
           <CardHeader>
-            <CardTitle className="text-base font-semibold">Custom Prompt Used</CardTitle>
+            <CardTitle className="text-base font-semibold">
+              Custom Prompt Used
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-sm whitespace-pre-wrap leading-relaxed">
@@ -198,7 +158,12 @@ export function Results({
         </Card>
       )}
 
-      <ClipGrid videoId={videoId} clips={clips} log={log} onClipDeleted={onClipDeleted} />
+      <ClipGrid
+        videoId={videoId}
+        clips={clips}
+        log={log}
+        onClipDeleted={onClipDeleted}
+      />
     </section>
   );
 }

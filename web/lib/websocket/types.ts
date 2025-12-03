@@ -1,6 +1,6 @@
 /**
  * WebSocket Message Types and Schemas
- * 
+ *
  * Centralized definitions for WebSocket message types used in video processing.
  */
 
@@ -12,7 +12,7 @@ export const WS_MESSAGE_TYPES = {
   CLIP_UPLOADED: "clip_uploaded",
 } as const;
 
-export type WSMessageType = typeof WS_MESSAGE_TYPES[keyof typeof WS_MESSAGE_TYPES];
+export type WSMessageType = (typeof WS_MESSAGE_TYPES)[keyof typeof WS_MESSAGE_TYPES];
 
 /**
  * Base WebSocket message structure
@@ -103,7 +103,6 @@ export function validateWSMessage(message: unknown): message is WSMessage {
     return false;
   }
 
-  const type = msg.type as string;
+  const type = msg.type;
   return Object.values(WS_MESSAGE_TYPES).includes(type as WSMessageType);
 }
-

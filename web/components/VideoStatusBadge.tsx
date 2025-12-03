@@ -1,6 +1,6 @@
 /**
  * Video Status Badge Component
- * 
+ *
  * Displays the processing status of a video with appropriate styling.
  */
 
@@ -33,4 +33,3 @@ export function VideoStatusBadge({
     </div>
   );
 }
-

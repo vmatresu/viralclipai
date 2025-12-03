@@ -1,32 +1,32 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useState, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
+
+import { useAuth } from "@/lib/auth";
 
 function AuthFinishContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { isEmailLink, finishEmailSignIn } = useAuth();
   const [verifying, setVerifying] = useState(true);
 
   useEffect(() => {
     const handleFinish = async () => {
       const link = window.location.href;
-      
+
       if (isEmailLink(link)) {
-        let email = window.localStorage.getItem('emailForSignIn');
-        
+        let email = window.localStorage.getItem("emailForSignIn");
+
         if (!email) {
           // User opened link on different device
-          email = window.prompt('Please provide your email for confirmation');
+          email = window.prompt("Please provide your email for confirmation");
         }
-        
+
         if (!email) {
-            toast.error("Email is required to complete sign in.");
-            setVerifying(false);
-            return;
+          toast.error("Email is required to complete sign in.");
+          setVerifying(false);
+          return;
         }
 
         try {
@@ -43,22 +43,24 @@ function AuthFinishContent() {
       }
     };
 
-    handleFinish();
+    void handleFinish();
   }, [isEmailLink, finishEmailSignIn, router]);
 
   if (verifying) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-500 mb-4"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-500 mb-4" />
         <p className="text-lg text-muted-foreground">Verifying your sign in...</p>
       </div>
     );
   }
 
   return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh]">
-          <p className="text-lg text-red-500">Invalid sign-in link or verification failed.</p>
-      </div>
+    <div className="flex flex-col items-center justify-center min-h-[60vh]">
+      <p className="text-lg text-red-500">
+        Invalid sign-in link or verification failed.
+      </p>
+    </div>
   );
 }
 

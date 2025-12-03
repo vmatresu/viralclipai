@@ -44,7 +44,7 @@ export function useVideoProcessing() {
       } else if (type === "success") {
         prefix = "[OK]";
       }
-      
+
       // Format timestamp if provided (ISO 8601 format from server)
       let timestampStr = "";
       if (timestamp) {
@@ -62,7 +62,7 @@ export function useVideoProcessing() {
           // If timestamp parsing fails, ignore it
         }
       }
-      
+
       setLogs((prev) => [...prev, `${timestampStr}${prefix} ${msg}`]);
     },
     []
@@ -72,7 +72,7 @@ export function useVideoProcessing() {
     async (id: string) => {
       try {
         setSubmitting(false);
-        
+
         // SECURITY: Always check authentication first before accessing any data
         const token = await getIdToken();
         if (!token) {
@@ -83,7 +83,7 @@ export function useVideoProcessing() {
           setVideoUrl(null);
           throw new Error("You must be signed in to view your clips.");
         }
-        
+
         // Only check cache after authentication is verified
         const cachedData = await getCachedClips(id);
         if (cachedData) {
@@ -92,7 +92,7 @@ export function useVideoProcessing() {
           setCustomPromptUsed(cachedData.custom_prompt ?? null);
           setVideoTitle(cachedData.video_title ?? null);
           setVideoUrl(cachedData.video_url ?? null);
-          
+
           // Track processing completion with actual clips count
           // Use stored values from when processing started, not current form values
           if (processingStartTime.current) {
@@ -108,16 +108,18 @@ export function useVideoProcessing() {
           }
           return;
         }
-        
+
         // Cache miss - fetch from API (token already verified above)
-        const data = await apiFetch<{ clips: Clip[]; custom_prompt?: string; video_title?: string; video_url?: string }>(
-          `/api/videos/${id}`,
-          {
-            token,
-          }
-        );
+        const data = await apiFetch<{
+          clips: Clip[];
+          custom_prompt?: string;
+          video_title?: string;
+          video_url?: string;
+        }>(`/api/videos/${id}`, {
+          token,
+        });
         const clipsData = data.clips || [];
-        
+
         // Cache the data for future use (fire and forget)
         void setCachedClips(id, {
           clips: clipsData,
@@ -125,7 +127,7 @@ export function useVideoProcessing() {
           video_title: data.video_title ?? null,
           video_url: data.video_url ?? null,
         });
-        
+
         setClips(clipsData);
         setCustomPromptUsed(data.custom_prompt ?? null);
         setVideoTitle(data.video_title ?? null);
@@ -155,7 +157,7 @@ export function useVideoProcessing() {
 
   useEffect(() => {
     const existingId = searchParams.get("id");
-    
+
     // SECURITY: Only load results if user is authenticated
     if (existingId && !authLoading && user) {
       setVideoId(existingId);

@@ -25,7 +25,7 @@ export function getWebSocketUrl(apiBaseUrl?: string): string {
   ) {
     throw new Error("Invalid WebSocket URL");
   }
-  
+
   return wsUrl;
 }
 

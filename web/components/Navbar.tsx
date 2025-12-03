@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  Home,
-  DollarSign,
-  History,
-  Settings,
-  LogIn,
-  LogOut,
-} from "lucide-react";
+import { Home, DollarSign, History, Settings, LogOut } from "lucide-react";
 import Link from "next/link";
 
 import { SignInDialog } from "@/components/SignInDialog";
@@ -30,7 +23,10 @@ export function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center gap-3">
-            <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+            <Link
+              href="/"
+              className="flex items-center gap-3 hover:opacity-80 transition-opacity"
+            >
               <img
                 src="/logo.svg"
                 alt="Viral Clip AI Logo"
@@ -62,9 +58,7 @@ export function Navbar() {
               );
             })}
             <ThemeSwitcher />
-            {!loading && !user && (
-              <SignInDialog />
-            )}
+            {!loading && !user && <SignInDialog />}
             {!loading && user && (
               <div className="flex items-center gap-2">
                 <span className="hidden md:inline text-xs text-muted-foreground max-w-[150px] truncate">

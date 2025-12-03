@@ -1,13 +1,21 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, AlertCircle, ChevronDown, ChevronRight, Play, Sparkles } from "lucide-react";
+import {
+  ArrowLeft,
+  AlertCircle,
+  ChevronDown,
+  ChevronRight,
+  Play,
+  Sparkles,
+} from "lucide-react";
 import Link from "next/link";
-
-import { apiFetch, getVideoHighlights } from "@/lib/apiClient";
-import { useAuth } from "@/lib/auth";
+import { useParams, useRouter } from "next/navigation";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { toast } from "sonner";
+
+import { ProcessingStatus } from "@/components/HistoryDetail/ProcessingStatus";
+import { SceneCard, type Highlight } from "@/components/HistoryDetail/SceneCard";
+import { StyleSelector } from "@/components/HistoryDetail/StyleSelector";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -17,9 +25,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useReprocessing } from "@/hooks/useReprocessing";
-import { SceneCard, type Highlight } from "@/components/HistoryDetail/SceneCard";
-import { StyleSelector } from "@/components/HistoryDetail/StyleSelector";
-import { ProcessingStatus } from "@/components/HistoryDetail/ProcessingStatus";
+import { apiFetch, getVideoHighlights } from "@/lib/apiClient";
+import { useAuth } from "@/lib/auth";
 
 interface HighlightsData {
   video_id: string;
@@ -33,9 +40,7 @@ export default function HistoryDetailPage() {
   const router = useRouter();
   const videoId = params.id as string;
   const { getIdToken, user, loading: authLoading } = useAuth();
-  const [highlightsData, setHighlightsData] = useState<HighlightsData | null>(
-    null
-  );
+  const [highlightsData, setHighlightsData] = useState<HighlightsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedScenes, setSelectedScenes] = useState<Set<number>>(new Set());
@@ -43,11 +48,7 @@ export default function HistoryDetailPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(true);
 
-  const {
-    isProcessing: isReprocessing,
-    reprocess,
-    cancel,
-  } = useReprocessing({
+  const { isProcessing: isReprocessing, reprocess } = useReprocessing({
     videoId,
     onComplete: () => {
       setIsProcessing(false);
@@ -105,9 +106,7 @@ export default function HistoryDetailPage() {
 
         if (cancelled) return;
 
-        const video = data.videos.find(
-          (v) => (v.video_id ?? v.id) === videoId
-        );
+        const video = data.videos.find((v) => (v.video_id ?? v.id) === videoId);
         setIsProcessing(video?.status === "processing");
       } catch (err) {
         if (!cancelled) {
@@ -138,7 +137,14 @@ export default function HistoryDetailPage() {
   }, []);
 
   const handleStyleToggle = useCallback((style: string) => {
-    const ALL_STYLES = ["split", "left_focus", "right_focus", "intelligent", "intelligent_split", "original"];
+    const ALL_STYLES = [
+      "split",
+      "left_focus",
+      "right_focus",
+      "intelligent",
+      "intelligent_split",
+      "original",
+    ];
 
     setSelectedStyles((prev) => {
       const next = new Set(prev);
@@ -184,7 +190,7 @@ export default function HistoryDetailPage() {
     if (parts.length === 3) {
       const [h, m, s] = parts;
       const totalSeconds =
-        parseInt(h) * 3600 + parseInt(m) * 60 + parseFloat(s);
+        parseInt(h || "0") * 3600 + parseInt(m || "0") * 60 + parseFloat(s || "0");
       const minutes = Math.floor(totalSeconds / 60);
       const seconds = Math.floor(totalSeconds % 60);
       return `${minutes}:${seconds.toString().padStart(2, "0")}`;
@@ -208,7 +214,7 @@ export default function HistoryDetailPage() {
   if (authLoading) {
     return (
       <div className="flex flex-col items-center justify-center py-24 space-y-4">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
         <p className="text-muted-foreground">Checking authentication...</p>
       </div>
     );
@@ -233,7 +239,7 @@ export default function HistoryDetailPage() {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-24 space-y-4">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
         <p className="text-muted-foreground">Loading highlights...</p>
       </div>
     );
@@ -272,9 +278,7 @@ export default function HistoryDetailPage() {
         </div>
       </div>
 
-      {(isProcessing || isReprocessing) && (
-        <ProcessingStatus videoId={videoId} />
-      )}
+      {(isProcessing || isReprocessing) && <ProcessingStatus videoId={videoId} />}
 
       <Card className="glass">
         <CardHeader
@@ -301,8 +305,8 @@ export default function HistoryDetailPage() {
             </Button>
           </CardTitle>
           <CardDescription>
-            Choose scenes and styles to generate new clips. This feature is
-            available for Pro and Enterprise plans.
+            Choose scenes and styles to generate new clips. This feature is available
+            for Pro and Enterprise plans.
           </CardDescription>
         </CardHeader>
         {!isCollapsed && (
@@ -337,11 +341,7 @@ export default function HistoryDetailPage() {
                   ? `Will generate ${totalClipsToGenerate} new clip(s)`
                   : "Select scenes and styles to reprocess"}
               </p>
-              <Button
-                onClick={handleReprocess}
-                disabled={!canReprocess}
-                size="lg"
-              >
+              <Button onClick={handleReprocess} disabled={!canReprocess} size="lg">
                 <Play className="h-4 w-4 mr-2" />
                 Reprocess Selected
               </Button>
@@ -353,15 +353,11 @@ export default function HistoryDetailPage() {
       <Card className="glass">
         <CardHeader>
           <CardTitle>Existing Clips</CardTitle>
-          <CardDescription>
-            View all clips generated for this video
-          </CardDescription>
+          <CardDescription>View all clips generated for this video</CardDescription>
         </CardHeader>
         <CardContent>
           <Button asChild variant="outline">
-            <Link href={`/?id=${encodeURIComponent(videoId)}`}>
-              View All Clips
-            </Link>
+            <Link href={`/?id=${encodeURIComponent(videoId)}`}>View All Clips</Link>
           </Button>
         </CardContent>
       </Card>

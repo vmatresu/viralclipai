@@ -1,3 +1,7 @@
+import { LogIn, Mail, ArrowRight } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -10,10 +14,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth";
-import { useState } from "react";
-import { toast } from "sonner";
+
 import { GoogleSignInButton } from "./GoogleSignInButton";
-import { LogIn, Mail, ArrowRight } from "lucide-react";
 
 export function SignInDialog({ children }: { children?: React.ReactNode }) {
   const [email, setEmail] = useState("");
@@ -41,7 +43,7 @@ export function SignInDialog({ children }: { children?: React.ReactNode }) {
       toast.error("Please enter your email address");
       return;
     }
-    
+
     setIsEmailLoading(true);
     try {
       await sendEmailLink(email);
@@ -59,7 +61,11 @@ export function SignInDialog({ children }: { children?: React.ReactNode }) {
     <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
       <DialogTrigger asChild>
         {children || (
-          <Button variant="brand" size="sm" className="gap-2 shadow-md hover:shadow-lg transition-all">
+          <Button
+            variant="brand"
+            size="sm"
+            className="gap-2 shadow-md hover:shadow-lg transition-all"
+          >
             <LogIn className="h-4 w-4" />
             <span className="hidden sm:inline">Get Started</span>
           </Button>
@@ -70,19 +76,21 @@ export function SignInDialog({ children }: { children?: React.ReactNode }) {
           <div className="mx-auto w-12 h-12 bg-gradient-to-br from-brand-100 to-brand-200 dark:from-brand-900/50 dark:to-brand-800/50 rounded-full flex items-center justify-center mb-4 shadow-inner border border-brand-200 dark:border-brand-700">
             <LogIn className="h-6 w-6 text-brand-600 dark:text-brand-400" />
           </div>
-          <DialogTitle className="text-2xl font-bold tracking-tight">Welcome Back</DialogTitle>
+          <DialogTitle className="text-2xl font-bold tracking-tight">
+            Welcome Back
+          </DialogTitle>
           <DialogDescription className="text-base">
             Sign in to your account to continue
           </DialogDescription>
         </DialogHeader>
-        
+
         <div className="p-6 pt-2 grid gap-6">
-          <GoogleSignInButton 
-            onClick={handleGoogleSignIn} 
+          <GoogleSignInButton
+            onClick={handleGoogleSignIn}
             loading={isGoogleLoading}
             className="w-full h-11 text-base shadow-sm"
           />
-          
+
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
               <span className="w-full border-t border-border" />
@@ -96,7 +104,9 @@ export function SignInDialog({ children }: { children?: React.ReactNode }) {
 
           <form onSubmit={handleEmailSignIn} className="grid gap-4">
             <div className="grid gap-2">
-              <Label htmlFor="email" className="sr-only">Email address</Label>
+              <Label htmlFor="email" className="sr-only">
+                Email address
+              </Label>
               <div className="relative">
                 <div className="absolute left-3 top-3 text-muted-foreground">
                   <Mail className="h-5 w-5" />
@@ -115,19 +125,19 @@ export function SignInDialog({ children }: { children?: React.ReactNode }) {
                 />
               </div>
             </div>
-            <Button 
-              type="submit" 
-              className="w-full h-11 gap-2 font-semibold shadow-md" 
+            <Button
+              type="submit"
+              className="w-full h-11 gap-2 font-semibold shadow-md"
               disabled={isEmailLoading}
               variant="default"
             >
               {isEmailLoading ? (
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
               ) : (
-                  <>
-                    Continue with Email
-                    <ArrowRight className="h-4 w-4 ml-1" />
-                  </>
+                <>
+                  Continue with Email
+                  <ArrowRight className="h-4 w-4 ml-1" />
+                </>
               )}
             </Button>
           </form>

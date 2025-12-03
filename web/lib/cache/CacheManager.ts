@@ -1,24 +1,24 @@
 /**
  * Cache Manager
- * 
+ *
  * Production-ready cache manager with LRU eviction, versioning,
  * and comprehensive error handling.
- * 
+ *
  * Implements SOLID principles:
  * - Single Responsibility: Manages cache operations only
  * - Open/Closed: Extensible via storage adapters
  * - Dependency Inversion: Depends on IStorageAdapter abstraction
  */
 
+import { frontendLogger } from "@/lib/logger";
+
 import type {
   CacheConfig,
-  CacheEntry,
   CacheEvent,
   CacheStats,
   CachedClipsData,
   IStorageAdapter,
 } from "./types";
-import { frontendLogger } from "@/lib/logger";
 
 /**
  * Default cache configuration
@@ -41,12 +41,12 @@ export class CacheManager {
   private readonly logger = frontendLogger;
   private stats: CacheStats;
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
-  private readonly eventListeners: Map<CacheEvent["type"], Set<(event: CacheEvent) => void>> = new Map();
+  private readonly eventListeners: Map<
+    CacheEvent["type"],
+    Set<(event: CacheEvent) => void>
+  > = new Map();
 
-  constructor(
-    storage: IStorageAdapter,
-    config: Partial<CacheConfig> = {}
-  ) {
+  constructor(storage: IStorageAdapter, config: Partial<CacheConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.storage = storage;
     this.stats = {
@@ -60,7 +60,7 @@ export class CacheManager {
 
     // Start periodic cleanup
     this.startCleanupTimer();
-    
+
     // Initialize stats
     this.refreshStats().catch((error) => {
       this.logger.warn("Failed to initialize cache stats", { error });
@@ -105,7 +105,7 @@ export class CacheManager {
       // Update access metadata
       entry._metadata.lastAccessedAt = Date.now();
       entry._metadata.accessCount += 1;
-      
+
       // Persist updated metadata
       await this.storage.set(key, entry).catch((error) => {
         this.logger.warn("Failed to update cache metadata", { key, error });
@@ -125,38 +125,35 @@ export class CacheManager {
   /**
    * Set cached clips data
    */
-  async set(
-    videoId: string,
-    data: Omit<CachedClipsData, "_metadata">
-  ): Promise<void> {
-    try {
-      const key = this.getCacheKey(videoId);
-      
-      // Create cache entry with metadata
-      const entry: CachedClipsData = {
-        ...data,
-        _metadata: {
-          cachedAt: Date.now(),
-          lastAccessedAt: Date.now(),
-          accessCount: 0,
-          version: this.config.version,
-        },
-      };
+  async set(videoId: string, data: Omit<CachedClipsData, "_metadata">): Promise<void> {
+    const key = this.getCacheKey(videoId);
 
-      // Check size before storing
-      const size = await this.estimateEntrySize(entry);
-      
+    // Create cache entry with metadata
+    const entry: CachedClipsData = {
+      ...data,
+      _metadata: {
+        cachedAt: Date.now(),
+        lastAccessedAt: Date.now(),
+        accessCount: 0,
+        version: this.config.version,
+      },
+    };
+
+    // Check size before storing
+    const size = this.estimateEntrySize(entry);
+
+    try {
       // Evict if necessary
       await this.evictIfNeeded(size);
 
       // Store entry
       await this.storage.set(key, entry);
-      
+
       await this.refreshStats();
       this.emitEvent("set", key, { size });
     } catch (error) {
       this.recordError();
-      
+
       // If quota exceeded, try evicting and retry once
       if (error instanceof Error && error.message === "Storage quota exceeded") {
         this.logger.warn("Storage quota exceeded, attempting eviction", { videoId });
@@ -198,9 +195,7 @@ export class CacheManager {
    * Invalidate multiple cache entries
    */
   async invalidateMany(videoIds: string[]): Promise<void> {
-    await Promise.allSettled(
-      videoIds.map((videoId) => this.invalidate(videoId))
-    );
+    await Promise.allSettled(videoIds.map((videoId) => this.invalidate(videoId)));
   }
 
   /**
@@ -302,7 +297,7 @@ export class CacheManager {
   /**
    * Estimate size of cache entry in bytes
    */
-  private async estimateEntrySize(entry: CachedClipsData): Promise<number> {
+  private estimateEntrySize(entry: CachedClipsData): number {
     try {
       const serialized = JSON.stringify(entry);
       // UTF-16 encoding: 2 bytes per character
@@ -507,4 +502,3 @@ export class CacheManager {
     }, this.config.cleanupInterval);
   }
 }
-

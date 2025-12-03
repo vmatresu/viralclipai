@@ -198,20 +198,26 @@ export default function DocsPage() {
           <CardContent className="pt-6">
             <ol className="list-decimal list-inside space-y-3 text-muted-foreground">
               <li>
-                <span className="font-semibold text-foreground">Sign in</span> using your
-                Google account (Firebase Auth)
+                <span className="font-semibold text-foreground">Sign in</span> using
+                your Google account (Firebase Auth)
               </li>
               <li>
-                <span className="font-semibold text-foreground">Paste a YouTube URL</span> on
-                the Home page and choose an output style
+                <span className="font-semibold text-foreground">
+                  Paste a YouTube URL
+                </span>{" "}
+                on the Home page and choose an output style
               </li>
               <li>
-                <span className="font-semibold text-foreground">Wait for processing</span> - the
-                AI will analyze your video and generate clips
+                <span className="font-semibold text-foreground">
+                  Wait for processing
+                </span>{" "}
+                - the AI will analyze your video and generate clips
               </li>
               <li>
-                <span className="font-semibold text-foreground">Download or publish</span> clips
-                directly to TikTok (if configured)
+                <span className="font-semibold text-foreground">
+                  Download or publish
+                </span>{" "}
+                clips directly to TikTok (if configured)
               </li>
             </ol>
           </CardContent>
@@ -224,13 +230,14 @@ export default function DocsPage() {
         <Card className="glass">
           <CardContent className="pt-6 space-y-3 text-muted-foreground">
             <p>
-              We use Firebase Auth on the frontend. The browser obtains a short-lived ID token
-              which is sent to the FastAPI backend via WebSockets and HTTP headers. The backend
-              verifies the token with Firebase Admin and isolates data by user ID.
+              We use Firebase Auth on the frontend. The browser obtains a short-lived ID
+              token which is sent to the FastAPI backend via WebSockets and HTTP
+              headers. The backend verifies the token with Firebase Admin and isolates
+              data by user ID.
             </p>
             <p>
-              All user data is properly isolated, and downloads use short-lived presigned URLs
-              for security.
+              All user data is properly isolated, and downloads use short-lived
+              presigned URLs for security.
             </p>
           </CardContent>
         </Card>
@@ -243,24 +250,24 @@ export default function DocsPage() {
           <CardContent className="pt-6">
             <ul className="list-disc list-inside space-y-2 text-muted-foreground">
               <li>
-                <span className="font-semibold text-foreground">S3 storage:</span> Clips,
-                thumbnails, and analysis metadata are stored in S3
+                <span className="font-semibold text-foreground">S3 storage:</span>{" "}
+                Clips, thumbnails, and analysis metadata are stored in S3
               </li>
               <li>
-                <span className="font-semibold text-foreground">User isolation:</span> Each
-                user&apos;s assets are stored under a per-user prefix
+                <span className="font-semibold text-foreground">User isolation:</span>{" "}
+                Each user&apos;s assets are stored under a per-user prefix
               </li>
               <li>
-                <span className="font-semibold text-foreground">Secure downloads:</span> Downloads
-                use short-lived presigned URLs
+                <span className="font-semibold text-foreground">Secure downloads:</span>{" "}
+                Downloads use short-lived presigned URLs
               </li>
               <li>
-                <span className="font-semibold text-foreground">Firestore:</span> Tracks usage,
-                history, and user settings (including TikTok tokens)
+                <span className="font-semibold text-foreground">Firestore:</span> Tracks
+                usage, history, and user settings (including TikTok tokens)
               </li>
               <li>
-                <span className="font-semibold text-foreground">Temporary files:</span> Raw
-                source videos are used as temporary working files and then removed
+                <span className="font-semibold text-foreground">Temporary files:</span>{" "}
+                Raw source videos are used as temporary working files and then removed
               </li>
             </ul>
           </CardContent>
@@ -273,9 +280,9 @@ export default function DocsPage() {
         <Card className="glass">
           <CardContent className="pt-6 space-y-3 text-muted-foreground">
             <p>
-              Each user has a plan (Free or Pro) that controls how many clips can be generated
-              per calendar month. The backend checks your monthly usage before starting a new
-              job and returns an error if you are over quota.
+              Each user has a plan (Free or Pro) that controls how many clips can be
+              generated per calendar month. The backend checks your monthly usage before
+              starting a new job and returns an error if you are over quota.
             </p>
             <p>
               See the{" "}
@@ -297,10 +304,7 @@ export default function DocsPage() {
               <CardTitle>Need Help?</CardTitle>
             </CardHeader>
             <CardContent>
-              <Link
-                href="/faq"
-                className="text-primary hover:underline font-medium"
-              >
+              <Link href="/faq" className="text-primary hover:underline font-medium">
                 Visit our FAQ page →
               </Link>
             </CardContent>
@@ -310,10 +314,7 @@ export default function DocsPage() {
               <CardTitle>Learn About Styles</CardTitle>
             </CardHeader>
             <CardContent>
-              <Link
-                href="/styles"
-                className="text-primary hover:underline font-medium"
-              >
+              <Link href="/styles" className="text-primary hover:underline font-medium">
                 Explore video styles →
               </Link>
             </CardContent>

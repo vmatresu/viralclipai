@@ -1,13 +1,17 @@
 /**
  * Custom hook for scene reprocessing via WebSocket.
- * 
+ *
  * Provides a clean interface for reprocessing scenes with real-time progress updates.
  */
 
 import { useCallback, useRef, useState, useEffect } from "react";
 import { toast } from "sonner";
+
 import { useAuth } from "@/lib/auth";
-import { reprocessScenesWebSocket, type ReprocessCallbacks } from "@/lib/websocket/reprocess-client";
+import {
+  reprocessScenesWebSocket,
+  type ReprocessCallbacks,
+} from "@/lib/websocket/reprocess-client";
 
 interface ReprocessingState {
   isProcessing: boolean;
@@ -21,7 +25,6 @@ interface UseReprocessingOptions {
   onComplete?: () => void;
   onError?: (error: string) => void;
 }
-
 
 export function useReprocessing({
   videoId,
@@ -182,4 +185,3 @@ export function useReprocessing({
     cancel,
   };
 }
-

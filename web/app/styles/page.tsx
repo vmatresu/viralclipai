@@ -1,6 +1,6 @@
 "use client";
 
-import { Video, Sparkles, Target, Zap, Eye, Film } from "lucide-react";
+import { Eye, Film, Sparkles, Target, Video } from "lucide-react";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
@@ -19,12 +19,11 @@ export default function StylesPage() {
   return (
     <div className="space-y-12">
       <section className="space-y-4">
-        <h1 className="text-3xl md:text-4xl font-extrabold">
-          How Video Styles Work
-        </h1>
+        <h1 className="text-3xl md:text-4xl font-extrabold">How Video Styles Work</h1>
         <p className="text-muted-foreground max-w-3xl text-lg">
-          Transform your landscape videos into perfect portrait clips optimized for TikTok,
-          Instagram Reels, and YouTube Shorts. Choose the style that best fits your content.
+          Transform your landscape videos into perfect portrait clips optimized for
+          TikTok, Instagram Reels, and YouTube Shorts. Choose the style that best fits
+          your content.
         </p>
         <div className="flex gap-3">
           <Button asChild>
@@ -45,8 +44,8 @@ export default function StylesPage() {
             </CardHeader>
             <CardContent>
               <p className="text-muted-foreground">
-                Wide videos like most YouTube videos (1920x1080 pixels). Perfect for desktop
-                viewing and traditional video platforms.
+                Wide videos like most YouTube videos (1920x1080 pixels). Perfect for
+                desktop viewing and traditional video platforms.
               </p>
             </CardContent>
           </Card>
@@ -56,8 +55,8 @@ export default function StylesPage() {
             </CardHeader>
             <CardContent>
               <p className="text-muted-foreground">
-                Tall videos optimized for mobile viewing. The standard format for TikTok,
-                Instagram Reels, and YouTube Shorts (1080x1920 pixels).
+                Tall videos optimized for mobile viewing. The standard format for
+                TikTok, Instagram Reels, and YouTube Shorts (1080x1920 pixels).
               </p>
             </CardContent>
           </Card>
@@ -78,9 +77,9 @@ export default function StylesPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-muted-foreground">
-                Takes your wide video and splits it into two halves, then stacks them on top
-                of each other. Great for interviews, conversations, or videos where both
-                sides of the screen are important.
+                Takes your wide video and splits it into two halves, then stacks them on
+                top of each other. Great for interviews, conversations, or videos where
+                both sides of the screen are important.
               </p>
               <div>
                 <span className="font-semibold">Best for:</span>
@@ -91,7 +90,8 @@ export default function StylesPage() {
                 </ul>
               </div>
               <p className="text-sm text-muted-foreground">
-                <span className="font-semibold">Output:</span> Portrait format (1080x1920)
+                <span className="font-semibold">Output:</span> Portrait format
+                (1080x1920)
               </p>
             </CardContent>
           </Card>
@@ -118,7 +118,8 @@ export default function StylesPage() {
                 </ul>
               </div>
               <p className="text-sm text-muted-foreground">
-                <span className="font-semibold">Output:</span> Portrait format (1080x1920)
+                <span className="font-semibold">Output:</span> Portrait format
+                (1080x1920)
               </p>
             </CardContent>
           </Card>
@@ -145,7 +146,8 @@ export default function StylesPage() {
                 </ul>
               </div>
               <p className="text-sm text-muted-foreground">
-                <span className="font-semibold">Output:</span> Portrait format (1080x1920)
+                <span className="font-semibold">Output:</span> Portrait format
+                (1080x1920)
               </p>
             </CardContent>
           </Card>
@@ -174,8 +176,8 @@ export default function StylesPage() {
                 </ul>
               </div>
               <p className="text-sm text-muted-foreground">
-                <span className="font-semibold">Output:</span> Portrait format (default 9:16,
-                customizable)
+                <span className="font-semibold">Output:</span> Portrait format (default
+                9:16, customizable)
               </p>
             </CardContent>
           </Card>
@@ -186,7 +188,9 @@ export default function StylesPage() {
                 <Target className="h-6 w-6 text-primary" />
                 <CardTitle>Intelligent Split View</CardTitle>
               </div>
-              <CardDescription>AI-powered 9:16 optimized for TikTok & Reels</CardDescription>
+              <CardDescription>
+                AI-powered 9:16 optimized for TikTok & Reels
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-muted-foreground">
@@ -231,7 +235,8 @@ export default function StylesPage() {
                 </ul>
               </div>
               <p className="text-sm text-muted-foreground">
-                <span className="font-semibold">Output:</span> Same as input (no changes)
+                <span className="font-semibold">Output:</span> Same as input (no
+                changes)
               </p>
             </CardContent>
           </Card>
@@ -247,8 +252,8 @@ export default function StylesPage() {
             </CardHeader>
             <CardContent>
               <p className="text-muted-foreground">
-                Your video has two people or two focal points, or both sides of the screen
-                are equally important.
+                Your video has two people or two focal points, or both sides of the
+                screen are equally important.
               </p>
             </CardContent>
           </Card>
@@ -275,12 +280,14 @@ export default function StylesPage() {
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Choose Intelligent Split View if...</CardTitle>
+              <CardTitle className="text-lg">
+                Choose Intelligent Split View if...
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-muted-foreground">
-                You&apos;re posting on TikTok, Instagram Reels, or YouTube Shorts and want
-                guaranteed 9:16 format with AI tracking.
+                You&apos;re posting on TikTok, Instagram Reels, or YouTube Shorts and
+                want guaranteed 9:16 format with AI tracking.
               </p>
             </CardContent>
           </Card>
@@ -301,4 +308,3 @@ export default function StylesPage() {
     </div>
   );
 }
-

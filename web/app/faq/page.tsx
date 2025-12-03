@@ -3,13 +3,7 @@
 import { HelpCircle, Video, Zap, Shield, DollarSign, Settings } from "lucide-react";
 import Link from "next/link";
 
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { usePageView } from "@/lib/usePageView";
 
 export default function FAQPage() {
@@ -133,7 +127,9 @@ export default function FAQPage() {
       <section className="space-y-4">
         <div className="flex items-center gap-3">
           <HelpCircle className="h-8 w-8 text-primary" />
-          <h1 className="text-3xl md:text-4xl font-extrabold">Frequently Asked Questions</h1>
+          <h1 className="text-3xl md:text-4xl font-extrabold">
+            Frequently Asked Questions
+          </h1>
         </div>
         <p className="text-muted-foreground max-w-3xl text-lg">
           Find answers to common questions about Viral Clip AI. Can't find what you're
@@ -186,4 +182,3 @@ export default function FAQPage() {
     </div>
   );
 }
-

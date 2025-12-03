@@ -1,12 +1,13 @@
 /**
  * LocalStorage Storage Adapter
- * 
+ *
  * Implements IStorageAdapter using browser localStorage.
  * Handles quota errors, serialization, and size estimation.
  */
 
-import type { IStorageAdapter } from "../types";
 import { frontendLogger } from "@/lib/logger";
+
+import type { IStorageAdapter } from "../types";
 
 /**
  * LocalStorage adapter implementation
@@ -26,7 +27,7 @@ export class LocalStorageAdapter implements IStorageAdapter {
     try {
       const prefixedKey = this.getPrefixedKey(key);
       const item = localStorage.getItem(prefixedKey);
-      
+
       if (item === null) {
         return null;
       }
@@ -50,6 +51,7 @@ export class LocalStorageAdapter implements IStorageAdapter {
       const prefixedKey = this.getPrefixedKey(key);
       const serialized = JSON.stringify(value);
       localStorage.setItem(prefixedKey, serialized);
+      return Promise.resolve();
     } catch (error) {
       // Handle quota exceeded error
       if (this.isQuotaExceededError(error)) {
@@ -67,6 +69,7 @@ export class LocalStorageAdapter implements IStorageAdapter {
     try {
       const prefixedKey = this.getPrefixedKey(key);
       localStorage.removeItem(prefixedKey);
+      return Promise.resolve();
     } catch (error) {
       this.logger.warn("Failed to remove cache entry", { key, error });
       throw error;
@@ -157,4 +160,3 @@ export class LocalStorageAdapter implements IStorageAdapter {
     return false;
   }
 }
-

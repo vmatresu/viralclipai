@@ -1,19 +1,32 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { Clock, Film, AlertCircle, Trash2, CheckSquare, Square, Copy, Check, TrendingUp, Zap, Calendar, Loader2 } from "lucide-react";
+import {
+  Clock,
+  Film,
+  AlertCircle,
+  Trash2,
+  CheckSquare,
+  Square,
+  Copy,
+  Check,
+  TrendingUp,
+  Zap,
+  Calendar,
+} from "lucide-react";
 import Link from "next/link";
-
-import { apiFetch, deleteVideo, bulkDeleteVideos, updateVideoTitle } from "@/lib/apiClient";
-import { EditableTitle } from "@/components/EditableTitle";
+import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
-import { useAuth } from "@/lib/auth";
-import { usePageView } from "@/lib/usePageView";
-import { invalidateClipsCache, invalidateClipsCacheMany } from "@/lib/cache";
-import { useVideoPolling } from "@/hooks/useVideoPolling";
-import { VideoStatusBadge } from "@/components/VideoStatusBadge";
-import { Button } from "@/components/ui/button";
+
+import { EditableTitle } from "@/components/EditableTitle";
 import { SignInDialog } from "@/components/SignInDialog";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -22,13 +35,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { VideoStatusBadge } from "@/components/VideoStatusBadge";
+import { useVideoPolling } from "@/hooks/useVideoPolling";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  apiFetch,
+  deleteVideo,
+  bulkDeleteVideos,
+  updateVideoTitle,
+} from "@/lib/apiClient";
+import { useAuth } from "@/lib/auth";
+import { invalidateClipsCache, invalidateClipsCacheMany } from "@/lib/cache";
+import { usePageView } from "@/lib/usePageView";
 
 interface UserVideo {
   id?: string;
@@ -55,7 +72,10 @@ export default function HistoryPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedVideos, setSelectedVideos] = useState<Set<string>>(new Set());
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<{ type: "single" | "bulk" | "all"; videoId?: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    type: "single" | "bulk" | "all";
+    videoId?: string;
+  } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [planUsage, setPlanUsage] = useState<PlanUsage | null>(null);
@@ -89,10 +109,10 @@ export default function HistoryPage() {
 
   useEffect(() => {
     let cancelled = false;
-    
+
     async function load() {
       if (authLoading) return;
-      
+
       if (!user) {
         // Not logged in - stop loading but don't error yet (let UI handle it)
         if (!cancelled) {
@@ -107,16 +127,16 @@ export default function HistoryPage() {
         if (!token) {
           throw new Error("Failed to get authentication token");
         }
-        
+
         // Load videos and plan usage in parallel
         const [videosData, usageData] = await Promise.all([
           apiFetch<{ videos: UserVideo[] }>("/api/user/videos", { token }),
           apiFetch<PlanUsage>("/api/settings", { token }),
         ]);
-        
+
         if (!cancelled) {
           setVideos((videosData as { videos: UserVideo[] }).videos ?? []);
-          setPlanUsage(usageData as PlanUsage);
+          setPlanUsage(usageData);
           setError(null);
           setSelectedVideos(new Set()); // Clear selections when reloading
         }
@@ -142,7 +162,7 @@ export default function HistoryPage() {
   // Poll for processing videos using custom hook
   useVideoPolling({
     videos,
-    enabled: !authLoading && !!user,
+    enabled: !authLoading && Boolean(user),
     getIdToken,
     onVideosUpdate: setVideos,
     pollInterval: 5000,
@@ -165,7 +185,9 @@ export default function HistoryPage() {
     if (selectedVideos.size === videos.length) {
       setSelectedVideos(new Set());
     } else {
-      setSelectedVideos(new Set(videos.map((v) => v.video_id ?? v.id ?? "").filter(Boolean)));
+      setSelectedVideos(
+        new Set(videos.map((v) => v.video_id ?? v.id ?? "").filter(Boolean))
+      );
     }
   };
 
@@ -189,17 +211,21 @@ export default function HistoryPage() {
         // Invalidate cache for deleted video (fire and forget)
         void invalidateClipsCache(deleteTarget.videoId);
         // Remove from local state immediately for better UX
-        setVideos((prev) => prev.filter((v) => (v.video_id ?? v.id) !== deleteTarget.videoId));
+        setVideos((prev) =>
+          prev.filter((v) => (v.video_id ?? v.id) !== deleteTarget.videoId)
+        );
       } else if (deleteTarget.type === "bulk" && selectedVideos.size > 0) {
         const videoIds = Array.from(selectedVideos);
         await bulkDeleteVideos(videoIds, token);
         // Invalidate cache for all deleted videos (fire and forget)
         void invalidateClipsCacheMany(videoIds);
         // Remove deleted videos from local state
-        setVideos((prev) => prev.filter((v) => {
-          const id = v.video_id ?? v.id ?? "";
-          return !selectedVideos.has(id);
-        }));
+        setVideos((prev) =>
+          prev.filter((v) => {
+            const id = v.video_id ?? v.id ?? "";
+            return !selectedVideos.has(id);
+          })
+        );
         setSelectedVideos(new Set());
       } else if (deleteTarget.type === "all") {
         const allVideoIds = videos.map((v) => v.video_id ?? v.id ?? "").filter(Boolean);
@@ -215,7 +241,8 @@ export default function HistoryPage() {
       setDeleteDialogOpen(false);
       setDeleteTarget(null);
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to delete video(s)";
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to delete video(s)";
       setError(errorMessage);
       // Reload videos to sync state
       await loadVideos();
@@ -231,7 +258,7 @@ export default function HistoryPage() {
       await navigator.clipboard.writeText(url);
       setCopiedUrl(url);
       setTimeout(() => setCopiedUrl(null), 2000);
-    } catch (err) {
+    } catch (_err) {
       // Fallback for older browsers
       const textArea = document.createElement("textarea");
       textArea.value = url;
@@ -274,46 +301,10 @@ export default function HistoryPage() {
     }
   };
 
-  const getDisplayTitle = (title: string | undefined, videoUrl: string | undefined): string => {
-    // Check for placeholder or empty titles
-    if (!title || title.trim() === "") {
-      return "Untitled Video";
-    }
-    
-    // Check for common placeholder patterns
-    const placeholderPatterns = [
-      /^the main title of the/i,
-      /^main title/i,
-      /^video title/i,
-      /^title/i,
-      /^untitled/i,
-      /^generated clips/i,
-    ];
-    
-    const trimmedTitle = title.trim();
-    if (placeholderPatterns.some(pattern => pattern.test(trimmedTitle))) {
-      // Try to extract YouTube ID from URL as fallback
-      if (videoUrl) {
-        try {
-          const urlObj = new URL(videoUrl);
-          const videoId = urlObj.searchParams.get("v") || urlObj.pathname.split("/").pop();
-          if (videoId && videoId.length > 5) {
-            return `YouTube Video (${videoId.substring(0, 8)}...)`;
-          }
-        } catch {
-          // URL parsing failed, use generic fallback
-        }
-      }
-      return "Untitled Video";
-    }
-    
-    return trimmedTitle;
-  };
-
   if (authLoading) {
     return (
       <div className="flex flex-col items-center justify-center py-24 space-y-4">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
         <p className="text-muted-foreground">Checking authentication...</p>
       </div>
     );
@@ -328,7 +319,8 @@ export default function HistoryPage() {
         <div className="space-y-2">
           <h2 className="text-2xl font-bold tracking-tight">Sign in to view history</h2>
           <p className="text-muted-foreground max-w-md">
-            Your processing history is stored securely in your account. Sign in to access your past videos.
+            Your processing history is stored securely in your account. Sign in to
+            access your past videos.
           </p>
         </div>
         <SignInDialog>
@@ -343,7 +335,7 @@ export default function HistoryPage() {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-24 space-y-4">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
         <p className="text-muted-foreground">Loading your processing history...</p>
       </div>
     );
@@ -373,11 +365,12 @@ export default function HistoryPage() {
         <div className="space-y-2">
           <h2 className="text-2xl font-bold tracking-tight">No history found</h2>
           <p className="text-muted-foreground max-w-md">
-            You haven't processed any videos yet. Start by processing your first video on the home page.
+            You haven't processed any videos yet. Start by processing your first video
+            on the home page.
           </p>
         </div>
         <Button asChild>
-          <a href="/">Process Video</a>
+          <Link href="/">Process Video</Link>
         </Button>
       </div>
     );
@@ -389,7 +382,8 @@ export default function HistoryPage() {
     if (deleteTarget.type === "single") {
       return {
         title: "Delete Video",
-        description: "Are you sure you want to delete this video? This action cannot be undone and will delete all associated clips and files.",
+        description:
+          "Are you sure you want to delete this video? This action cannot be undone and will delete all associated clips and files.",
       };
     } else if (deleteTarget.type === "bulk") {
       return {
@@ -407,7 +401,10 @@ export default function HistoryPage() {
   const dialogContent = getDeleteDialogContent();
 
   const usagePercentage = planUsage
-    ? Math.min((planUsage.clips_used_this_month / planUsage.max_clips_per_month) * 100, 100)
+    ? Math.min(
+        (planUsage.clips_used_this_month / planUsage.max_clips_per_month) * 100,
+        100
+      )
     : 0;
   const isHighUsage = usagePercentage >= 80;
   const isNearLimit = usagePercentage >= 90;
@@ -420,7 +417,9 @@ export default function HistoryPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold tracking-tight">History</h1>
         <div className="flex items-center gap-4">
-          <p className="text-muted-foreground text-sm">{videos.length} videos processed</p>
+          <p className="text-muted-foreground text-sm">
+            {videos.length} videos processed
+          </p>
           {videos.length > 0 && (
             <div className="flex items-center gap-2">
               {selectedVideos.size > 0 && (
@@ -450,7 +449,9 @@ export default function HistoryPage() {
 
       {/* Plan Usage Card */}
       {user && (
-        <Card className={`glass ${isHighUsage ? "border-destructive/50 bg-destructive/5" : ""}`}>
+        <Card
+          className={`glass ${isHighUsage ? "border-destructive/50 bg-destructive/5" : ""}`}
+        >
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
@@ -467,7 +468,8 @@ export default function HistoryPage() {
                 <CardDescription>
                   {planUsage ? (
                     <>
-                      {planUsage.clips_used_this_month} of {planUsage.max_clips_per_month} clips used this month
+                      {planUsage.clips_used_this_month} of{" "}
+                      {planUsage.max_clips_per_month} clips used this month
                       {remainingClips > 0 && ` • ${remainingClips} remaining`}
                     </>
                   ) : (
@@ -477,7 +479,9 @@ export default function HistoryPage() {
               </div>
               {planUsage && (
                 <div className="text-right">
-                  <div className={`text-2xl font-bold ${isHighUsage ? "text-destructive" : "text-primary"}`}>
+                  <div
+                    className={`text-2xl font-bold ${isHighUsage ? "text-destructive" : "text-primary"}`}
+                  >
                     {Math.round(usagePercentage)}%
                   </div>
                   <div className="text-xs text-muted-foreground uppercase">
@@ -493,8 +497,15 @@ export default function HistoryPage() {
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Usage</span>
-                    <span className={isHighUsage ? "text-destructive font-semibold" : "text-muted-foreground"}>
-                      {planUsage.clips_used_this_month} / {planUsage.max_clips_per_month}
+                    <span
+                      className={
+                        isHighUsage
+                          ? "text-destructive font-semibold"
+                          : "text-muted-foreground"
+                      }
+                    >
+                      {planUsage.clips_used_this_month} /{" "}
+                      {planUsage.max_clips_per_month}
                     </span>
                   </div>
                   <div className="relative h-3 w-full overflow-hidden rounded-full bg-muted">
@@ -503,8 +514,8 @@ export default function HistoryPage() {
                         isNearLimit
                           ? "bg-destructive"
                           : isHighUsage
-                          ? "bg-destructive/80"
-                          : "bg-primary"
+                            ? "bg-destructive/80"
+                            : "bg-primary"
                       }`}
                       style={{ width: `${usagePercentage}%` }}
                     />
@@ -538,7 +549,10 @@ export default function HistoryPage() {
                 {!isHighUsage && remainingClips < 10 && (
                   <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
                     <p className="text-sm text-muted-foreground">
-                      <span className="font-semibold text-foreground">{remainingClips} clips remaining</span> this month.{" "}
+                      <span className="font-semibold text-foreground">
+                        {remainingClips} clips remaining
+                      </span>{" "}
+                      this month.{" "}
                       <Link href="/pricing" className="text-primary hover:underline">
                         Upgrade to Pro
                       </Link>{" "}
@@ -548,9 +562,13 @@ export default function HistoryPage() {
                 )}
               </>
             ) : loadingUsage ? (
-              <div className="text-sm text-muted-foreground">Loading usage information...</div>
+              <div className="text-sm text-muted-foreground">
+                Loading usage information...
+              </div>
             ) : (
-              <div className="text-sm text-muted-foreground">Unable to load usage information.</div>
+              <div className="text-sm text-muted-foreground">
+                Unable to load usage information.
+              </div>
             )}
           </CardContent>
         </Card>
@@ -577,7 +595,7 @@ export default function HistoryPage() {
           )}
         </div>
       )}
-      
+
       <div className="grid gap-4 max-w-4xl">
         {videos.map((v) => {
           const id = v.video_id ?? v.id ?? "";
@@ -589,23 +607,23 @@ export default function HistoryPage() {
             if (dateStr) {
               const dateObj = new Date(dateStr);
               dateStr = dateObj.toLocaleDateString(undefined, {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
               });
               fullDateStr = dateObj.toLocaleDateString(undefined, {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-                timeZoneName: 'short'
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+                timeZoneName: "short",
               });
             }
-          } catch (e) {
+          } catch (_e) {
             // keep original string if parse fails
           }
 
@@ -618,54 +636,51 @@ export default function HistoryPage() {
               } hover:bg-muted/30`}
             >
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                  <div className="flex items-start gap-3 flex-1 min-w-0">
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        handleSelectVideo(id);
-                      }}
-                      className="mt-1 flex-shrink-0"
-                      type="button"
-                      aria-label={isSelected ? "Deselect video" : "Select video"}
-                    >
-                      {isSelected ? (
-                        <CheckSquare className="h-5 w-5 text-primary" />
-                      ) : (
-                        <Square className="h-5 w-5 text-muted-foreground" />
-                      )}
-                    </button>
-                    <div className="flex-1 min-w-0 space-y-2 group">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <div
-                          onClick={(e) => {
-                            // Prevent navigation when clicking on editable title
-                            e.preventDefault();
-                            e.stopPropagation();
-                          }}
-                          className="flex-1 min-w-0"
-                        >
-                          <EditableTitle
-                            title={v.video_title || "Untitled Video"}
-                            onSave={(newTitle) => handleTitleUpdate(id, newTitle)}
-                            className="truncate"
-                          />
-                        </div>
-                        <div
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                          }}
-                          className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-secondary text-secondary-foreground"
-                        >
-                          ID: {id.substring(0, 8)}...
-                        </div>
-                        <VideoStatusBadge
-                          status={v.status}
-                          clipsCount={v.clips_count}
+                <div className="flex items-start gap-3 flex-1 min-w-0">
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleSelectVideo(id);
+                    }}
+                    className="mt-1 flex-shrink-0"
+                    type="button"
+                    aria-label={isSelected ? "Deselect video" : "Select video"}
+                  >
+                    {isSelected ? (
+                      <CheckSquare className="h-5 w-5 text-primary" />
+                    ) : (
+                      <Square className="h-5 w-5 text-muted-foreground" />
+                    )}
+                  </button>
+                  <div className="flex-1 min-w-0 space-y-2 group">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <div
+                        onClick={(e) => {
+                          // Prevent navigation when clicking on editable title
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
+                        className="flex-1 min-w-0"
+                      >
+                        <EditableTitle
+                          title={v.video_title || "Untitled Video"}
+                          onSave={(newTitle) => handleTitleUpdate(id, newTitle)}
+                          className="truncate"
                         />
                       </div>
-                    
+                      <div
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
+                        className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-secondary text-secondary-foreground"
+                      >
+                        ID: {id.substring(0, 8)}...
+                      </div>
+                      <VideoStatusBadge status={v.status} clipsCount={v.clips_count} />
+                    </div>
+
                     {v.video_url && (
                       <div className="flex items-center gap-2 group/url">
                         <button
@@ -673,7 +688,7 @@ export default function HistoryPage() {
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            window.open(v.video_url, '_blank', 'noopener,noreferrer');
+                            window.open(v.video_url, "_blank", "noopener,noreferrer");
                           }}
                           className="text-sm text-muted-foreground truncate font-mono bg-muted/30 px-2 py-1 rounded hover:text-primary hover:bg-muted/50 transition-colors flex-1 min-w-0 text-left"
                         >
@@ -686,7 +701,7 @@ export default function HistoryPage() {
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            handleCopyUrl(v.video_url!, e);
+                            void handleCopyUrl(v.video_url!, e);
                           }}
                           aria-label="Copy URL"
                         >
@@ -698,7 +713,7 @@ export default function HistoryPage() {
                         </Button>
                       </div>
                     )}
-                    
+
                     {v.custom_prompt && (
                       <div className="mt-2 text-xs text-muted-foreground bg-muted/20 p-2 rounded border border-border/30">
                         <span className="font-semibold mr-1">Custom Prompt:</span>
@@ -707,14 +722,16 @@ export default function HistoryPage() {
                     )}
                   </div>
                 </div>
-                
+
                 <div className="flex items-center gap-3 sm:flex-row flex-row-reverse justify-end">
-                  <div 
+                  <div
                     className="text-xs text-muted-foreground whitespace-nowrap flex items-center gap-1.5 sm:text-right hover:text-foreground transition-colors cursor-help group/date"
                     title={fullDateStr}
                   >
                     <Calendar className="h-3.5 w-3.5 group-hover/date:text-primary transition-colors" />
-                    <span className="group-hover/date:text-foreground transition-colors">{dateStr}</span>
+                    <span className="group-hover/date:text-foreground transition-colors">
+                      {dateStr}
+                    </span>
                   </div>
                   <Button
                     variant="ghost"

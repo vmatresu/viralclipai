@@ -1,5 +1,4 @@
 import { type ReactNode } from "react";
-
 import { Toaster } from "sonner";
 
 import { Footer } from "@/components/Footer";

@@ -25,7 +25,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
-  
+
   // Admin prompt state
   const [prompt, setPrompt] = useState("");
   const [promptLoading, setPromptLoading] = useState(false);
@@ -71,14 +71,14 @@ export default function SettingsPage() {
     if (!data?.role || data.role !== "superadmin") {
       return;
     }
-    
+
     let cancelled = false;
     async function loadPrompt() {
       try {
         setPromptLoading(true);
         const token = await getIdToken();
         if (!token) return;
-        
+
         const res = await apiFetch<{ prompt: string }>("/api/admin/prompt", {
           token,
         });
@@ -149,8 +149,7 @@ export default function SettingsPage() {
       });
       setPromptStatus("Prompt saved successfully.");
     } catch (err: unknown) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Error saving prompt.";
+      const errorMessage = err instanceof Error ? err.message : "Error saving prompt.";
       setPromptStatus(errorMessage);
     } finally {
       setPromptSaving(false);

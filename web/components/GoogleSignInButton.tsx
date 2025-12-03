@@ -1,16 +1,22 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-interface GoogleSignInButtonProps extends React.ComponentPropsWithoutRef<typeof Button> {
+interface GoogleSignInButtonProps extends React.ComponentPropsWithoutRef<
+  typeof Button
+> {
   loading?: boolean;
 }
 
-export function GoogleSignInButton({ className, loading, ...props }: GoogleSignInButtonProps) {
+export function GoogleSignInButton({
+  className,
+  loading,
+  ...props
+}: GoogleSignInButtonProps) {
   return (
     <Button
       variant="outline"
       className={cn(
-        "bg-white text-black hover:bg-gray-100 border-gray-300 font-roboto", 
+        "bg-white text-black hover:bg-gray-100 border-gray-300 font-roboto",
         className
       )}
       disabled={loading}

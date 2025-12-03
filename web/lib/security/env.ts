@@ -3,8 +3,9 @@
  * Centralized environment variable management with validation
  */
 
-import { requireEnv, isValidFirebaseConfig } from "./validation";
 import { frontendLogger } from "@/lib/logger";
+
+import { requireEnv, isValidFirebaseConfig } from "./validation";
 
 /**
  * Validated environment variables

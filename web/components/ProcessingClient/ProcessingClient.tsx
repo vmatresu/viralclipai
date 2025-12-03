@@ -13,8 +13,11 @@ import { analyticsEvents } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
 import { limitLength, sanitizeUrl } from "@/lib/security/validation";
+import {
+  handleWSMessage,
+  type MessageHandlerCallbacks,
+} from "@/lib/websocket/messageHandler";
 import { getWebSocketUrl, createWebSocketConnection } from "@/lib/websocket-client";
-import { handleWSMessage, type MessageHandlerCallbacks } from "@/lib/websocket/messageHandler";
 
 import { ErrorDisplay } from "./ErrorDisplay";
 import { useVideoProcessing } from "./hooks";
@@ -39,6 +42,7 @@ export function ProcessingClient() {
     customPrompt,
     setCustomPrompt,
     customPromptUsed,
+    setCustomPromptUsed,
     videoTitle,
     videoUrl,
     processingStartTime,
@@ -59,7 +63,7 @@ export function ProcessingClient() {
 
   const { getIdToken, loading: authLoading, user } = useAuth();
   const hasResults = clips.length > 0;
-  
+
   // SECURITY: Don't show results if user is not authenticated
   const canShowResults = user !== null && !authLoading;
 
@@ -123,69 +127,68 @@ export function ProcessingClient() {
         },
         // onMessage
         (message: unknown) => {
-            const callbacks: MessageHandlerCallbacks = {
-                onLog: (logMessage, timestamp) => {
-                    log(logMessage, "info", timestamp);
-                },
-                onProgress: (progressValue) => {
-                    setProgress(progressValue);
-                },
-                onError: (errorMessage, errorDetails) => {
-                    ws.close();
-                    setError(errorMessage);
-                    setErrorDetails(errorDetails ?? null);
-                    toast.error(errorMessage);
-                    setSubmitting(false);
-                    void analyticsEvents.videoProcessingFailed({
-                        errorType: errorDetails ?? "unknown",
-                        errorMessage,
-                        style: styles.join(","),
-                    });
-                },
-                onDone: (videoId) => {
-                    ws.close();
-                    setVideoId(videoId);
-                    const newUrl = new URL(window.location.href);
-                    newUrl.searchParams.set("id", videoId);
-                    window.history.pushState({}, "", newUrl.toString());
-                    toast.success("Video processed successfully!");
-                    void loadResults(videoId);
-                },
-                onClipUploaded: (videoId, clipCount, totalClips) => {
-                    // If we're currently viewing this video, reload results
-                    if (videoId === searchParams.get("id")) {
-                        void loadResults(videoId);
-                    }
-                    // Log progress
-                    if (clipCount > 0 && totalClips > 0) {
-                        log(`📦 Clip ${clipCount}/${totalClips} uploaded`, "success");
-                    }
-                },
-            };
+          const callbacks: MessageHandlerCallbacks = {
+            onLog: (logMessage, timestamp) => {
+              log(logMessage, "info", timestamp);
+            },
+            onProgress: (progressValue) => {
+              setProgress(progressValue);
+            },
+            onError: (errorMessage, errorDetails) => {
+              ws.close();
+              setError(errorMessage);
+              setErrorDetails(errorDetails ?? null);
+              toast.error(errorMessage);
+              setSubmitting(false);
+              void analyticsEvents.videoProcessingFailed({
+                errorType: errorDetails ?? "unknown",
+                errorMessage,
+                style: styles.join(","),
+              });
+            },
+            onDone: (videoId) => {
+              ws.close();
+              setVideoId(videoId);
+              const newUrl = new URL(window.location.href);
+              newUrl.searchParams.set("id", videoId);
+              window.history.pushState({}, "", newUrl.toString());
+              toast.success("Video processed successfully!");
+              void loadResults(videoId);
+            },
+            onClipUploaded: (videoId, clipCount, totalClips) => {
+              // If we're currently viewing this video, reload results
+              if (videoId === searchParams.get("id")) {
+                void loadResults(videoId);
+              }
+              // Log progress
+              if (clipCount > 0 && totalClips > 0) {
+                log(`📦 Clip ${clipCount}/${totalClips} uploaded`, "success");
+              }
+            },
+          };
 
-            const handled = handleWSMessage(message, callbacks, searchParams.get("id"));
-            if (!handled) {
-                // Invalid message - close connection for security
-                frontendLogger.error("Invalid WebSocket message format", { message });
-                ws.close();
-                setError("Invalid message format");
-                setSubmitting(false);
-            }
+          const handled = handleWSMessage(message, callbacks, searchParams.get("id"));
+          if (!handled) {
+            // Invalid message - close connection for security
+            frontendLogger.error("Invalid WebSocket message format", { message });
+            ws.close();
+            setError("Invalid message format");
+            setSubmitting(false);
+          }
         },
         // onError
         (ev) => {
-            frontendLogger.error("WebSocket error occurred", ev);
-            log("WebSocket error occurred.", "error");
-            toast.error("Connection error occurred");
+          frontendLogger.error("WebSocket error occurred", ev);
+          log("WebSocket error occurred.", "error");
+          toast.error("Connection error occurred");
         },
         // onClose
         () => {
-            if (!hasResults && !error) {
-                setSubmitting(false);
-            }
+          if (!hasResults && !error) {
+            setSubmitting(false);
+          }
         }
       );
-
     } catch (err: unknown) {
       frontendLogger.error("Failed to start processing", err);
       const errorMessage =

@@ -1,19 +1,19 @@
 /**
  * WebSocket Message Handler
- * 
+ *
  * Handles WebSocket messages for video processing with proper validation
  * and type safety.
  */
 
-import { frontendLogger } from "@/lib/logger";
 import { invalidateClipsCache } from "@/lib/cache";
+import { frontendLogger } from "@/lib/logger";
+
 import {
-  WSMessage,
-  WSLogMessage,
-  WSProgressMessage,
-  WSErrorMessage,
-  WSDoneMessage,
-  WSClipUploadedMessage,
+  type WSLogMessage,
+  type WSProgressMessage,
+  type WSErrorMessage,
+  type WSDoneMessage,
+  type WSClipUploadedMessage,
   isWSMessageType,
   validateWSMessage,
   WS_MESSAGE_TYPES,
@@ -103,15 +103,10 @@ export function handleWSMessage(
 
     // Handle clip uploaded messages
     if (
-      isWSMessageType<WSClipUploadedMessage>(
-        message,
-        WS_MESSAGE_TYPES.CLIP_UPLOADED
-      )
+      isWSMessageType<WSClipUploadedMessage>(message, WS_MESSAGE_TYPES.CLIP_UPLOADED)
     ) {
-      const videoId =
-        typeof message.videoId === "string" ? message.videoId : null;
-      const clipCount =
-        typeof message.clipCount === "number" ? message.clipCount : 0;
+      const videoId = typeof message.videoId === "string" ? message.videoId : null;
+      const clipCount = typeof message.clipCount === "number" ? message.clipCount : 0;
       const totalClips =
         typeof message.totalClips === "number" ? message.totalClips : 0;
 
@@ -137,4 +132,3 @@ export function handleWSMessage(
     return false;
   }
 }
-

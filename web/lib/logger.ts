@@ -13,9 +13,7 @@ const pinoConfig = {
     serialize: true,
   },
   // In development (server-side), use pino-pretty for readable logs
-  ...(typeof window === "undefined" && process.env.NODE_ENV !== "production"
-    ? {}
-    : {}),
+  ...(typeof window === "undefined" && process.env.NODE_ENV !== "production" ? {} : {}),
   // In production, clean JSON structure is preferred
   timestamp: pino.stdTimeFunctions.isoTime,
 };

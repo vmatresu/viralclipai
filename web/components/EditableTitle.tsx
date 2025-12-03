@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
 import { Pencil, Check, X } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+
 import { Button } from "@/components/ui/button";
 
 interface EditableTitleProps {
@@ -125,4 +126,3 @@ export function EditableTitle({
     </div>
   );
 }
-

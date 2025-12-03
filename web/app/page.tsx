@@ -2,8 +2,8 @@
 
 import { Sparkles, Video, Users } from "lucide-react";
 import Link from "next/link";
-import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
 import { ProcessingClient } from "@/components/ProcessingClient";
 import { Button } from "@/components/ui/button";
@@ -32,9 +32,9 @@ export default function HomePage() {
               Turn long-form videos into viral clips in minutes.
             </h1>
             <p className="text-muted-foreground max-w-2xl">
-              Viral Clip AI analyzes your YouTube commentary videos, finds the most engaging
-              moments, and generates social-ready clips optimized for TikTok, Shorts, and
-              Reels.
+              Viral Clip AI analyzes your YouTube commentary videos, finds the most
+              engaging moments, and generates social-ready clips optimized for TikTok,
+              Shorts, and Reels.
             </p>
             <div className="flex flex-wrap gap-3">
               <Button
@@ -86,8 +86,8 @@ export default function HomePage() {
               </CardHeader>
               <CardContent>
                 <CardDescription>
-                  Split view, left/right focus, or all styles—designed for TikTok, Shorts,
-                  and Reels.
+                  Split view, left/right focus, or all styles—designed for TikTok,
+                  Shorts, and Reels.
                 </CardDescription>
               </CardContent>
             </Card>
@@ -98,8 +98,8 @@ export default function HomePage() {
               </CardHeader>
               <CardContent>
                 <CardDescription>
-                  Firebase Auth, Firestore, and S3-backed storage so every creator has their
-                  own secure workspace.
+                  Firebase Auth, Firestore, and S3-backed storage so every creator has
+                  their own secure workspace.
                 </CardDescription>
               </CardContent>
             </Card>

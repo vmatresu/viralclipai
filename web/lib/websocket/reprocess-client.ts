@@ -1,6 +1,6 @@
 /**
  * WebSocket client for scene reprocessing with progress tracking.
- * 
+ *
  * Provides a clean, type-safe interface for reprocessing scenes via WebSocket.
  */
 
@@ -59,7 +59,7 @@ const DEFAULT_TIMEOUT = 300000; // 5 minutes
  */
 function getReprocessWebSocketUrl(): string {
   const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? window.location.origin;
-  
+
   // Security: Validate and sanitize URL
   let baseUrl: URL;
   try {
@@ -76,10 +76,7 @@ function getReprocessWebSocketUrl(): string {
   const wsUrl = `${wsProtocol}//${baseUrl.host}/ws/reprocess`;
 
   // Validate WebSocket URL
-  if (
-    !wsUrl.startsWith("ws://") &&
-    !wsUrl.startsWith("wss://")
-  ) {
+  if (!wsUrl.startsWith("ws://") && !wsUrl.startsWith("wss://")) {
     throw new Error("Invalid WebSocket URL");
   }
 
@@ -88,7 +85,7 @@ function getReprocessWebSocketUrl(): string {
 
 /**
  * Reprocess scenes via WebSocket with progress tracking.
- * 
+ *
  * @param options Reprocessing options
  * @param callbacks Event callbacks
  * @returns WebSocket instance for manual control if needed
@@ -222,4 +219,3 @@ export function reprocessScenesWebSocket(
 
   return ws;
 }
-

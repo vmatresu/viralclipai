@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { BookOpen, HelpCircle, Mail, Info, DollarSign } from "lucide-react";
 
 export function Footer() {
   const currentYear = new Date().getFullYear();
@@ -91,4 +90,3 @@ export function Footer() {
     </footer>
   );
 }
-
