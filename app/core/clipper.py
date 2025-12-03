@@ -2,10 +2,12 @@ import subprocess
 import logging
 from pathlib import Path
 from datetime import datetime, timedelta
+from typing import Optional, Literal
 
 logger = logging.getLogger(__name__)
 
 AVAILABLE_STYLES = ["split", "left_focus", "right_focus"]
+CROP_MODES = ["none", "center", "manual", "intelligent"]
 
 def ensure_dirs(workdir: Path) -> Path:
     clips_dir = workdir / "clips"
@@ -42,7 +44,7 @@ def parse_time(t_str: str) -> datetime:
     fmt = "%H:%M:%S.%f" if "." in t_str else "%H:%M:%S"
     return datetime.strptime(t_str, fmt)
 
-def build_vf_filter(style: str) -> str:
+def build_vf_filter(style: str, crop_mode: str = "none") -> str:
     if style == "split":
         return (
             "scale=1920:-2,split=2[full][full2];"
@@ -133,3 +135,156 @@ def run_ffmpeg_clip(
     except subprocess.CalledProcessError as e:
         logger.error(f"ffmpeg failed:\n{e.stderr}")
         raise RuntimeError(f"FFmpeg clipping failed for {out_path.name}: {e.stderr}") from e
+
+
+def run_intelligent_crop(
+    video_file: Path,
+    out_path: Path,
+    start_str: str,
+    end_str: str,
+    target_aspect: str = "9:16",
+    pad_before_seconds: float = 0.0,
+    pad_after_seconds: float = 0.0,
+) -> Path:
+    """
+    Run the intelligent cropping pipeline on a video segment.
+
+    This function uses the smart_reframe module to analyze the video
+    and generate an optimally cropped portrait/square version.
+
+    Args:
+        video_file: Path to the source video.
+        out_path: Path for the output video.
+        start_str: Start timestamp (HH:MM:SS or HH:MM:SS.fff).
+        end_str: End timestamp (HH:MM:SS or HH:MM:SS.fff).
+        target_aspect: Target aspect ratio (e.g., "9:16", "4:5", "1:1").
+        pad_before_seconds: Seconds to add before start.
+        pad_after_seconds: Seconds to add after end.
+
+    Returns:
+        Path to the rendered output video.
+    """
+    from app.core.smart_reframe import (
+        Reframer,
+        AspectRatio,
+        IntelligentCropConfig,
+    )
+
+    try:
+        # Parse timestamps
+        t_start = parse_time(start_str)
+        t_end = parse_time(end_str)
+
+        if pad_before_seconds > 0:
+            t_start = max(
+                t_start - timedelta(seconds=pad_before_seconds),
+                datetime(1900, 1, 1),
+            )
+        if pad_after_seconds > 0:
+            t_end = t_end + timedelta(seconds=pad_after_seconds)
+
+        start_seconds = (t_start - datetime(1900, 1, 1)).total_seconds()
+        end_seconds = (t_end - datetime(1900, 1, 1)).total_seconds()
+
+        # Parse aspect ratio
+        aspect = AspectRatio.from_string(target_aspect)
+
+        # Configure for reasonable speed on cloud VMs
+        config = IntelligentCropConfig(
+            fps_sample=3.0,
+            analysis_resolution=480,
+            render_preset="fast",
+            render_crf=18,
+        )
+
+        # Create reframer
+        reframer = Reframer(
+            target_aspect_ratios=[aspect],
+            config=config,
+        )
+
+        try:
+            # Analyze and render
+            output_prefix = str(out_path.with_suffix(""))
+            output_paths = reframer.analyze_and_render(
+                input_path=str(video_file),
+                output_prefix=output_prefix,
+                time_range=(start_seconds, end_seconds),
+                save_crop_plan=False,
+            )
+
+            # Get the output path for our aspect ratio
+            aspect_key = str(aspect)
+            if aspect_key in output_paths:
+                rendered_path = Path(output_paths[aspect_key])
+                # Rename to expected output path if different
+                if rendered_path != out_path:
+                    rendered_path.rename(out_path)
+                return out_path
+            else:
+                # Fallback - use whatever was produced
+                for path in output_paths.values():
+                    rendered_path = Path(path)
+                    if rendered_path != out_path:
+                        rendered_path.rename(out_path)
+                    return out_path
+
+            raise RuntimeError("No output produced by intelligent cropper")
+
+        finally:
+            reframer.close()
+
+    except Exception as e:
+        logger.error(f"Intelligent crop failed: {e}")
+        raise RuntimeError(f"Intelligent crop failed for {out_path.name}: {e}") from e
+
+
+def run_ffmpeg_clip_with_crop(
+    start_str: str,
+    end_str: str,
+    out_path: Path,
+    style: str,
+    video_file: Path,
+    crop_mode: Literal["none", "center", "manual", "intelligent"] = "none",
+    target_aspect: str = "9:16",
+    pad_before_seconds: float = 0.0,
+    pad_after_seconds: float = 0.0,
+):
+    """
+    Run FFmpeg clip with optional intelligent cropping.
+
+    This is the main entry point that supports both traditional styles
+    and the new intelligent crop mode.
+
+    Args:
+        start_str: Start timestamp.
+        end_str: End timestamp.
+        out_path: Output path for the clip.
+        style: Style for traditional cropping (split, left_focus, right_focus).
+        video_file: Path to source video.
+        crop_mode: Cropping mode (none, center, manual, intelligent).
+        target_aspect: Target aspect ratio for intelligent mode.
+        pad_before_seconds: Seconds to pad before start.
+        pad_after_seconds: Seconds to pad after end.
+    """
+    if crop_mode == "intelligent":
+        run_intelligent_crop(
+            video_file=video_file,
+            out_path=out_path,
+            start_str=start_str,
+            end_str=end_str,
+            target_aspect=target_aspect,
+            pad_before_seconds=pad_before_seconds,
+            pad_after_seconds=pad_after_seconds,
+        )
+    else:
+        # Use traditional clipping
+        run_ffmpeg_clip(
+            start_str=start_str,
+            end_str=end_str,
+            out_path=out_path,
+            style=style,
+            video_file=video_file,
+            pad_before_seconds=pad_before_seconds,
+            pad_after_seconds=pad_after_seconds,
+        )

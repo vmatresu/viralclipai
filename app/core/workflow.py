@@ -20,6 +20,8 @@ async def process_video_workflow(
     style: str,
     user_id: Optional[str] = None,
     custom_prompt: Optional[str] = None,
+    crop_mode: str = "none",
+    target_aspect: str = "9:16",
 ):
     try:
         # Base prompt resolution order:
@@ -89,7 +91,13 @@ async def process_video_workflow(
             h.setdefault("title", f"Clip {idx}")
 
         # Determine how many clips will be produced for plan enforcement
-        styles_to_process = clipper.AVAILABLE_STYLES if style == "all" else [style]
+        # If style is 'all', we include the standard styles plus 'intelligent' if requested or by default?
+        # The user wants 'intelligent' included in ALL.
+        if style == "all":
+            styles_to_process = clipper.AVAILABLE_STYLES + ["intelligent"]
+        else:
+            styles_to_process = [style]
+            
         total_clips = len(highlights) * len(styles_to_process)
 
         if user_id is not None and total_clips > 0:
@@ -156,13 +164,19 @@ async def process_video_workflow(
                 logger.info(f"Rendering clip: {title} ({s})")
                 await websocket.send_json({"type": "log", "message": f"✂️ Rendering clip: {title} ({s})"})
                 
+                # Determine effective crop mode
+                # If the style is explicitly 'intelligent', force intelligent crop mode
+                effective_crop_mode = "intelligent" if s == "intelligent" else crop_mode
+                
                 await asyncio.to_thread(
-                    clipper.run_ffmpeg_clip,
+                    clipper.run_ffmpeg_clip_with_crop,
                     start,
                     end,
                     out_path,
                     s,
                     video_file,
+                    effective_crop_mode,
+                    target_aspect,
                     pad_before,
                     pad_after,
                 )

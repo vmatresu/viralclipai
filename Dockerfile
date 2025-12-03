@@ -1,19 +1,8 @@
-# =============================================================================
-# Multi-Stage Production Dockerfile for FastAPI Backend
-# =============================================================================
-# Best Practices:
-# - Multi-stage builds for minimal final image
-# - Layer caching optimization
-# - Security hardening (non-root, minimal packages)
-# - Build-time arguments for flexibility
-# - Health checks and proper signal handling
-# =============================================================================
-
 # -----------------------------------------------------------------------------
 # Stage 1: Base - Common dependencies and configuration
 # -----------------------------------------------------------------------------
-# Using Alpine for smaller image size (~5MB vs ~50MB) and faster builds
-FROM python:3.11-alpine AS base
+# Using Slim (Debian) instead of Alpine because MediaPipe requires glibc
+FROM python:3.11-slim AS base
 
 # Build arguments
 ARG BUILD_DATE
@@ -50,9 +39,8 @@ WORKDIR /app
 FROM base AS system-deps
 
 # Install system dependencies in a single layer for better caching
-# Alpine uses apk instead of apt-get - much faster and smaller (~5MB base vs ~50MB)
-# Build dependencies are installed separately and removed after pip install
-RUN apk add --no-cache \
+# Using apt-get for Debian-based slim image
+RUN apt-get update && apt-get install -y --no-install-recommends \
         # Video processing (critical)
         ffmpeg \
         # SSL/TLS certificates
@@ -61,14 +49,12 @@ RUN apk add --no-cache \
         procps \
         # Network utilities for health checks
         curl \
+        # Build dependencies for some python packages
+        build-essential \
         && \
-    # Install build dependencies in virtual package (will be removed later)
-    apk add --no-cache --virtual .build-deps \
-        gcc \
-        musl-dev \
-        libffi-dev \
-        openssl-dev \
-        && \
+    # Clean up apt cache to reduce image size
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* && \
     # Verify ffmpeg installation
     ffmpeg -version | head -n 1
 
@@ -86,8 +72,6 @@ RUN pip install --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -r /tmp/requirements.txt && \
     # Verify critical packages
     python -c "import fastapi; import uvicorn; import google.generativeai" && \
-    # Remove build dependencies virtual package to reduce image size (Alpine optimization)
-    apk del --no-cache .build-deps && \
     # Clean up pip cache
     rm -rf ~/.cache/pip /tmp/requirements.txt
 
@@ -100,8 +84,7 @@ FROM python-deps AS app-code
 COPY app/ ./app/
 COPY prompt.txt ./prompt.txt
 # Copy credentials if present (best effort for dev/prod build context)
-# Copy to root location to match volume mount structure in dev mode
-COPY firebase-credentials.json* ./firebase-credentials.json
+COPY firebase-credentials.json ./app/firebase-credentials.json
 
 # Verify application structure
 RUN python -c "from app.main import app; print('Application loaded successfully')" || exit 1
@@ -112,9 +95,8 @@ RUN python -c "from app.main import app; print('Application loaded successfully'
 FROM app-code AS prod-base
 
 # Create non-root user with specific UID/GID for consistency
-# Alpine uses addgroup/adduser instead of groupadd/useradd
-RUN addgroup -g 1000 -S appgroup && \
-    adduser -u 1000 -S -G appgroup -h /app -s /sbin/nologin appuser && \
+RUN groupadd -g 1000 appgroup && \
+    useradd -u 1000 -g appgroup -d /app -s /sbin/nologin appuser && \
     # Create necessary directories with proper permissions
     mkdir -p /app/logs /app/videos /app/static && \
     chown -R appuser:appgroup /app && \

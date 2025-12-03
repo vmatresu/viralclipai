@@ -23,6 +23,7 @@ const STYLES = [
   { value: "split", label: "Split View", subtitle: "Top/Bottom" },
   { value: "left_focus", label: "Left Focus", subtitle: "Full Height" },
   { value: "right_focus", label: "Right Focus", subtitle: "Full Height" },
+  { value: "intelligent", label: "Intelligent Crop", subtitle: "Face Tracking" },
   { value: "all", label: "All Styles", subtitle: "Generate All" },
 ];
 
@@ -137,7 +138,7 @@ export function VideoForm({
 
           <div className="space-y-2">
             <Label className="uppercase tracking-wider">Output Style</Label>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               {STYLES.map((s) => (
                 <label
                   key={s.value}

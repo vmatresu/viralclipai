@@ -46,6 +46,8 @@ class WSProcessRequest(BaseSchema):
     url: str = Field(..., min_length=1, max_length=MAX_URL_LENGTH, description="Video URL")
     style: str = Field(default="split", description="Clip style")
     prompt: Optional[str] = Field(default=None, max_length=MAX_PROMPT_LENGTH, description="Custom prompt")
+    crop_mode: str = Field(default="none", description="Crop mode: none, center, manual, intelligent")
+    target_aspect: str = Field(default="9:16", description="Target aspect ratio for intelligent crop")
     
     @field_validator("url")
     @classmethod
@@ -61,6 +63,23 @@ class WSProcessRequest(BaseSchema):
     @classmethod
     def validate_prompt_field(cls, v: Optional[str]) -> Optional[str]:
         return validate_prompt(v)
+
+    @field_validator("crop_mode")
+    @classmethod
+    def validate_crop_mode_field(cls, v: str) -> str:
+        allowed = ["none", "center", "manual", "intelligent"]
+        if v not in allowed:
+            raise ValueError(f"crop_mode must be one of: {allowed}")
+        return v
+
+    @field_validator("target_aspect")
+    @classmethod
+    def validate_target_aspect_field(cls, v: str) -> str:
+        # Validate aspect ratio format (e.g., "9:16", "4:5", "1:1")
+        import re
+        if not re.match(r"^\d+:\d+$", v):
+            raise ValueError("target_aspect must be in format 'W:H' (e.g., '9:16')")
+        return v
 
 
 class WSMessage(BaseSchema):
