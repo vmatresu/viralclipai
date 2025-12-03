@@ -337,6 +337,17 @@ impl R2Client {
             }
         }
     }
+
+    /// Check connectivity to R2 by performing a head bucket operation.
+    pub async fn check_connectivity(&self) -> StorageResult<()> {
+        self.client
+            .head_bucket()
+            .bucket(&self.bucket)
+            .send()
+            .await
+            .map_err(|e| StorageError::AwsSdk(format!("R2 connectivity check failed: {}", e)))?;
+        Ok(())
+    }
 }
 
 /// Information about a stored object.

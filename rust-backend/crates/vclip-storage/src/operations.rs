@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use crate::client::R2Client;
-use crate::error::{StorageError, StorageResult};
+use crate::error::StorageResult;
 
 /// Information about a clip file.
 #[derive(Debug, Clone, Serialize, Deserialize)]

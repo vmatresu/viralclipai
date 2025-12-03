@@ -92,7 +92,7 @@ which = "7.0"
 # Testing
 tokio-test = "0.4"
 mockall = "0.13"
-wiremock = "0.6"
+wiremock = "0.5"
 tempfile = "3.14"
 
 # Internal crates

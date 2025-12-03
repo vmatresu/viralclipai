@@ -42,6 +42,24 @@ impl ProcessVideoJob {
         }
     }
 
+    /// Set crop mode.
+    pub fn with_crop_mode(mut self, crop_mode: CropMode) -> Self {
+        self.crop_mode = crop_mode;
+        self
+    }
+
+    /// Set target aspect ratio.
+    pub fn with_target_aspect(mut self, aspect: AspectRatio) -> Self {
+        self.target_aspect = aspect;
+        self
+    }
+
+    /// Set custom prompt.
+    pub fn with_custom_prompt(mut self, prompt: Option<String>) -> Self {
+        self.custom_prompt = prompt;
+        self
+    }
+
     /// Generate idempotency key for deduplication.
     pub fn idempotency_key(&self) -> String {
         format!("process:{}:{}", self.user_id, self.video_id)
@@ -83,6 +101,18 @@ impl ReprocessScenesJob {
             crop_mode: CropMode::default(),
             target_aspect: AspectRatio::default(),
         }
+    }
+
+    /// Set crop mode.
+    pub fn with_crop_mode(mut self, crop_mode: CropMode) -> Self {
+        self.crop_mode = crop_mode;
+        self
+    }
+
+    /// Set target aspect ratio.
+    pub fn with_target_aspect(mut self, aspect: AspectRatio) -> Self {
+        self.target_aspect = aspect;
+        self
     }
 
     /// Generate idempotency key for deduplication.

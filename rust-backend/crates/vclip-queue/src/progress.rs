@@ -6,7 +6,7 @@ use tracing::debug;
 
 use vclip_models::{JobId, WsMessage};
 
-use crate::error::{QueueError, QueueResult};
+use crate::error::QueueResult;
 
 /// Progress event published to Redis.
 #[derive(Debug, Clone, Serialize, Deserialize)]

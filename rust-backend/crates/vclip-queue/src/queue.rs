@@ -216,4 +216,137 @@ impl JobQueue {
         let len: u64 = conn.xlen(&self.config.dlq_stream_name).await?;
         Ok(len)
     }
+
+    /// Consume jobs from the queue.
+    /// Returns a stream of (message_id, job) pairs.
+    pub async fn consume(
+        &self,
+        consumer_name: &str,
+        block_ms: u64,
+        count: usize,
+    ) -> QueueResult<Vec<(String, QueueJob)>> {
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
+
+        // Read from consumer group
+        let result: redis::streams::StreamReadReply = redis::cmd("XREADGROUP")
+            .arg("GROUP")
+            .arg(&self.config.consumer_group)
+            .arg(consumer_name)
+            .arg("COUNT")
+            .arg(count)
+            .arg("BLOCK")
+            .arg(block_ms)
+            .arg("STREAMS")
+            .arg(&self.config.stream_name)
+            .arg(">") // Only new messages
+            .query_async(&mut conn)
+            .await?;
+
+        let mut jobs = Vec::new();
+
+        for stream_key in result.keys {
+            for entry in stream_key.ids {
+                let message_id = entry.id.clone();
+
+                // Extract job payload
+                if let Some(redis::Value::BulkString(payload)) = entry.map.get("job") {
+                    let payload_str = String::from_utf8_lossy(payload);
+                    match serde_json::from_str::<QueueJob>(&payload_str) {
+                        Ok(job) => {
+                            debug!("Consumed job {} from stream", job.job_id());
+                            jobs.push((message_id, job));
+                        }
+                        Err(e) => {
+                            warn!("Failed to parse job payload: {}", e);
+                            // Ack the malformed message to prevent reprocessing
+                            self.ack(&message_id).await.ok();
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(jobs)
+    }
+
+    /// Claim pending jobs that have been idle for too long.
+    /// This handles jobs from crashed workers.
+    pub async fn claim_pending(
+        &self,
+        consumer_name: &str,
+        min_idle_ms: u64,
+        count: usize,
+    ) -> QueueResult<Vec<(String, QueueJob)>> {
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
+
+        // Get pending entries
+        let pending: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&self.config.stream_name)
+            .arg(&self.config.consumer_group)
+            .query_async(&mut conn)
+            .await?;
+
+        if pending.count() == 0 {
+            return Ok(Vec::new());
+        }
+
+        // Claim old pending messages using XCLAIM
+        let result: redis::streams::StreamClaimReply = redis::cmd("XCLAIM")
+            .arg(&self.config.stream_name)
+            .arg(&self.config.consumer_group)
+            .arg(consumer_name)
+            .arg(min_idle_ms)
+            .arg("0-0") // Start from beginning - will claim messages with this ID or later
+            .arg("COUNT")
+            .arg(count)
+            .query_async(&mut conn)
+            .await?;
+
+        let mut jobs = Vec::new();
+
+        for entry in result.ids {
+            let message_id = entry.id.clone();
+
+            if let Some(redis::Value::BulkString(payload)) = entry.map.get("job") {
+                let payload_str = String::from_utf8_lossy(&payload);
+                match serde_json::from_str::<QueueJob>(&payload_str) {
+                    Ok(job) => {
+                        info!("Claimed pending job {} from stream", job.job_id());
+                        jobs.push((message_id, job));
+                    }
+                    Err(e) => {
+                        warn!("Failed to parse claimed job payload: {}", e);
+                        self.ack(&message_id).await.ok();
+                    }
+                }
+            }
+        }
+
+        Ok(jobs)
+    }
+
+    /// Get retry count for a job from its metadata.
+    pub async fn get_retry_count(&self, message_id: &str) -> QueueResult<u32> {
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
+
+        let key = format!("vclip:retry:{}", message_id);
+        let count: Option<u32> = conn.get(&key).await?;
+        Ok(count.unwrap_or(0))
+    }
+
+    /// Increment retry count for a job.
+    pub async fn increment_retry(&self, message_id: &str) -> QueueResult<u32> {
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
+
+        let key = format!("vclip:retry:{}", message_id);
+        let count: u32 = conn.incr(&key, 1).await?;
+        // Set TTL to 24 hours
+        conn.expire::<_, ()>(&key, 86400).await?;
+        Ok(count)
+    }
+
+    /// Get max retries from config.
+    pub fn max_retries(&self) -> u32 {
+        self.config.max_retries
+    }
 }

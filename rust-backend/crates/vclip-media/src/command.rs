@@ -5,10 +5,10 @@ use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::watch;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use crate::error::{MediaError, MediaResult};
-use crate::progress::{FfmpegProgress, ProgressCallback};
+use crate::progress::FfmpegProgress;
 
 /// Builder for FFmpeg commands.
 #[derive(Debug, Clone)]

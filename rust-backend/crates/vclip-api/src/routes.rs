@@ -5,6 +5,7 @@ use axum::routing::{delete, get, patch, post};
 use axum::Router;
 
 use crate::handlers::{health, ready};
+use crate::handlers::admin::{enqueue_synthetic_job, get_queue_status, get_system_info};
 use crate::handlers::settings::{get_settings, update_settings};
 use crate::handlers::videos::{
     bulk_delete_videos, delete_clip, delete_video, get_video_highlights, get_video_info,
@@ -38,9 +39,16 @@ pub fn create_router(state: AppState) -> Router {
         .route("/settings", get(get_settings))
         .route("/settings", post(update_settings));
 
+    // Admin routes for canary testing (superadmin only)
+    let admin_routes = Router::new()
+        .route("/admin/jobs/synthetic", post(enqueue_synthetic_job))
+        .route("/admin/queue/status", get(get_queue_status))
+        .route("/admin/system/info", get(get_system_info));
+
     let api_routes = Router::new()
         .merge(video_routes)
-        .merge(settings_routes);
+        .merge(settings_routes)
+        .merge(admin_routes);
 
     let ws_routes = Router::new()
         .route("/ws/process", get(ws_process))

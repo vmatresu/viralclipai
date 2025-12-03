@@ -7,7 +7,7 @@ use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use tracing::{info, warn};
 
-use vclip_models::{Style, VideoStatus, WsMessage};
+use vclip_models::{AspectRatio, CropMode, Style, VideoStatus, WsMessage};
 use vclip_queue::ProcessVideoJob;
 
 use crate::state::AppState;
@@ -109,8 +109,15 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
         return;
     }
 
-    // Create job
-    let job = ProcessVideoJob::new(&uid, &request.url, styles);
+    // Parse crop mode and target aspect
+    let crop_mode: CropMode = request.crop_mode.parse().unwrap_or_default();
+    let target_aspect: AspectRatio = request.target_aspect.parse().unwrap_or_default();
+
+    // Create job with all parameters
+    let job = ProcessVideoJob::new(&uid, &request.url, styles)
+        .with_crop_mode(crop_mode)
+        .with_target_aspect(target_aspect)
+        .with_custom_prompt(request.prompt.clone());
     let job_id = job.job_id.clone();
     let _video_id = job.video_id.clone();
 
@@ -273,9 +280,15 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
         warn!("Failed to update video status: {}", e);
     }
 
-    // Create job
+    // Parse crop mode and target aspect
+    let crop_mode: CropMode = request.crop_mode.parse().unwrap_or_default();
+    let target_aspect: AspectRatio = request.target_aspect.parse().unwrap_or_default();
+
+    // Create job with all parameters
     let video_id = vclip_models::VideoId::from_string(&request.video_id);
-    let job = vclip_queue::ReprocessScenesJob::new(&uid, video_id.clone(), request.scene_ids, styles);
+    let job = vclip_queue::ReprocessScenesJob::new(&uid, video_id.clone(), request.scene_ids, styles)
+        .with_crop_mode(crop_mode)
+        .with_target_aspect(target_aspect);
     let job_id = job.job_id.clone();
 
     // Enqueue job

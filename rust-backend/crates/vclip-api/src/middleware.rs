@@ -1,5 +1,7 @@
 //! API middleware.
 
+use std::collections::HashMap;
+use std::net::IpAddr;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Instant;
@@ -10,12 +12,64 @@ use axum::middleware::Next;
 use governor::{Quota, RateLimiter};
 use governor::clock::DefaultClock;
 use governor::state::{InMemoryState, NotKeyed};
+use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{info, Span};
 use uuid::Uuid;
 
 /// Rate limiter type alias.
 pub type GlobalRateLimiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
+
+/// Per-IP rate limiter using governor.
+pub type IpRateLimiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
+
+/// IP-based rate limiter cache.
+#[derive(Clone)]
+pub struct RateLimiterCache {
+    limiters: Arc<RwLock<HashMap<IpAddr, Arc<IpRateLimiter>>>>,
+    quota: Quota,
+}
+
+impl RateLimiterCache {
+    /// Create a new rate limiter cache.
+    pub fn new(requests_per_second: u32) -> Self {
+        let quota = Quota::per_second(
+            NonZeroU32::new(requests_per_second).unwrap_or(NonZeroU32::new(10).unwrap()),
+        );
+        Self {
+            limiters: Arc::new(RwLock::new(HashMap::new())),
+            quota,
+        }
+    }
+
+    /// Get or create a rate limiter for an IP.
+    pub async fn get_limiter(&self, ip: IpAddr) -> Arc<IpRateLimiter> {
+        // Try read lock first
+        {
+            let limiters = self.limiters.read().await;
+            if let Some(limiter) = limiters.get(&ip) {
+                return Arc::clone(limiter);
+            }
+        }
+
+        // Need to create new limiter
+        let mut limiters = self.limiters.write().await;
+        // Double-check after acquiring write lock
+        if let Some(limiter) = limiters.get(&ip) {
+            return Arc::clone(limiter);
+        }
+
+        let limiter = Arc::new(RateLimiter::direct(self.quota));
+        limiters.insert(ip, Arc::clone(&limiter));
+        limiter
+    }
+
+    /// Check rate limit for an IP.
+    pub async fn check(&self, ip: IpAddr) -> bool {
+        let limiter = self.get_limiter(ip).await;
+        limiter.check().is_ok()
+    }
+}
 
 /// Create a global rate limiter.
 pub fn create_rate_limiter(requests_per_second: u32) -> Arc<GlobalRateLimiter> {

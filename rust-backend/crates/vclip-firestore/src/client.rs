@@ -6,7 +6,6 @@ use std::time::Duration;
 
 use gcp_auth::TokenProvider;
 use reqwest::{Client, StatusCode};
-use tokio::sync::RwLock;
 use tracing::{debug, warn};
 
 use crate::error::{FirestoreError, FirestoreResult};

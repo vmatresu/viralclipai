@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tokio::sync::Semaphore;
-use tracing::{info, warn};
+use tracing::info;
 
 use vclip_firestore::FirestoreClient;
 use vclip_media::{create_clip, download_video};
