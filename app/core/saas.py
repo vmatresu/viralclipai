@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from google.cloud import firestore
+from google.cloud.firestore_v1 import FieldFilter
 
 from app.core.firebase_client import get_firestore_client
 from app.core.plans.service import PlanService
@@ -78,7 +79,7 @@ def get_monthly_usage(uid: str, as_of: Optional[datetime] = None) -> int:
     month_start = datetime(as_of.year, as_of.month, 1, tzinfo=timezone.utc)
     db = get_firestore_client()
     col = db.collection("users").document(uid).collection("videos")
-    query = col.where("created_at", ">=", month_start)
+    query = col.where(filter=FieldFilter("created_at", ">=", month_start))
     total = 0
     for doc in query.stream():
         payload = doc.to_dict() or {}

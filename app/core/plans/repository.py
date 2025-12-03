@@ -12,6 +12,7 @@ from functools import lru_cache
 from threading import Lock
 
 from google.cloud import firestore
+from google.cloud.firestore_v1 import FieldFilter
 
 from app.core.firebase_client import get_firestore_client
 from app.core.plans.models import Plan, PlanStatus
@@ -66,7 +67,7 @@ class PlanRepository:
             
             try:
                 collection = cls._get_collection()
-                docs = collection.where("status", "==", PlanStatus.ACTIVE.value).stream()
+                docs = collection.where(filter=FieldFilter("status", "==", PlanStatus.ACTIVE.value)).stream()
                 
                 new_cache: Dict[str, Plan] = {}
                 for doc in docs:

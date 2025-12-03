@@ -58,17 +58,17 @@ LOGGING_CONFIG = {
         # Let uvicorn log to console using its own handlers
         "uvicorn.error": {"level": "INFO"},
         "uvicorn.access": {"level": "INFO"},
-        # Suppress verbose botocore/boto3 logging to improve performance
-        "botocore": {"level": "WARNING"},
-        "boto3": {"level": "WARNING"},
-        "botocore.hooks": {"level": "ERROR"},
-        "botocore.auth": {"level": "ERROR"},
-        "botocore.endpoint": {"level": "ERROR"},
-        "botocore.httpsession": {"level": "ERROR"},
-        "botocore.parsers": {"level": "ERROR"},
-        "botocore.retryhandler": {"level": "ERROR"},
-        "botocore.regions": {"level": "ERROR"},
-        "urllib3": {"level": "WARNING"},
+        # Suppress verbose botocore/boto3 DEBUG logging, keep INFO and above
+        "botocore": {"level": "INFO"},
+        "boto3": {"level": "INFO"},
+        "botocore.hooks": {"level": "INFO"},
+        "botocore.auth": {"level": "INFO"},
+        "botocore.endpoint": {"level": "INFO"},
+        "botocore.httpsession": {"level": "INFO"},
+        "botocore.parsers": {"level": "INFO"},
+        "botocore.retryhandler": {"level": "INFO"},
+        "botocore.regions": {"level": "INFO"},
+        "urllib3": {"level": "INFO"},
     },
     "root": {
         "handlers": ["console"],
