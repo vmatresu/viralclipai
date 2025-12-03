@@ -24,7 +24,11 @@ const STYLES = [
   { value: "left_focus", label: "Left Focus", subtitle: "Full Height" },
   { value: "right_focus", label: "Right Focus", subtitle: "Full Height" },
   { value: "intelligent", label: "Intelligent Crop", subtitle: "Face Tracking" },
-  { value: "intelligent_split", label: "Intelligent Split View", subtitle: "AI Crop 9:16" },
+  {
+    value: "intelligent_split",
+    label: "Intelligent Split View",
+    subtitle: "Face Tracking Left/Right",
+  },
   { value: "original", label: "Original", subtitle: "No Cropping" },
   { value: "all", label: "All Styles", subtitle: "Generate All" },
 ];
@@ -53,8 +57,13 @@ export function VideoForm({
   const toggleStyle = (styleValue: string) => {
     if (styleValue === "all") {
       // "All Styles" is a special case - toggle all available styles
-      const allStyleValues = STYLES.filter(s => s.value !== "all").map(s => s.value);
-      if (styles.length === allStyleValues.length && styles.every(s => allStyleValues.includes(s))) {
+      const allStyleValues = STYLES.filter((s) => s.value !== "all").map(
+        (s) => s.value
+      );
+      if (
+        styles.length === allStyleValues.length &&
+        styles.every((s) => allStyleValues.includes(s))
+      ) {
         // If all are selected, deselect all
         setStyles([]);
       } else {
@@ -64,7 +73,7 @@ export function VideoForm({
     } else {
       // Toggle individual style
       if (styles.includes(styleValue)) {
-        setStyles(styles.filter(s => s !== styleValue));
+        setStyles(styles.filter((s) => s !== styleValue));
       } else {
         setStyles([...styles, styleValue]);
       }
@@ -162,9 +171,12 @@ export function VideoForm({
             <Label className="uppercase tracking-wider">Output Style</Label>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               {STYLES.map((s) => {
-                const isSelected = s.value === "all" 
-                  ? STYLES.filter(st => st.value !== "all").every(st => styles.includes(st.value))
-                  : styles.includes(s.value);
+                const isSelected =
+                  s.value === "all"
+                    ? STYLES.filter((st) => st.value !== "all").every((st) =>
+                        styles.includes(st.value)
+                      )
+                    : styles.includes(s.value);
                 return (
                   <label
                     key={s.value}

@@ -250,6 +250,135 @@ def run_intelligent_crop(
         raise RuntimeError(f"Intelligent crop failed for {out_path.name}: {e}") from e
 
 
+def run_intelligent_split_crop(
+    video_file: Path,
+    out_path: Path,
+    start_str: str,
+    end_str: str,
+    pad_before_seconds: float = 0.0,
+    pad_after_seconds: float = 0.0,
+    shot_cache=None,
+) -> Path:
+    """
+    Run intelligent cropping on both left and right halves and stack them.
+    Face tracks left half and puts on top, face tracks right half and puts on bottom.
+    """
+    import tempfile
+    import shutil
+
+    logger.info(f"Running Intelligent Split for {out_path.name}")
+    
+    # Create temp dir for intermediate files
+    temp_dir = Path(tempfile.mkdtemp())
+    try:
+        # 1. Cut the time segment first (source segment)
+        # This avoids analyzing the whole video or complex offset math
+        segment_path = temp_dir / "segment.mp4"
+        run_ffmpeg_clip(
+            start_str=start_str,
+            end_str=end_str,
+            out_path=segment_path,
+            style="original", # No crop, just trim
+            video_file=video_file,
+            pad_before_seconds=pad_before_seconds,
+            pad_after_seconds=pad_after_seconds
+        )
+
+        # 2. Extract Left and Right halves
+        left_half = temp_dir / "left.mp4"
+        right_half = temp_dir / "right.mp4"
+        
+        # Left: crop width/2 from 0,0
+        cmd_left = [
+            "ffmpeg", "-y", "-i", str(segment_path),
+            "-vf", "crop=iw/2:ih:0:0",
+            "-c:v", "libx264", "-preset", "fast", "-c:a", "copy",
+            str(left_half)
+        ]
+        # Right: crop width/2 from width/2,0
+        cmd_right = [
+            "ffmpeg", "-y", "-i", str(segment_path),
+            "-vf", "crop=iw/2:ih:iw/2:0",
+            "-c:v", "libx264", "-preset", "fast", "-c:a", "copy",
+            str(right_half)
+        ]
+        
+        subprocess.run(cmd_left, check=True, capture_output=True)
+        subprocess.run(cmd_right, check=True, capture_output=True)
+
+        # 3. Run Intelligent Crop (face tracking) on each half
+        # Helper to get duration
+        def get_duration(p: Path) -> float:
+            import json
+            res = subprocess.run(
+                ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(p)],
+                capture_output=True, text=True
+            )
+            data = json.loads(res.stdout)
+            return float(data["format"]["duration"])
+
+        dur = get_duration(segment_path)
+        end_time_str = str(timedelta(seconds=dur))
+        
+        left_cropped = temp_dir / "left_crop.mp4"
+        right_cropped = temp_dir / "right_crop.mp4"
+        
+        # Face track left half and crop to 9:8 aspect (for top)
+        run_intelligent_crop(
+            left_half, 
+            left_cropped, 
+            "00:00:00", 
+            end_time_str, 
+            target_aspect="9:8",
+            shot_cache=shot_cache
+        )
+        # Face track right half and crop to 9:8 aspect (for bottom)
+        run_intelligent_crop(
+            right_half, 
+            right_cropped, 
+            "00:00:00", 
+            end_time_str, 
+            target_aspect="9:8",
+            shot_cache=shot_cache
+        )
+
+        # 4. Stack them (left on top, right on bottom)
+        cmd_stack = [
+            "ffmpeg", "-y",
+            "-i", str(left_cropped),
+            "-i", str(right_cropped),
+            "-filter_complex",
+            "[0:v]scale=1080:960:force_original_aspect_ratio=decrease,pad=1080:960:(ow-iw)/2:(oh-ih)/2[top];"
+            "[1:v]scale=1080:960:force_original_aspect_ratio=decrease,pad=1080:960:(ow-iw)/2:(oh-ih)/2[bottom];"
+            "[top][bottom]vstack",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+            "-c:a", "aac", "-b:a", "128k",
+            str(out_path)
+        ]
+        
+        subprocess.run(cmd_stack, check=True, capture_output=True, text=True)
+        
+        # Thumbnail
+        thumb_path = out_path.with_suffix(".jpg")
+        cmd_thumb = [
+            "ffmpeg", "-y",
+            "-i", str(out_path),
+            "-ss", "00:00:01",
+            "-vframes", "1",
+            "-vf", "scale=480:-2",
+            str(thumb_path)
+        ]
+        subprocess.run(cmd_thumb, check=True, capture_output=True)
+
+    except Exception as e:
+        logger.error(f"Smart split failed: {e}")
+        raise RuntimeError(f"Smart split failed: {e}") from e
+    finally:
+        shutil.rmtree(temp_dir)
+    
+    return out_path
+
+
 def run_ffmpeg_clip_with_crop(
     start_str: str,
     end_str: str,
@@ -291,8 +420,18 @@ def run_ffmpeg_clip_with_crop(
             pad_before_seconds=pad_before_seconds,
             pad_after_seconds=pad_after_seconds,
         )
-    # "intelligent_split" style uses intelligent cropping for 9:16 output
-    elif style == "intelligent_split" or crop_mode == "intelligent":
+    # "intelligent_split" style uses intelligent cropping with face tracking for split view
+    elif style == "intelligent_split":
+        run_intelligent_split_crop(
+            video_file=video_file,
+            out_path=out_path,
+            start_str=start_str,
+            end_str=end_str,
+            pad_before_seconds=pad_before_seconds,
+            pad_after_seconds=pad_after_seconds,
+            shot_cache=shot_cache,
+        )
+    elif crop_mode == "intelligent":
         run_intelligent_crop(
             video_file=video_file,
             out_path=out_path,
