@@ -3,7 +3,9 @@
     "allow": [
       "Bash(git checkout:*)",
       "Bash(ls:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(cargo clean:*)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []

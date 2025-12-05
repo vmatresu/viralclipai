@@ -12,12 +12,12 @@
 
 services:
   # ---------------------------------------------------------------------------
-  # Backend API Service (Rust Development) - Performance Optimized
+  # Backend API Service - Development with Hot Reload
   # ---------------------------------------------------------------------------
   api:
     build:
-      context: ./rust-backend
-      dockerfile: ../Dockerfile.rust
+      context: ./backend
+      dockerfile: ../Dockerfile
       target: dev
       platform: linux/amd64
       args:
@@ -27,14 +27,14 @@ services:
         BUILDPLATFORM: linux/amd64
         TARGETPLATFORM: linux/amd64
       cache_from:
-        - viralclipai-api-rust:dev-cache
+        - viralclipai-api:dev-cache
       tags:
-        - viralclipai-api-rust:dev-cache
-    image: viralclipai-api-rust:dev
+        - viralclipai-api:dev-cache
+    image: viralclipai-api:dev
     pull_policy: build
-    container_name: viralclipai-api-rust-dev
+    container_name: viralclipai-api-dev
     env_file:
-      - .env.api.dev.rust
+      - .env.dev
     environment:
       - ENVIRONMENT=development
       - RUST_LOG=debug,hyper=info,tower_http=info
@@ -66,8 +66,8 @@ services:
       - "${API_PORT:-8001}:8000"
       - "${METRICS_PORT:-9091}:9090"
     volumes:
-      # Mount Rust source code for hot reload with cargo-watch (delegated for performance)
-      - ./rust-backend:/app:cached,delegated
+      # Mount backend source code for hot reload with cargo-watch (delegated for performance)
+      - ./backend:/app:cached,delegated
       # Persistent volumes for logs and data
       - api-logs-dev:/app/logs
       - api-videos-dev:/app/videos
@@ -127,7 +127,7 @@ services:
       options:
         max-size: "100m"
         max-file: "10"
-        labels: "service=api-rust,environment=development,version=dev"
+        labels: "service=api,environment=development,version=dev"
         env: "RUST_LOG"
         env-regex: "^RUST_"
     # Security hardening with performance considerations

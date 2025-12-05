@@ -1,36 +1,36 @@
 # =============================================================================
-# ViralClip AI - Rust Backend Docker Compose
+# ViralClip AI - Production Docker Compose
 # =============================================================================
 # Services:
-# - API: Rust Axum backend (vclip-api)
+# - API: Axum backend (vclip-api)
 # - Worker: Video processing worker (vclip-worker with FFmpeg)
 # - Redis: Job queue and caching
 #
 # Usage:
-#   docker compose -f docker-compose.rust.yml up -d
-#   docker compose -f docker-compose.rust.yml logs -f
-#   docker compose -f docker-compose.rust.yml down
+#   docker compose up -d
+#   docker compose logs -f
+#   docker compose down
 # =============================================================================
 
 services:
   # ---------------------------------------------------------------------------
-  # API Service - Rust Axum Backend
+  # API Service - Axum Backend
   # ---------------------------------------------------------------------------
-  rust-api:
+  api:
     build:
       context: .
-      dockerfile: Dockerfile.rust
+      dockerfile: Dockerfile
       target: runtime
       cache_from:
-        - viralclipai-rust-api:latest
+        - viralclipai-api:latest
       args:
         BUILDKIT_INLINE_CACHE: 1
-    image: viralclipai-rust-api:latest
-    container_name: viralclipai-rust-api
+    image: viralclipai-api:latest
+    container_name: viralclipai-api
     restart: unless-stopped
 
     environment:
-      # Rust Runtime
+      # Runtime
       - RUST_LOG=${RUST_LOG:-info}
       - RUST_BACKTRACE=${RUST_BACKTRACE:-1}
 
@@ -44,7 +44,7 @@ services:
       - FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL}
 
       # Redis Queue
-      - REDIS_URL=redis://rust-redis:6379
+      - REDIS_URL=redis://redis:6379
       - REDIS_POOL_SIZE=${REDIS_POOL_SIZE:-10}
 
       # Cloudflare R2 Storage
@@ -60,11 +60,11 @@ services:
       - "${API_PORT:-8001}:8000"
 
     depends_on:
-      rust-redis:
+      redis:
         condition: service_healthy
 
     networks:
-      - viralclipai-rust-network
+      - viralclipai-network
 
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8000/health || exit 1"]
@@ -104,21 +104,21 @@ services:
   # ---------------------------------------------------------------------------
   # Worker Service - Video Processing with FFmpeg
   # ---------------------------------------------------------------------------
-  rust-worker:
+  worker:
     build:
       context: .
-      dockerfile: Dockerfile.rust
+      dockerfile: Dockerfile
       target: runtime-ffmpeg
       cache_from:
-        - viralclipai-rust-worker:latest
+        - viralclipai-worker:latest
       args:
         BUILDKIT_INLINE_CACHE: 1
-    image: viralclipai-rust-worker:latest
-    container_name: viralclipai-rust-worker
+    image: viralclipai-worker:latest
+    container_name: viralclipai-worker
     restart: unless-stopped
 
     environment:
-      # Rust Runtime
+      # Runtime
       - RUST_LOG=${RUST_LOG:-info}
       - RUST_BACKTRACE=${RUST_BACKTRACE:-1}
 
@@ -132,7 +132,7 @@ services:
       - FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL}
 
       # Redis Queue
-      - REDIS_URL=redis://rust-redis:6379
+      - REDIS_URL=redis://redis:6379
       - REDIS_POOL_SIZE=${REDIS_POOL_SIZE:-10}
 
       # Cloudflare R2 Storage
@@ -145,17 +145,17 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
 
     depends_on:
-      rust-redis:
+      redis:
         condition: service_healthy
-      rust-api:
+      api:
         condition: service_healthy
 
     networks:
-      - viralclipai-rust-network
+      - viralclipai-network
 
     volumes:
       # Temporary video processing storage
-      - rust-worker-temp:/tmp/videos
+      - worker-temp:/tmp/videos
 
     # Security (less restrictive for FFmpeg)
     security_opt:
@@ -188,9 +188,9 @@ services:
   # ---------------------------------------------------------------------------
   # Redis - Job Queue & Cache
   # ---------------------------------------------------------------------------
-  rust-redis:
+  redis:
     image: redis:7-alpine
-    container_name: viralclipai-rust-redis
+    container_name: viralclipai-redis
     restart: unless-stopped
 
     command: >
@@ -208,10 +208,10 @@ services:
       - "${REDIS_PORT:-6380}:6379"
 
     volumes:
-      - rust-redis-data:/data
+      - redis-data:/data
 
     networks:
-      - viralclipai-rust-network
+      - viralclipai-network
 
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -253,21 +253,21 @@ services:
 # Networks
 # -----------------------------------------------------------------------------
 networks:
-  viralclipai-rust-network:
-    name: viralclipai-rust-network
+  viralclipai-network:
+    name: viralclipai-network
     driver: bridge
     ipam:
       config:
-        - subnet: 172.21.0.0/16
+        - subnet: 172.20.0.0/16
 
 # -----------------------------------------------------------------------------
 # Volumes
 # -----------------------------------------------------------------------------
 volumes:
-  rust-redis-data:
-    name: viralclipai-rust-redis-data
+  redis-data:
+    name: viralclipai-redis-data
     driver: local
 
-  rust-worker-temp:
-    name: viralclipai-rust-worker-temp
+  worker-temp:
+    name: viralclipai-worker-temp
     driver: local

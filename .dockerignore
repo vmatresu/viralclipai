@@ -9,8 +9,8 @@
 .github/
 
 # Rust Build Artifacts
-rust-backend/target/
-rust-backend/**/target/
+backend/target/
+backend/**/target/
 **/debug/
 **/release/
 **/*.pdb

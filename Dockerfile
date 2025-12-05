@@ -25,9 +25,9 @@ WORKDIR /app
 FROM chef AS planner
 
 # Copy workspace manifests
-COPY rust-backend/Cargo.toml rust-backend/Cargo.lock ./
-COPY rust-backend/rust-toolchain.toml ./
-COPY rust-backend/crates ./crates
+COPY backend/Cargo.toml backend/Cargo.lock ./
+COPY backend/rust-toolchain.toml ./
+COPY backend/crates ./crates
 
 # Generate recipe.json for dependency caching
 RUN cargo chef prepare --recipe-path recipe.json
@@ -44,9 +44,9 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 
 # Copy source code
-COPY rust-backend/Cargo.toml rust-backend/Cargo.lock ./
-COPY rust-backend/rust-toolchain.toml ./
-COPY rust-backend/crates ./crates
+COPY backend/Cargo.toml backend/Cargo.lock ./
+COPY backend/rust-toolchain.toml ./
+COPY backend/crates ./crates
 
 # Build application with optimizations (LTO, single codegen unit, stripped)
 RUN cargo build --release --bins && \
