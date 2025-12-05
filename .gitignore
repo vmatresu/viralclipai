@@ -1,22 +1,42 @@
+# Python Backend Backup
+python-backup/
+
+# Video files
 clips/
 *.mp4
+videos/
+highlights.json
+
+# Python
 venv/
 __pycache__/
-.DS_Store
-videos/
+
+# Logs
 error.log
 debug.log
+
+# Temp
 .gemini-clipboard/*
+
+# Node
 node_modules/
 web/node_modules/
 .next/
 web/.next/
-highlights.json
-.env.api.dev
+# Environment & Secrets
+.env
+.env.*
+!.env.example
 firebase-service-account.json
 firebase-credentials.json
-web/.env.local
+
+# Docker
 .docker-deps-cache
+
+# Cache
 .cache/
+
+# TypeScript
 web/tsconfig.tsbuildinfo
-.env.api.dev.rust
+web/playwright-report/
+web/test-results/

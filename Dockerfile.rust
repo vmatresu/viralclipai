@@ -1,163 +1,148 @@
 # =============================================================================
-# Modern Rust Dockerfile with Production Best Practices
+# Production-Grade Rust Backend Dockerfile
 # =============================================================================
-# Features:
-# - cargo-chef for optimal dependency caching
-# - Multi-stage builds for minimal runtime image
-# - Distroless runtime for maximum security
-# - Non-root execution
-# - Multi-architecture support
-# - Comprehensive health checks
-# - Graceful shutdown handling
+# Multi-stage build optimized for:
+# - Minimal image size with distroless runtime
+# - Fast builds with cargo-chef dependency caching
+# - Security with non-root user and minimal attack surface
+# - Performance with LTO and optimized release builds
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# Stage 1: Chef - Prepare dependency cache with cargo-chef
+# Stage 1: Chef Planner - Prepare dependency recipe
 # -----------------------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM rust:1.82-alpine AS chef
+FROM rust:1.82-alpine AS chef
 
-# Install build dependencies for Alpine
+# Install cargo-chef for optimal dependency caching
+RUN apk add --no-cache musl-dev pkgconfig openssl-dev openssl-libs-static && \
+    cargo install cargo-chef --locked
+
+WORKDIR /app
+
+# -----------------------------------------------------------------------------
+# Stage 2: Planner - Generate dependency recipe
+# -----------------------------------------------------------------------------
+FROM chef AS planner
+
+# Copy workspace manifests
+COPY rust-backend/Cargo.toml rust-backend/Cargo.lock ./
+COPY rust-backend/rust-toolchain.toml ./
+COPY rust-backend/crates ./crates
+
+# Generate recipe.json for dependency caching
+RUN cargo chef prepare --recipe-path recipe.json
+
+# -----------------------------------------------------------------------------
+# Stage 3: Builder - Build dependencies and application
+# -----------------------------------------------------------------------------
+FROM chef AS builder
+
+# Copy dependency recipe
+COPY --from=planner /app/recipe.json recipe.json
+
+# Build dependencies (cached layer - only rebuilds if dependencies change)
+RUN cargo chef cook --release --recipe-path recipe.json
+
+# Copy source code
+COPY rust-backend/Cargo.toml rust-backend/Cargo.lock ./
+COPY rust-backend/rust-toolchain.toml ./
+COPY rust-backend/crates ./crates
+
+# Build application with optimizations (LTO, single codegen unit, stripped)
+RUN cargo build --release --bins && \
+    strip target/release/vclip-api target/release/vclip-worker
+
+# -----------------------------------------------------------------------------
+# Stage 4: Runtime - Minimal production image for API
+# -----------------------------------------------------------------------------
+FROM gcr.io/distroless/cc-debian12:nonroot AS runtime
+
+# OCI labels for metadata
+LABEL org.opencontainers.image.title="ViralClip AI Rust Backend" \
+      org.opencontainers.image.description="High-performance Rust backend for AI-powered video clip generation" \
+      org.opencontainers.image.vendor="Viral Clip AI" \
+      org.opencontainers.image.licenses="Proprietary"
+
+# Copy SSL certificates for HTTPS
+COPY --from=builder --chown=nonroot:nonroot /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+# Copy compiled binaries
+COPY --from=builder --chown=nonroot:nonroot /app/target/release/vclip-api /app/vclip-api
+COPY --from=builder --chown=nonroot:nonroot /app/target/release/vclip-worker /app/vclip-worker
+
+WORKDIR /app
+USER nonroot
+
+# Environment variables for production
+ENV RUST_LOG=info \
+    RUST_BACKTRACE=1 \
+    TZ=UTC
+
+EXPOSE 8000
+
+# Default to API server (can be overridden in docker-compose)
+ENTRYPOINT ["/app/vclip-api"]
+
+# -----------------------------------------------------------------------------
+# Stage 5: Runtime with FFmpeg - For worker containers
+# -----------------------------------------------------------------------------
+FROM debian:12-slim AS runtime-ffmpeg
+
+# Install FFmpeg and CA certificates
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ffmpeg \
+        ca-certificates && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd -g 1000 appgroup && \
+    useradd -u 1000 -g appgroup -d /app -s /sbin/nologin appuser
+
+# Copy compiled binaries
+COPY --from=builder --chown=appuser:appgroup /app/target/release/vclip-api /app/vclip-api
+COPY --from=builder --chown=appuser:appgroup /app/target/release/vclip-worker /app/vclip-worker
+
+WORKDIR /app
+USER appuser
+
+# Environment variables for production
+ENV RUST_LOG=info \
+    RUST_BACKTRACE=1 \
+    TZ=UTC \
+    PATH="/usr/bin:${PATH}"
+
+# Verify FFmpeg is available
+RUN ffmpeg -version
+
+EXPOSE 8000
+
+# Default to worker (can be overridden)
+ENTRYPOINT ["/app/vclip-worker"]
+
+# -----------------------------------------------------------------------------
+# Stage 6: Development - Full toolchain with hot reload
+# -----------------------------------------------------------------------------
+FROM rust:1.82-alpine AS dev
+
+# Install development dependencies
 RUN apk add --no-cache \
     musl-dev \
     pkgconfig \
     openssl-dev \
     openssl-libs-static \
-    ca-certificates \
-    && update-ca-certificates
-
-# Install cargo-chef for dependency caching
-RUN cargo install cargo-chef --locked
-
-# Create app directory
-WORKDIR /app
-
-# -----------------------------------------------------------------------------
-# Stage 2: Planner - Generate recipe for dependency caching
-# -----------------------------------------------------------------------------
-FROM chef AS planner
-
-# Copy workspace configuration
-COPY Cargo.toml Cargo.lock ./
-
-# Copy all crate manifests for dependency analysis
-COPY crates/ ./crates/
-
-# Generate recipe for dependency caching
-RUN cargo chef prepare --recipe-path recipe.json
-
-# -----------------------------------------------------------------------------
-# Stage 3: Builder - Compile dependencies and application
-# -----------------------------------------------------------------------------
-FROM chef AS builder
-
-# Copy recipe from planner stage
-COPY --from=planner /app/recipe.json recipe.json
-
-# Build dependencies (cached layer)
-RUN cargo chef cook --release --recipe-path recipe.json
-
-# Copy source code
-COPY Cargo.toml Cargo.lock ./
-COPY crates/ ./crates/
-
-# Build application (only rebuilds if source changes)
-RUN cargo build --release --bin vclip-api \
-    && strip /app/target/release/vclip-api
-
-# -----------------------------------------------------------------------------
-# Stage 4: Runtime - Secure distroless image with CA certificates
-# -----------------------------------------------------------------------------
-FROM --platform=$TARGETPLATFORM gcr.io/distroless/cc-debian12:nonroot AS runtime
-
-# Build arguments with defaults
-ARG BUILD_DATE
-ARG VCS_REF
-ARG VERSION=dev
-ARG TARGETPLATFORM
-
-# Comprehensive OCI labels for traceability and security
-LABEL org.opencontainers.image.created="${BUILD_DATE}" \
-      org.opencontainers.image.authors="Viral Clip AI" \
-      org.opencontainers.image.url="https://viralvideoai.io" \
-      org.opencontainers.image.documentation="https://docs.viralvideoai.io" \
-      org.opencontainers.image.source="https://github.com/viralclipai/viralclipai" \
-      org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.revision="${VCS_REF}" \
-      org.opencontainers.image.vendor="Viral Clip AI" \
-      org.opencontainers.image.licenses="Proprietary" \
-      org.opencontainers.image.title="Viral Clip AI Rust Backend" \
-      org.opencontainers.image.description="High-performance Rust Axum backend for AI-powered video clip generation" \
-      maintainer="Viral Clip AI Team <team@viralvideoai.io>" \
-      org.label-schema.build-date="${BUILD_DATE}" \
-      org.label-schema.vcs-ref="${VCS_REF}" \
-      org.label-schema.version="${VERSION}" \
-      org.label-schema.schema-version="1.0"
-
-# Copy CA certificates for HTTPS requests
-COPY --from=builder --chown=nonroot:nonroot /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-
-# Copy timezone data for proper timestamp handling
-COPY --from=builder --chown=nonroot:nonroot /usr/share/zoneinfo /usr/share/zoneinfo
-
-# Copy the compiled binary from builder stage
-COPY --from=builder --chown=nonroot:nonroot /app/target/release/vclip-api /app/vclip-api
-
-# Create necessary directories with proper permissions
-# Note: distroless/nonroot creates /tmp and /home/nonroot by default
-USER nonroot
-
-# Set working directory
-WORKDIR /app
-
-# Environment variables for production optimization
-ENV RUST_LOG=info \
-    LOG_LEVEL=INFO \
-    RUST_BACKTRACE=1 \
-    TZ=UTC
-
-# Comprehensive health check with proper signal handling
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD ["/app/vclip-api", "--health-check"] || exit 1
-
-# Expose port
-EXPOSE 8000
-
-# Default command with proper signal handling
-ENTRYPOINT ["/app/vclip-api"]
-
-# -----------------------------------------------------------------------------
-# Stage 5: Development - Full development environment with hot reload
-# -----------------------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM chef AS dev
-
-# Install development tools and dependencies
-RUN apk add --no-cache \
+    ffmpeg \
     git \
-    curl \
-    openssh-client \
-    docker-cli \
-    && cargo install cargo-watch --locked \
-    && cargo install cargo-expand --locked \
-    && cargo install cargo-udeps --locked \
-    && cargo install cargo-audit --locked \
-    && cargo install cargo-tarpaulin --locked
+    curl && \
+    cargo install cargo-watch --locked
 
-# Create app directory
 WORKDIR /app
 
-# Copy source code for development
-COPY . ./
-
-# Development environment variables
+# Development environment
 ENV RUST_LOG=debug \
-    LOG_LEVEL=DEBUG \
     RUST_BACKTRACE=full \
-    CARGO_INCREMENTAL=1 \
-    CARGO_TERM_COLOR=always
+    CARGO_INCREMENTAL=1
 
-# Health check for development
-HEALTHCHECK --interval=60s --timeout=30s --start-period=60s --retries=3 \
-    CMD cargo check --quiet || exit 1
-
-# Development command with hot reload
-CMD ["cargo", "watch", "-x", "run --bin vclip-api", "-w", "crates/"]
+# Hot reload with cargo-watch
+CMD ["cargo", "watch", "-x", "run --bin vclip-api"]
