@@ -48,10 +48,12 @@ services:
       - REDIS_POOL_SIZE=${REDIS_POOL_SIZE:-10}
 
       # Cloudflare R2 Storage
+      - R2_ENDPOINT_URL=${R2_ENDPOINT_URL}
       - R2_ACCOUNT_ID=${R2_ACCOUNT_ID}
       - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
       - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
       - R2_BUCKET_NAME=${R2_BUCKET_NAME}
+      - R2_REGION=${R2_REGION:-auto}
 
       # JWT
       - JWT_SECRET=${JWT_SECRET}
@@ -136,10 +138,12 @@ services:
       - REDIS_POOL_SIZE=${REDIS_POOL_SIZE:-10}
 
       # Cloudflare R2 Storage
+      - R2_ENDPOINT_URL=${R2_ENDPOINT_URL}
       - R2_ACCOUNT_ID=${R2_ACCOUNT_ID}
       - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
       - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
       - R2_BUCKET_NAME=${R2_BUCKET_NAME}
+      - R2_REGION=${R2_REGION:-auto}
 
       # Gemini AI
       - GEMINI_API_KEY=${GEMINI_API_KEY}
