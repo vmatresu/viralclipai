@@ -1,13 +1,13 @@
 # Viral Clip AI 🤖🎥✂️<br><sup>AI-powered viral clip extractor for YouTube commentary videos</sup></h1>
 
-[![Python](https://img.shields.io/badge/Python-3.8+-3776AB?style=flat&logo=python&logoColor=white)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.104.1-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Rust](https://img.shields.io/badge/Rust-1.81+-000000?style=flat&logo=rust&logoColor=white)](https://rust-lang.org)
+[![Axum](https://img.shields.io/badge/Axum-0.7-000000?style=flat&logo=rust&logoColor=white)](https://crates.io/crates/axum)
 [![Gemini AI](https://img.shields.io/badge/Gemini_AI-1.0-4285F4?style=flat&logo=google&logoColor=white)](https://ai.google.dev)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ## 🚀 Overview
 
-Viral Clip AI is an intelligent web application that leverages Google's Gemini AI to automatically extract viral-worthy clips from long-form commentary videos. It is designed as a SaaS-style platform with a modern Next.js frontend, a FastAPI backend, secure multi-tenancy, and Cloudflare R2 as primary storage.
+Viral Clip AI is an intelligent web application that leverages Google's Gemini AI to automatically extract viral-worthy clips from long-form commentary videos. It is designed as a SaaS-style platform with a modern Next.js frontend, a high-performance Rust backend, secure multi-tenancy, and Cloudflare R2 as primary storage.
 
 ### ✨ Key Features
 
@@ -36,14 +36,41 @@ graph TB
 
 ### Tech Stack
 
-- **Backend**: FastAPI (Python async web framework)
-- **AI Engine**: Google Gemini AI
-- **Video Processing**: yt-dlp + ffmpeg
-- **Real-Time**: WebSockets for live updates
-- **Frontend**: Next.js (App Router) + React + TailwindCSS
+- **Backend**: Rust with Axum web framework (high-performance, memory-safe, async)
+- **Architecture**: Modular crate-based design following SOLID principles and DRY architecture
+- **AI Engine**: Google Gemini AI with custom ML client
+- **Video Processing**: FFmpeg integration via Rust bindings
+- **Real-Time**: WebSocket support with Tokio async runtime
+- **Frontend**: Next.js (App Router) + React + TypeScript + TailwindCSS
 - **Storage**: Cloudflare R2 (S3-compatible) with presigned URLs
-- **Auth & Data**: Firebase Auth + Firestore
-- **Server**: Uvicorn / Gunicorn (via Docker)
+- **Auth & Data**: Firebase Auth + Firestore with Rust SDK
+- **Queue System**: Redis-backed job queue with Apalis
+- **Observability**: OpenTelemetry tracing and Prometheus metrics
+- **Security**: Rate limiting, input validation, CORS protection
+
+## 🏗️ Architecture Principles
+
+This project implements modern software architecture following industry best practices:
+
+### SOLID & Clean Architecture
+
+- **Single Responsibility**: Each crate has a focused purpose (API, ML client, storage, etc.)
+- **Open/Closed**: Extensible through traits and dependency injection
+- **Dependency Inversion**: Clean separation between business logic and infrastructure
+
+### DRY & Modular Design
+
+- **Modular Crates**: Separate concerns into focused Rust crates with clear APIs
+- **Shared Models**: Common data structures in `vclip-models` crate
+- **Reusability**: Components designed for composition and testing
+
+### Production-Ready Features
+
+- **High Performance**: Zero-cost abstractions with Rust's memory safety
+- **Concurrency**: Async/await with Tokio for scalable processing
+- **Observability**: OpenTelemetry tracing and Prometheus metrics
+- **Security**: Input validation, rate limiting, and secure defaults
+- **Reliability**: Comprehensive error handling and graceful degradation
 
 ## 📋 Prerequisites
 
@@ -53,7 +80,7 @@ graph TB
   - Service account JSON for Admin SDK
   - Web config for frontend
 
-You can still run things directly with Python/Node if you prefer, but the
+You can still run things directly with Rust/Node if you prefer, but the
 default path is Docker-based.
 
 ## 🛠️ Local Development (Docker)
@@ -92,11 +119,15 @@ See **`DOCKER_SETUP.md`** for a detailed quickstart. In short:
 For advanced/local debugging you can still:
 
 ```bash
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+# Install Rust toolchain if not present
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+
+# Install dependencies and run
+cd backend
+cargo build --release
 export GEMINI_API_KEY=...
-python -m app.main
+cargo run --bin vclip-api
 ```
 
 and run the Next.js app from `web/` with `npm install` and `npm run dev`.
@@ -163,13 +194,13 @@ docker buildx build --platform linux/amd64 -t viralclipai-worker:latest --target
 
 The application is structured as a multi-tenant SaaS with Firebase Auth,
 Firestore, and Cloudflare R2-based storage (S3-compatible). Most behaviour is controlled via
-environment variables (see `app/config.py` and `docs/configuration.md`).
+environment variables (see `backend/crates/vclip-api/src/config.rs` and `docs/configuration.md`).
 
 **Core settings**
 
 - **Gemini API**
 
-  - `GEMINI_API_KEY` – API key for Google Gemini, used by `app/core/gemini.py`.
+  - `GEMINI_API_KEY` – API key for Google Gemini, used by `vclip-ml-client` crate.
 
 - **Firebase Admin / Firestore (backend)**
 
@@ -204,12 +235,13 @@ environment variables (see `app/config.py` and `docs/configuration.md`).
 
 - **Security / domains**
   - `ALLOWED_HOSTS` – comma-separated list of hostnames allowed at the
-    FastAPI layer (used by TrustedHostMiddleware). Recommended for
+    Axum layer (used by TrustedHostMiddleware). Recommended for
     production:
     - `ALLOWED_HOSTS=viralvideoai.io,www.viralvideoai.io`
   - `CORS_ORIGINS` – comma-separated list of allowed origins for browsers.
-    For example:
-    - `CORS_ORIGINS=https://viralvideoai.io,https://www.viralvideoai.io`
+    Include localhost for development and font domains:
+    - `CORS_ORIGINS=http://localhost:3000,http://localhost:3001,https://fonts.googleapis.com,https://fonts.gstatic.com`
+  - `ENVIRONMENT` – Set to `production` to enable security hardening (error sanitization, etc.)
 
 **Paths and logging**
 
@@ -278,7 +310,7 @@ full details. In summary:
 **"Video download failed"**
 
 - Verify YouTube URL is valid and accessible
-- Check yt-dlp is installed: `pip install yt-dlp`
+- Check yt-dlp is available in system PATH
 
 **"Processing timeout"**
 
@@ -287,7 +319,7 @@ full details. In summary:
 
 **"Port already in use"**
 
-- Change port: `uvicorn app.main:app --port 8001`
+- Change port: `API_PORT=8001 cargo run --bin vclip-api`
 
 ## 📄 License
 
@@ -296,7 +328,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🙏 Acknowledgments
 
 - **Google Gemini AI** for powering the intelligent analysis
-- **FastAPI** for the robust async web framework
+- **Rust & Axum** for the high-performance, memory-safe web framework
+- **Tokio** for the async runtime enabling concurrent processing
 - **yt-dlp** for reliable YouTube video handling
 - **TailwindCSS** for beautiful, responsive UI
 
