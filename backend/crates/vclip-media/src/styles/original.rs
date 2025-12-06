@@ -25,6 +25,7 @@ impl OriginalProcessor {
 
     /// Get the estimated file size multiplier for original processing.
     /// Original processing typically has minimal size change.
+    #[allow(dead_code)]
     fn size_multiplier(&self) -> f64 {
         0.95 // 95% of original size (minor compression)
     }

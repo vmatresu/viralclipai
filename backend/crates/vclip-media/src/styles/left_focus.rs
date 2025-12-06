@@ -31,6 +31,7 @@ impl LeftFocusProcessor {
     }
 
     /// Get the estimated file size multiplier for left focus processing.
+    #[allow(dead_code)]
     fn size_multiplier(&self) -> f64 {
         1.1 // 110% of original size (scaling operations)
     }

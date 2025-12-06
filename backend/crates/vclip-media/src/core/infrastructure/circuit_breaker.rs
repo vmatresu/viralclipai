@@ -20,6 +20,7 @@ pub enum CircuitState {
 #[derive(Clone)]
 pub struct CircuitBreaker {
     state: Arc<RwLock<CircuitState>>,
+    #[allow(dead_code)]
     failure_threshold: u32,
     recovery_timeout: Duration,
     success_threshold: u32,

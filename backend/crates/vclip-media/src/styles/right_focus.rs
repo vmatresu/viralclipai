@@ -31,6 +31,7 @@ impl RightFocusProcessor {
     }
 
     /// Get the estimated file size multiplier for right focus processing.
+    #[allow(dead_code)]
     fn size_multiplier(&self) -> f64 {
         1.1 // 110% of original size (scaling operations)
     }

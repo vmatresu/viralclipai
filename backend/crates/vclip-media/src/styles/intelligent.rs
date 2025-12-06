@@ -24,6 +24,7 @@ impl IntelligentProcessor {
 
     /// Get the estimated file size multiplier for intelligent processing.
     /// Intelligent processing may have variable output sizes based on face detection.
+    #[allow(dead_code)]
     fn size_multiplier(&self) -> f64 {
         1.0 // Variable based on detected content
     }

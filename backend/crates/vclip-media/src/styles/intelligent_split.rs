@@ -23,6 +23,7 @@ impl IntelligentSplitProcessor {
     }
 
     /// Get the estimated file size multiplier for intelligent split processing.
+    #[allow(dead_code)]
     fn size_multiplier(&self) -> f64 {
         1.3 // 130% of original size (complex processing pipeline)
     }

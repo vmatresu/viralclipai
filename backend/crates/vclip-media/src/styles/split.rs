@@ -32,6 +32,7 @@ impl SplitProcessor {
 
     /// Get the estimated file size multiplier for split processing.
     /// Split processing may increase file size due to complex filtering.
+    #[allow(dead_code)]
     fn size_multiplier(&self) -> f64 {
         1.2 // 120% of original size (filter complexity)
     }

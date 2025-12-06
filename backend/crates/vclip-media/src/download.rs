@@ -6,7 +6,6 @@ use tokio::process::Command;
 use tracing::{debug, info, warn};
 
 use crate::error::{MediaError, MediaResult};
-use vclip_models::extract_youtube_id;
 
 /// Minimum video file size threshold (50MB) to consider download complete.
 const MIN_VIDEO_FILE_SIZE: u64 = 50 * 1024 * 1024;

@@ -91,6 +91,7 @@ impl Default for FFmpegPool {
 /// Individual FFmpeg connection wrapper.
 pub struct FFmpegConnection {
     id: String,
+    #[allow(dead_code)]
     created_at: Instant,
     last_used: Instant,
     process_count: u64,
@@ -189,6 +190,7 @@ pub struct TempDirectoryManager {
 struct TempDirInfo {
     path: std::path::PathBuf,
     created_at: Instant,
+    #[allow(dead_code)]
     request_id: String,
 }
 
@@ -342,6 +344,7 @@ pub mod monitoring {
     #[derive(Clone)]
     pub struct CircuitBreaker {
         state: Arc<RwLock<CircuitState>>,
+        #[allow(dead_code)]
         failure_threshold: u32,
         recovery_timeout: Duration,
         success_threshold: u32,

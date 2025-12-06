@@ -18,6 +18,7 @@ pub enum MetricValue {
 #[derive(Clone)]
 pub struct ProductionMetricsCollector {
     metrics: Arc<RwLock<HashMap<String, MetricValue>>>,
+    #[allow(dead_code)]
     labels: HashMap<String, Vec<(String, String)>>,
 }
 
