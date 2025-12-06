@@ -53,6 +53,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         pkg-config \
         libssl-dev \
         ca-certificates \
+        # OpenCV development libraries for YuNet compilation
+        libopencv-dev \
+        # Clang/LLVM for opencv-rust bindgen
+        clang \
+        libclang-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install cargo-chef

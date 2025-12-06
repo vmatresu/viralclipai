@@ -42,6 +42,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libopencv-dnn-dev \
         libopencv-imgproc-dev \
         libopencv-videoio-dev \
+        # Clang/LLVM for opencv-rust bindgen
+        clang \
+        libclang-dev \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
