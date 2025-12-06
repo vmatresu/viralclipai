@@ -30,7 +30,7 @@ pub struct UserSettings {
 pub struct UserRecord {
     pub uid: String,
     pub email: Option<String>,
-    pub plan_id: String,
+    pub plan: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     #[serde(default)]
@@ -48,7 +48,7 @@ impl Default for UserRecord {
         Self {
             uid: String::new(),
             email: None,
-            plan_id: "free".to_string(),
+            plan: "free".to_string(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
             settings: UserSettings::default(),
@@ -116,7 +116,7 @@ impl UserService {
                 let user = UserRecord {
                     uid: uid.to_string(),
                     email: email.map(|s| s.to_string()),
-                    plan_id: "free".to_string(),
+                    plan: "free".to_string(),
                     created_at: Utc::now(),
                     updated_at: Utc::now(),
                     settings: UserSettings::default(),
@@ -219,7 +219,7 @@ impl UserService {
         let user = self.get_or_create_user(uid, None).await?;
         
         // Get plan document from Firestore
-        match self.firestore.get_document("plans", &user.plan_id).await {
+        match self.firestore.get_document("plans", &user.plan).await {
             Ok(Some(plan_doc)) => {
                 // Parse plan document
                 let plan_limits = parse_plan_limits(&plan_doc)?;
@@ -227,7 +227,7 @@ impl UserService {
             }
             Ok(None) => {
                 // Plan not found, fallback to free plan
-                warn!("Plan '{}' not found for user {}, falling back to free", user.plan_id, uid);
+                warn!("Plan '{}' not found for user {}, falling back to free", user.plan, uid);
                 match self.firestore.get_document("plans", "free").await {
                     Ok(Some(free_doc)) => {
                         parse_plan_limits(&free_doc)
@@ -240,7 +240,7 @@ impl UserService {
                 }
             }
             Err(e) => {
-                warn!("Error fetching plan '{}' for user {}: {}, falling back to free", user.plan_id, uid, e);
+                warn!("Error fetching plan '{}' for user {}: {}, falling back to free", user.plan, uid, e);
                 // Fallback to free plan on error
                 match self.firestore.get_document("plans", "free").await {
                     Ok(Some(free_doc)) => {
@@ -321,7 +321,7 @@ impl UserService {
     /// Check if user has pro or enterprise plan.
     pub async fn has_pro_or_enterprise_plan(&self, uid: &str) -> ApiResult<bool> {
         let user = self.get_or_create_user(uid, None).await?;
-        Ok(user.plan_id == "pro" || user.plan_id == "enterprise")
+        Ok(user.plan == "pro" || user.plan == "enterprise")
     }
 
     /// Check if user is a super admin.
@@ -429,7 +429,7 @@ fn parse_user_document(doc: &vclip_firestore::Document) -> ApiResult<UserRecord>
     Ok(UserRecord {
         uid: get_string("uid").unwrap_or_default(),
         email: get_string("email"),
-        plan_id: get_string("plan_id").unwrap_or_else(|| "free".to_string()),
+        plan: get_string("plan").unwrap_or_else(|| "free".to_string()),
         created_at: fields
             .get("created_at")
             .and_then(|v| chrono::DateTime::from_firestore_value(v))
@@ -495,7 +495,7 @@ fn user_to_fields(user: &UserRecord) -> HashMap<String, Value> {
     if let Some(ref email) = user.email {
         fields.insert("email".to_string(), email.to_firestore_value());
     }
-    fields.insert("plan_id".to_string(), user.plan_id.to_firestore_value());
+    fields.insert("plan".to_string(), user.plan.to_firestore_value());
     fields.insert("created_at".to_string(), user.created_at.to_firestore_value());
     fields.insert("updated_at".to_string(), user.updated_at.to_firestore_value());
     if let Some(ref role) = user.role {
