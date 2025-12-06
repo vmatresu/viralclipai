@@ -2,12 +2,14 @@
  * Custom hook for scene reprocessing via WebSocket.
  *
  * Provides a clean interface for reprocessing scenes with real-time progress updates.
+ * Integrates with the global ProcessingContext for persistent state across page navigations.
  */
 
-import { useCallback, useRef, useState, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { useAuth } from "@/lib/auth";
+import { useProcessing } from "@/lib/processing-context";
 import {
   reprocessScenesWebSocket,
   type ReprocessCallbacks,
@@ -22,16 +24,19 @@ interface ReprocessingState {
 
 interface UseReprocessingOptions {
   videoId: string;
+  videoTitle?: string;
   onComplete?: () => void;
   onError?: (error: string) => void;
 }
 
 export function useReprocessing({
   videoId,
+  videoTitle,
   onComplete,
   onError,
 }: UseReprocessingOptions) {
   const { getIdToken } = useAuth();
+  const { startJob, updateJob, completeJob, failJob } = useProcessing();
   const [state, setState] = useState<ReprocessingState>({
     isProcessing: false,
     progress: 0,
@@ -72,6 +77,9 @@ export function useReprocessing({
           throw new Error("Failed to get authentication token");
         }
 
+        // Calculate total clips
+        const totalClips = sceneIds.length * styles.length;
+
         // Reset state
         setState({
           isProcessing: true,
@@ -80,6 +88,9 @@ export function useReprocessing({
           error: null,
         });
 
+        // Start job in global processing context
+        startJob(videoId, videoTitle, totalClips);
+
         // Use dedicated WebSocket client for better separation of concerns
         const callbacks: ReprocessCallbacks = {
           onProgress: (value) => {
@@ -87,9 +98,13 @@ export function useReprocessing({
               ...prev,
               progress: value,
             }));
+            // Update global processing context
+            updateJob(videoId, { progress: value });
           },
           onLog: (message) => {
             addLog(message);
+            // Update current step in global context
+            updateJob(videoId, { currentStep: message });
           },
           onDone: () => {
             setState((prev) => ({
@@ -99,6 +114,8 @@ export function useReprocessing({
             }));
             addLog("Reprocessing complete!");
             toast.success("Reprocessing complete!");
+            // Complete job in global context
+            completeJob(videoId);
             cleanup();
             onComplete?.();
           },
@@ -113,6 +130,8 @@ export function useReprocessing({
             if (details) {
               console.error("Reprocessing error details:", details);
             }
+            // Fail job in global context
+            failJob(videoId, errorMsg);
             cleanup();
             onError?.(errorMsg);
           },
@@ -125,6 +144,7 @@ export function useReprocessing({
                 error: "Connection closed unexpectedly",
               }));
               toast.error("Connection closed unexpectedly");
+              failJob(videoId, "Connection closed unexpectedly");
               onError?.("Connection closed unexpectedly");
             }
             cleanup();
@@ -158,7 +178,20 @@ export function useReprocessing({
         onError?.(errorMessage);
       }
     },
-    [videoId, getIdToken, state.isProcessing, addLog, cleanup, onComplete, onError]
+    [
+      videoId,
+      videoTitle,
+      getIdToken,
+      state.isProcessing,
+      addLog,
+      cleanup,
+      onComplete,
+      onError,
+      startJob,
+      updateJob,
+      completeJob,
+      failJob,
+    ]
   );
 
   const cancel = useCallback(() => {

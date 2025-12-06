@@ -172,6 +172,10 @@ pub struct VideoSummary {
     pub clips_count: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_prompt: Option<String>,
 }
 
 /// List user videos query params.
@@ -206,6 +210,8 @@ pub async fn list_user_videos(
             video_title: Some(v.video_title),
             clips_count: v.clips_count,
             created_at: Some(v.created_at.to_rfc3339()),
+            status: Some(v.status.as_str().to_string()),
+            custom_prompt: v.custom_prompt,
         })
         .collect();
 

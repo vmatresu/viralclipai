@@ -686,7 +686,11 @@ export default function HistoryList() {
                       <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold border-transparent bg-secondary text-secondary-foreground">
                         ID: {id.substring(0, 8)}...
                       </span>
-                      <VideoStatusBadge status={v.status} clipsCount={v.clips_count} />
+                      <VideoStatusBadge
+                        videoId={id}
+                        status={v.status}
+                        clipsCount={v.clips_count}
+                      />
                     </div>
 
                     {v.video_url && (

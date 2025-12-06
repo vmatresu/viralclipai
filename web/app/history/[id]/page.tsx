@@ -58,8 +58,13 @@ export default function HistoryDetailPage() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
 
-  const { isProcessing: isReprocessing, reprocess } = useReprocessing({
+  const {
+    isProcessing: isReprocessing,
+    reprocess,
+    progress: reprocessProgress,
+  } = useReprocessing({
     videoId,
+    videoTitle: highlightsData?.video_title,
     onComplete: () => {
       setIsProcessing(false);
       void loadHighlights();
@@ -351,7 +356,14 @@ export default function HistoryDetailPage() {
         </div>
       </div>
 
-      {(isProcessing || isReprocessing) && <ProcessingStatus videoId={videoId} />}
+      {(isProcessing || isReprocessing) && (
+        <ProcessingStatus
+          videoId={videoId}
+          videoTitle={highlightsData?.video_title}
+          progress={reprocessProgress}
+          status={isReprocessing ? "processing" : "pending"}
+        />
+      )}
 
       {hasProOrStudioPlan && (
         <Card className="glass">
