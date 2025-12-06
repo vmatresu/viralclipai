@@ -13,11 +13,11 @@ import { analyticsEvents } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
 import { limitLength, sanitizeUrl } from "@/lib/security/validation";
-import { createWebSocketConnection, getWebSocketUrl } from "@/lib/websocket-client";
 import {
   handleWSMessage,
   type MessageHandlerCallbacks,
 } from "@/lib/websocket/messageHandler";
+import { createWebSocketConnection, getWebSocketUrl } from "@/lib/websocket-client";
 
 import { ErrorDisplay } from "./ErrorDisplay";
 import { useVideoProcessing } from "./hooks";
@@ -234,8 +234,8 @@ export function ProcessingClient() {
 
   return (
     <div className="space-y-8">
-      {/* Input Section */}
-      {!hasResults && (
+      {/* Input Section - Only show when not viewing a specific video */}
+      {!hasResults && !videoId && (
         <VideoForm
           url={url}
           setUrl={setUrl}

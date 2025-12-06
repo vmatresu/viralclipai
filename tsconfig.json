@@ -15,18 +15,12 @@
     "baseUrl": "./web",
     "paths": {
       "@/components/*": ["./components/*"],
-      "@/lib/*": ["./lib/*"]
+      "@/lib/*": ["./lib/*"],
+      "@/hooks/*": ["./hooks/*"]
     },
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": [
-    "web/**/*.ts",
-    "web/**/*.tsx"
-  ],
-  "exclude": [
-    "web/node_modules",
-    "web/.next"
-  ]
+  "include": ["web/**/*.ts", "web/**/*.tsx"],
+  "exclude": ["web/node_modules", "web/.next"]
 }
-

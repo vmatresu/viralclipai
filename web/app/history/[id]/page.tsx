@@ -55,7 +55,7 @@ export default function HistoryDetailPage() {
   const [selectedScenes, setSelectedScenes] = useState<Set<number>>(new Set());
   const [selectedStyles, setSelectedStyles] = useState<Set<string>>(new Set());
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(true);
+  const [isCollapsed, setIsCollapsed] = useState(false);
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
 
   const { isProcessing: isReprocessing, reprocess } = useReprocessing({
@@ -117,7 +117,9 @@ export default function HistoryDetailPage() {
 
   // Check if video is processing with proper cleanup
   useEffect(() => {
-    if (!user || !videoId) return;
+    if (!user || !videoId) {
+      return undefined;
+    }
 
     let cancelled = false;
 
@@ -246,7 +248,7 @@ export default function HistoryDetailPage() {
     if (parts.length === 3) {
       const [h, m, s] = parts;
       const totalSeconds =
-        parseInt(h || "0") * 3600 + parseInt(m || "0") * 60 + parseFloat(s || "0");
+        parseInt(h ?? "0") * 3600 + parseInt(m ?? "0") * 60 + parseFloat(s ?? "0");
       const minutes = Math.floor(totalSeconds / 60);
       const seconds = Math.floor(totalSeconds % 60);
       return `${minutes}:${seconds.toString().padStart(2, "0")}`;
@@ -425,12 +427,15 @@ export default function HistoryDetailPage() {
 
       <Card className="glass">
         <CardHeader>
-          <CardTitle>Existing Clips</CardTitle>
-          <CardDescription>View all clips generated for this video</CardDescription>
+          <CardTitle>Actions</CardTitle>
+          <CardDescription>View existing clips or process a new video</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
           <Button asChild variant="outline">
             <Link href={`/?id=${encodeURIComponent(videoId)}`}>View All Clips</Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href="/">Process Another Video</Link>
           </Button>
         </CardContent>
       </Card>

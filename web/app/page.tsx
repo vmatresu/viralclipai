@@ -1,9 +1,9 @@
 "use client";
 
-import { Sparkles, Video, Users } from "lucide-react";
+import { Sparkles, Users, Video } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { Suspense, useEffect } from "react";
 
 import { ProcessingClient } from "@/components/ProcessingClient";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,14 @@ function HomePageContent() {
   const searchParams = useSearchParams();
   const videoId = searchParams.get("id");
   const isViewingVideo = Boolean(videoId);
+
+  // Redirect old URL format to new format
+  useEffect(() => {
+    if (videoId && window.location.pathname === "/") {
+      // Redirect to /history?id=videoId
+      window.history.replaceState({}, "", `/history?id=${videoId}`);
+    }
+  }, [videoId]);
 
   return (
     <div className="space-y-12">
