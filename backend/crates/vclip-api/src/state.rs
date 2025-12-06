@@ -34,12 +34,13 @@ impl AppState {
 
         let jwks = JwksCache::new().await?;
         
+        let storage_arc = Arc::new(storage);
         let firestore_arc = Arc::new(firestore);
-        let user_service = UserService::new(Arc::clone(&firestore_arc));
+        let user_service = UserService::new(Arc::clone(&firestore_arc), Arc::clone(&storage_arc));
 
         Ok(Self {
             config,
-            storage: Arc::new(storage),
+            storage: storage_arc,
             firestore: firestore_arc,
             queue: Arc::new(queue),
             progress: Arc::new(progress),

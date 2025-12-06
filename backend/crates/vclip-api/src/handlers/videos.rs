@@ -695,14 +695,47 @@ pub async fn reprocess_scenes(
         )));
     }
 
+    // Parse styles with "all" expansion support
+    let styles = vclip_models::Style::expand_styles(&request.styles);
+    
+    if styles.is_empty() {
+        return Err(ApiError::bad_request("No valid styles specified"));
+    }
+
+    // Parse crop mode and target aspect from highlights or use defaults
+    let crop_mode = vclip_models::CropMode::default();
+    let target_aspect = vclip_models::AspectRatio::default();
+
+    // Create and enqueue reprocess job
+    let video_id_obj = vclip_models::VideoId::from_string(&video_id);
+    let job = vclip_queue::ReprocessScenesJob::new(
+        &user.uid,
+        video_id_obj.clone(),
+        request.scene_ids.clone(),
+        styles,
+    )
+    .with_crop_mode(crop_mode)
+    .with_target_aspect(target_aspect);
+    
+    let job_id = job.job_id.clone();
+
+    // Enqueue the job
+    state.queue.enqueue_reprocess(job).await
+        .map_err(|e| ApiError::internal(format!("Failed to enqueue job: {}", e)))?;
+
     // Update video status to processing
     state
         .user_service
         .update_video_status(&user.uid, &video_id, vclip_models::VideoStatus::Processing)
         .await?;
 
+    // Increment usage counter
+    let clip_count = request.scene_ids.len() as u32 * request.styles.len() as u32;
+    state.user_service.increment_usage(&user.uid, clip_count).await.ok();
+
     info!(
-        "Reprocessing initiated for video {} by user {}: {} scenes, {} styles",
+        "Reprocessing job {} enqueued for video {} by user {}: {} scenes, {} styles",
+        job_id,
         video_id,
         user.uid,
         request.scene_ids.len(),
@@ -713,11 +746,11 @@ pub async fn reprocess_scenes(
         success: true,
         video_id: video_id.clone(),
         message: format!(
-            "Reprocessing initiated for {} scene(s) with {} style(s). Please connect via WebSocket to monitor progress.",
+            "Reprocessing job enqueued for {} scene(s) with {} style(s). Connect via WebSocket to monitor progress.",
             request.scene_ids.len(),
             request.styles.len()
         ),
-        job_id: Some(video_id),
+        job_id: Some(job_id.to_string()),
     }))
 }
 

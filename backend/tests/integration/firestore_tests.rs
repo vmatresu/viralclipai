@@ -89,11 +89,15 @@ async fn test_user_repository() {
 
     dotenvy::dotenv().ok();
 
-    let client = vclip_firestore::FirestoreClient::from_env()
+    let firestore_client = vclip_firestore::FirestoreClient::from_env()
         .await
         .expect("Failed to create Firestore client");
+    
+    let storage_client = vclip_storage::R2Client::from_env()
+        .await
+        .expect("Failed to create Storage client");
 
-    let repo = UserService::new(client);
+    let repo = UserService::new(firestore_client, storage_client);
 
     let user_id = "test_user_integration_user";
 

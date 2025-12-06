@@ -172,6 +172,28 @@ impl R2Client {
         Ok(bytes)
     }
 
+    /// Download object to a file.
+    pub async fn download_file(&self, key: &str, path: impl AsRef<Path>) -> StorageResult<()> {
+        let path = path.as_ref();
+        debug!("Downloading {} to {}", key, path.display());
+
+        let bytes = self.download_bytes(key).await?;
+        
+        // Create parent directory if it doesn't exist
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| StorageError::DownloadFailed(format!("Failed to create directory: {}", e)))?;
+        }
+
+        tokio::fs::write(path, bytes)
+            .await
+            .map_err(|e| StorageError::DownloadFailed(format!("Failed to write file: {}", e)))?;
+
+        info!("Downloaded {} to {}", key, path.display());
+        Ok(())
+    }
+
     /// Get object with optional byte range.
     pub async fn get_object_range(
         &self,

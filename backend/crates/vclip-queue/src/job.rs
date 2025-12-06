@@ -117,7 +117,21 @@ impl ReprocessScenesJob {
 
     /// Generate idempotency key for deduplication.
     pub fn idempotency_key(&self) -> String {
-        format!("reprocess:{}:{}", self.user_id, self.video_id)
+        // Sort scene_ids and styles for consistent ordering
+        let mut scene_ids = self.scene_ids.clone();
+        scene_ids.sort();
+        let mut styles: Vec<String> = self.styles.iter().map(|s| s.to_string()).collect();
+        styles.sort();
+        
+        format!(
+            "reprocess:{}:{}:{:?}:{:?}:{}:{}",
+            self.user_id,
+            self.video_id,
+            scene_ids,
+            styles,
+            self.crop_mode,
+            self.target_aspect
+        )
     }
 }
 

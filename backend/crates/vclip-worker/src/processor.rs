@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tokio::sync::Semaphore;
-use tracing::info;
+use tracing::{info, warn};
 
 use vclip_firestore::FirestoreClient;
 use vclip_media::{create_clip, create_intelligent_split_clip, download_video};
@@ -79,6 +79,25 @@ pub async fn process_video(ctx: &ProcessingContext, job: &ProcessVideoJob) -> Wo
 
     ctx.progress.progress(&job.job_id, 15).await.ok();
 
+    // Upload source video to R2 for future reprocessing
+    ctx.progress
+        .log(&job.job_id, "Backing up source video...")
+        .await
+        .ok();
+    
+    let source_key = format!("{}/{}/source.mp4", job.user_id, job.video_id.as_str());
+    ctx.storage
+        .upload_file(&video_file, &source_key, "video/mp4")
+        .await
+        .map_err(|e| {
+            // Log but don't fail the job if backup fails
+            tracing::warn!("Failed to backup source video to R2: {}", e);
+            e
+        })
+        .ok();
+
+    ctx.progress.progress(&job.job_id, 18).await.ok();
+
     // Create video metadata in Firestore
     let video_meta = VideoMetadata::new(
         job.video_id.clone(),
@@ -98,7 +117,7 @@ pub async fn process_video(ctx: &ProcessingContext, job: &ProcessVideoJob) -> Wo
         .log(&job.job_id, "Analyzing video content with AI...")
         .await
         .ok();
-    ctx.progress.progress(&job.job_id, 20).await.ok();
+    ctx.progress.progress(&job.job_id, 22).await.ok();
 
     let highlights_data = match analyze_video_highlights(
         ctx,
@@ -220,6 +239,7 @@ pub async fn reprocess_scenes(
         .log(&job.job_id, "Loading video data...")
         .await
         .ok();
+    ctx.progress.progress(&job.job_id, 5).await.ok();
 
     // Load existing highlights
     let highlights = ctx
@@ -255,16 +275,128 @@ pub async fn reprocess_scenes(
         .await
         .ok();
 
-    // TODO: Download source video from R2 or use existing local copy
-    // TODO: Process each scene with each style
-    // TODO: Upload clips and update Firestore
+    // Create work directory
+    let work_dir = PathBuf::from(&ctx.config.work_dir).join(job.video_id.as_str());
+    tokio::fs::create_dir_all(&work_dir).await?;
 
+    // Download source video from R2
+    ctx.progress
+        .log(&job.job_id, "Downloading source video...")
+        .await
+        .ok();
+    ctx.progress.progress(&job.job_id, 15).await.ok();
+
+    let video_file = work_dir.join("source.mp4");
+    
+    // Try to get source video from R2
+    let source_key = format!("{}/{}/source.mp4", job.user_id, job.video_id.as_str());
+    match ctx.storage.download_file(&source_key, &video_file).await {
+        Ok(_) => {
+            info!("Downloaded source video from R2: {}", source_key);
+        }
+        Err(e) => {
+            // If source video not in R2, we need the original URL
+            // For now, return error - in production, store source video URL in highlights
+            let err_msg = format!("Source video not found in R2: {}. Original video URL needed for reprocessing.", e);
+            ctx.progress.error(&job.job_id, err_msg.clone()).await.ok();
+            return Err(WorkerError::job_failed(&err_msg));
+        }
+    }
+
+    ctx.progress.progress(&job.job_id, 25).await.ok();
+
+    // Generate clip tasks from selected highlights
+    let clip_tasks = generate_clip_tasks_from_highlights(
+        &selected_highlights,
+        &job.styles,
+        &job.crop_mode,
+        &job.target_aspect,
+    );
+
+    ctx.progress
+        .log(
+            &job.job_id,
+            format!("Generating {} clips...", total_clips),
+        )
+        .await
+        .ok();
+
+    // Create clips directory
+    let clips_dir = work_dir.join("clips");
+    tokio::fs::create_dir_all(&clips_dir).await?;
+
+    // Process clips
+    let mut completed_clips = 0u32;
+    for (idx, task) in clip_tasks.iter().enumerate() {
+        match process_clip_task(
+            ctx,
+            &job.job_id,
+            &job.video_id,
+            &job.user_id,
+            &video_file,
+            &clips_dir,
+            task,
+            idx,
+            total_clips,
+        )
+        .await
+        {
+            Ok(_) => {
+                completed_clips += 1;
+                // Update progress (25% to 95%)
+                let progress = 25 + ((idx + 1) * 70 / total_clips) as u32;
+                ctx.progress.progress(&job.job_id, progress as u8).await.ok();
+            }
+            Err(e) => {
+                ctx.progress
+                    .log(&job.job_id, format!("Failed to process clip {}: {}", task.output_filename(), e))
+                    .await
+                    .ok();
+            }
+        }
+    }
+
+    // Update video metadata
+    let video_repo = vclip_firestore::VideoRepository::new(ctx.firestore.clone(), &job.user_id);
+    
+    // Get current clip count and add new clips
+    match video_repo.get(&job.video_id).await {
+        Ok(Some(video)) => {
+            let new_total = video.clips_count + completed_clips;
+            video_repo
+                .complete(&job.video_id, new_total)
+                .await
+                .map_err(|e| WorkerError::Firestore(e))?;
+        }
+        Ok(None) => {
+            // Video not found, just mark as complete with new count
+            video_repo
+                .complete(&job.video_id, completed_clips)
+                .await
+                .map_err(|e| WorkerError::Firestore(e))?;
+        }
+        Err(e) => {
+            warn!("Failed to get video metadata: {}", e);
+            // Still try to complete
+            video_repo
+                .complete(&job.video_id, completed_clips)
+                .await
+                .map_err(|e| WorkerError::Firestore(e))?;
+        }
+    }
+
+    // Cleanup work directory
+    if work_dir.exists() {
+        tokio::fs::remove_dir_all(&work_dir).await.ok();
+    }
+
+    ctx.progress.progress(&job.job_id, 100).await.ok();
     ctx.progress
         .done(&job.job_id, job.video_id.as_str())
         .await
         .ok();
 
-    info!("Completed reprocess job: {}", job.job_id);
+    info!("Completed reprocess job: {} ({}/{} clips)", job.job_id, completed_clips, total_clips);
     Ok(())
 }
 
@@ -485,6 +617,35 @@ fn generate_clip_tasks(
     let mut tasks = Vec::new();
 
     for highlight in &highlights.highlights {
+        for style in styles {
+            tasks.push(ClipTask {
+                scene_id: highlight.id,
+                scene_title: highlight.title.clone(),
+                start: highlight.start.clone(),
+                end: highlight.end.clone(),
+                style: style.clone(),
+                crop_mode: crop_mode.clone(),
+                target_aspect: target_aspect.clone(),
+                priority: highlight.id,
+                pad_before: 0.0,
+                pad_after: 0.0,
+            });
+        }
+    }
+
+    tasks
+}
+
+/// Generate clip tasks from a filtered list of highlights (for reprocessing).
+fn generate_clip_tasks_from_highlights(
+    highlights: &[&vclip_storage::operations::HighlightEntry],
+    styles: &[vclip_models::Style],
+    crop_mode: &vclip_models::CropMode,
+    target_aspect: &vclip_models::AspectRatio,
+) -> Vec<ClipTask> {
+    let mut tasks = Vec::new();
+
+    for highlight in highlights {
         for style in styles {
             tasks.push(ClipTask {
                 scene_id: highlight.id,

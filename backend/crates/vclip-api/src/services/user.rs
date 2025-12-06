@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
 use vclip_firestore::{FirestoreClient, FromFirestoreValue, ToFirestoreValue, Value};
+use vclip_storage::R2Client;
 use vclip_models::{VideoId, VideoStatus};
 
 use crate::error::{ApiError, ApiResult};
@@ -85,12 +86,13 @@ impl Default for PlanLimits {
 #[derive(Clone)]
 pub struct UserService {
     firestore: Arc<FirestoreClient>,
+    storage: Arc<R2Client>,
 }
 
 impl UserService {
     /// Create a new user service.
-    pub fn new(firestore: Arc<FirestoreClient>) -> Self {
-        Self { firestore }
+    pub fn new(firestore: Arc<FirestoreClient>, storage: Arc<R2Client>) -> Self {
+        Self { firestore, storage }
     }
 
     /// Get or create a user record.
@@ -305,14 +307,33 @@ impl UserService {
     }
 
     /// Check if video is currently processing.
+    /// Returns false if video has highlights (effectively complete) even if status is stuck as processing.
     pub async fn is_video_processing(&self, uid: &str, video_id: &str) -> ApiResult<bool> {
         let video_repo = vclip_firestore::VideoRepository::new(
             (*self.firestore).clone(),
             uid,
         );
-        
+
         match video_repo.get(&VideoId::from_string(video_id)).await {
-            Ok(Some(video)) => Ok(video.status == VideoStatus::Processing),
+            Ok(Some(video)) => {
+                // If status is not processing, definitely not processing
+                if video.status != VideoStatus::Processing {
+                    return Ok(false);
+                }
+
+                // If status is processing, check if we have highlights
+                // If highlights exist, video is effectively complete (handles stuck processing state)
+                match self.storage.load_highlights(uid, video_id).await {
+                    Ok(highlights) => {
+                        // If highlights exist and have content, video is not actually processing
+                        Ok(highlights.highlights.is_empty())
+                    }
+                    Err(_) => {
+                        // If we can't load highlights, assume it's still processing
+                        Ok(true)
+                    }
+                }
+            }
             Ok(None) => Ok(false),
             Err(_) => Ok(false),
         }
