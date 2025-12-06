@@ -127,8 +127,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg \
         ca-certificates \
         curl \
+        python3 \
+        python3-pip \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
+
+# Install yt-dlp for YouTube video downloads
+RUN pip3 install --no-cache-dir --break-system-packages yt-dlp
 
 # Create non-root user
 RUN groupadd -g 65532 appgroup && \

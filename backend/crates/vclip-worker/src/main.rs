@@ -8,6 +8,11 @@ use vclip_worker::{JobExecutor, WorkerConfig};
 
 #[tokio::main]
 async fn main() {
+    // Install rustls crypto provider (required for TLS/HTTPS)
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     // Load environment variables
     dotenvy::dotenv().ok();
 
