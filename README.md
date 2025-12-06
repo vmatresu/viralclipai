@@ -282,10 +282,10 @@ We welcome contributions! Here's how you can help:
 
 ### Development Guidelines
 
-- Follow PEP 8 style guidelines
-- Add docstrings to new functions
-- Update tests for new features
-- Ensure all tests pass before submitting PR
+- **Rust backend**: Use `cargo fmt` and `cargo clippy` to keep code clean and idiomatic
+- **TypeScript/Next.js frontend**: Follow the existing ESLint/Prettier configuration
+- **Testing**: Add or update tests for new behavior where practical
+- **Consistency**: Match existing patterns (modules, error handling, logging, and configuration)
 
 ## 📝 AI Prompt Customization
 
