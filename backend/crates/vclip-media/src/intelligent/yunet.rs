@@ -10,6 +10,15 @@
 //!
 //! # Requirements
 //! - OpenCV 4.5+ with DNN module
+
+use super::models::BoundingBox;
+use crate::error::{MediaError, MediaResult};
+#[cfg(feature = "opencv")]
+use opencv::prelude::{FaceDetectorYNTrait, MatTraitConst};
+use std::path::Path;
+use std::sync::OnceLock;
+use tracing::{debug, info, warn};
+
 /// Global YuNet availability flag
 static YUNET_AVAILABLE: OnceLock<bool> = OnceLock::new();
 
@@ -117,12 +126,6 @@ pub async fn ensure_yunet_available() -> bool {
 // curl -L -o /app/models/face_detection_yunet_2023mar_int8.onnx \
 //   https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar_int8.onnx
 // ```
-
-use super::models::BoundingBox;
-use crate::error::{MediaError, MediaResult};
-use std::path::Path;
-use std::sync::OnceLock;
-use tracing::{debug, info, warn};
 
 /// Model paths in preference order (fastest/most accurate first)
 /// Priority: block-quantized (fastest) > int8 quantized > original
