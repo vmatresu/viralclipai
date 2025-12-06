@@ -2,26 +2,17 @@
 //!
 //! # Architecture
 //!
-//! This module provides three main entry points for clip creation:
+//! This module provides the main entry point for traditional clip creation:
 //!
-//! ## 1. `create_clip()` - Traditional Styles
+//! ## `create_clip()` - Traditional Styles
 //! Handles: `Original`, `Split`, `LeftFocus`, `RightFocus`
 //! - Uses FFmpeg video filters for transformations
 //! - Single-pass processing
 //! - Fast and efficient
 //!
-//! ## 2. `create_intelligent_clip()` - Intelligent Crop (TODO)
-//! Handles: `Intelligent`
-//! - Face detection and tracking
-//! - Smart crop window computation
-//! - Smooth camera motion
-//! - Single view with face tracking
-//!
-//! ## 3. `create_intelligent_split_clip()` - Intelligent Split
-//! Handles: `IntelligentSplit`
-//! - Multi-step pipeline: extract halves → crop each → stack
-//! - Future: Will integrate ML-based face tracking
-//! - Currently uses placeholder scaling
+//! ## Intelligent Styles (see `intelligent` module)
+//! - `create_intelligent_clip()` - Face tracking on full frame
+//! - `create_intelligent_split_clip()` - Face detection with smart layout
 //!
 //! ## Style Routing Pattern
 //!
@@ -33,8 +24,6 @@
 //!     _ => create_clip(...),
 //! }
 //! ```
-//!
-//! This matches the Python implementation's `run_ffmpeg_clip_with_crop()` logic.
 
 use std::path::Path;
 use tracing::info;
@@ -209,134 +198,6 @@ where
     FfmpegRunner::new()
         .run_with_progress(&cmd, progress_callback)
         .await
-}
-
-/// Create an intelligent split clip (left and right halves with face tracking, stacked).
-///
-/// This is a multi-step process:
-/// 1. Extract left and right halves
-/// 2. Apply intelligent crop to each half (via ML client)
-/// 3. Stack the results vertically
-pub async fn create_intelligent_split_clip<P, F>(
-    input: P,
-    output: P,
-    task: &ClipTask,
-    encoding: &EncodingConfig,
-    _progress_callback: F,
-) -> MediaResult<()>
-where
-    P: AsRef<Path>,
-    F: Fn(FfmpegProgress) + Send + 'static,
-{
-    let input = input.as_ref();
-    let output = output.as_ref();
-
-    info!(
-        "Creating intelligent split clip: {} -> {}",
-        input.display(),
-        output.display()
-    );
-
-    // Parse timestamps
-    let start_secs = parse_timestamp(&task.start)?;
-    let end_secs = parse_timestamp(&task.end)?;
-    let start_secs = (start_secs - task.pad_before).max(0.0);
-    let end_secs = end_secs + task.pad_after;
-    let duration = end_secs - start_secs;
-
-    // Create temp directory for intermediate files
-    let temp_dir = tempfile::tempdir()?;
-
-    // Step 1: Extract left half
-    let left_half = temp_dir.path().join("left.mp4");
-    let cmd_left = FfmpegCommand::new(input, &left_half)
-        .seek(start_secs)
-        .duration(duration)
-        .video_filter("crop=iw/2:ih:0:0")
-        .video_codec(&encoding.codec)
-        .preset(&encoding.preset)
-        .crf(encoding.crf)
-        .audio_codec("copy");
-
-    FfmpegRunner::new().run(&cmd_left).await?;
-
-    // Step 2: Extract right half
-    let right_half = temp_dir.path().join("right.mp4");
-    let cmd_right = FfmpegCommand::new(input, &right_half)
-        .seek(start_secs)
-        .duration(duration)
-        .video_filter("crop=iw/2:ih:iw/2:0")
-        .video_codec(&encoding.codec)
-        .preset(&encoding.preset)
-        .crf(encoding.crf)
-        .audio_codec("copy");
-
-    FfmpegRunner::new().run(&cmd_right).await?;
-
-    // Step 3: Apply intelligent crop to each half (placeholder - needs ML client)
-    // For now, just scale to target aspect
-    let left_cropped = temp_dir.path().join("left_crop.mp4");
-    let right_cropped = temp_dir.path().join("right_crop.mp4");
-
-    // Scale each half to 9:8 aspect ratio (1080x960)
-    let scale_filter = "scale=1080:960:force_original_aspect_ratio=decrease,pad=1080:960:(ow-iw)/2:(oh-ih)/2";
-
-    let cmd_left_crop = FfmpegCommand::new(&left_half, &left_cropped)
-        .video_filter(scale_filter)
-        .video_codec(&encoding.codec)
-        .preset(&encoding.preset)
-        .crf(encoding.crf)
-        .audio_codec("copy");
-
-    FfmpegRunner::new().run(&cmd_left_crop).await?;
-
-    let cmd_right_crop = FfmpegCommand::new(&right_half, &right_cropped)
-        .video_filter(scale_filter)
-        .video_codec(&encoding.codec)
-        .preset(&encoding.preset)
-        .crf(encoding.crf)
-        .audio_codec("copy");
-
-    FfmpegRunner::new().run(&cmd_right_crop).await?;
-
-    // Step 4: Stack halves vertically
-    // Increase CRF for final stacking (split views have high visual complexity)
-    let final_crf = encoding.crf.saturating_add(4);
-
-    // Build stacking command with two inputs
-    let stack_args = vec![
-        "-y".to_string(),
-        "-i".to_string(), left_cropped.to_string_lossy().to_string(),
-        "-i".to_string(), right_cropped.to_string_lossy().to_string(),
-        "-filter_complex".to_string(), "[0:v][1:v]vstack".to_string(),
-        "-c:v".to_string(), encoding.codec.clone(),
-        "-preset".to_string(), encoding.preset.clone(),
-        "-crf".to_string(), final_crf.to_string(),
-        "-c:a".to_string(), encoding.audio_codec.clone(),
-        "-b:a".to_string(), encoding.audio_bitrate.clone(),
-        output.to_string_lossy().to_string(),
-    ];
-
-    let output_status = tokio::process::Command::new("ffmpeg")
-        .args(&stack_args)
-        .output()
-        .await?;
-
-    if !output_status.status.success() {
-        return Err(MediaError::ffmpeg_failed(
-            "Stacking failed",
-            Some(String::from_utf8_lossy(&output_status.stderr).to_string()),
-            output_status.status.code(),
-        ));
-    }
-
-    // Generate thumbnail
-    let thumb_path = output.with_extension("jpg");
-    if let Err(e) = generate_thumbnail(output, &thumb_path).await {
-        tracing::warn!("Failed to generate thumbnail: {}", e);
-    }
-
-    Ok(())
 }
 
 /// Parse timestamp string (HH:MM:SS or HH:MM:SS.mmm) to seconds.

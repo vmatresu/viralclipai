@@ -356,7 +356,13 @@ fn clip_metadata_to_fields(clip: &ClipMetadata) -> HashMap<String, Value> {
     fields.insert("start_time".to_string(), clip.start_time.to_firestore_value());
     fields.insert("end_time".to_string(), clip.end_time.to_firestore_value());
     fields.insert("duration_seconds".to_string(), clip.duration_seconds.to_firestore_value());
+    fields.insert("file_size_bytes".to_string(), clip.file_size_bytes.to_firestore_value());
+    fields.insert("file_size_mb".to_string(), clip.file_size_mb.to_firestore_value());
+    fields.insert("has_thumbnail".to_string(), clip.has_thumbnail.to_firestore_value());
     fields.insert("r2_key".to_string(), clip.r2_key.to_firestore_value());
+    if let Some(ref thumb_key) = clip.thumbnail_r2_key {
+        fields.insert("thumbnail_r2_key".to_string(), thumb_key.to_firestore_value());
+    }
     fields.insert("status".to_string(), clip.status.as_str().to_firestore_value());
     fields.insert("created_at".to_string(), clip.created_at.to_firestore_value());
     fields.insert("created_by".to_string(), clip.created_by.to_firestore_value());

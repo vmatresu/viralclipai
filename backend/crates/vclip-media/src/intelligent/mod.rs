@@ -52,6 +52,7 @@ pub mod detector;
 pub mod models;
 pub mod renderer;
 pub mod smoother;
+pub mod split;
 pub mod tracker;
 
 pub use config::IntelligentCropConfig;
@@ -60,6 +61,7 @@ pub use detector::FaceDetector;
 pub use models::*;
 pub use renderer::IntelligentRenderer;
 pub use smoother::CameraSmoother;
+pub use split::{create_intelligent_split_clip, IntelligentSplitProcessor, SplitLayout};
 pub use tracker::IoUTracker;
 
 use crate::error::MediaResult;
