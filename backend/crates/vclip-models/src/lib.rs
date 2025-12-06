@@ -11,6 +11,7 @@ pub mod encoding;
 pub mod highlight;
 pub mod job;
 pub mod style;
+pub mod utils;
 pub mod video;
 pub mod ws;
 
@@ -20,5 +21,6 @@ pub use encoding::EncodingConfig;
 pub use highlight::{Highlight, HighlightCategory};
 pub use job::{Job, JobId, JobState, JobType};
 pub use style::{AspectRatio, CropMode, Style};
+pub use utils::{extract_youtube_id, extract_youtube_id_legacy, YoutubeIdError, YoutubeIdResult};
 pub use video::{VideoId, VideoMetadata, VideoStatus};
 pub use ws::{WsMessage, WsMessageType};

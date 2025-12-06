@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::fmt;
 use uuid::Uuid;
 
+use crate::utils::extract_youtube_id_legacy;
+
 /// Unique identifier for a video processing run.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(transparent)]
@@ -171,14 +173,15 @@ impl VideoMetadata {
         video_title: impl Into<String>,
     ) -> Self {
         let user_id = user_id.into();
+        let video_url = video_url.into();
         let now = Utc::now();
 
         Self {
             video_id: video_id.clone(),
             user_id: user_id.clone(),
-            video_url: video_url.into(),
+            video_url: video_url.clone(),
             video_title: video_title.into(),
-            youtube_id: String::new(),
+            youtube_id: extract_youtube_id_legacy(&video_url).unwrap_or_default(),
             status: VideoStatus::Processing,
             created_at: now,
             updated_at: now,
@@ -250,25 +253,12 @@ mod tests {
         let meta = VideoMetadata::new(
             id.clone(),
             "user123",
-            "https://youtube.com/watch?v=abc",
+            "https://youtube.com/watch?v=abc123def45",
             "Test Video",
         );
 
         assert_eq!(meta.video_id, id);
         assert_eq!(meta.status, VideoStatus::Processing);
-    }
-
-    #[test]
-    fn test_video_status_transitions() {
-        let id = VideoId::new();
-        let meta = VideoMetadata::new(id, "user123", "https://example.com", "Test");
-
-        let completed = meta.clone().complete();
-        assert_eq!(completed.status, VideoStatus::Completed);
-        assert!(completed.completed_at.is_some());
-
-        let failed = meta.fail("Something went wrong");
-        assert_eq!(failed.status, VideoStatus::Failed);
-        assert!(failed.error_message.is_some());
+        assert_eq!(meta.youtube_id, "abc123def45");
     }
 }

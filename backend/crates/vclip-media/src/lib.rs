@@ -36,7 +36,7 @@ pub use styles::StyleProcessorFactory;
 // Existing exports for backward compatibility
 pub use clip::{create_clip, extract_segment};
 pub use command::{FfmpegCommand, FfmpegRunner};
-pub use download::{download_video, extract_youtube_id, is_supported_url};
+pub use download::{download_video, is_supported_url};
 pub use error::{MediaError, MediaResult};
 pub use intelligent::{create_intelligent_clip, create_intelligent_split_clip};
 pub use probe::{probe_video, VideoInfo};

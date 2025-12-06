@@ -6,6 +6,7 @@ use tokio::process::Command;
 use tracing::{debug, info, warn};
 
 use crate::error::{MediaError, MediaResult};
+use vclip_models::extract_youtube_id;
 
 /// Minimum video file size threshold (50MB) to consider download complete.
 const MIN_VIDEO_FILE_SIZE: u64 = 50 * 1024 * 1024;
@@ -86,80 +87,6 @@ pub fn is_supported_url(url: &str) -> bool {
     ];
 
     supported_domains.iter().any(|domain| url.contains(domain))
-}
-
-/// Extract YouTube video ID from URL.
-///
-/// Supports multiple YouTube URL formats:
-/// - https://youtube.com/watch?v=VIDEO_ID
-/// - https://youtu.be/VIDEO_ID
-/// - https://youtube.com/embed/VIDEO_ID
-///
-/// Returns None if the URL is not a valid YouTube URL or doesn't contain a video ID.
-pub fn extract_youtube_id(url: &str) -> Option<String> {
-    // Early return for non-YouTube URLs
-    if !url.contains("youtube.com") && !url.contains("youtu.be") {
-        return None;
-    }
-
-    let url = url.trim();
-
-    // Handle youtube.com/watch?v=ID format
-    if let Some(v_pos) = url.find("v=") {
-        let id_start = v_pos + 2;
-        if id_start >= url.len() {
-            return None;
-        }
-
-        let id = url[id_start..]
-            .split(&['&', '?', '#'][..])
-            .next()?
-            .trim();
-
-        return validate_and_return_id(id);
-    }
-
-    // Handle youtu.be/ID format
-    if let Some(be_pos) = url.find("youtu.be/") {
-        let id_start = be_pos + 9; // "youtu.be/" is 9 characters
-        if id_start >= url.len() {
-            return None;
-        }
-
-        let id = url[id_start..]
-            .split(&['?', '#'][..])
-            .next()?
-            .trim();
-
-        return validate_and_return_id(id);
-    }
-
-    // Handle youtube.com/embed/ID format
-    if let Some(embed_pos) = url.find("/embed/") {
-        let id_start = embed_pos + 7; // "/embed/" is 7 characters
-        if id_start >= url.len() {
-            return None;
-        }
-
-        let id = url[id_start..]
-            .split(&['?', '#'][..])
-            .next()?
-            .trim();
-
-        return validate_and_return_id(id);
-    }
-
-    None
-}
-
-/// Validate and return YouTube video ID if it matches expected format.
-fn validate_and_return_id(id: &str) -> Option<String> {
-    // YouTube video IDs are 11 characters long and contain only alphanumeric, hyphens, and underscores
-    if id.len() == 11 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
-        Some(id.to_string())
-    } else {
-        None
-    }
 }
 
 #[cfg(test)]
