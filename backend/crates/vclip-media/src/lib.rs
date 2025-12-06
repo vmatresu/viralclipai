@@ -17,7 +17,7 @@ pub mod probe;
 pub mod progress;
 pub mod thumbnail;
 
-pub use clip::{create_clip, create_intelligent_split_clip};
+pub use clip::{create_clip, create_intelligent_split_clip, extract_segment};
 pub use command::{FfmpegCommand, FfmpegRunner};
 pub use download::{download_video, extract_youtube_id, is_supported_url};
 pub use error::{MediaError, MediaResult};

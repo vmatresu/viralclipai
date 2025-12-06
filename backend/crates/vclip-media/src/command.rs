@@ -117,6 +117,11 @@ impl FfmpegCommand {
         self.output_arg("-b:a").output_arg(bitrate)
     }
 
+    /// Copy codecs without re-encoding (fast).
+    pub fn codec_copy(self) -> Self {
+        self.output_arg("-c").output_arg("copy")
+    }
+
     /// Extract single frame.
     pub fn single_frame(self) -> Self {
         self.output_arg("-vframes").output_arg("1")

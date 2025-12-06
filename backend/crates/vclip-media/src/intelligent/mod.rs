@@ -121,14 +121,14 @@ impl IntelligentCropper {
         Self::new(IntelligentCropConfig::default())
     }
 
-    /// Analyze and render an intelligent crop.
+    /// Analyze and render an intelligent crop on a pre-cut segment.
     ///
     /// This is the main entry point for intelligent cropping.
+    /// The input should be a pre-cut segment (not the full video).
     pub async fn process<P: AsRef<Path>>(
         &self,
         input: P,
         output: P,
-        task: &ClipTask,
     ) -> MediaResult<()> {
         let input = input.as_ref();
         let output = output.as_ref();
@@ -147,15 +147,9 @@ impl IntelligentCropper {
             width, height, fps, duration
         );
 
-        // Calculate time range from task
-        let start_time = (parse_timestamp(&task.start)? - task.pad_before).max(0.0);
-        let end_time = parse_timestamp(&task.end)? + task.pad_after;
-        let clip_duration = end_time - start_time;
-
-        info!(
-            "Processing time range: {:.2}s - {:.2}s ({:.2}s)",
-            start_time, end_time, clip_duration
-        );
+        // Process the entire segment (it's already been cut to the right time range)
+        let start_time = 0.0;
+        let end_time = duration;
 
         // 2. Detect faces in the video
         info!("Step 1/3: Detecting faces...");
@@ -184,7 +178,7 @@ impl IntelligentCropper {
         info!("Rendering output...");
         let renderer = IntelligentRenderer::new(self.config.clone());
         renderer
-            .render(input, output, &crop_windows, start_time, clip_duration)
+            .render(input, output, &crop_windows, start_time, duration)
             .await?;
 
         info!("Intelligent crop complete: {:?}", output);
@@ -202,9 +196,14 @@ impl IntelligentCropper {
 /// Create an intelligent clip from a video file.
 ///
 /// This is the main entry point for the Intelligent style.
+/// 
+/// # Workflow
+/// 1. Extract the segment from the source video (fast, no re-encoding)
+/// 2. Apply intelligent cropping to the segment
+/// 3. Delete the temporary segment file
 ///
 /// # Arguments
-/// * `input` - Path to the input video file
+/// * `input` - Path to the input video file (full source video)
 /// * `output` - Path for the output file
 /// * `task` - Clip task with timing and style information
 /// * `encoding` - Encoding configuration
@@ -220,7 +219,33 @@ where
     P: AsRef<Path>,
     F: Fn(crate::progress::FfmpegProgress) + Send + 'static,
 {
+    let input = input.as_ref();
+    let output = output.as_ref();
+    
+    // Parse timestamps and apply padding
+    let start_secs = (parse_timestamp(&task.start)? - task.pad_before).max(0.0);
+    let end_secs = parse_timestamp(&task.end)? + task.pad_after;
+    let duration = end_secs - start_secs;
+    
+    // Step 1: Extract segment to temporary file
+    let segment_path = output.with_extension("segment.mp4");
+    info!("Extracting segment for intelligent crop: {:.2}s - {:.2}s", start_secs, end_secs);
+    
+    crate::clip::extract_segment(input, &segment_path, start_secs, duration).await?;
+    
+    // Step 2: Apply intelligent cropping to the segment
     let config = IntelligentCropConfig::default();
     let cropper = IntelligentCropper::new(config);
-    cropper.process(input, output, task).await
+    let result = cropper.process(&segment_path, output).await;
+    
+    // Step 3: Cleanup temporary segment file
+    if segment_path.exists() {
+        if let Err(e) = tokio::fs::remove_file(&segment_path).await {
+            tracing::warn!("Failed to delete temporary segment file {}: {}", segment_path.display(), e);
+        } else {
+            info!("Deleted temporary segment: {}", segment_path.display());
+        }
+    }
+    
+    result
 }

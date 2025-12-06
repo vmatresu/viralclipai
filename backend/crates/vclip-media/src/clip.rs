@@ -47,6 +47,48 @@ use crate::filters::build_video_filter;
 use crate::progress::FfmpegProgress;
 use crate::thumbnail::generate_thumbnail;
 
+/// Extract a segment from a video file without re-encoding.
+///
+/// This is used to cut out a specific time range before applying
+/// intelligent cropping, which significantly improves performance.
+///
+/// # Arguments
+/// * `input` - Path to the input video file
+/// * `output` - Path for the extracted segment
+/// * `start_secs` - Start time in seconds
+/// * `duration` - Duration in seconds
+///
+/// # Returns
+/// Path to the extracted segment file
+pub async fn extract_segment<P: AsRef<Path>>(
+    input: P,
+    output: P,
+    start_secs: f64,
+    duration: f64,
+) -> MediaResult<()> {
+    let input = input.as_ref();
+    let output = output.as_ref();
+
+    info!(
+        "Extracting segment: {} -> {} (start: {:.2}s, duration: {:.2}s)",
+        input.display(),
+        output.display(),
+        start_secs,
+        duration
+    );
+
+    let cmd = FfmpegCommand::new(input, output)
+        .seek(start_secs)
+        .duration(duration)
+        .codec_copy(); // Fast copy without re-encoding
+
+    let runner = FfmpegRunner::new();
+    runner.run(&cmd).await?;
+
+    info!("Segment extracted: {}", output.display());
+    Ok(())
+}
+
 /// Create a clip from a video file using traditional styles.
 ///
 /// # Supported Styles
