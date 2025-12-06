@@ -14,7 +14,7 @@
 use super::models::BoundingBox;
 use crate::error::{MediaError, MediaResult};
 #[cfg(feature = "opencv")]
-use opencv::prelude::{FaceDetectorYNTrait, MatTraitConst};
+use opencv::objdetect::FaceDetectorYN;
 use std::path::Path;
 use std::sync::OnceLock;
 use tracing::{debug, info, warn};
@@ -192,17 +192,28 @@ pub struct YuNetDetector {
 impl YuNetDetector {
     /// Create a new YuNet detector.
     pub fn new(frame_width: u32, frame_height: u32) -> MediaResult<Self> {
-        use opencv::objdetect::FaceDetectorYN;
 
         let model_path = find_model_path().ok_or_else(|| {
             MediaError::detection_failed("YuNet model not found")
         })?;
 
-        // Create detector with input size matching frame dimensions
-        // Scale down for faster processing
-        let scale = (frame_width as f64 / 640.0).max(frame_height as f64 / 480.0).max(1.0);
-        let input_width = (frame_width as f64 / scale).round() as i32;
-        let input_height = (frame_height as f64 / scale).round() as i32;
+        // Calculate scale to fit within target dimensions while maintaining aspect ratio
+        let target_width = 640.0;
+        let target_height = 480.0;
+        let scale = (frame_width as f64 / target_width).max(frame_height as f64 / target_height).max(1.0);
+
+        // Calculate input size, ensuring both dimensions are multiples of 32 for CNN compatibility
+        let mut input_width = (frame_width as f64 / scale).round() as i32;
+        let mut input_height = (frame_height as f64 / scale).round() as i32;
+
+        // Round to nearest multiple of 32 to prevent feature map misalignment in the neural network
+        let multiple = 32;
+        input_width = ((input_width as f64 / multiple as f64).round() * multiple as f64) as i32;
+        input_height = ((input_height as f64 / multiple as f64).round() * multiple as f64) as i32;
+
+        // Clamp to reasonable bounds
+        input_width = input_width.max(320).min(640);
+        input_height = input_height.max(240).min(480);
 
         let detector = FaceDetectorYN::create(
             model_path,
