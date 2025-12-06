@@ -198,7 +198,7 @@ impl IntelligentSplitProcessor {
         &self,
         detections: &[Vec<Detection>],
         width: u32,
-        height: u32,
+        _height: u32,
     ) -> LayoutAnalysis {
         // Aggregate face detections by track ID
         let mut track_aggregates: std::collections::HashMap<u32, Vec<&Detection>> =
@@ -461,7 +461,7 @@ where
     // Step 2: Process with intelligent split
     let config = IntelligentCropConfig::default();
     let processor = IntelligentSplitProcessor::new(config);
-    let result = processor.process(&segment_path, output, encoding).await;
+    let result = processor.process(segment_path.as_path(), output, encoding).await;
 
     // Step 3: Cleanup temporary segment file
     if segment_path.exists() {

@@ -238,7 +238,7 @@ where
     // Step 2: Apply intelligent cropping to the segment
     let config = IntelligentCropConfig::default();
     let cropper = IntelligentCropper::new(config);
-    let result = cropper.process(&segment_path, output).await;
+    let result = cropper.process(segment_path.as_path(), output).await;
     
     // Step 3: Cleanup temporary segment file
     if segment_path.exists() {
