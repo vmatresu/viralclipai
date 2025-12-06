@@ -38,7 +38,13 @@ async fn main() {
     };
 
     // Create executor
-    let executor = JobExecutor::new(config, queue);
+    let executor = match JobExecutor::new(config, queue) {
+        Ok(e) => e,
+        Err(e) => {
+            error!("Failed to create job executor: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     // Setup signal handlers
     let shutdown_handle = tokio::spawn(async move {

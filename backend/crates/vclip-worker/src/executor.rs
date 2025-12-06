@@ -1,4 +1,6 @@
-//! Job executor.
+//! Job executor with enhanced processing architecture.
+
+//! Job executor that processes jobs from the queue using the new modular architecture.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,7 +13,7 @@ use vclip_queue::{JobQueue, QueueJob};
 
 use crate::config::WorkerConfig;
 use crate::error::{WorkerError, WorkerResult};
-use crate::processor::{process_video, reprocess_scenes, ProcessingContext};
+use crate::processor_refactored::{EnhancedProcessingContext, VideoProcessor};
 
 /// Job executor that processes jobs from the queue.
 pub struct JobExecutor {
@@ -20,22 +22,25 @@ pub struct JobExecutor {
     job_semaphore: Arc<Semaphore>,
     shutdown: tokio::sync::watch::Sender<bool>,
     consumer_name: String,
+    video_processor: VideoProcessor,
 }
 
 impl JobExecutor {
     /// Create a new job executor.
-    pub fn new(config: WorkerConfig, queue: JobQueue) -> Self {
+    pub fn new(config: WorkerConfig, queue: JobQueue) -> WorkerResult<Self> {
         let job_semaphore = Arc::new(Semaphore::new(config.max_concurrent_jobs));
         let (shutdown, _) = tokio::sync::watch::channel(false);
         let consumer_name = format!("worker-{}", Uuid::new_v4());
+        let video_processor = VideoProcessor::new()?;
 
-        Self {
+        Ok(Self {
             config,
             queue: Arc::new(queue),
             job_semaphore,
             shutdown,
             consumer_name,
-        }
+            video_processor,
+        })
     }
 
     /// Start the executor.
@@ -48,8 +53,8 @@ impl JobExecutor {
         // Initialize queue
         self.queue.init().await?;
 
-        // Create processing context
-        let ctx = Arc::new(ProcessingContext::new(self.config.clone()).await?);
+        // Create enhanced processing context
+        let ctx = Arc::new(EnhancedProcessingContext::new(self.config.clone()).await?);
 
         let mut shutdown_rx = self.shutdown.subscribe();
 
@@ -58,6 +63,7 @@ impl JobExecutor {
         let consumer_name = self.consumer_name.clone();
         let ctx_clone = Arc::clone(&ctx);
         let semaphore_clone = Arc::clone(&self.job_semaphore);
+        let video_processor_clone = self.video_processor.clone();
         let mut shutdown_rx_claim = self.shutdown.subscribe();
 
         let claim_task = tokio::spawn(async move {
@@ -77,6 +83,7 @@ impl JobExecutor {
                                 for (message_id, job) in jobs {
                                     let ctx = Arc::clone(&ctx_clone);
                                     let queue = Arc::clone(&queue_clone);
+                                    let video_processor = video_processor_clone.clone();
                                     let permit = semaphore_clone.clone().acquire_owned().await;
                                     if permit.is_err() {
                                         break;
@@ -85,7 +92,7 @@ impl JobExecutor {
 
                                     tokio::spawn(async move {
                                         let _permit = permit;
-                                        Self::execute_job(ctx, queue, message_id, job).await;
+                                        Self::execute_job(ctx, queue, message_id, job, video_processor).await;
                                     });
                                 }
                             }
@@ -133,7 +140,7 @@ impl JobExecutor {
     }
 
     /// Consume and process jobs from the queue.
-    async fn consume_jobs(&self, ctx: &Arc<ProcessingContext>) -> WorkerResult<()> {
+    async fn consume_jobs(&self, ctx: &Arc<EnhancedProcessingContext>) -> WorkerResult<()> {
         // Acquire semaphore permit before consuming
         let available = self.job_semaphore.available_permits();
         if available == 0 {
@@ -158,12 +165,13 @@ impl JobExecutor {
         for (message_id, job) in jobs {
             let ctx = Arc::clone(ctx);
             let queue = Arc::clone(&self.queue);
+            let video_processor = self.video_processor.clone();
             let permit = self.job_semaphore.clone().acquire_owned().await
                 .map_err(|_| WorkerError::job_failed("Semaphore closed"))?;
 
             tokio::spawn(async move {
                 let _permit = permit;
-                Self::execute_job(ctx, queue, message_id, job).await;
+                Self::execute_job(ctx, queue, message_id, job, video_processor).await;
             });
         }
 
@@ -172,15 +180,16 @@ impl JobExecutor {
 
     /// Execute a single job with retry and DLQ handling.
     async fn execute_job(
-        ctx: Arc<ProcessingContext>,
+        ctx: Arc<EnhancedProcessingContext>,
         queue: Arc<JobQueue>,
         message_id: String,
         job: QueueJob,
+        video_processor: VideoProcessor,
     ) {
         let job_id = job.job_id().to_string();
         info!("Executing job {}", job_id);
 
-        let result = Self::process_job(Arc::clone(&ctx), job.clone()).await;
+        let result = Self::process_job(Arc::clone(&ctx), job.clone(), video_processor).await;
 
         match result {
             Ok(()) => {
@@ -236,11 +245,25 @@ impl JobExecutor {
         let _ = self.shutdown.send(true);
     }
 
-    /// Process a single job.
-    async fn process_job(ctx: Arc<ProcessingContext>, job: QueueJob) -> WorkerResult<()> {
+    /// Process a single job using the new VideoProcessor.
+    async fn process_job(ctx: Arc<EnhancedProcessingContext>, job: QueueJob, video_processor: VideoProcessor) -> WorkerResult<()> {
         match job {
-            QueueJob::ProcessVideo(j) => process_video(&ctx, &j).await,
-            QueueJob::ReprocessScenes(j) => reprocess_scenes(&ctx, &j).await,
+            QueueJob::ProcessVideo(j) => video_processor.process_video_job(&ctx, &j).await,
+            QueueJob::ReprocessScenes(j) => {
+                // For now, convert to ProcessVideo job format
+                // TODO: Implement proper reprocess logic in VideoProcessor
+                let process_job = vclip_queue::ProcessVideoJob {
+                    job_id: j.job_id,
+                    user_id: j.user_id,
+                    video_id: j.video_id,
+                    video_url: "".to_string(), // Will be fetched from storage
+                    styles: j.styles,
+                    crop_mode: j.crop_mode,
+                    target_aspect: j.target_aspect,
+                    custom_prompt: None,
+                };
+                video_processor.process_video_job(&ctx, &process_job).await
+            }
         }
     }
 }

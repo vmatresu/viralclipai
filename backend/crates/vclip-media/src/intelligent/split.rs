@@ -2,8 +2,8 @@
 //!
 //! This module implements the "intelligent split" style that:
 //! 1. Splits the video into left and right halves
-//! 2. Applies intelligent face-tracking crop to each half
-//! 3. Stacks the cropped halves vertically (left=top, right=bottom)
+//! 2. Stacks the cropped halves vertically (left=top, right=bottom)
+//! 3. Applies intelligent face-tracking crop to the stacked result
 //!
 //! This is ideal for podcast-style videos with two people side by side.
 //!
@@ -17,20 +17,14 @@
 //! │  Split L/R      │ ← Crop left half, crop right half
 //! └────────┬────────┘
 //!          │
-//!     ┌────┴────┐
-//!     │         │
-//!     ▼         ▼
-//!   Left      Right
-//!   Half      Half
-//!     │         │
-//!     ▼         ▼
+//!          ▼
 //! ┌─────────────────┐
-//! │ Intelligent Crop│ ← Face tracking on each half
+//! │  VStack         │ ← Left on top, Right on bottom
 //! └────────┬────────┘
 //!          │
 //!          ▼
 //! ┌─────────────────┐
-//! │  VStack         │ ← Left on top, Right on bottom
+//! │ Intelligent Crop│ ← Face tracking on stacked result
 //! └─────────────────┘
 //! ```
 
@@ -114,7 +108,8 @@ impl IntelligentSplitProcessor {
         // 3. Users expect split view when they select "Intelligent Split"
         
         info!("Step 1/3: Splitting video into left/right halves...");
-        info!("Step 2/3: Applying intelligent crop to each half...");
+        info!("Step 2/3: Stacking panels...");
+        info!("Step 3/3: Applying intelligent crop...");
         
         self.process_split_view(
             segment,
@@ -146,8 +141,8 @@ impl IntelligentSplitProcessor {
     ///
     /// This function:
     /// 1. Splits the video into left and right halves
-    /// 2. Applies intelligent face-tracking crop to each half
-    /// 3. Stacks the cropped halves vertically (left=top, right=bottom)
+    /// 2. Stacks the cropped halves vertically (left=top, right=bottom)
+    /// 3. Applies intelligent face-tracking crop to the stacked result
     async fn process_split_view(
         &self,
         segment: &Path,
@@ -185,31 +180,17 @@ impl IntelligentSplitProcessor {
 
         FfmpegRunner::new().run(&cmd_right).await?;
 
-        // Step 2: Apply intelligent crop to each half
-        let left_cropped = temp_dir.path().join("left_crop.mp4");
-        let right_cropped = temp_dir.path().join("right_crop.mp4");
-
-        // Create cropper for face tracking on each half
-        let cropper = IntelligentCropper::new(self.config.clone());
-
-        // Process left half (will become top panel)
-        info!("  Processing left half (top panel)...");
-        cropper.process(&left_half, &left_cropped).await?;
-
-        // Process right half (will become bottom panel)
-        info!("  Processing right half (bottom panel)...");
-        cropper.process(&right_half, &right_cropped).await?;
-
-        // Step 3: Stack halves vertically (left=top, right=bottom)
+        // Step 2: Stack halves vertically (left=top, right=bottom)
+        let stacked = temp_dir.path().join("stacked.mp4");
         info!("  Stacking panels...");
-        let final_crf = encoding.crf.saturating_add(4);
+        let stack_crf = encoding.crf.saturating_add(4);
 
         let stack_args = vec![
             "-y".to_string(),
             "-i".to_string(),
-            left_cropped.to_string_lossy().to_string(),
+            left_half.to_string_lossy().to_string(),
             "-i".to_string(),
-            right_cropped.to_string_lossy().to_string(),
+            right_half.to_string_lossy().to_string(),
             "-filter_complex".to_string(),
             "[0:v][1:v]vstack=inputs=2".to_string(),
             "-c:v".to_string(),
@@ -217,26 +198,31 @@ impl IntelligentSplitProcessor {
             "-preset".to_string(),
             encoding.preset.clone(),
             "-crf".to_string(),
-            final_crf.to_string(),
+            stack_crf.to_string(),
             "-c:a".to_string(),
             encoding.audio_codec.clone(),
             "-b:a".to_string(),
             encoding.audio_bitrate.clone(),
-            output.to_string_lossy().to_string(),
+            stacked.to_string_lossy().to_string(),
         ];
 
-        let output_status = tokio::process::Command::new("ffmpeg")
+        let stack_status = tokio::process::Command::new("ffmpeg")
             .args(&stack_args)
             .output()
             .await?;
 
-        if !output_status.status.success() {
+        if !stack_status.status.success() {
             return Err(MediaError::ffmpeg_failed(
                 "Stacking failed",
-                Some(String::from_utf8_lossy(&output_status.stderr).to_string()),
-                output_status.status.code(),
+                Some(String::from_utf8_lossy(&stack_status.stderr).to_string()),
+                stack_status.status.code(),
             ));
         }
+
+        // Step 3: Apply intelligent crop to the stacked result
+        info!("  Applying intelligent crop to stacked video...");
+        let cropper = IntelligentCropper::new(self.config.clone());
+        cropper.process(stacked.as_path(), output).await?;
 
         Ok(())
     }
@@ -249,8 +235,8 @@ impl IntelligentSplitProcessor {
 /// # Behavior
 /// Always creates a split view by:
 /// 1. Splitting the video into left and right halves
-/// 2. Applying intelligent face-tracking crop to each half
-/// 3. Stacking the cropped halves vertically (left=top, right=bottom)
+/// 2. Stacking the cropped halves vertically (left=top, right=bottom)
+/// 3. Applying intelligent face-tracking crop to the stacked result
 ///
 /// This is ideal for podcast-style videos with two people side by side.
 ///

@@ -71,7 +71,7 @@ use tracing::info;
 use vclip_models::ClipTask;
 
 /// Parse a timestamp string (HH:MM:SS.mmm or SS.mmm) to seconds.
-fn parse_timestamp(ts: &str) -> MediaResult<f64> {
+pub fn parse_timestamp(ts: &str) -> MediaResult<f64> {
     let parts: Vec<&str> = ts.split(':').collect();
     match parts.len() {
         1 => {

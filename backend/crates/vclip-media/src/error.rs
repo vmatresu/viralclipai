@@ -57,6 +57,12 @@ pub enum MediaError {
 
     #[error("Unsupported format: {0}")]
     UnsupportedFormat(String),
+
+    #[error("Security violation: {0}")]
+    SecurityViolation(String),
+
+    #[error("Resource limit exceeded: {0}")]
+    ResourceLimit(String),
 }
 
 impl MediaError {
