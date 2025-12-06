@@ -25,6 +25,11 @@ export class LocalStorageAdapter implements IStorageAdapter {
    */
   async get<T>(key: string): Promise<T | null> {
     try {
+      // Check if localStorage is available (not during SSR)
+      if (typeof window === "undefined" || !window.localStorage) {
+        return null;
+      }
+
       const prefixedKey = this.getPrefixedKey(key);
       const item = localStorage.getItem(prefixedKey);
 
@@ -48,6 +53,11 @@ export class LocalStorageAdapter implements IStorageAdapter {
    */
   set<T>(key: string, value: T): Promise<void> {
     try {
+      // Check if localStorage is available (not during SSR)
+      if (typeof window === "undefined" || !window.localStorage) {
+        return Promise.resolve();
+      }
+
       const prefixedKey = this.getPrefixedKey(key);
       const serialized = JSON.stringify(value);
       localStorage.setItem(prefixedKey, serialized);
@@ -67,6 +77,11 @@ export class LocalStorageAdapter implements IStorageAdapter {
    */
   remove(key: string): Promise<void> {
     try {
+      // Check if localStorage is available (not during SSR)
+      if (typeof window === "undefined" || !window.localStorage) {
+        return Promise.resolve();
+      }
+
       const prefixedKey = this.getPrefixedKey(key);
       localStorage.removeItem(prefixedKey);
       return Promise.resolve();
@@ -81,6 +96,11 @@ export class LocalStorageAdapter implements IStorageAdapter {
    */
   async clear(): Promise<void> {
     try {
+      // Check if localStorage is available (not during SSR)
+      if (typeof window === "undefined" || !window.localStorage) {
+        return;
+      }
+
       const keys = await this.keys();
       for (const key of keys) {
         localStorage.removeItem(key);
@@ -97,6 +117,11 @@ export class LocalStorageAdapter implements IStorageAdapter {
   keys(): Promise<string[]> {
     const keys: string[] = [];
     try {
+      // Check if localStorage is available (not during SSR)
+      if (typeof window === "undefined" || !window.localStorage) {
+        return Promise.resolve(keys);
+      }
+
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         if (key?.startsWith(this.prefix)) {
@@ -114,6 +139,11 @@ export class LocalStorageAdapter implements IStorageAdapter {
    */
   size(key: string): Promise<number> {
     try {
+      // Check if localStorage is available (not during SSR)
+      if (typeof window === "undefined" || !window.localStorage) {
+        return Promise.resolve(0);
+      }
+
       const prefixedKey = this.getPrefixedKey(key);
       const item = localStorage.getItem(prefixedKey);
       if (item === null) {

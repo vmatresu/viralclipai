@@ -34,7 +34,7 @@ const nextConfig = {
       "style-src 'self' 'unsafe-inline' https://accounts.google.com",
       "img-src 'self' data: https: blob:",
       "font-src 'self' data:",
-      "connect-src 'self' https://*.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://apis.google.com https://accounts.google.com https://*.firebaseapp.com https://*.firebaseio.com wss://* ws://* http://localhost:8000 ws://localhost:8000",
+      "connect-src 'self' https://*.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://apis.google.com https://accounts.google.com https://*.firebaseapp.com https://*.firebaseio.com wss://* ws://* http://localhost:8000 ws://localhost:8000 http://localhost:8001 ws://localhost:8001",
       "frame-src 'self' https://accounts.google.com https://*.googleapis.com https://*.firebaseapp.com https://www.youtube.com https://youtube.com https://*.youtube.com",
       "media-src 'self' blob: https:",
       "object-src 'none'",
