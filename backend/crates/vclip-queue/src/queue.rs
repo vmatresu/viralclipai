@@ -279,44 +279,107 @@ impl JobQueue {
     ) -> QueueResult<Vec<(String, QueueJob)>> {
         let mut conn = self.client.get_multiplexed_async_connection().await?;
 
-        // Get pending entries
-        let pending: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+        // First check if there are any pending messages
+        let pending_count: usize = redis::cmd("XPENDING")
             .arg(&self.config.stream_name)
             .arg(&self.config.consumer_group)
             .query_async(&mut conn)
-            .await?;
+            .await
+            .map(|reply: redis::streams::StreamPendingReply| reply.count())
+            .unwrap_or(0);
 
-        if pending.count() == 0 {
+        if pending_count == 0 {
             return Ok(Vec::new());
         }
 
-        // Claim old pending messages using XCLAIM
-        let result: redis::streams::StreamClaimReply = redis::cmd("XCLAIM")
+        // Get detailed pending entries: XPENDING stream group start end count
+        let pending_details: Vec<Vec<redis::Value>> = redis::cmd("XPENDING")
             .arg(&self.config.stream_name)
             .arg(&self.config.consumer_group)
-            .arg(consumer_name)
-            .arg(min_idle_ms)
-            .arg("0-0") // Start from beginning - will claim messages with this ID or later
-            .arg("COUNT")
-            .arg(count)
+            .arg("-")  // start from oldest
+            .arg("+")  // end at newest
+            .arg(count)  // limit count
             .query_async(&mut conn)
             .await?;
 
+        // Parse pending details to extract message IDs that have been idle long enough
+        let mut message_ids_to_claim = Vec::new();
+        for detail in pending_details {
+            if detail.len() >= 4 {
+                // Format: [id, consumer, idle_time_ms, delivery_count]
+                if let (Some(redis::Value::BulkString(id_bytes)), Some(redis::Value::Int(idle_ms))) =
+                    (detail.get(0), detail.get(2))
+                {
+                    let idle_ms = *idle_ms as u64;
+                    if idle_ms >= min_idle_ms {
+                        if let Ok(id) = String::from_utf8(id_bytes.clone()) {
+                            message_ids_to_claim.push(id);
+                        }
+                    }
+                }
+            }
+        }
+
+        if message_ids_to_claim.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Claim the specific message IDs using XCLAIM
+        let mut cmd = redis::cmd("XCLAIM");
+        cmd.arg(&self.config.stream_name)
+            .arg(&self.config.consumer_group)
+            .arg(consumer_name)
+            .arg(min_idle_ms);
+
+        // Add all message IDs to claim
+        for msg_id in &message_ids_to_claim {
+            cmd.arg(msg_id);
+        }
+
+        // XCLAIM returns an array of claimed messages
+        let claimed_messages: Vec<Vec<redis::Value>> = cmd.query_async(&mut conn).await?;
+
         let mut jobs = Vec::new();
 
-        for entry in result.ids {
-            let message_id = entry.id.clone();
+        for message in claimed_messages {
+            if message.len() >= 2 {
+                // Format: [id, [field1, value1, field2, value2, ...]]
+                if let (Some(redis::Value::BulkString(id_bytes)), Some(redis::Value::Array(fields))) =
+                    (message.get(0), message.get(1))
+                {
+                    if let Ok(message_id) = String::from_utf8(id_bytes.clone()) {
+                        // Parse fields array to find the "job" field
+                        let mut job_payload: Option<String> = None;
+                        let mut i = 0;
+                        while i < fields.len() - 1 {
+                            if let (Some(redis::Value::BulkString(field_bytes)), Some(redis::Value::BulkString(value_bytes))) =
+                                (fields.get(i), fields.get(i + 1))
+                            {
+                                if let (Ok(field), Ok(value)) = (
+                                    String::from_utf8(field_bytes.clone()),
+                                    String::from_utf8(value_bytes.clone())
+                                ) {
+                                    if field == "job" {
+                                        job_payload = Some(value);
+                                        break;
+                                    }
+                                }
+                            }
+                            i += 2;
+                        }
 
-            if let Some(redis::Value::BulkString(payload)) = entry.map.get("job") {
-                let payload_str = String::from_utf8_lossy(&payload);
-                match serde_json::from_str::<QueueJob>(&payload_str) {
-                    Ok(job) => {
-                        info!("Claimed pending job {} from stream", job.job_id());
-                        jobs.push((message_id, job));
-                    }
-                    Err(e) => {
-                        warn!("Failed to parse claimed job payload: {}", e);
-                        self.ack(&message_id).await.ok();
+                        if let Some(payload) = job_payload {
+                            match serde_json::from_str::<QueueJob>(&payload) {
+                                Ok(job) => {
+                                    info!("Claimed pending job {} from stream", job.job_id());
+                                    jobs.push((message_id, job));
+                                }
+                                Err(e) => {
+                                    warn!("Failed to parse claimed job payload: {}", e);
+                                    self.ack(&message_id).await.ok();
+                                }
+                            }
+                        }
                     }
                 }
             }

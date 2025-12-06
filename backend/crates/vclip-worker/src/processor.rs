@@ -474,14 +474,6 @@ fn generate_clip_tasks(
     tasks
 }
 
-/// Format seconds to HH:MM:SS.mmm timestamp.
-fn format_timestamp(seconds: f64) -> String {
-    let hours = (seconds / 3600.0).floor() as u32;
-    let minutes = ((seconds % 3600.0) / 60.0).floor() as u32;
-    let secs = (seconds % 60.0).floor() as u32;
-    let millis = ((seconds % 1.0) * 1000.0).floor() as u32;
-    format!("{:02}:{:02}:{:02}.{:03}", hours, minutes, secs, millis)
-}
 
 /// Extract video title from URL.
 fn extract_video_title(url: &str) -> String {
