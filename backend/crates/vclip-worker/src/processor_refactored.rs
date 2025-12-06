@@ -11,7 +11,7 @@ use futures::future::join_all;
 use tokio::sync::Semaphore;
 use tracing::info;
 
-use vclip_firestore::{types::ToFirestoreValue, FirestoreClient};
+use vclip_firestore::{types::ToFirestoreValue, ClipRepository, FirestoreClient};
 use vclip_media::{
     download_video,
     core::{ProcessingRequest, ProcessingContext as MediaProcessingContext, StyleProcessorRegistry, MetricsCollector, SecurityContext},
@@ -421,7 +421,7 @@ impl VideoProcessor {
         task: &ClipTask,
         clip_index: usize,
         total_clips: usize,
-    ) -> WorkerResult<ClipMetadata> {
+    ) -> WorkerResult<()> {
         // Acquire semaphore for resource control
         let _permit = ctx.ffmpeg_semaphore.acquire().await
             .map_err(|_| WorkerError::job_failed("Failed to acquire FFmpeg permit"))?;
@@ -511,7 +511,17 @@ impl VideoProcessor {
             created_by: user_id.to_string(),
         };
 
-        Ok(clip_meta)
+        // Save clip metadata to Firestore
+        let clip_repo = ClipRepository::new(
+            ctx.firestore.clone(),
+            user_id,
+            video_id.clone(),
+        );
+        if let Err(e) = clip_repo.create(&clip_meta).await {
+            tracing::warn!("Failed to save clip metadata to Firestore: {}", e);
+        }
+
+        Ok(())
     }
 
     /// Finalize video processing.

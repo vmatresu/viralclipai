@@ -3,7 +3,7 @@
 //! This module implements the "intelligent split" style that:
 //! 1. Splits the video into left and right halves
 //! 2. Stacks the cropped halves vertically (left=top, right=bottom)
-//! 3. Applies intelligent face-tracking crop to the stacked result
+//! 3. Scales to standard 9:16 portrait format (1080x1920)
 //!
 //! This is ideal for podcast-style videos with two people side by side.
 //!
@@ -24,7 +24,7 @@
 //!          │
 //!          ▼
 //! ┌─────────────────┐
-//! │ Intelligent Crop│ ← Face tracking on stacked result
+//! │  Scale 1080x1920│ ← Scale to standard portrait
 //! └─────────────────┘
 //! ```
 
@@ -32,7 +32,6 @@ use std::path::Path;
 use tracing::{info, warn};
 
 use super::config::IntelligentCropConfig;
-use super::IntelligentCropper;
 use crate::clip::extract_segment;
 use crate::command::{FfmpegCommand, FfmpegRunner};
 use crate::error::{MediaError, MediaResult};
@@ -109,7 +108,7 @@ impl IntelligentSplitProcessor {
         
         info!("Step 1/3: Splitting video into left/right halves...");
         info!("Step 2/3: Stacking panels...");
-        info!("Step 3/3: Applying intelligent crop...");
+        info!("Step 3/3: Scaling to portrait format...");
         
         self.process_split_view(
             segment,
@@ -219,10 +218,44 @@ impl IntelligentSplitProcessor {
             ));
         }
 
-        // Step 3: Apply intelligent crop to the stacked result
-        info!("  Applying intelligent crop to stacked video...");
-        let cropper = IntelligentCropper::new(self.config.clone());
-        cropper.process(stacked.as_path(), output).await?;
+        // Step 3: Scale to standard 9:16 portrait dimensions (1080x1920)
+        // The stacked video is already narrow (960x2160), so we scale it to fit
+        // the standard social media portrait format rather than cropping further.
+        info!("  Scaling to 1080x1920 portrait format...");
+        
+        let scale_args = vec![
+            "-y".to_string(),
+            "-i".to_string(),
+            stacked.to_string_lossy().to_string(),
+            "-vf".to_string(),
+            "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2".to_string(),
+            "-c:v".to_string(),
+            encoding.codec.clone(),
+            "-preset".to_string(),
+            encoding.preset.clone(),
+            "-crf".to_string(),
+            encoding.crf.to_string(),
+            "-c:a".to_string(),
+            encoding.audio_codec.clone(),
+            "-b:a".to_string(),
+            encoding.audio_bitrate.clone(),
+            "-movflags".to_string(),
+            "+faststart".to_string(),
+            output.to_string_lossy().to_string(),
+        ];
+
+        let scale_status = tokio::process::Command::new("ffmpeg")
+            .args(&scale_args)
+            .output()
+            .await?;
+
+        if !scale_status.status.success() {
+            return Err(MediaError::ffmpeg_failed(
+                "Scaling to portrait failed",
+                Some(String::from_utf8_lossy(&scale_status.stderr).to_string()),
+                scale_status.status.code(),
+            ));
+        }
 
         Ok(())
     }
