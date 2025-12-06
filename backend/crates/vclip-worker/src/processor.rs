@@ -7,7 +7,7 @@ use tokio::sync::Semaphore;
 use tracing::{info, warn};
 
 use vclip_firestore::{types::ToFirestoreValue, FirestoreClient};
-use vclip_media::{create_clip, create_intelligent_split_clip, download_video};
+use vclip_media::{create_clip, create_intelligent_clip, create_intelligent_split_clip, download_video};
 use vclip_models::{ClipMetadata, ClipTask, EncodingConfig, VideoId, VideoMetadata};
 use vclip_queue::{ProcessVideoJob, ProgressChannel, ReprocessScenesJob};
 use vclip_storage::R2Client;
@@ -248,7 +248,13 @@ pub async fn process_video(ctx: &ProcessingContext, job: &ProcessVideoJob) -> Wo
         )
         .await
         {
-            Ok(_) => {
+            Ok(clip_meta) => {
+                // Save clip metadata to Firestore
+                let clip_repo = vclip_firestore::ClipRepository::new(ctx.firestore.clone(), &job.user_id, job.video_id.clone());
+                if let Err(e) = clip_repo.create(&clip_meta).await {
+                    warn!("Failed to save clip metadata to Firestore: {}", e);
+                }
+
                 completed_clips += 1;
                 // Update progress (40% to 95%)
                 let progress = 40 + ((idx + 1) * 55 / total_clips) as u32;
@@ -434,7 +440,13 @@ pub async fn reprocess_scenes(
         )
         .await
         {
-            Ok(_) => {
+            Ok(clip_meta) => {
+                // Save clip metadata to Firestore
+                let clip_repo = vclip_firestore::ClipRepository::new(ctx.firestore.clone(), &job.user_id, job.video_id.clone());
+                if let Err(e) = clip_repo.create(&clip_meta).await {
+                    warn!("Failed to save clip metadata to Firestore: {}", e);
+                }
+
                 completed_clips += 1;
                 // Update progress (25% to 95%)
                 let progress = 25 + ((idx + 1) * 70 / total_clips) as u32;
@@ -549,20 +561,18 @@ pub async fn process_clip_task(
     
     // Route to appropriate clip creation function based on style
     match task.style {
-        // IntelligentSplit requires special processing (extract halves, crop each, stack)
-        vclip_models::Style::IntelligentSplit => {
-            create_intelligent_split_clip(video_file, &output_path, task, &encoding, |_progress| {
+        // Intelligent style uses face detection and smart cropping
+        vclip_models::Style::Intelligent => {
+            info!("Processing Intelligent style with face detection");
+            create_intelligent_clip(video_file, &output_path, task, &encoding, |_progress| {
                 // Could emit granular progress here
             })
             .await
             .map_err(|e| WorkerError::Media(e))?;
         }
-        // Intelligent requires face tracking and smart cropping
-        vclip_models::Style::Intelligent => {
-            // TODO: Implement intelligent cropping with face detection
-            // For now, fall back to standard clip creation
-            warn!("Intelligent style not yet fully implemented, using standard clip creation");
-            create_clip(video_file, &output_path, task, &encoding, |_progress| {
+        // IntelligentSplit requires special processing (extract halves, crop each, stack)
+        vclip_models::Style::IntelligentSplit => {
+            create_intelligent_split_clip(video_file, &output_path, task, &encoding, |_progress| {
                 // Could emit granular progress here
             })
             .await
@@ -722,18 +732,3 @@ fn generate_clip_tasks_from_highlights(
 }
 
 
-/// Extract YouTube video ID from URL.
-fn extract_youtube_id(url: &str) -> Option<String> {
-    if let Some(v_pos) = url.find("v=") {
-        let id_start = v_pos + 2;
-        let id = url[id_start..]
-            .split('&')
-            .next()
-            .unwrap_or("")
-            .to_string();
-        if !id.is_empty() {
-            return Some(id);
-        }
-    }
-    None
-}

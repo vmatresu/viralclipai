@@ -89,31 +89,77 @@ pub fn is_supported_url(url: &str) -> bool {
 }
 
 /// Extract YouTube video ID from URL.
+///
+/// Supports multiple YouTube URL formats:
+/// - https://youtube.com/watch?v=VIDEO_ID
+/// - https://youtu.be/VIDEO_ID
+/// - https://youtube.com/embed/VIDEO_ID
+///
+/// Returns None if the URL is not a valid YouTube URL or doesn't contain a video ID.
 pub fn extract_youtube_id(url: &str) -> Option<String> {
-    // Handle youtube.com/watch?v=ID
-    if let Some(pos) = url.find("v=") {
-        let id_start = pos + 2;
-        let id = url[id_start..]
-            .split(&['&', '?', '#'][..])
-            .next()?;
-        if !id.is_empty() {
-            return Some(id.to_string());
-        }
+    // Early return for non-YouTube URLs
+    if !url.contains("youtube.com") && !url.contains("youtu.be") {
+        return None;
     }
 
-    // Handle youtu.be/ID
-    if url.contains("youtu.be/") {
-        let id = url
-            .split("youtu.be/")
-            .nth(1)?
-            .split(&['?', '#'][..])
-            .next()?;
-        if !id.is_empty() {
-            return Some(id.to_string());
+    let url = url.trim();
+
+    // Handle youtube.com/watch?v=ID format
+    if let Some(v_pos) = url.find("v=") {
+        let id_start = v_pos + 2;
+        if id_start >= url.len() {
+            return None;
         }
+
+        let id = url[id_start..]
+            .split(&['&', '?', '#'][..])
+            .next()?
+            .trim();
+
+        return validate_and_return_id(id);
+    }
+
+    // Handle youtu.be/ID format
+    if let Some(be_pos) = url.find("youtu.be/") {
+        let id_start = be_pos + 9; // "youtu.be/" is 9 characters
+        if id_start >= url.len() {
+            return None;
+        }
+
+        let id = url[id_start..]
+            .split(&['?', '#'][..])
+            .next()?
+            .trim();
+
+        return validate_and_return_id(id);
+    }
+
+    // Handle youtube.com/embed/ID format
+    if let Some(embed_pos) = url.find("/embed/") {
+        let id_start = embed_pos + 7; // "/embed/" is 7 characters
+        if id_start >= url.len() {
+            return None;
+        }
+
+        let id = url[id_start..]
+            .split(&['?', '#'][..])
+            .next()?
+            .trim();
+
+        return validate_and_return_id(id);
     }
 
     None
+}
+
+/// Validate and return YouTube video ID if it matches expected format.
+fn validate_and_return_id(id: &str) -> Option<String> {
+    // YouTube video IDs are 11 characters long and contain only alphanumeric, hyphens, and underscores
+    if id.len() == 11 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        Some(id.to_string())
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -130,18 +176,39 @@ mod tests {
 
     #[test]
     fn test_extract_youtube_id() {
+        // Standard youtube.com format
         assert_eq!(
-            extract_youtube_id("https://youtube.com/watch?v=abc123"),
-            Some("abc123".to_string())
+            extract_youtube_id("https://youtube.com/watch?v=abc123def45"),
+            Some("abc123def45".to_string())
         );
+
+        // youtu.be format
         assert_eq!(
-            extract_youtube_id("https://youtu.be/abc123"),
-            Some("abc123".to_string())
+            extract_youtube_id("https://youtu.be/abc123def45"),
+            Some("abc123def45".to_string())
         );
+
+        // With query parameters
         assert_eq!(
-            extract_youtube_id("https://youtube.com/watch?v=abc123&list=xyz"),
-            Some("abc123".to_string())
+            extract_youtube_id("https://youtube.com/watch?v=abc123def45&list=xyz"),
+            Some("abc123def45".to_string())
         );
+
+        // Embed format
+        assert_eq!(
+            extract_youtube_id("https://youtube.com/embed/abc123def45"),
+            Some("abc123def45".to_string())
+        );
+
+        // Invalid formats
         assert_eq!(extract_youtube_id("https://example.com"), None);
+        assert_eq!(extract_youtube_id("https://youtube.com/watch"), None);
+        assert_eq!(extract_youtube_id("https://youtu.be/"), None);
+
+        // Invalid video ID format (wrong length)
+        assert_eq!(extract_youtube_id("https://youtube.com/watch?v=abc123"), None);
+
+        // Invalid video ID format (invalid characters)
+        assert_eq!(extract_youtube_id("https://youtube.com/watch?v=abc123def!!"), None);
     }
 }

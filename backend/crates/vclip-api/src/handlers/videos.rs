@@ -100,30 +100,54 @@ pub async fn get_video_info(
         .map(|h| (h.id, (h.title.clone(), h.description.clone().unwrap_or_default())))
         .collect();
 
-    // List clips from R2
-    let clips = state
-        .storage
-        .list_clips_with_metadata(&user.uid, &video_id, &highlights_map, Duration::from_secs(3600))
-        .await?;
+    // Get ALL clips from Firestore (primary source of truth for metadata)
+    let clip_repo = vclip_firestore::ClipRepository::new(
+        (*state.firestore).clone(),
+        &user.uid,
+        video_id_obj.clone(),
+    );
+    let firestore_clips = clip_repo.list(None).await.unwrap_or_default();
 
-    // Convert to response format
-    let clips_response: Vec<ClipInfo> = clips
-        .into_iter()
-        .map(|c| ClipInfo {
-            name: c.name,
-            title: c.title,
-            description: c.description,
-            url: c.url,
-            direct_url: c.direct_url,
-            thumbnail: c.thumbnail,
-            size: c.size,
-            style: c.style,
-        })
-        .collect();
+    // Convert Firestore clips to API format (async URL generation)
+    let mut clips: Vec<ClipInfo> = Vec::new();
+    for clip_meta in firestore_clips {
+        // Find matching highlight for title/description
+        let (title, description) = highlights_map
+            .get(&clip_meta.scene_id)
+            .cloned()
+            .unwrap_or_else(|| (clip_meta.scene_title.clone(), "Generated clip".to_string()));
+
+        // Generate URLs using the r2_key stored in Firestore metadata
+        let api_url = format!("/api/videos/{}/clips/{}", video_id, clip_meta.filename);
+        let direct_url = state.storage.get_url(&clip_meta.r2_key, Duration::from_secs(3600)).await.ok();
+        let thumbnail_url = if let Some(ref key) = clip_meta.thumbnail_r2_key {
+            state.storage.get_url(key, Duration::from_secs(3600)).await.ok()
+        } else {
+            None
+        };
+
+        // Format file size
+        let size_mb = clip_meta.file_size_bytes as f64 / (1024.0 * 1024.0);
+        let size_str = format!("{:.1} MB", size_mb);
+
+        clips.push(ClipInfo {
+            name: clip_meta.filename,
+            title,
+            description,
+            url: api_url,
+            direct_url,
+            thumbnail: thumbnail_url,
+            size: size_str,
+            style: Some(clip_meta.style),
+        });
+    }
+
+    // Sort by name for consistent display
+    clips.sort_by(|a, b| a.name.cmp(&b.name));
 
     Ok(Json(VideoInfoResponse {
         id: video_id,
-        clips: clips_response,
+        clips,
         custom_prompt: highlights.custom_prompt,
         video_title: highlights.video_title,
         video_url: highlights.video_url,

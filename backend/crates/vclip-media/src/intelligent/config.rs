@@ -1,0 +1,170 @@
+//! Configuration for the intelligent cropping pipeline.
+//!
+//! Mirrors the Python IntelligentCropConfig.
+
+use serde::{Deserialize, Serialize};
+
+/// Configuration for the intelligent cropping pipeline.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IntelligentCropConfig {
+    // === Analysis Settings ===
+    /// Frames per second to sample for analysis (default: 3.0)
+    pub fps_sample: f64,
+
+    /// Resolution (height) to use for analysis (default: 480)
+    pub analysis_resolution: u32,
+
+    // === Face Detection ===
+    /// Minimum confidence for face detection (default: 0.5)
+    pub min_detection_confidence: f64,
+
+    /// Minimum face size as fraction of frame area (default: 0.02)
+    pub min_face_size: f64,
+
+    /// Expand detected face box by this ratio (default: 0.3)
+    pub face_expand_ratio: f64,
+
+    // === Tracking ===
+    /// IoU threshold for track matching (default: 0.3)
+    pub iou_threshold: f64,
+
+    /// Maximum frames to maintain a track without detection (default: 10)
+    pub max_track_gap: u32,
+
+    // === Composition ===
+    /// Target headroom as fraction of crop height (default: 0.15)
+    pub headroom_ratio: f64,
+
+    /// Padding around subject as fraction of subject size (default: 0.2)
+    pub subject_padding: f64,
+
+    /// Minimum margin from crop edge as fraction of crop size (default: 0.05)
+    pub safe_margin: f64,
+
+    // === Camera Smoothing ===
+    /// Maximum virtual camera pan speed in pixels per second (default: 200.0)
+    pub max_pan_speed: f64,
+
+    /// Smoothing window duration in seconds (default: 0.5)
+    pub smoothing_window: f64,
+
+    // === Zoom Limits ===
+    /// Maximum zoom factor relative to source (default: 3.0)
+    pub max_zoom_factor: f64,
+
+    /// Minimum zoom factor (default: 1.0)
+    pub min_zoom_factor: f64,
+
+    // === Multi-Subject Handling ===
+    /// Prefer following primary subject over group framing (default: true)
+    pub prefer_primary_subject: bool,
+
+    /// Distance threshold for faces to be considered "far apart" (default: 0.4)
+    pub multi_face_separation_threshold: f64,
+
+    // === Fallback ===
+    /// Fallback policy when no faces detected
+    pub fallback_policy: FallbackPolicy,
+
+    // === Rendering ===
+    /// FFmpeg x264 preset for rendering (default: "veryfast")
+    pub render_preset: String,
+
+    /// FFmpeg CRF quality (default: 20)
+    pub render_crf: u32,
+}
+
+/// Policy when no faces are detected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FallbackPolicy {
+    /// Center crop
+    Center,
+    /// Upper-center (TikTok style)
+    UpperCenter,
+    /// Rule of thirds composition
+    RuleOfThirds,
+}
+
+impl Default for FallbackPolicy {
+    fn default() -> Self {
+        Self::UpperCenter
+    }
+}
+
+impl Default for IntelligentCropConfig {
+    fn default() -> Self {
+        Self {
+            // Analysis
+            fps_sample: 3.0,
+            analysis_resolution: 480,
+
+            // Face Detection
+            min_detection_confidence: 0.5,
+            min_face_size: 0.02,
+            face_expand_ratio: 0.3,
+
+            // Tracking
+            iou_threshold: 0.3,
+            max_track_gap: 10,
+
+            // Composition
+            headroom_ratio: 0.15,
+            subject_padding: 0.2,
+            safe_margin: 0.05,
+
+            // Camera Smoothing
+            max_pan_speed: 200.0,
+            smoothing_window: 0.5,
+
+            // Zoom Limits
+            max_zoom_factor: 3.0,
+            min_zoom_factor: 1.0,
+
+            // Multi-Subject
+            prefer_primary_subject: true,
+            multi_face_separation_threshold: 0.4,
+
+            // Fallback
+            fallback_policy: FallbackPolicy::UpperCenter,
+
+            // Rendering
+            render_preset: "veryfast".to_string(),
+            render_crf: 20,
+        }
+    }
+}
+
+impl IntelligentCropConfig {
+    /// Fast configuration for quick previews.
+    pub fn fast() -> Self {
+        Self {
+            fps_sample: 2.0,
+            analysis_resolution: 360,
+            render_preset: "ultrafast".to_string(),
+            render_crf: 23,
+            ..Default::default()
+        }
+    }
+
+    /// Quality configuration for final output.
+    pub fn quality() -> Self {
+        Self {
+            fps_sample: 5.0,
+            analysis_resolution: 720,
+            render_preset: "slow".to_string(),
+            render_crf: 18,
+            smoothing_window: 0.8,
+            ..Default::default()
+        }
+    }
+
+    /// TikTok-optimized configuration.
+    pub fn tiktok() -> Self {
+        Self {
+            fallback_policy: FallbackPolicy::UpperCenter,
+            headroom_ratio: 0.12,
+            subject_padding: 0.25,
+            ..Default::default()
+        }
+    }
+}
