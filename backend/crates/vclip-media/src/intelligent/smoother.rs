@@ -183,21 +183,27 @@ impl CameraSmoother {
     }
 
     /// Create fallback bounding box based on policy.
+    /// 
+    /// For podcast-style videos, faces are typically in the upper 30-45% of frame.
+    /// The fallback box should be positioned to capture this region.
     fn create_fallback_box(&self, width: u32, height: u32) -> BoundingBox {
         let w = width as f64;
         let h = height as f64;
 
         match self.config.fallback_policy {
             FallbackPolicy::Center => {
+                // Center of frame - good for general content
                 BoundingBox::new(w * 0.2, h * 0.2, w * 0.6, h * 0.6)
             }
             FallbackPolicy::UpperCenter => {
-                // Upper-center (TikTok style)
-                BoundingBox::new(w * 0.2, h * 0.1, w * 0.6, h * 0.6)
+                // Upper-center for talking head / podcast style
+                // Position focus box so face center is around 35-40% of frame height
+                // Box starts at 15% and is 50% tall, so center is at 40%
+                BoundingBox::new(w * 0.15, h * 0.15, w * 0.7, h * 0.5)
             }
             FallbackPolicy::RuleOfThirds => {
-                // Rule of thirds - upper third
-                BoundingBox::new(w * 0.2, h * 0.1, w * 0.6, h * 0.5)
+                // Rule of thirds - upper third intersection
+                BoundingBox::new(w * 0.2, h * 0.15, w * 0.6, h * 0.45)
             }
         }
     }

@@ -61,7 +61,9 @@ impl CropPlanner {
         let mut y = keyframe.cy - crop_height / 2.0;
 
         // Apply headroom adjustment for faces
-        let headroom_shift = crop_height * self.config.headroom_ratio * 0.3;
+        // This shifts the crop up slightly to add headroom above the face
+        // Using a smaller multiplier (0.15) to avoid cutting off faces at the bottom
+        let headroom_shift = crop_height * self.config.headroom_ratio * 0.15;
         y -= headroom_shift;
 
         // Clamp to frame boundaries

@@ -2,8 +2,8 @@
 //!
 //! This module implements the "intelligent split" style that:
 //! 1. Splits the video into left and right halves
-//! 2. Stacks the cropped halves vertically (left=top, right=bottom)
-//! 3. Scales to standard 9:16 portrait format (1080x1920)
+//! 2. Applies face-centered crop to each half (9:16 portrait)
+//! 3. Stacks the cropped halves vertically (left=top, right=bottom)
 //!
 //! This is ideal for podcast-style videos with two people side by side.
 //!
@@ -15,6 +15,11 @@
 //!     ▼
 //! ┌─────────────────┐
 //! │  Split L/R      │ ← Crop left half, crop right half
+//! └────────┬────────┘
+//!          │
+//!          ▼
+//! ┌─────────────────┐
+//! │ Face-Center Crop│ ← Crop each half to 9:16 centered on face
 //! └────────┬────────┘
 //!          │
 //!          ▼
@@ -32,6 +37,7 @@ use std::path::Path;
 use tracing::{info, warn};
 
 use super::config::IntelligentCropConfig;
+use super::IntelligentCropper;
 use crate::clip::extract_segment;
 use crate::command::{FfmpegCommand, FfmpegRunner};
 use crate::error::{MediaError, MediaResult};
@@ -106,9 +112,10 @@ impl IntelligentSplitProcessor {
         // 2. The Python version always splits and it works correctly
         // 3. Users expect split view when they select "Intelligent Split"
         
-        info!("Step 1/3: Splitting video into left/right halves...");
-        info!("Step 2/3: Stacking panels...");
-        info!("Step 3/3: Scaling to portrait format...");
+        info!("Step 1/4: Splitting video into left/right halves...");
+        info!("Step 2/4: Applying face-centered crop to each panel...");
+        info!("Step 3/4: Stacking panels...");
+        info!("Step 4/4: Scaling to portrait format...");
         
         self.process_split_view(
             segment,
@@ -140,8 +147,9 @@ impl IntelligentSplitProcessor {
     ///
     /// This function:
     /// 1. Splits the video into left and right halves
-    /// 2. Stacks the cropped halves vertically (left=top, right=bottom)
-    /// 3. Applies intelligent face-tracking crop to the stacked result
+    /// 2. Applies intelligent face-centered crop to each half (9:16 portrait)
+    /// 3. Stacks the cropped halves vertically (left=top, right=bottom)
+    /// 4. Scales to final 1080x1920 output
     async fn process_split_view(
         &self,
         segment: &Path,
@@ -159,6 +167,7 @@ impl IntelligentSplitProcessor {
         let left_half = temp_dir.path().join("left.mp4");
         let right_half = temp_dir.path().join("right.mp4");
 
+        info!("  Extracting left half...");
         // Crop left half
         let cmd_left = FfmpegCommand::new(segment, &left_half)
             .video_filter("crop=iw/2:ih:0:0")
@@ -169,6 +178,7 @@ impl IntelligentSplitProcessor {
 
         FfmpegRunner::new().run(&cmd_left).await?;
 
+        info!("  Extracting right half...");
         // Crop right half
         let cmd_right = FfmpegCommand::new(segment, &right_half)
             .video_filter("crop=iw/2:ih:iw/2:0")
@@ -179,7 +189,21 @@ impl IntelligentSplitProcessor {
 
         FfmpegRunner::new().run(&cmd_right).await?;
 
-        // Step 2: Stack halves vertically (left=top, right=bottom)
+        // Step 2: Apply intelligent face-centered crop to each half
+        // Each half is now (width/2) x height, we need to crop to 9:16 portrait
+        // centered on the detected face
+        let left_cropped = temp_dir.path().join("left_cropped.mp4");
+        let right_cropped = temp_dir.path().join("right_cropped.mp4");
+
+        info!("  Applying face-centered crop to left panel...");
+        let cropper = IntelligentCropper::new(self.config.clone());
+        cropper.process(&left_half, &left_cropped).await?;
+
+        info!("  Applying face-centered crop to right panel...");
+        cropper.process(&right_half, &right_cropped).await?;
+
+        // Step 3: Stack the face-cropped halves vertically (left=top, right=bottom)
+        // Both halves are now 9:16 portrait, so stacking gives us a 9:32 video
         let stacked = temp_dir.path().join("stacked.mp4");
         info!("  Stacking panels...");
         let stack_crf = encoding.crf.saturating_add(4);
@@ -187,11 +211,12 @@ impl IntelligentSplitProcessor {
         let stack_args = vec![
             "-y".to_string(),
             "-i".to_string(),
-            left_half.to_string_lossy().to_string(),
+            left_cropped.to_string_lossy().to_string(),
             "-i".to_string(),
-            right_half.to_string_lossy().to_string(),
+            right_cropped.to_string_lossy().to_string(),
             "-filter_complex".to_string(),
-            "[0:v][1:v]vstack=inputs=2".to_string(),
+            // Scale both to same width before stacking to ensure alignment
+            "[0:v]scale=1080:-2[v0];[1:v]scale=1080:-2[v1];[v0][v1]vstack=inputs=2".to_string(),
             "-c:v".to_string(),
             encoding.codec.clone(),
             "-preset".to_string(),
@@ -218,9 +243,8 @@ impl IntelligentSplitProcessor {
             ));
         }
 
-        // Step 3: Scale to standard 9:16 portrait dimensions (1080x1920)
-        // The stacked video is already narrow (960x2160), so we scale it to fit
-        // the standard social media portrait format rather than cropping further.
+        // Step 4: Scale to standard 9:16 portrait dimensions (1080x1920)
+        // The stacked video is 1080x(2*panel_height), we need to fit it into 1080x1920
         info!("  Scaling to 1080x1920 portrait format...");
         
         let scale_args = vec![

@@ -327,18 +327,31 @@ impl FaceDetector {
     }
 
     /// Create a center-weighted face detection.
+    /// 
+    /// For podcast-style videos (split view), faces are typically:
+    /// - Horizontally centered in each half
+    /// - Vertically in the upper 30-45% of the frame
+    /// - Occupying about 25-35% of frame height
+    /// 
+    /// Note: The crop planner will add headroom above the face, so we position
+    /// the face center at ~38% of frame height. After headroom adjustment,
+    /// the crop will be properly centered with the face visible.
     fn create_center_detection(&self, width: u32, height: u32, confidence: f64) -> (BoundingBox, f64) {
         let w = width as f64;
         let h = height as f64;
 
-        // Assume face is in upper-center region (common in talking head videos)
-        // Face typically occupies ~20-30% of frame height
-        let face_height = h * 0.25;
+        // For podcast videos, faces typically occupy ~25-30% of frame height
+        // We want to detect the face region, not the full head+shoulders
+        let face_height = h * 0.28;
         let face_width = face_height * 0.8; // Face aspect ratio ~1.25 (height > width)
 
-        // Position in upper-center
+        // Position face center at ~38% of frame height
+        // This accounts for:
+        // - Faces being in upper portion of frame
+        // - Headroom adjustment in crop planner (shifts crop up)
+        // - Need to keep full face visible after cropping
         let cx = w / 2.0;
-        let cy = h * 0.35; // Upper third of frame
+        let cy = h * 0.38; // Face center position
 
         let bbox = BoundingBox::new(
             cx - face_width / 2.0,
