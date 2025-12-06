@@ -1,8 +1,10 @@
 //! Job processing logic.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use futures::future::join_all;
 use tokio::sync::Semaphore;
 use tracing::{info, warn};
 
@@ -226,47 +228,97 @@ pub async fn process_video(ctx: &ProcessingContext, job: &ProcessVideoJob) -> Wo
     let clips_dir = work_dir.join("clips");
     tokio::fs::create_dir_all(&clips_dir).await?;
 
-    // Process clips
+    // Group clips by scene_id for parallel processing of styles within each scene
+    let mut scene_groups: HashMap<u32, Vec<&ClipTask>> = HashMap::new();
+    for task in &clip_tasks {
+        scene_groups.entry(task.scene_id).or_default().push(task);
+    }
+    
+    // Sort scenes by scene_id for deterministic ordering
+    let mut scene_ids: Vec<u32> = scene_groups.keys().copied().collect();
+    scene_ids.sort();
+
+    // Process clips with parallel style processing within each scene
     let mut completed_clips = 0u32;
-    for (idx, task) in clip_tasks.iter().enumerate() {
-        // Log clip name to progress channel for UI
+    let mut processed_count = 0usize;
+    
+    for scene_id in scene_ids {
+        let scene_tasks = scene_groups.get(&scene_id).unwrap();
+        
         ctx.progress
-            .log(&job.job_id, format!("Processing clip {}/{}: {}", idx + 1, total_clips, task.output_filename()))
+            .log(
+                &job.job_id,
+                format!(
+                    "Processing scene {} ({} styles in parallel)...",
+                    scene_id,
+                    scene_tasks.len()
+                ),
+            )
             .await
             .ok();
-
-        match process_clip_task(
-            ctx,
-            &job.job_id,
-            &job.video_id,
-            &job.user_id,
-            &video_file,
-            &clips_dir,
-            task,
-            idx,
-            total_clips,
-        )
-        .await
-        {
-            Ok(clip_meta) => {
-                // Save clip metadata to Firestore
-                let clip_repo = vclip_firestore::ClipRepository::new(ctx.firestore.clone(), &job.user_id, job.video_id.clone());
-                if let Err(e) = clip_repo.create(&clip_meta).await {
-                    warn!("Failed to save clip metadata to Firestore: {}", e);
-                }
-
-                completed_clips += 1;
-                // Update progress (40% to 95%)
-                let progress = 40 + ((idx + 1) * 55 / total_clips) as u32;
-                ctx.progress.progress(&job.job_id, progress as u8).await.ok();
-            }
-            Err(e) => {
-                ctx.progress
-                    .log(&job.job_id, format!("Failed to process clip {}: {}", task.output_filename(), e))
+        
+        // Process all styles for this scene in parallel
+        let futures: Vec<_> = scene_tasks
+            .iter()
+            .map(|task| {
+                let ctx = ctx;
+                let job_id = &job.job_id;
+                let video_id = &job.video_id;
+                let user_id = &job.user_id;
+                let video_file = &video_file;
+                let clips_dir = &clips_dir;
+                
+                async move {
+                    process_clip_task(
+                        ctx,
+                        job_id,
+                        video_id,
+                        user_id,
+                        video_file,
+                        clips_dir,
+                        task,
+                        0, // Index not used for parallel
+                        total_clips,
+                    )
                     .await
-                    .ok();
+                }
+            })
+            .collect();
+        
+        let results = join_all(futures).await;
+        
+        // Process results
+        for (task, result) in scene_tasks.iter().zip(results.into_iter()) {
+            processed_count += 1;
+            
+            match result {
+                Ok(clip_meta) => {
+                    // Save clip metadata to Firestore
+                    let clip_repo = vclip_firestore::ClipRepository::new(
+                        ctx.firestore.clone(),
+                        &job.user_id,
+                        job.video_id.clone(),
+                    );
+                    if let Err(e) = clip_repo.create(&clip_meta).await {
+                        warn!("Failed to save clip metadata to Firestore: {}", e);
+                    }
+                    completed_clips += 1;
+                }
+                Err(e) => {
+                    ctx.progress
+                        .log(
+                            &job.job_id,
+                            format!("Failed to process clip {}: {}", task.output_filename(), e),
+                        )
+                        .await
+                        .ok();
+                }
             }
         }
+        
+        // Update progress after each scene (40% to 95%)
+        let progress = 40 + (processed_count * 55 / total_clips) as u32;
+        ctx.progress.progress(&job.job_id, progress as u8).await.ok();
     }
 
     // Mark video as completed
@@ -418,47 +470,97 @@ pub async fn reprocess_scenes(
     let clips_dir = work_dir.join("clips");
     tokio::fs::create_dir_all(&clips_dir).await?;
 
-    // Process clips
+    // Group clips by scene_id for parallel processing of styles within each scene
+    let mut scene_groups: HashMap<u32, Vec<&ClipTask>> = HashMap::new();
+    for task in &clip_tasks {
+        scene_groups.entry(task.scene_id).or_default().push(task);
+    }
+    
+    // Sort scenes by scene_id for deterministic ordering
+    let mut scene_ids: Vec<u32> = scene_groups.keys().copied().collect();
+    scene_ids.sort();
+
+    // Process clips with parallel style processing within each scene
     let mut completed_clips = 0u32;
-    for (idx, task) in clip_tasks.iter().enumerate() {
-        // Log clip name to progress channel for UI
+    let mut processed_count = 0usize;
+    
+    for scene_id in scene_ids {
+        let scene_tasks = scene_groups.get(&scene_id).unwrap();
+        
         ctx.progress
-            .log(&job.job_id, format!("Processing clip {}/{}: {}", idx + 1, total_clips, task.output_filename()))
+            .log(
+                &job.job_id,
+                format!(
+                    "Processing scene {} ({} styles in parallel)...",
+                    scene_id,
+                    scene_tasks.len()
+                ),
+            )
             .await
             .ok();
-
-        match process_clip_task(
-            ctx,
-            &job.job_id,
-            &job.video_id,
-            &job.user_id,
-            &video_file,
-            &clips_dir,
-            task,
-            idx,
-            total_clips,
-        )
-        .await
-        {
-            Ok(clip_meta) => {
-                // Save clip metadata to Firestore
-                let clip_repo = vclip_firestore::ClipRepository::new(ctx.firestore.clone(), &job.user_id, job.video_id.clone());
-                if let Err(e) = clip_repo.create(&clip_meta).await {
-                    warn!("Failed to save clip metadata to Firestore: {}", e);
-                }
-
-                completed_clips += 1;
-                // Update progress (25% to 95%)
-                let progress = 25 + ((idx + 1) * 70 / total_clips) as u32;
-                ctx.progress.progress(&job.job_id, progress as u8).await.ok();
-            }
-            Err(e) => {
-                ctx.progress
-                    .log(&job.job_id, format!("Failed to process clip {}: {}", task.output_filename(), e))
+        
+        // Process all styles for this scene in parallel
+        let futures: Vec<_> = scene_tasks
+            .iter()
+            .map(|task| {
+                let ctx = ctx;
+                let job_id = &job.job_id;
+                let video_id = &job.video_id;
+                let user_id = &job.user_id;
+                let video_file = &video_file;
+                let clips_dir = &clips_dir;
+                
+                async move {
+                    process_clip_task(
+                        ctx,
+                        job_id,
+                        video_id,
+                        user_id,
+                        video_file,
+                        clips_dir,
+                        task,
+                        0, // Index not used for parallel
+                        total_clips,
+                    )
                     .await
-                    .ok();
+                }
+            })
+            .collect();
+        
+        let results = join_all(futures).await;
+        
+        // Process results
+        for (task, result) in scene_tasks.iter().zip(results.into_iter()) {
+            processed_count += 1;
+            
+            match result {
+                Ok(clip_meta) => {
+                    // Save clip metadata to Firestore
+                    let clip_repo = vclip_firestore::ClipRepository::new(
+                        ctx.firestore.clone(),
+                        &job.user_id,
+                        job.video_id.clone(),
+                    );
+                    if let Err(e) = clip_repo.create(&clip_meta).await {
+                        warn!("Failed to save clip metadata to Firestore: {}", e);
+                    }
+                    completed_clips += 1;
+                }
+                Err(e) => {
+                    ctx.progress
+                        .log(
+                            &job.job_id,
+                            format!("Failed to process clip {}: {}", task.output_filename(), e),
+                        )
+                        .await
+                        .ok();
+                }
             }
         }
+        
+        // Update progress after each scene (25% to 95%)
+        let progress = 25 + (processed_count * 70 / total_clips) as u32;
+        ctx.progress.progress(&job.job_id, progress as u8).await.ok();
     }
 
     // Update video metadata
@@ -556,13 +658,12 @@ pub async fn process_clip_task(
         filename
     );
 
-    // Create clip - route to appropriate function based on style
-    let encoding = EncodingConfig::default();
-    
     // Route to appropriate clip creation function based on style
+    // Use different encoding configs based on style for optimal file sizes
     match task.style {
         // Intelligent style uses face detection and smart cropping
         vclip_models::Style::Intelligent => {
+            let encoding = EncodingConfig::for_intelligent_crop();
             info!("Processing Intelligent style with face detection");
             create_intelligent_clip(video_file, &output_path, task, &encoding, |_progress| {
                 // Could emit granular progress here
@@ -572,7 +673,18 @@ pub async fn process_clip_task(
         }
         // IntelligentSplit requires special processing (extract halves, crop each, stack)
         vclip_models::Style::IntelligentSplit => {
+            let encoding = EncodingConfig::for_intelligent_crop();
             create_intelligent_split_clip(video_file, &output_path, task, &encoding, |_progress| {
+                // Could emit granular progress here
+            })
+            .await
+            .map_err(|e| WorkerError::Media(e))?;
+        }
+        // Split style uses higher CRF to reduce file size (complex filter chain)
+        vclip_models::Style::Split => {
+            let encoding = EncodingConfig::for_split_view();
+            info!("Processing Split style with optimized encoding (CRF {})", encoding.crf);
+            create_clip(video_file, &output_path, task, &encoding, |_progress| {
                 // Could emit granular progress here
             })
             .await
@@ -580,6 +692,7 @@ pub async fn process_clip_task(
         }
         // All other styles use standard clip creation
         _ => {
+            let encoding = EncodingConfig::default();
             create_clip(video_file, &output_path, task, &encoding, |_progress| {
                 // Could emit granular progress here
             })
@@ -626,7 +739,7 @@ pub async fn process_clip_task(
         user_id: user_id.to_string(),
         scene_id: task.scene_id,
         scene_title: task.scene_title.clone(),
-        scene_description: None,
+        scene_description: task.scene_description.clone(),
         filename,
         style: task.style.to_string(),
         priority: task.priority,
@@ -687,6 +800,7 @@ fn generate_clip_tasks(
             tasks.push(ClipTask {
                 scene_id: highlight.id,
                 scene_title: highlight.title.clone(),
+                scene_description: highlight.description.clone(),
                 start: highlight.start.clone(),
                 end: highlight.end.clone(),
                 style: style.clone(),
@@ -716,6 +830,7 @@ fn generate_clip_tasks_from_highlights(
             tasks.push(ClipTask {
                 scene_id: highlight.id,
                 scene_title: highlight.title.clone(),
+                scene_description: highlight.description.clone(),
                 start: highlight.start.clone(),
                 end: highlight.end.clone(),
                 style: style.clone(),

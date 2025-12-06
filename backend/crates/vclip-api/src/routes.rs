@@ -9,7 +9,7 @@ use crate::handlers::{health, ready};
 use crate::handlers::admin::{enqueue_synthetic_job, get_queue_status, get_system_info};
 use crate::handlers::settings::{get_settings, update_settings};
 use crate::handlers::videos::{
-    bulk_delete_videos, delete_clip, delete_video, get_video_highlights, get_video_info,
+    bulk_delete_clips, bulk_delete_videos, delete_all_clips, delete_clip, delete_video, get_video_highlights, get_video_info,
     list_user_videos, reprocess_scenes, stream_clip, update_video_title,
 };
 use crate::metrics::metrics_middleware;
@@ -28,6 +28,9 @@ pub fn create_router(state: AppState, metrics_handle: Option<PrometheusHandle>) 
         // Clip operations
         .route("/videos/:video_id/clips/:clip_name", get(stream_clip))
         .route("/videos/:video_id/clips/:clip_name", delete(delete_clip))
+        // Bulk clip operations
+        .route("/videos/:video_id/clips", delete(bulk_delete_clips))
+        .route("/videos/:video_id/clips/all", delete(delete_all_clips))
         // Highlights
         .route("/videos/:video_id/highlights", get(get_video_highlights))
         // Title update

@@ -141,6 +141,10 @@ pub struct ClipTask {
     /// Scene title (sanitized for filename)
     pub scene_title: String,
 
+    /// Scene description
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scene_description: Option<String>,
+
     /// Start timestamp
     pub start: String,
 
@@ -177,6 +181,7 @@ impl ClipTask {
         Self {
             scene_id,
             scene_title: scene_title.into(),
+            scene_description: None,
             start: start.into(),
             end: end.into(),
             style,
@@ -227,6 +232,7 @@ mod tests {
         let task = ClipTask {
             scene_id: 1,
             scene_title: "My Amazing Scene!".to_string(),
+            scene_description: None,
             start: "00:00:00".to_string(),
             end: "00:01:00".to_string(),
             style: Style::Split,

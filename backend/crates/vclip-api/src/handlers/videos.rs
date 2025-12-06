@@ -471,8 +471,16 @@ pub async fn delete_clip(
         .delete_clip(&user.uid, &video_id, &clip_name)
         .await?;
 
-    info!("Deleted clip {} from video {} for user {} ({} files)", 
-          clip_name, video_id, user.uid, files_deleted);
+    // Delete clip metadata from Firestore
+    let clip_repo = vclip_firestore::ClipRepository::new(
+        (*state.firestore).clone(),
+        &user.uid,
+        vclip_models::VideoId::from_string(&video_id),
+    );
+    let metadata_deleted = clip_repo.delete_by_filename(&clip_name).await?;
+
+    info!("Deleted clip {} from video {} for user {} ({} files, metadata deleted: {})", 
+          clip_name, video_id, user.uid, files_deleted, metadata_deleted);
 
     Ok(Json(DeleteClipResponse {
         success: true,
@@ -484,6 +492,237 @@ pub async fn delete_clip(
             "Clip already deleted".to_string()
         }),
         files_deleted: Some(files_deleted),
+    }))
+}
+
+// ============================================================================
+// Bulk Delete Clips
+// ============================================================================
+
+/// Bulk delete clips request.
+#[derive(Debug, Deserialize)]
+pub struct BulkDeleteClipsRequest {
+    pub clip_names: Vec<String>,
+}
+
+/// Bulk delete clips response.
+#[derive(Serialize)]
+pub struct BulkDeleteClipsResponse {
+    pub success: bool,
+    pub video_id: String,
+    pub deleted_count: u32,
+    pub failed_count: u32,
+    pub results: HashMap<String, BulkDeleteResult>,
+}
+
+/// Delete all clips for a video response.
+#[derive(Serialize)]
+pub struct DeleteAllClipsResponse {
+    pub success: bool,
+    pub video_id: String,
+    pub deleted_count: u32,
+    pub failed_count: u32,
+    pub results: HashMap<String, BulkDeleteResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// Bulk delete clips for a video.
+pub async fn bulk_delete_clips(
+    State(state): State<AppState>,
+    Path(video_id): Path<String>,
+    user: AuthUser,
+    Json(request): Json<BulkDeleteClipsRequest>,
+) -> ApiResult<Json<BulkDeleteClipsResponse>> {
+    if request.clip_names.is_empty() {
+        return Err(ApiError::bad_request("At least one clip name is required"));
+    }
+
+    if request.clip_names.len() > 100 {
+        return Err(ApiError::bad_request("Cannot delete more than 100 clips at once"));
+    }
+
+    // Verify ownership
+    if !state.user_service.user_owns_video(&user.uid, &video_id).await? {
+        return Err(ApiError::not_found("Video not found"));
+    }
+
+    // Validate clip names
+    for clip_name in &request.clip_names {
+        if clip_name.contains("..") || clip_name.contains('/') || clip_name.contains('\\') {
+            return Err(ApiError::bad_request(format!("Invalid clip name: {}", clip_name)));
+        }
+    }
+
+    let mut results = HashMap::new();
+    let mut deleted_count = 0u32;
+    let mut failed_count = 0u32;
+
+    for clip_name in &request.clip_names {
+        // Delete clip and thumbnail from R2
+        let files_deleted = match state.storage.delete_clip(&user.uid, &video_id, clip_name).await {
+            Ok(count) => count,
+            Err(e) => {
+                warn!("Failed to delete files for clip {}: {}", clip_name, e);
+                results.insert(clip_name.clone(), BulkDeleteResult {
+                    success: false,
+                    error: Some(format!("Storage error: {}", e)),
+                    files_deleted: None,
+                });
+                failed_count += 1;
+                continue;
+            }
+        };
+
+        // Delete clip metadata from Firestore
+        let clip_repo = vclip_firestore::ClipRepository::new(
+            (*state.firestore).clone(),
+            &user.uid,
+            vclip_models::VideoId::from_string(&video_id),
+        );
+        
+        let metadata_deleted = match clip_repo.delete_by_filename(clip_name).await {
+            Ok(deleted) => deleted,
+            Err(e) => {
+                warn!("Failed to delete metadata for clip {}: {}", clip_name, e);
+                results.insert(clip_name.clone(), BulkDeleteResult {
+                    success: false,
+                    error: Some(format!("Database error: {}", e)),
+                    files_deleted: Some(files_deleted),
+                });
+                failed_count += 1;
+                continue;
+            }
+        };
+
+        results.insert(clip_name.clone(), BulkDeleteResult {
+            success: true,
+            error: None,
+            files_deleted: Some(files_deleted),
+        });
+        deleted_count += 1;
+
+        info!("Deleted clip {} from video {} for user {} ({} files, metadata deleted: {})", 
+              clip_name, video_id, user.uid, files_deleted, metadata_deleted);
+    }
+
+    Ok(Json(BulkDeleteClipsResponse {
+        success: deleted_count > 0,
+        video_id,
+        deleted_count,
+        failed_count,
+        results,
+    }))
+}
+
+/// Delete all clips for a video.
+pub async fn delete_all_clips(
+    State(state): State<AppState>,
+    Path(video_id): Path<String>,
+    user: AuthUser,
+) -> ApiResult<Json<DeleteAllClipsResponse>> {
+    // Verify ownership
+    if !state.user_service.user_owns_video(&user.uid, &video_id).await? {
+        return Err(ApiError::not_found("Video not found"));
+    }
+
+    // Get all clips for this video from Firestore
+    let clip_repo = vclip_firestore::ClipRepository::new(
+        (*state.firestore).clone(),
+        &user.uid,
+        vclip_models::VideoId::from_string(&video_id),
+    );
+    
+    let clips = match clip_repo.list(None).await {
+        Ok(clips) => clips,
+        Err(e) => {
+            warn!("Failed to list clips for video {}: {}", video_id, e);
+            return Err(ApiError::internal(format!("Failed to retrieve clips: {}", e)));
+        }
+    };
+
+    if clips.is_empty() {
+        return Ok(Json(DeleteAllClipsResponse {
+            success: true,
+            video_id,
+            deleted_count: 0,
+            failed_count: 0,
+            results: HashMap::new(),
+            message: Some("No clips found to delete".to_string()),
+        }));
+    }
+
+    let clip_names: Vec<String> = clips.iter().map(|c| c.filename.clone()).collect();
+
+    let mut results = HashMap::new();
+    let mut deleted_count = 0u32;
+    let mut failed_count = 0u32;
+
+    for clip in clips {
+        let clip_name = clip.filename;
+
+        // Delete clip and thumbnail from R2
+        let files_deleted = match state.storage.delete_clip(&user.uid, &video_id, &clip_name).await {
+            Ok(count) => count,
+            Err(e) => {
+                warn!("Failed to delete files for clip {}: {}", clip_name, e);
+                results.insert(clip_name.clone(), BulkDeleteResult {
+                    success: false,
+                    error: Some(format!("Storage error: {}", e)),
+                    files_deleted: None,
+                });
+                failed_count += 1;
+                continue;
+            }
+        };
+
+        // Delete clip metadata from Firestore
+        let clip_repo = vclip_firestore::ClipRepository::new(
+            (*state.firestore).clone(),
+            &user.uid,
+            vclip_models::VideoId::from_string(&video_id),
+        );
+        
+        match clip_repo.delete_by_filename(&clip_name).await {
+            Ok(deleted) => {
+                if deleted {
+                    results.insert(clip_name.clone(), BulkDeleteResult {
+                        success: true,
+                        error: None,
+                        files_deleted: Some(files_deleted),
+                    });
+                    deleted_count += 1;
+                    info!("Deleted clip {} from video {} for user {} ({} files)", 
+                          clip_name, video_id, user.uid, files_deleted);
+                } else {
+                    // Clip metadata not found
+                    results.insert(clip_name.clone(), BulkDeleteResult {
+                        success: false,
+                        error: Some("Clip metadata not found".to_string()),
+                        files_deleted: Some(files_deleted),
+                    });
+                    failed_count += 1;
+                }
+            }
+            Err(e) => {
+                warn!("Failed to delete metadata for clip {}: {}", clip_name, e);
+                results.insert(clip_name.clone(), BulkDeleteResult {
+                    success: false,
+                    error: Some(format!("Database error: {}", e)),
+                    files_deleted: Some(files_deleted),
+                });
+                failed_count += 1;
+            }
+        }
+    }
+
+    Ok(Json(DeleteAllClipsResponse {
+        success: deleted_count > 0,
+        video_id,
+        deleted_count,
+        failed_count,
+        results,
+        message: Some(format!("Deleted {} out of {} clips", deleted_count, clip_names.len())),
     }))
 }
 

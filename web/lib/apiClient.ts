@@ -204,8 +204,64 @@ export function deleteClip(
 }
 
 /**
- * Update video title
+ * Delete multiple clips from a video
  */
+export function bulkDeleteClips(
+  videoId: string,
+  clipNames: string[],
+  token: string
+): Promise<{
+  success: boolean;
+  video_id: string;
+  deleted_count: number;
+  failed_count: number;
+  results: Record<string, { success: boolean; error?: string; files_deleted?: number }>;
+}> {
+  return apiFetch<{
+    success: boolean;
+    video_id: string;
+    deleted_count: number;
+    failed_count: number;
+    results: Record<
+      string,
+      { success: boolean; error?: string; files_deleted?: number }
+    >;
+  }>(`/api/videos/${encodeURIComponent(videoId)}/clips`, {
+    method: "DELETE",
+    token,
+    body: { clip_names: clipNames },
+  });
+}
+
+/**
+ * Delete all clips from a video
+ */
+export function deleteAllClips(
+  videoId: string,
+  token: string
+): Promise<{
+  success: boolean;
+  video_id: string;
+  deleted_count: number;
+  failed_count: number;
+  results: Record<string, { success: boolean; error?: string; files_deleted?: number }>;
+  message?: string;
+}> {
+  return apiFetch<{
+    success: boolean;
+    video_id: string;
+    deleted_count: number;
+    failed_count: number;
+    results: Record<
+      string,
+      { success: boolean; error?: string; files_deleted?: number }
+    >;
+    message?: string;
+  }>(`/api/videos/${encodeURIComponent(videoId)}/clips/all`, {
+    method: "DELETE",
+    token,
+  });
+}
 export function updateVideoTitle(
   videoId: string,
   title: string,

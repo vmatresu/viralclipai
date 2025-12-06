@@ -237,6 +237,25 @@ impl ClipRepository {
         Ok(())
     }
 
+    /// Delete a clip by filename.
+    pub async fn delete_by_filename(&self, filename: &str) -> FirestoreResult<bool> {
+        // First, list all clips to find the one with matching filename
+        let clips = self.list(None).await?;
+        
+        // Find the clip with the matching filename
+        if let Some(clip) = clips.into_iter().find(|c| c.filename == filename) {
+            // Delete the document using the clip_id as document ID
+            self.client
+                .delete_document(&self.collection(), &clip.clip_id)
+                .await?;
+            info!("Deleted clip record: {}", clip.clip_id);
+            Ok(true)
+        } else {
+            // Clip not found
+            Ok(false)
+        }
+    }
+
     /// List clips for the video.
     pub async fn list(&self, status: Option<ClipStatus>) -> FirestoreResult<Vec<ClipMetadata>> {
         let response = self.client.list_documents(&self.collection(), None, None).await?;
@@ -350,6 +369,9 @@ fn clip_metadata_to_fields(clip: &ClipMetadata) -> HashMap<String, Value> {
     fields.insert("user_id".to_string(), clip.user_id.to_firestore_value());
     fields.insert("scene_id".to_string(), clip.scene_id.to_firestore_value());
     fields.insert("scene_title".to_string(), clip.scene_title.to_firestore_value());
+    if let Some(ref desc) = clip.scene_description {
+        fields.insert("scene_description".to_string(), desc.to_firestore_value());
+    }
     fields.insert("filename".to_string(), clip.filename.to_firestore_value());
     fields.insert("style".to_string(), clip.style.to_firestore_value());
     fields.insert("priority".to_string(), clip.priority.to_firestore_value());
