@@ -210,6 +210,7 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
         Ok(mut stream) => {
             let mut heartbeat = interval(WS_HEARTBEAT_INTERVAL);
             let mut last_activity = std::time::Instant::now();
+            let mut clips_uploaded = 0u32;
 
             loop {
                 tokio::select! {
@@ -221,8 +222,21 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
                                 let msg_type = match &event.message {
                                     WsMessage::Log { .. } => "log",
                                     WsMessage::Progress { .. } => "progress",
-                                    WsMessage::ClipUploaded { .. } => "clip_uploaded",
-                                    WsMessage::Done { .. } => "done",
+                                    WsMessage::ClipUploaded { .. } => {
+                                        clips_uploaded += 1;
+                                        "clip_uploaded"
+                                    },
+                                    WsMessage::Done { .. } => {
+                                        // Increment usage counter when job completes successfully
+                                        if clips_uploaded > 0 {
+                                            if let Err(e) = state.user_service.increment_usage(&uid, clips_uploaded).await {
+                                                warn!("Failed to increment usage for user {}: {}", uid, e);
+                                            } else {
+                                                info!("Incremented usage by {} clips for user {}", clips_uploaded, uid);
+                                            }
+                                        }
+                                        "done"
+                                    },
                                     WsMessage::Error { .. } => "error",
                                 };
                                 metrics::record_ws_message_sent("process", msg_type);
@@ -384,6 +398,13 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
         let error = WsMessage::error(format!("{}", e));
         let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
         return;
+    }
+
+    // Increment usage counter upfront (like REST API)
+    if let Err(e) = state.user_service.increment_usage(&uid, total_clips).await {
+        warn!("Failed to increment usage for user {}: {}", uid, e);
+    } else {
+        info!("Incremented usage by {} clips for user {}", total_clips, uid);
     }
 
     // Update video status to processing
