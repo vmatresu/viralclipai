@@ -9,6 +9,7 @@
 pub mod config;
 pub mod error;
 pub mod executor;
+pub mod gemini;
 pub mod processor;
 
 pub use config::WorkerConfig;

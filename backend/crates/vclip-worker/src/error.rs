@@ -18,6 +18,12 @@ pub enum WorkerError {
     #[error("Upload failed: {0}")]
     UploadFailed(String),
 
+    #[error("AI analysis failed: {0}")]
+    AiFailed(String),
+
+    #[error("Configuration error: {0}")]
+    ConfigError(String),
+
     #[error("Storage error: {0}")]
     Storage(#[from] vclip_storage::StorageError),
 
@@ -43,6 +49,14 @@ impl WorkerError {
         Self::ProcessingFailed(msg.into())
     }
 
+    pub fn ai_failed(msg: impl Into<String>) -> Self {
+        Self::AiFailed(msg.into())
+    }
+
+    pub fn config_error(msg: impl Into<String>) -> Self {
+        Self::ConfigError(msg.into())
+    }
+
     /// Check if error is retryable.
     pub fn is_retryable(&self) -> bool {
         matches!(
@@ -51,6 +65,7 @@ impl WorkerError {
                 | WorkerError::UploadFailed(_)
                 | WorkerError::Storage(_)
                 | WorkerError::Firestore(_)
+                | WorkerError::AiFailed(_)
         )
     }
 }

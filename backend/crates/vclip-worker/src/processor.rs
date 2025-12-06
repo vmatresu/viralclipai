@@ -93,27 +93,119 @@ pub async fn process_video(ctx: &ProcessingContext, job: &ProcessVideoJob) -> Wo
         .await
         .map_err(|e| WorkerError::Firestore(e))?;
 
-    // TODO: Run AI analysis to extract highlights
-    // For now, we'll just create a placeholder
+    // Run AI analysis to extract highlights
     ctx.progress
-        .log(&job.job_id, "Analyzing video content...")
+        .log(&job.job_id, "Analyzing video content with AI...")
         .await
         .ok();
-    ctx.progress.progress(&job.job_id, 30).await.ok();
+    ctx.progress.progress(&job.job_id, 20).await.ok();
 
-    // TODO: Generate clip tasks from highlights
+    let highlights_data = match analyze_video_highlights(
+        ctx,
+        &job.job_id,
+        &video_file,
+        &job.video_url,
+        job.custom_prompt.as_deref(),
+    )
+    .await
+    {
+        Ok(data) => data,
+        Err(e) => {
+            video_repo.fail(&job.video_id, &e.to_string()).await.ok();
+            return Err(e);
+        }
+    };
 
-    // Cleanup
+    ctx.progress.progress(&job.job_id, 40).await.ok();
+
+    // Validate highlights exist
+    if highlights_data.highlights.is_empty() {
+        let err_msg = "No highlights detected in video";
+        video_repo.fail(&job.video_id, err_msg).await.ok();
+        return Err(WorkerError::job_failed(err_msg));
+    }
+
+    // Upload highlights.json to R2
+    ctx.progress
+        .log(
+            &job.job_id,
+            format!("Found {} highlights, uploading metadata...", highlights_data.highlights.len()),
+        )
+        .await
+        .ok();
+
+    ctx.storage
+        .upload_highlights(&job.user_id, job.video_id.as_str(), &highlights_data)
+        .await
+        .map_err(|e| WorkerError::Storage(e))?;
+
+    ctx.progress.progress(&job.job_id, 45).await.ok();
+
+    // Generate clip tasks from highlights
+    let clip_tasks = generate_clip_tasks(&highlights_data, &job.styles, &job.crop_mode, &job.target_aspect);
+    let total_clips = clip_tasks.len();
+
+    ctx.progress
+        .log(
+            &job.job_id,
+            format!("Generating {} clips from {} highlights...", total_clips, highlights_data.highlights.len()),
+        )
+        .await
+        .ok();
+
+    // Create clips directory
+    let clips_dir = work_dir.join("clips");
+    tokio::fs::create_dir_all(&clips_dir).await?;
+
+    // Process clips
+    let mut completed_clips = 0u32;
+    for (idx, task) in clip_tasks.iter().enumerate() {
+        match process_clip_task(
+            ctx,
+            &job.job_id,
+            &job.video_id,
+            &job.user_id,
+            &video_file,
+            &clips_dir,
+            task,
+            idx,
+            total_clips,
+        )
+        .await
+        {
+            Ok(_) => {
+                completed_clips += 1;
+                // Update progress (45% to 95%)
+                let progress = 45 + ((idx + 1) * 50 / total_clips) as u32;
+                ctx.progress.progress(&job.job_id, progress).await.ok();
+            }
+            Err(e) => {
+                ctx.progress
+                    .log(&job.job_id, format!("Failed to process clip {}: {}", task.output_filename(), e))
+                    .await
+                    .ok();
+            }
+        }
+    }
+
+    // Mark video as completed
+    video_repo
+        .complete(&job.video_id, completed_clips)
+        .await
+        .map_err(|e| WorkerError::Firestore(e))?;
+
+    // Cleanup work directory
     if work_dir.exists() {
         tokio::fs::remove_dir_all(&work_dir).await.ok();
     }
 
+    ctx.progress.progress(&job.job_id, 100).await.ok();
     ctx.progress
         .done(&job.job_id, job.video_id.as_str())
         .await
         .ok();
 
-    info!("Completed video job: {}", job.job_id);
+    info!("Completed video job: {} ({}/{} clips)", job.job_id, completed_clips, total_clips);
     Ok(())
 }
 
@@ -267,4 +359,151 @@ pub async fn process_clip_task(
     };
 
     Ok(clip_meta)
+}
+
+/// Analyze video to extract highlights using AI.
+async fn analyze_video_highlights(
+    ctx: &ProcessingContext,
+    job_id: &vclip_models::JobId,
+    video_file: &Path,
+    video_url: &str,
+    custom_prompt: Option<&str>,
+) -> WorkerResult<vclip_storage::HighlightsData> {
+    use crate::gemini::GeminiClient;
+    use vclip_storage::HighlightEntry;
+
+    ctx.progress
+        .log(job_id, "Running AI analysis with Gemini...")
+        .await
+        .ok();
+
+    // Get base prompt
+    let base_prompt = custom_prompt
+        .map(|s| s.to_string())
+        .or_else(|| load_prompt_from_file())
+        .unwrap_or_else(|| DEFAULT_PROMPT.to_string());
+
+    // Create Gemini client
+    let client = GeminiClient::new()?;
+
+    // Get work directory for transcript
+    let work_dir = video_file.parent().ok_or_else(|| {
+        WorkerError::processing_failed("Failed to get work directory")
+    })?;
+
+    // Call Gemini API
+    let ai_response = client
+        .get_highlights(&base_prompt, video_url, work_dir)
+        .await?;
+
+    // Convert to storage format
+    let highlights: Vec<HighlightEntry> = ai_response
+        .highlights
+        .into_iter()
+        .map(|h| HighlightEntry {
+            id: h.id,
+            title: h.title,
+            description: h.description,
+            start: h.start,
+            end: h.end,
+            duration: h.duration,
+            hook_category: h.hook_category,
+            reason: h.reason,
+        })
+        .collect();
+
+    Ok(vclip_storage::HighlightsData {
+        highlights,
+        video_url: ai_response.video_url.or_else(|| Some(video_url.to_string())),
+        video_title: ai_response.video_title.or_else(|| Some(extract_video_title(video_url))),
+        custom_prompt: custom_prompt.map(|s| s.to_string()),
+    })
+}
+
+/// Load prompt from file.
+fn load_prompt_from_file() -> Option<String> {
+    std::fs::read_to_string("prompt.txt").ok()
+}
+
+/// Default prompt for highlight extraction.
+const DEFAULT_PROMPT: &str = r#"**Role:**
+You are an elite short-form video editor for a "manosphere" commentary channel. The video format is a split-screen: a viral clip (usually a woman) on the Left, and a male commentator on the Right.
+
+**Your Goal:**
+Extract a batch of **3 to 10 viral segments** that prioritize Interaction over simple monologues.
+
+**Segment Structure (The "Call & Response" Formula):**
+1. **The Setup (Left Side):** Start exactly when the person makes a controversial claim, states a statistic, or complains about men.
+2. **The Pivot:** The moment the host pauses the video or speaks up.
+3. **The Slam (Right Side):** The host's immediate counter-argument, insult, or reality check.
+4. **The End:** Cut after the punchline.
+
+**Constraints:**
+* **Quantity:** Extract at least 3 distinct segments.
+* **Duration:** Each individual segment must be **20 to 90 seconds** long.
+* **Narrative:** [Setup] -> [Reaction] -> [Punchline].
+* **Audio:** Ensure the cut timestamp doesn't sever a word.
+"#;
+
+/// Generate clip tasks from highlights.
+fn generate_clip_tasks(
+    highlights: &vclip_storage::HighlightsData,
+    styles: &[vclip_models::Style],
+    crop_mode: &vclip_models::CropMode,
+    target_aspect: &vclip_models::AspectRatio,
+) -> Vec<ClipTask> {
+    let mut tasks = Vec::new();
+
+    for highlight in &highlights.highlights {
+        for style in styles {
+            tasks.push(ClipTask {
+                scene_id: highlight.id,
+                scene_title: highlight.title.clone(),
+                start: highlight.start.clone(),
+                end: highlight.end.clone(),
+                style: style.clone(),
+                crop_mode: crop_mode.clone(),
+                target_aspect: target_aspect.clone(),
+                priority: highlight.id,
+            });
+        }
+    }
+
+    tasks
+}
+
+/// Format seconds to HH:MM:SS.mmm timestamp.
+fn format_timestamp(seconds: f64) -> String {
+    let hours = (seconds / 3600.0).floor() as u32;
+    let minutes = ((seconds % 3600.0) / 60.0).floor() as u32;
+    let secs = (seconds % 60.0).floor() as u32;
+    let millis = ((seconds % 1.0) * 1000.0).floor() as u32;
+    format!("{:02}:{:02}:{:02}.{:03}", hours, minutes, secs, millis)
+}
+
+/// Extract video title from URL.
+fn extract_video_title(url: &str) -> String {
+    // Try to extract YouTube video ID
+    if url.contains("youtube.com") || url.contains("youtu.be") {
+        if let Some(id) = extract_youtube_id(url) {
+            return format!("YouTube Video {}", id);
+        }
+    }
+    "Video".to_string()
+}
+
+/// Extract YouTube video ID from URL.
+fn extract_youtube_id(url: &str) -> Option<String> {
+    if let Some(v_pos) = url.find("v=") {
+        let id_start = v_pos + 2;
+        let id = url[id_start..]
+            .split('&')
+            .next()
+            .unwrap_or("")
+            .to_string();
+        if !id.is_empty() {
+            return Some(id);
+        }
+    }
+    None
 }

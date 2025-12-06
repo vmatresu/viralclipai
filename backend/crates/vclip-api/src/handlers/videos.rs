@@ -51,16 +51,43 @@ pub async fn get_video_info(
     Path(video_id): Path<String>,
     user: AuthUser,
 ) -> ApiResult<Json<VideoInfoResponse>> {
-    let _video_id_obj = VideoId::from_string(&video_id);
+    // Validate video_id format (UUID-like, alphanumeric + hyphens only)
+    if !is_valid_video_id(&video_id) {
+        return Err(ApiError::bad_request("Invalid video ID format"));
+    }
 
-    // Load highlights from R2
+    let video_id_obj = VideoId::from_string(&video_id);
+
+    // Verify ownership first
+    if !state.user_service.user_owns_video(&user.uid, &video_id).await? {
+        return Err(ApiError::not_found("Video not found"));
+    }
+
+    // Get video metadata from Firestore to check status
+    let video_repo = vclip_firestore::VideoRepository::new(
+        (*state.firestore).clone(),
+        &user.uid,
+    );
+    
+    let video_meta = video_repo.get(&video_id_obj).await
+        .map_err(|e| {
+            warn!("Failed to query video metadata for {}: {}", video_id, e);
+            ApiError::internal(format!("Database error: {}", e))
+        })?
+        .ok_or_else(|| ApiError::not_found("Video not found"))?;
+
+    // Load highlights from R2 - this should exist after AI analysis
     let highlights = state
         .storage
         .load_highlights(&user.uid, &video_id)
         .await
         .map_err(|e| {
             if matches!(e, vclip_storage::StorageError::NotFound(_)) {
-                ApiError::not_found("Video not found")
+                // Video is still processing - highlights.json not yet created
+                warn!("Highlights not found for video {}, status: {:?}", video_id, video_meta.status);
+                ApiError::Conflict(
+                    "Video is still being processed. Highlights will be available once AI analysis completes.".to_string()
+                )
             } else {
                 ApiError::Storage(e)
             }
@@ -692,4 +719,21 @@ pub async fn reprocess_scenes(
         ),
         job_id: Some(video_id),
     }))
+}
+
+// ============================================================================
+// Validation Helpers
+// ============================================================================
+
+/// Validate video ID format to prevent injection attacks.
+/// 
+/// Valid format: alphanumeric characters and hyphens only, 8-64 chars.
+/// Examples: "9a4fef5b-e5b0-41c3-b64c-55ddb09346a3", "abc123-def456"
+fn is_valid_video_id(id: &str) -> bool {
+    if id.is_empty() || id.len() > 64 || id.len() < 8 {
+        return false;
+    }
+    
+    // Only allow alphanumeric and hyphens
+    id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
