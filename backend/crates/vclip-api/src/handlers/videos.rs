@@ -657,9 +657,9 @@ pub async fn reprocess_scenes(
     }
 
     // Check plan restrictions
-    if !state.user_service.has_pro_or_enterprise_plan(&user.uid).await? {
+    if !state.user_service.has_pro_or_studio_plan(&user.uid).await? {
         return Err(ApiError::forbidden(
-            "Scene reprocessing is only available for Pro and Enterprise plans. Please upgrade to access this feature."
+            "Scene reprocessing is only available for Pro and Studio plans. Please upgrade to access this feature."
         ));
     }
 

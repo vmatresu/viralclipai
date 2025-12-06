@@ -85,7 +85,7 @@ async fn test_video_repository() {
 #[tokio::test]
 #[ignore = "requires Firestore credentials"]
 async fn test_user_repository() {
-    use vclip_firestore::UserRepository;
+    use vclip_api::services::UserService;
 
     dotenvy::dotenv().ok();
 
@@ -93,13 +93,13 @@ async fn test_user_repository() {
         .await
         .expect("Failed to create Firestore client");
 
-    let repo = UserRepository::new(client);
+    let repo = UserService::new(client);
 
     let user_id = "test_user_integration_user";
 
     // Get or create user
     let user = repo
-        .get_or_create(user_id, Some("test@example.com"))
+        .get_or_create_user(user_id, Some("test@example.com"))
         .await
         .expect("Failed to get or create user");
 
@@ -107,6 +107,6 @@ async fn test_user_repository() {
     assert_eq!(user.uid, user_id);
 
     // Check plan
-    let has_pro = repo.has_pro_or_enterprise(user_id).await.expect("Failed to check plan");
-    println!("Has pro/enterprise: {}", has_pro);
+    let has_pro = repo.has_pro_or_studio(user_id).await.expect("Failed to check plan");
+    println!("Has pro/studio: {}", has_pro);
 }

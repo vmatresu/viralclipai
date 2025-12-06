@@ -356,10 +356,10 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
         Ok(false) => {}
     }
 
-    // Check plan restrictions (pro/enterprise only)
-    match state.user_service.has_pro_or_enterprise_plan(&uid).await {
+    // Check plan restrictions (pro/studio only)
+    match state.user_service.has_pro_or_studio_plan(&uid).await {
         Ok(false) => {
-            let error = WsMessage::error("Scene reprocessing is only available for Pro and Enterprise plans. Please upgrade to access this feature.");
+            let error = WsMessage::error("Scene reprocessing is only available for Pro and Studio plans. Please upgrade to access this feature.");
             let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
             return;
         }

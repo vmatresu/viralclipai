@@ -318,10 +318,10 @@ impl UserService {
         }
     }
 
-    /// Check if user has pro or enterprise plan.
-    pub async fn has_pro_or_enterprise_plan(&self, uid: &str) -> ApiResult<bool> {
+    /// Check if user has pro or studio plan.
+    pub async fn has_pro_or_studio_plan(&self, uid: &str) -> ApiResult<bool> {
         let user = self.get_or_create_user(uid, None).await?;
-        Ok(user.plan == "pro" || user.plan == "enterprise")
+        Ok(user.plan == "pro" || user.plan == "studio")
     }
 
     /// Check if user is a super admin.
@@ -475,7 +475,6 @@ fn parse_plan_limits(plan_doc: &vclip_firestore::Document) -> ApiResult<PlanLimi
         "free" => (3, 2, false),
         "pro" => (10, 5, true),
         "studio" => (25, 10, true),
-        "enterprise" => (50, 10, true),
         _ => (3, 2, false),
     };
 

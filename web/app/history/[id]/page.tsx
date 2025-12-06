@@ -378,7 +378,7 @@ export default function HistoryDetailPage() {
             </CardTitle>
             <CardDescription>
               Choose scenes and styles to generate new clips. This feature is available
-              for Pro and Enterprise plans.
+              for Pro and Studio plans.
             </CardDescription>
           </CardHeader>
           {!isCollapsed && (
