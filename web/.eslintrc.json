@@ -15,8 +15,7 @@
     "sourceType": "module",
     "ecmaFeatures": {
       "jsx": true
-    },
-    "project": "./tsconfig.json"
+    }
   },
   "settings": {
     "react": {
@@ -186,6 +185,9 @@
   "overrides": [
     {
       "files": ["*.ts", "*.tsx"],
+      "parserOptions": {
+        "project": "./tsconfig.json"
+      },
       "rules": {
         "@typescript-eslint/explicit-function-return-type": "off"
       }
@@ -197,6 +199,12 @@
       },
       "rules": {
         "@typescript-eslint/no-explicit-any": "off",
+        "no-console": "off"
+      }
+    },
+    {
+      "files": ["lib/logger.ts"],
+      "rules": {
         "no-console": "off"
       }
     }

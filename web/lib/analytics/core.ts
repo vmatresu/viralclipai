@@ -6,12 +6,12 @@
 
 import {
   getAnalytics,
-  type Analytics,
-  logEvent,
   isSupported,
+  logEvent,
   setAnalyticsCollectionEnabled,
   setUserId,
   setUserProperties,
+  type Analytics,
 } from "firebase/analytics";
 import { getApps } from "firebase/app";
 
@@ -20,13 +20,13 @@ import { frontendLogger } from "@/lib/logger";
 import { DEFAULT_CONFIG } from "./config";
 import {
   type AnalyticsConfig,
-  type AnalyticsEventParams,
   type AnalyticsEventName,
+  type AnalyticsEventParams,
 } from "./types";
 import {
-  shouldEnableAnalytics,
   sanitizeEventName,
   sanitizeParams,
+  shouldEnableAnalytics,
   validateEvent,
 } from "./utils";
 

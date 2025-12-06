@@ -34,8 +34,9 @@ axum = { version = "0.7", features = ["ws", "macros"] }
 axum-extra = { version = "0.9", features = ["typed-header"] }
 tower = { version = "0.5", features = ["full"] }
 tower-http = { version = "0.6", features = ["cors", "trace", "request-id", "limit", "compression-gzip"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "multipart"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots", "stream", "multipart"] }
 hyper = { version = "1.5", features = ["full"] }
+rustls = { version = "0.23", features = ["ring"] }
 
 # Auth/JWT
 jsonwebtoken = "9.3"

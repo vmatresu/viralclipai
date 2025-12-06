@@ -12,6 +12,11 @@ async fn main() {
     // Load environment variables
     dotenvy::dotenv().ok();
 
+    // Install rustls crypto provider (required for rustls 0.23+)
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     // Initialize tracing
     tracing_subscriber::registry()
         .with(fmt::layer().json())
