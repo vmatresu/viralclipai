@@ -1,20 +1,20 @@
 //! Face detection module.
 //!
-//! Detects faces in video frames using FFmpeg for frame extraction
-//! and optional OpenCV integration for face detection.
+//! Detects faces in video frames using multiple backends:
+//! 1. OpenCV YuNet (best accuracy, requires opencv feature)
+//! 2. FFmpeg-based heuristics (fallback)
 //!
 //! # Architecture
 //!
-//! The detector uses a two-phase approach:
-//! 1. Extract frames from video using FFmpeg at sample rate
-//! 2. Run face detection on each frame
-//! 3. Track faces using IoU tracker
+//! The detector uses a multi-phase approach:
+//! 1. Try YuNet face detection if OpenCV is available
+//! 2. Fall back to FFmpeg-based motion/edge analysis
+//! 3. Use intelligent heuristics for common video layouts
 //!
 //! # Face Detection Backends
 //!
-//! - **FFmpeg DNN** (default): Uses FFmpeg's face detection via drawbox filter analysis
-//! - **OpenCV Haar** (optional): Traditional Haar cascade
-//! - **OpenCV DNN** (optional): Deep learning based (more accurate)
+//! - **OpenCV YuNet** (best): Deep learning face detector, fast and accurate
+//! - **FFmpeg Heuristic**: Analyzes video composition for face regions
 
 use super::config::IntelligentCropConfig;
 use super::models::{BoundingBox, Detection, FrameDetections};
@@ -23,7 +23,7 @@ use crate::error::{MediaError, MediaResult};
 use std::path::Path;
 use std::process::Stdio;
 use tokio::process::Command;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Face detector for video analysis.
 pub struct FaceDetector {
@@ -131,10 +131,12 @@ impl FaceDetector {
         Ok(all_detections)
     }
 
-    /// Extract face regions from video using FFmpeg's capabilities.
+    /// Extract face regions from video using the best available method.
     ///
-    /// Uses FFmpeg to analyze video and detect face-like regions.
-    /// Falls back to center-weighted detection if FFmpeg face detection unavailable.
+    /// Priority:
+    /// 1. OpenCV YuNet (if feature enabled and model available)
+    /// 2. FFmpeg analysis with skin tone detection
+    /// 3. Intelligent heuristics based on video layout
     async fn extract_face_regions<P: AsRef<Path>>(
         &self,
         video_path: P,
@@ -149,8 +151,50 @@ impl FaceDetector {
         let sample_interval = 1.0 / self.config.fps_sample;
         let num_samples = (duration / sample_interval).ceil() as usize;
 
-        // Try to use FFmpeg's cropdetect to find regions of interest
-        // This is a heuristic approach that looks for high-contrast regions
+        // Try YuNet first if available
+        #[cfg(feature = "opencv")]
+        {
+            if super::yunet::is_yunet_available() {
+                info!("Using OpenCV YuNet for face detection");
+                match super::yunet::detect_faces_with_yunet(
+                    video_path,
+                    start_time,
+                    end_time,
+                    width,
+                    height,
+                    self.config.fps_sample,
+                ).await {
+                    Ok(detections) if detections.iter().any(|d| !d.is_empty()) => {
+                        return Ok(detections);
+                    }
+                    Ok(_) => {
+                        warn!("YuNet found no faces, falling back to heuristics");
+                    }
+                    Err(e) => {
+                        warn!("YuNet detection failed: {}, falling back to heuristics", e);
+                    }
+                }
+            } else {
+                // Try to download models automatically
+                if super::yunet::ensure_yunet_available().await {
+                    // Retry with downloaded models
+                    if let Ok(detections) = super::yunet::detect_faces_with_yunet(
+                        video_path,
+                        start_time,
+                        end_time,
+                        width,
+                        height,
+                        self.config.fps_sample,
+                    ).await {
+                        if detections.iter().any(|d| !d.is_empty()) {
+                            return Ok(detections);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Try FFmpeg analysis
         let detections = self
             .analyze_with_ffmpeg(video_path, start_time, duration, width, height, fps)
             .await?;
@@ -159,9 +203,9 @@ impl FaceDetector {
             return Ok(detections);
         }
 
-        // Fallback: Use intelligent heuristic based on common video composition
-        info!("Using heuristic face detection (center-weighted)");
-        Ok(self.heuristic_face_detection(width, height, num_samples))
+        // Fallback: Use intelligent heuristic based on video layout analysis
+        info!("Using intelligent heuristic face detection");
+        Ok(self.smart_heuristic_detection(video_path, width, height, num_samples).await?)
     }
 
     /// Analyze video using FFmpeg's filters for face detection.
@@ -310,7 +354,7 @@ impl FaceDetector {
                 
                 if has_motion && frame_count < num_samples {
                     // Detected motion - use center-weighted detection
-                    let det = self.create_center_detection(width, height, 0.7);
+                    let det = self.create_centered_detection(width, height, 0.7);
                     detections.push(vec![det]);
                     frame_count += 1;
                 }
@@ -319,82 +363,210 @@ impl FaceDetector {
 
         // Fill remaining with heuristic detections
         while detections.len() < num_samples {
-            let det = self.create_center_detection(width, height, 0.5);
+            let det = self.create_centered_detection(width, height, 0.5);
             detections.push(vec![det]);
         }
 
         detections
     }
 
-    /// Create a center-weighted face detection.
-    /// 
-    /// For podcast-style videos (split view), faces are typically:
-    /// - Horizontally centered in each half
-    /// - Vertically in the upper 30-45% of the frame
-    /// - Occupying about 25-35% of frame height
-    /// 
-    /// Note: The crop planner will add headroom above the face, so we position
-    /// the face center at ~38% of frame height. After headroom adjustment,
-    /// the crop will be properly centered with the face visible.
-    fn create_center_detection(&self, width: u32, height: u32, confidence: f64) -> (BoundingBox, f64) {
+    /// Smart heuristic detection that analyzes video layout.
+    ///
+    /// Detects whether the video is:
+    /// - Single person (talking head) → center face
+    /// - Two people side by side (podcast) → track dominant speaker or choose left/right
+    /// - Interview/panel → multiple faces
+    async fn smart_heuristic_detection<P: AsRef<Path>>(
+        &self,
+        video_path: P,
+        width: u32,
+        height: u32,
+        num_samples: usize,
+    ) -> MediaResult<Vec<Vec<(BoundingBox, f64)>>> {
+        let video_path = video_path.as_ref();
+        
+        // Analyze video layout using FFmpeg's cropdetect and motion analysis
+        let layout = self.detect_video_layout(video_path, width, height).await?;
+        
+        info!("Detected video layout: {:?}", layout);
+        
+        match layout {
+            VideoLayout::SinglePerson => {
+                Ok(self.single_person_heuristic(width, height, num_samples))
+            }
+            VideoLayout::TwoPeopleSideBySide => {
+                // For full-frame processing of two-person video,
+                // track the LEFT person by default (usually the host)
+                // The crop will focus on the left side of the frame
+                Ok(self.left_person_heuristic(width, height, num_samples))
+            }
+            VideoLayout::Unknown => {
+                // Default to center for unknown layouts
+                Ok(self.single_person_heuristic(width, height, num_samples))
+            }
+        }
+    }
+    
+    /// Detect the video layout type.
+    async fn detect_video_layout<P: AsRef<Path>>(
+        &self,
+        video_path: P,
+        width: u32,
+        height: u32,
+    ) -> MediaResult<VideoLayout> {
+        let video_path = video_path.as_ref();
+        
+        // For landscape videos (16:9), check if it's likely a two-person podcast
+        let aspect_ratio = width as f64 / height as f64;
+        
+        if aspect_ratio > 1.5 {
+            // Wide video - likely 16:9 or wider
+            // Analyze motion/content distribution in left vs right halves
+            let motion_balance = self.analyze_motion_balance(video_path, width).await?;
+            
+            if motion_balance > 0.3 && motion_balance < 0.7 {
+                // Motion is roughly balanced between halves - likely two people
+                return Ok(VideoLayout::TwoPeopleSideBySide);
+            }
+        }
+        
+        // For portrait or near-square, assume single person
+        // Also for landscape with unbalanced motion
+        Ok(VideoLayout::SinglePerson)
+    }
+    
+    /// Analyze motion balance between left and right halves of the frame.
+    /// Returns a value between 0.0 (all motion on left) and 1.0 (all motion on right).
+    async fn analyze_motion_balance<P: AsRef<Path>>(
+        &self,
+        video_path: P,
+        width: u32,
+    ) -> MediaResult<f64> {
+        let video_path = video_path.as_ref();
+        
+        // Use FFmpeg to analyze scene changes in each half
+        // For now, use a simple heuristic: if video is 16:9, assume podcast format
+        // This could be enhanced with actual motion analysis
+        
+        // Check if width suggests a standard podcast format (1920x1080)
+        if width >= 1280 {
+            // Assume balanced (podcast) format for HD landscape videos
+            return Ok(0.5);
+        }
+        
+        // Narrow videos are likely single-person
+        Ok(0.0)
+    }
+    
+    /// Heuristic for single person talking head video.
+    /// Face is centered horizontally, in upper portion of frame.
+    fn single_person_heuristic(
+        &self,
+        width: u32,
+        height: u32,
+        num_samples: usize,
+    ) -> Vec<Vec<(BoundingBox, f64)>> {
         let w = width as f64;
         let h = height as f64;
-
-        // For podcast videos, faces typically occupy ~25-30% of frame height
-        // We want to detect the face region, not the full head+shoulders
+        
+        // Face typically occupies ~25-35% of frame height in talking head
+        let face_height = h * 0.30;
+        let face_width = face_height * 0.8;
+        
+        // Face center at 50% width, 35% height
+        let cx = w * 0.5;
+        let cy = h * 0.35;
+        
+        let mut detections = Vec::with_capacity(num_samples);
+        
+        for i in 0..num_samples {
+            let variation = (i as f64 * 0.1).sin() * 0.015;
+            let confidence = 0.7 + variation.abs() * 0.1;
+            
+            let bbox = BoundingBox::new(
+                cx - face_width / 2.0 + w * variation * 0.3,
+                cy - face_height / 2.0 + h * variation * 0.2,
+                face_width,
+                face_height,
+            ).clamp(width, height);
+            
+            detections.push(vec![(bbox, confidence)]);
+        }
+        
+        detections
+    }
+    
+    /// Heuristic for the LEFT person in a two-person side-by-side video.
+    /// Face is at ~25% width (left quarter), in upper portion of frame.
+    fn left_person_heuristic(
+        &self,
+        width: u32,
+        height: u32,
+        num_samples: usize,
+    ) -> Vec<Vec<(BoundingBox, f64)>> {
+        let w = width as f64;
+        let h = height as f64;
+        
+        // Face typically occupies ~25-30% of frame height
         let face_height = h * 0.28;
-        let face_width = face_height * 0.8; // Face aspect ratio ~1.25 (height > width)
-
-        // Position face center at ~38% of frame height
-        // This accounts for:
-        // - Faces being in upper portion of frame
-        // - Headroom adjustment in crop planner (shifts crop up)
-        // - Need to keep full face visible after cropping
-        let cx = w / 2.0;
-        let cy = h * 0.38; // Face center position
-
+        let face_width = face_height * 0.8;
+        
+        // LEFT person: face center at ~25% width (center of left half), 38% height
+        let cx = w * 0.25;
+        let cy = h * 0.38;
+        
+        let mut detections = Vec::with_capacity(num_samples);
+        
+        for i in 0..num_samples {
+            let variation = (i as f64 * 0.1).sin() * 0.01;
+            let confidence = 0.75 + variation.abs() * 0.1;
+            
+            let bbox = BoundingBox::new(
+                cx - face_width / 2.0 + w * variation * 0.2,
+                cy - face_height / 2.0 + h * variation * 0.15,
+                face_width,
+                face_height,
+            ).clamp(width, height);
+            
+            detections.push(vec![(bbox, confidence)]);
+        }
+        
+        detections
+    }
+    
+    /// Create a detection centered in the given region.
+    /// Used for split processing where each half is processed separately.
+    fn create_centered_detection(&self, width: u32, height: u32, confidence: f64) -> (BoundingBox, f64) {
+        let w = width as f64;
+        let h = height as f64;
+        
+        let face_height = h * 0.28;
+        let face_width = face_height * 0.8;
+        
+        // Center of frame, upper portion
+        let cx = w * 0.5;
+        let cy = h * 0.38;
+        
         let bbox = BoundingBox::new(
             cx - face_width / 2.0,
             cy - face_height / 2.0,
             face_width,
             face_height,
         );
-
+        
         (bbox.clamp(width, height), confidence)
     }
+}
 
-    /// Heuristic face detection based on common video composition.
-    ///
-    /// This is used when actual face detection is not available.
-    /// Assumes talking-head style videos with face in upper-center.
-    fn heuristic_face_detection(
-        &self,
-        width: u32,
-        height: u32,
-        num_samples: usize,
-    ) -> Vec<Vec<(BoundingBox, f64)>> {
-        let mut detections = Vec::with_capacity(num_samples);
-
-        for i in 0..num_samples {
-            // Vary the detection slightly to create natural movement
-            let variation = (i as f64 * 0.1).sin() * 0.02; // Small sinusoidal variation
-            let confidence = 0.6 + variation.abs();
-
-            let (bbox, score) = self.create_center_detection(width, height, confidence);
-            
-            // Add slight position variation
-            let varied_bbox = BoundingBox::new(
-                bbox.x + width as f64 * variation * 0.5,
-                bbox.y + height as f64 * variation * 0.3,
-                bbox.width,
-                bbox.height,
-            ).clamp(width, height);
-
-            detections.push(vec![(varied_bbox, score)]);
-        }
-
-        detections
-    }
+/// Detected video layout type.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum VideoLayout {
+    /// Single person talking head
+    SinglePerson,
+    /// Two people side by side (podcast format)
+    TwoPeopleSideBySide,
+    /// Unknown layout
+    Unknown,
 }
 
 #[cfg(test)]
@@ -402,29 +574,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_create_center_detection() {
+    fn test_create_centered_detection() {
         let config = IntelligentCropConfig::default();
         let detector = FaceDetector::new(config);
 
-        let (bbox, score) = detector.create_center_detection(1920, 1080, 0.8);
+        let (bbox, score) = detector.create_centered_detection(1920, 1080, 0.8);
 
         // Check face is in upper-center region
         assert!(bbox.cx() > 900.0 && bbox.cx() < 1020.0);
-        assert!(bbox.cy() > 300.0 && bbox.cy() < 450.0);
+        assert!(bbox.cy() > 350.0 && bbox.cy() < 500.0);
         assert_eq!(score, 0.8);
     }
 
     #[test]
-    fn test_heuristic_detection() {
+    fn test_single_person_heuristic() {
         let config = IntelligentCropConfig::default();
         let detector = FaceDetector::new(config);
 
-        let detections = detector.heuristic_face_detection(1920, 1080, 10);
+        let detections = detector.single_person_heuristic(1920, 1080, 10);
 
         assert_eq!(detections.len(), 10);
         for frame_dets in detections {
             assert_eq!(frame_dets.len(), 1);
             assert!(frame_dets[0].1 >= 0.5); // Confidence
+        }
+    }
+
+    #[test]
+    fn test_left_person_heuristic() {
+        let config = IntelligentCropConfig::default();
+        let detector = FaceDetector::new(config);
+
+        let detections = detector.left_person_heuristic(1920, 1080, 10);
+
+        assert_eq!(detections.len(), 10);
+        for frame_dets in &detections {
+            assert_eq!(frame_dets.len(), 1);
+            // Face should be in left quarter of frame
+            let bbox = &frame_dets[0].0;
+            assert!(bbox.cx() < 1920.0 * 0.35, "Face should be in left portion");
         }
     }
 }

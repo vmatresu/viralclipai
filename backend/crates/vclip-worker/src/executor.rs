@@ -67,7 +67,8 @@ impl JobExecutor {
         let mut shutdown_rx_claim = self.shutdown.subscribe();
 
         let claim_task = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            // Run claim check every 60 seconds instead of 30
+            let mut interval = tokio::time::interval(Duration::from_secs(60));
             loop {
                 tokio::select! {
                     _ = shutdown_rx_claim.changed() => {
@@ -76,8 +77,10 @@ impl JobExecutor {
                         }
                     }
                     _ = interval.tick() => {
-                        // Claim jobs that have been pending for more than 5 minutes
-                        match queue_clone.claim_pending(&consumer_name, 300_000, 5).await {
+                        // Claim jobs that have been pending for more than 30 minutes (1,800,000ms)
+                        // Video processing jobs can take 10-20+ minutes for long clips with multiple styles
+                        // Previous 5-minute timeout caused duplicate processing of in-progress jobs
+                        match queue_clone.claim_pending(&consumer_name, 1_800_000, 5).await {
                             Ok(jobs) if !jobs.is_empty() => {
                                 info!("Claimed {} pending jobs", jobs.len());
                                 for (message_id, job) in jobs {

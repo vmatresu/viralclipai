@@ -63,9 +63,17 @@ pub enum MediaError {
 
     #[error("Resource limit exceeded: {0}")]
     ResourceLimit(String),
+
+    #[error("Face detection failed: {0}")]
+    DetectionFailed(String),
 }
 
 impl MediaError {
+    /// Create a detection failure error.
+    pub fn detection_failed(message: impl Into<String>) -> Self {
+        Self::DetectionFailed(message.into())
+    }
+
     /// Create an FFmpeg failure error.
     pub fn ffmpeg_failed(
         message: impl Into<String>,

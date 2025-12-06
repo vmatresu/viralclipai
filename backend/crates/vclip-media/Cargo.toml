@@ -6,6 +6,10 @@ authors.workspace = true
 license.workspace = true
 description = "FFmpeg CLI wrapper for video processing"
 
+[features]
+default = ["opencv"]
+opencv = ["dep:opencv"]
+
 [dependencies]
 vclip-models = { workspace = true }
 
@@ -20,6 +24,9 @@ metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 uuid = { version = "1.0", features = ["v4"] }
 async-trait = "0.1"
+
+# OpenCV for YuNet face detection (optional - falls back to FFmpeg if not available)
+opencv = { version = "0.93", default-features = false, features = ["objdetect", "imgproc", "videoio"], optional = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }

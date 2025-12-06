@@ -54,6 +54,7 @@ pub mod renderer;
 pub mod smoother;
 pub mod split;
 pub mod tracker;
+pub mod yunet;
 
 pub use config::IntelligentCropConfig;
 pub use crop_planner::CropPlanner;

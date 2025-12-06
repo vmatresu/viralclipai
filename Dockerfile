@@ -129,11 +129,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         python3 \
         python3-pip \
+        # OpenCV runtime libraries for YuNet face detection
+        libopencv-core4.5 \
+        libopencv-dnn4.5 \
+        libopencv-imgproc4.5 \
+        libopencv-videoio4.5 \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
 # Install yt-dlp for YouTube video downloads
 RUN pip3 install --no-cache-dir --break-system-packages yt-dlp
+
+# Download YuNet face detection models for optimal performance
+# Block-quantized model (~6ms/frame, 0.8845 AP) - recommended for production
+RUN mkdir -p /app/models && \
+    curl -L -o /app/models/face_detection_yunet_2023mar_int8bq.onnx \
+    "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar_int8bq.onnx" && \
+    curl -L -o /app/models/face_detection_yunet_2023mar_int8.onnx \
+    "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar_int8.onnx" && \
+    curl -L -o /app/models/face_detection_yunet_2023mar.onnx \
+    "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
 
 # Create non-root user
 RUN groupadd -g 65532 appgroup && \
