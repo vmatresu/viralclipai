@@ -1,4 +1,33 @@
 //! Video clipping operations.
+//!
+//! # Architecture
+//!
+//! This module provides two main entry points for clip creation:
+//!
+//! ## 1. `create_clip()` - Traditional Styles
+//! Handles: `Original`, `Split`, `LeftFocus`, `RightFocus`
+//! - Uses FFmpeg video filters for transformations
+//! - Single-pass processing
+//! - Fast and efficient
+//!
+//! ## 2. `create_intelligent_split_clip()` - Intelligent Split
+//! Handles: `IntelligentSplit`
+//! - Multi-step pipeline: extract halves → crop each → stack
+//! - Future: Will integrate ML-based face tracking
+//! - Currently uses placeholder scaling
+//!
+//! ## Style Routing Pattern
+//!
+//! **Caller Responsibility**: The processor must route to the correct function:
+//! ```rust,ignore
+//! if task.style == Style::IntelligentSplit {
+//!     create_intelligent_split_clip(...)
+//! } else {
+//!     create_clip(...)
+//! }
+//! ```
+//!
+//! This matches the Python implementation's `run_ffmpeg_clip_with_crop()` logic.
 
 use std::path::Path;
 use tracing::info;
@@ -11,7 +40,19 @@ use crate::filters::build_video_filter;
 use crate::progress::FfmpegProgress;
 use crate::thumbnail::generate_thumbnail;
 
-/// Create a clip from a video file.
+/// Create a clip from a video file using traditional styles.
+///
+/// # Supported Styles
+/// - `Original`: Preserves original aspect ratio
+/// - `Split`: Left and right halves stacked (single-pass FFmpeg filter)
+/// - `LeftFocus`: Left half expanded to portrait
+/// - `RightFocus`: Right half expanded to portrait
+///
+/// # Not Supported
+/// - `IntelligentSplit`: Use `create_intelligent_split_clip()` instead
+///
+/// # Errors
+/// Returns error if called with `IntelligentSplit` style or `Intelligent` crop mode.
 pub async fn create_clip<P, F>(
     input: P,
     output: P,
@@ -50,23 +91,21 @@ where
             create_basic_clip(input, output, start_secs, duration, None, encoding, progress_callback).await?;
         }
 
-        // Intelligent split uses special processing
+        // Intelligent split uses special processing - should be handled by caller
         (Style::IntelligentSplit, _) => {
-            // This is handled by create_intelligent_split_clip
             return Err(MediaError::UnsupportedFormat(
-                "IntelligentSplit should use create_intelligent_split_clip".to_string(),
+                "IntelligentSplit must be processed using create_intelligent_split_clip - this is a caller error".to_string(),
             ));
         }
 
-        // Intelligent crop mode
+        // Intelligent crop mode - not yet implemented
         (_, CropMode::Intelligent) => {
-            // This is handled by ML client
             return Err(MediaError::UnsupportedFormat(
-                "Intelligent crop mode requires ML client".to_string(),
+                "Intelligent crop mode requires ML client integration (not yet implemented)".to_string(),
             ));
         }
 
-        // Traditional styles
+        // Traditional styles (Split, LeftFocus, RightFocus)
         _ => {
             let filter = build_video_filter(task.style);
             create_basic_clip(input, output, start_secs, duration, filter.as_deref(), encoding, progress_callback).await?;

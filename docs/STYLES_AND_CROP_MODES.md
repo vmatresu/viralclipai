@@ -53,13 +53,14 @@ These can be combined independently to create different output variations.
 
 ### 5. `intelligent_split`
 
-- **Description**: AI-powered smart cropping specifically for 9:16 portrait format
-- **Output**: Portrait format (9:16)
+- **Description**: Split-screen view with intelligent face-tracking crop on each half
+- **Output**: Portrait format (1080x1920, stacked 9:8 halves)
 - **How it works**:
-  - Uses intelligent cropping (same as `intelligent` style)
-  - Always outputs 9:16 aspect ratio
-  - Uses face/subject tracking to dynamically adjust crop window
-- **Use case**: When you want intelligent cropping with guaranteed 9:16 output (optimized for TikTok, Instagram Reels, YouTube Shorts)
+  - Extracts left and right halves from the source video
+  - Applies intelligent crop to each half independently (9:8 aspect ratio)
+  - Stacks the cropped halves vertically (left on top, right on bottom)
+  - Future: Will integrate ML-based face tracking (currently uses placeholder scaling)
+- **Use case**: Split-screen videos where you want each side to be intelligently cropped to keep faces centered
 
 ### 6. `original`
 

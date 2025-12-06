@@ -7,7 +7,7 @@ use tokio::sync::Semaphore;
 use tracing::info;
 
 use vclip_firestore::FirestoreClient;
-use vclip_media::{create_clip, download_video};
+use vclip_media::{create_clip, create_intelligent_split_clip, download_video};
 use vclip_models::{ClipMetadata, ClipTask, EncodingConfig, VideoId, VideoMetadata};
 use vclip_queue::{ProcessVideoJob, ProgressChannel, ReprocessScenesJob};
 use vclip_storage::R2Client;
@@ -269,6 +269,25 @@ pub async fn reprocess_scenes(
 }
 
 /// Process a single clip task.
+///
+/// # Style Routing Logic
+///
+/// This function implements the style routing pattern from the Python implementation:
+///
+/// ## Traditional Styles (Split, LeftFocus, RightFocus, Original)
+/// - Processed via `create_clip()`
+/// - Single-pass FFmpeg with video filters
+/// - Fast and efficient
+///
+/// ## IntelligentSplit Style
+/// - Processed via `create_intelligent_split_clip()`
+/// - Multi-step pipeline:
+///   1. Extract left and right halves from source
+///   2. Apply intelligent crop to each half (currently placeholder scaling)
+///   3. Stack halves vertically (left on top, right on bottom)
+/// - Future: Will integrate ML-based face tracking
+///
+/// This matches Python's `run_ffmpeg_clip_with_crop()` logic (lines 729-772 in clipper.py).
 pub async fn process_clip_task(
     ctx: &ProcessingContext,
     job_id: &vclip_models::JobId,
@@ -293,13 +312,24 @@ pub async fn process_clip_task(
         filename
     );
 
-    // Create clip
+    // Create clip - route to appropriate function based on style
     let encoding = EncodingConfig::default();
-    create_clip(video_file, &output_path, task, &encoding, |_progress| {
-        // Could emit granular progress here
-    })
-    .await
-    .map_err(|e| WorkerError::Media(e))?;
+    
+    // IntelligentSplit requires special processing (extract halves, crop each, stack)
+    if task.style == vclip_models::Style::IntelligentSplit {
+        create_intelligent_split_clip(video_file, &output_path, task, &encoding, |_progress| {
+            // Could emit granular progress here
+        })
+        .await
+        .map_err(|e| WorkerError::Media(e))?;
+    } else {
+        // All other styles use standard clip creation
+        create_clip(video_file, &output_path, task, &encoding, |_progress| {
+            // Could emit granular progress here
+        })
+        .await
+        .map_err(|e| WorkerError::Media(e))?;
+    }
 
     // Get file size
     let file_size = output_path.metadata()?.len();
