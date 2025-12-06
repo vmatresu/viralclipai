@@ -330,7 +330,7 @@ impl FaceDetector {
         // This is where we'd parse FFmpeg metadata if available
         
         // For now, use smart heuristics based on video composition
-        self.heuristic_face_detection(width, height, num_samples)
+        self.single_person_heuristic(width, height, num_samples)
     }
 
     /// Parse motion analysis output.
@@ -442,7 +442,7 @@ impl FaceDetector {
         video_path: P,
         width: u32,
     ) -> MediaResult<f64> {
-        let video_path = video_path.as_ref();
+        let _video_path = video_path.as_ref();
         
         // Use FFmpeg to analyze scene changes in each half
         // For now, use a simple heuristic: if video is 16:9, assume podcast format

@@ -226,7 +226,6 @@ impl IntelligentSplitProcessor {
 
         // Step 2: Stack the halves vertically (left=top, right=bottom)
         // Both are now 1080x1920, stacking gives 1080x3840
-        let stacked = temp_dir.path().join("stacked.mp4");
         info!("  Stacking panels...");
         let stack_crf = encoding.crf.saturating_add(2);
 

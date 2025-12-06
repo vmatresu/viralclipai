@@ -105,18 +105,18 @@ pub async fn ensure_yunet_available() -> bool {
     false
 }
 
-//! # Model Download
-//! ```bash
-//! # Download the fastest block-quantized model (recommended)
-//! curl -L -o /app/models/face_detection_yunet_2023mar_int8bq.onnx \
-//!   https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar_int8bq.onnx
-//!
-//! # Or download all variants for fallback
-//! curl -L -o /app/models/face_detection_yunet_2023mar.onnx \
-//!   https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
-//! curl -L -o /app/models/face_detection_yunet_2023mar_int8.onnx \
-//!   https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar_int8.onnx
-//! ```
+// # Model Download
+// ```bash
+// # Download the fastest block-quantized model (recommended)
+// curl -L -o /app/models/face_detection_yunet_2023mar_int8bq.onnx \
+//   https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar_int8bq.onnx
+//
+// # Or download all variants for fallback
+// curl -L -o /app/models/face_detection_yunet_2023mar.onnx \
+//   https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
+// curl -L -o /app/models/face_detection_yunet_2023mar_int8.onnx \
+//   https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar_int8.onnx
+// ```
 
 use super::models::BoundingBox;
 use crate::error::{MediaError, MediaResult};
@@ -169,7 +169,7 @@ fn find_model_path() -> Option<&'static str> {
 #[cfg(feature = "opencv")]
 pub struct YuNetDetector {
     /// OpenCV FaceDetectorYN instance
-    detector: opencv::objdetect::FaceDetectorYN,
+    detector: opencv::core::Ptr<opencv::objdetect::FaceDetectorYN>,
     /// Input size for the detector
     input_size: (i32, i32),
 }
@@ -218,6 +218,7 @@ impl YuNetDetector {
     pub fn detect_in_frame(&mut self, frame: &opencv::core::Mat) -> MediaResult<Vec<(BoundingBox, f64)>> {
         use opencv::core::{Mat, Size};
         use opencv::imgproc;
+        use opencv::prelude::{MatTraitConst, FaceDetectorYNTrait};
 
         // Resize frame to input size
         let mut resized = Mat::default();
@@ -279,6 +280,7 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
 ) -> MediaResult<Vec<Vec<(BoundingBox, f64)>>> {
     use opencv::videoio::{VideoCapture, CAP_PROP_POS_MSEC, CAP_PROP_FRAME_WIDTH, CAP_PROP_FRAME_HEIGHT};
     use opencv::core::Mat;
+    use opencv::prelude::{VideoCaptureTraitConst, VideoCaptureTrait, MatTraitConst};
 
     let video_path = video_path.as_ref();
     let duration = end_time - start_time;
