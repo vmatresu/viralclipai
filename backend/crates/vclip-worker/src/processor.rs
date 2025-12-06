@@ -177,7 +177,7 @@ pub async fn process_video(ctx: &ProcessingContext, job: &ProcessVideoJob) -> Wo
                 completed_clips += 1;
                 // Update progress (45% to 95%)
                 let progress = 45 + ((idx + 1) * 50 / total_clips) as u32;
-                ctx.progress.progress(&job.job_id, progress).await.ok();
+                ctx.progress.progress(&job.job_id, progress as u8).await.ok();
             }
             Err(e) => {
                 ctx.progress
@@ -370,7 +370,7 @@ async fn analyze_video_highlights(
     custom_prompt: Option<&str>,
 ) -> WorkerResult<vclip_storage::HighlightsData> {
     use crate::gemini::GeminiClient;
-    use vclip_storage::HighlightEntry;
+    use vclip_storage::operations::HighlightEntry;
 
     ctx.progress
         .log(job_id, "Running AI analysis with Gemini...")
@@ -465,6 +465,8 @@ fn generate_clip_tasks(
                 crop_mode: crop_mode.clone(),
                 target_aspect: target_aspect.clone(),
                 priority: highlight.id,
+                pad_before: 0.0,
+                pad_after: 0.0,
             });
         }
     }

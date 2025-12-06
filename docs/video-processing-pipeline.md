@@ -321,9 +321,10 @@ The system now uses **Google Gemini AI** for real highlight extraction:
 
 **Models with Fallback**:
 
-- `gemini-2.0-flash-exp` (primary)
-- `gemini-1.5-flash` (fallback 1)
-- `gemini-1.5-pro` (fallback 2)
+- `gemini-2.5-flash` (primary)
+- `gemini-2.5-flash-lite` (fallback 1)
+- `gemini-2.5-pro` (fallback 2)
+- `gemini-3-pro-preview` (fallback 3)
 
 **Environment Variable Required**:
 

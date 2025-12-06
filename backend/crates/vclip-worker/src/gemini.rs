@@ -109,9 +109,10 @@ impl GeminiClient {
 
         // 3. Call Gemini API with fallback models
         let models = vec![
-            "gemini-2.0-flash-exp",
-            "gemini-1.5-flash",
-            "gemini-1.5-pro",
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+            "gemini-2.5-pro",
+            "gemini-3-pro-preview",
         ];
 
         let mut last_error = None;
