@@ -177,6 +177,17 @@ impl JobQueue {
         Ok(())
     }
 
+    /// Clear the deduplication key for a job, allowing it to be reprocessed.
+    /// Should be called after job completion (success or DLQ).
+    pub async fn clear_dedup(&self, job: &QueueJob) -> QueueResult<()> {
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
+        let idempotency_key = job.idempotency_key();
+        let dedup_key = format!("vclip:dedup:{}", idempotency_key);
+        conn.del::<_, ()>(&dedup_key).await?;
+        debug!("Cleared dedup key: {}", dedup_key);
+        Ok(())
+    }
+
     /// Move a job to the dead letter queue.
     pub async fn dlq(&self, message_id: &str, job: &QueueJob, error: &str) -> QueueResult<()> {
         let mut conn = self.client.get_multiplexed_async_connection().await?;

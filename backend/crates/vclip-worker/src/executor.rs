@@ -188,6 +188,10 @@ impl JobExecutor {
                 if let Err(e) = queue.ack(&message_id).await {
                     error!("Failed to ack job {}: {}", job_id, e);
                 }
+                // Clear dedup key so the same job can be reprocessed later
+                if let Err(e) = queue.clear_dedup(&job).await {
+                    warn!("Failed to clear dedup key for job {}: {}", job_id, e);
+                }
             }
             Err(e) => {
                 error!("Job {} failed: {}", job_id, e);
@@ -200,6 +204,10 @@ impl JobExecutor {
                     warn!("Job {} exceeded max retries ({}), moving to DLQ", job_id, max_retries);
                     if let Err(dlq_err) = queue.dlq(&message_id, &job, &e.to_string()).await {
                         error!("Failed to move job {} to DLQ: {}", job_id, dlq_err);
+                    }
+                    // Clear dedup key so the job can be retried manually later
+                    if let Err(e) = queue.clear_dedup(&job).await {
+                        warn!("Failed to clear dedup key for job {}: {}", job_id, e);
                     }
 
                     // Emit error to progress channel
