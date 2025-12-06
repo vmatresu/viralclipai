@@ -4,17 +4,17 @@
  * Displays processing results and clips.
  */
 
-import { Sparkles } from "lucide-react";
-import { useState, useEffect } from "react";
+import { ChevronDown, ChevronRight, Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { EditableTitle } from "@/components/EditableTitle";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { updateVideoTitle } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 
 import { ClipGrid, type Clip } from "../ClipGrid";
+import { EditableTitle } from "../EditableTitle";
 
 interface ResultsProps {
   videoId: string;
@@ -46,7 +46,7 @@ function extractYouTubeId(url: string): string | null {
         pathParts[0] &&
         ["shorts", "embed", "v"].includes(pathParts[0])
       ) {
-        return pathParts[1] || null;
+        return pathParts[1] ?? null;
       }
     }
   } catch {
@@ -68,6 +68,7 @@ export function Results({
 }: ResultsProps) {
   const { getIdToken } = useAuth();
   const [currentTitle, setCurrentTitle] = useState(videoTitle);
+  const [isCustomPromptExpanded, setIsCustomPromptExpanded] = useState(false);
   const youtubeId = videoUrl ? extractYouTubeId(videoUrl) : null;
 
   useEffect(() => {
@@ -103,7 +104,7 @@ export function Results({
       </div>
 
       {/* Video Title, URL and Embed */}
-      {(videoTitle || videoUrl) && (
+      {(videoTitle ?? videoUrl) && (
         <Card className="glass">
           <CardHeader>
             <CardTitle className="text-sm">Original Video</CardTitle>
@@ -142,19 +143,31 @@ export function Results({
         </Card>
       )}
 
-      {/* Custom Prompt - Made Bigger */}
+      {/* Custom Prompt - Collapsible */}
       {customPromptUsed && (
         <Card className="glass">
-          <CardHeader>
-            <CardTitle className="text-base font-semibold">
-              Custom Prompt Used
-            </CardTitle>
+          <CardHeader
+            className="cursor-pointer hover:bg-accent/50 transition-colors"
+            onClick={() => setIsCustomPromptExpanded(!isCustomPromptExpanded)}
+          >
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base font-semibold">
+                Custom Prompt Used
+              </CardTitle>
+              {isCustomPromptExpanded ? (
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              )}
+            </div>
           </CardHeader>
-          <CardContent>
-            <p className="text-sm whitespace-pre-wrap leading-relaxed">
-              {customPromptUsed}
-            </p>
-          </CardContent>
+          {isCustomPromptExpanded && (
+            <CardContent>
+              <p className="text-sm whitespace-pre-wrap leading-relaxed">
+                {customPromptUsed}
+              </p>
+            </CardContent>
+          )}
         </Card>
       )}
 
