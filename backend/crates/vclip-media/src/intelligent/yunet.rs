@@ -116,36 +116,47 @@ pub async fn ensure_yunet_available() -> bool {
 
 // # Model Download
 // ```bash
-// # Download the fastest block-quantized model (recommended)
-// curl -L -o /app/models/face_detection_yunet_2023mar_int8bq.onnx \
-//   https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar_int8bq.onnx
+// # Download and verify all models (recommended)
+// ./download-yunet-models.sh
 //
-// # Or download all variants for fallback
-// curl -L -o /app/models/face_detection_yunet_2023mar.onnx \
-//   https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
-// curl -L -o /app/models/face_detection_yunet_2023mar_int8.onnx \
-//   https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar_int8.onnx
+// # Or manually download to backend/models/face_detection/yunet/
+// mkdir -p backend/models/face_detection/yunet
+// curl -L -o backend/models/face_detection/yunet/face_detection_yunet_2023mar.onnx \
+//   "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
 // ```
 
-/// Model paths in preference order (fastest/most accurate first)
-/// Priority: block-quantized (fastest) > int8 quantized > original
+/// Model paths in preference order
+/// Priority: backend/models (committed) > container models > system paths
+/// This ensures reproducible builds and offline development
 const YUNET_MODEL_PATHS: &[&str] = &[
-    // 2023mar models (recommended for accuracy/performance)
-    "/app/models/face_detection_yunet_2023mar_int8bq.onnx",    // Block-quantized: ~6ms, 0.8845 AP
-    "/app/models/face_detection_yunet_2023mar_int8.onnx",      // Int8 quantized: ~8ms, 0.8810 AP
-    "/app/models/face_detection_yunet_2023mar.onnx",           // Original: ~25ms, 0.8844 AP
+    // Backend models directory (committed to version control)
+    "/app/backend/models/face_detection/yunet/face_detection_yunet_2023mar.onnx",           // Primary: float32, most compatible
+    "/app/backend/models/face_detection/yunet/face_detection_yunet_2023mar_int8.onnx",      // Int8 quantized
+    "/app/backend/models/face_detection/yunet/face_detection_yunet_2023mar_int8bq.onnx",    // Block-quantized
+
+    // Container models directory (fallback for runtime downloads)
+    "/app/models/face_detection/yunet/face_detection_yunet_2023mar.onnx",
+    "/app/models/face_detection/yunet/face_detection_yunet_2023mar_int8.onnx",
+    "/app/models/face_detection/yunet/face_detection_yunet_2023mar_int8bq.onnx",
+
+    // Legacy paths for backward compatibility
+    "/app/models/face_detection_yunet_2023mar.onnx",
+    "/app/models/face_detection_yunet_2023mar_int8.onnx",
+    "/app/models/face_detection_yunet_2023mar_int8bq.onnx",
 
     // Fallback to 2022mar models if 2023 not available
+    "/app/backend/models/face_detection/yunet/face_detection_yunet_2022mar.onnx",
     "/app/models/face_detection_yunet_2022mar.onnx",
-    "./models/face_detection_yunet_2023mar_int8bq.onnx",
-    "./models/face_detection_yunet_2023mar_int8.onnx",
-    "./models/face_detection_yunet_2023mar.onnx",
-    "./models/face_detection_yunet_2022mar.onnx",
+
+    // Relative paths for development
+    "./backend/models/face_detection/yunet/face_detection_yunet_2023mar.onnx",
+    "./backend/models/face_detection/yunet/face_detection_yunet_2023mar_int8.onnx",
+    "./backend/models/face_detection/yunet/face_detection_yunet_2023mar_int8bq.onnx",
 
     // System paths (last resort)
-    "/usr/share/opencv/models/face_detection_yunet_2023mar_int8bq.onnx",
-    "/usr/share/opencv/models/face_detection_yunet_2023mar_int8.onnx",
     "/usr/share/opencv/models/face_detection_yunet_2023mar.onnx",
+    "/usr/share/opencv/models/face_detection_yunet_2023mar_int8.onnx",
+    "/usr/share/opencv/models/face_detection_yunet_2023mar_int8bq.onnx",
     "/usr/share/opencv/models/face_detection_yunet_2022mar.onnx",
 ];
 

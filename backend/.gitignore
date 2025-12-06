@@ -27,3 +27,6 @@ coverage/
 *.so
 *.dylib
 *.dll
+
+# Model checksums (generated locally)
+models/**/*.sha256

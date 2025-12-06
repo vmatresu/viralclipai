@@ -145,15 +145,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install yt-dlp for YouTube video downloads
 RUN pip3 install --no-cache-dir --break-system-packages yt-dlp
 
-# Download YuNet face detection models for optimal performance
-# Block-quantized model (~6ms/frame, 0.8845 AP) - recommended for production
-RUN mkdir -p /app/models && \
-    curl -L -o /app/models/face_detection_yunet_2023mar_int8bq.onnx \
-    "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar_int8bq.onnx" && \
-    curl -L -o /app/models/face_detection_yunet_2023mar_int8.onnx \
-    "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar_int8.onnx" && \
-    curl -L -o /app/models/face_detection_yunet_2023mar.onnx \
-    "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+# Copy YuNet face detection models
+COPY backend/models/face_detection/yunet /app/backend/models/face_detection/yunet
 
 # Create non-root user
 RUN groupadd -g 65532 appgroup && \
