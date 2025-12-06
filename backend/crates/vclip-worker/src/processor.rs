@@ -1,12 +1,6 @@
 //! Job processing logic.
 
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
-use tokio::sync::Semaphore;
-use tracing::{info, warn};
-
-use vclip_firestore::FirestoreClient;
+use vclip_firestore::types::ToFirestoreValue;
 use vclip_media::{create_clip, create_intelligent_split_clip, download_video};
 use vclip_models::{ClipMetadata, ClipTask, EncodingConfig, VideoId, VideoMetadata};
 use vclip_queue::{ProcessVideoJob, ProgressChannel, ReprocessScenesJob};
@@ -64,78 +58,128 @@ pub async fn process_video(ctx: &ProcessingContext, job: &ProcessVideoJob) -> Wo
         .log(&job.job_id, "Starting video processing...")
         .await
         .ok();
-
-    // Download video
-    ctx.progress
-        .log(&job.job_id, "Downloading video...")
-        .await
-        .ok();
     ctx.progress.progress(&job.job_id, 5).await.ok();
 
-    let video_file = work_dir.join("source.mp4");
-    download_video(&job.video_url, &video_file)
-        .await
-        .map_err(|e| WorkerError::DownloadFailed(e.to_string()))?;
-
-    ctx.progress.progress(&job.job_id, 15).await.ok();
-
-    // Upload source video to R2 for future reprocessing
+    // Get transcript first (fast)
     ctx.progress
-        .log(&job.job_id, "Backing up source video...")
+        .log(&job.job_id, "Fetching video transcript...")
         .await
         .ok();
+
+    let gemini_client = crate::gemini::GeminiClient::new()?;
+    let base_prompt = job.custom_prompt.as_deref()
+        .map(|s| s.to_string())
+        .or_else(|| load_prompt_from_file())
+        .unwrap_or_else(|| DEFAULT_PROMPT.to_string());
+
+    // Get real video metadata (title and canonical URL) from yt-dlp
+    let (real_video_title, canonical_video_url) = gemini_client.get_video_metadata(&job.video_url).await
+        .map_err(|e| WorkerError::ai_failed(format!("Failed to get video metadata: {}", e)))?;
+
+    // Get transcript using yt-dlp (fast, no video download needed)
+    let transcript = gemini_client.get_transcript_only(&job.video_url, &work_dir).await
+        .map_err(|e| WorkerError::ai_failed(format!("Failed to get transcript: {}", e)))?;
+
+    ctx.progress.progress(&job.job_id, 10).await.ok();
+
+    // Now run video download and AI analysis in parallel
+    ctx.progress
+        .log(&job.job_id, "Downloading video and analyzing with AI...")
+        .await
+        .ok();
+
+    let video_file = work_dir.join("source.mp4");
+
+    // Start video download and AI analysis in parallel using tokio::join!
+    let video_url = job.video_url.clone();
+    let video_file_clone = video_file.clone();
     
-    let source_key = format!("{}/{}/source.mp4", job.user_id, job.video_id.as_str());
-    ctx.storage
-        .upload_file(&video_file, &source_key, "video/mp4")
-        .await
-        .map_err(|e| {
-            // Log but don't fail the job if backup fails
-            tracing::warn!("Failed to backup source video to R2: {}", e);
-            e
-        })
-        .ok();
+    let (download_result, analysis_result) = tokio::join!(
+        download_video(&video_url, &video_file_clone),
+        gemini_client.analyze_transcript(&base_prompt, &job.video_url, &transcript)
+    );
 
-    ctx.progress.progress(&job.job_id, 18).await.ok();
+    // Check results
+    if let Err(e) = download_result {
+        return Err(WorkerError::DownloadFailed(e.to_string()));
+    }
+    let ai_response = analysis_result?;
 
-    // Create video metadata in Firestore
+    ctx.progress.progress(&job.job_id, 35).await.ok();
+
+    // Create video metadata in Firestore (or update if already exists from retry)
     let video_meta = VideoMetadata::new(
         job.video_id.clone(),
         &job.user_id,
-        &job.video_url,
-        "Processing...", // Will be updated after AI analysis
+        &canonical_video_url, // Use canonical URL from yt-dlp
+        &real_video_title,     // Use real title from yt-dlp
     );
 
     let video_repo = vclip_firestore::VideoRepository::new(ctx.firestore.clone(), &job.user_id);
-    video_repo
-        .create(&video_meta)
-        .await
-        .map_err(|e| WorkerError::Firestore(e))?;
-
-    // Run AI analysis to extract highlights
-    ctx.progress
-        .log(&job.job_id, "Analyzing video content with AI...")
-        .await
-        .ok();
-    ctx.progress.progress(&job.job_id, 22).await.ok();
-
-    let highlights_data = match analyze_video_highlights(
-        ctx,
-        &job.job_id,
-        &video_file,
-        &job.video_url,
-        job.custom_prompt.as_deref(),
-    )
-    .await
-    {
-        Ok(data) => data,
-        Err(e) => {
-            video_repo.fail(&job.video_id, &e.to_string()).await.ok();
-            return Err(e);
+    
+    // Check if video already exists (e.g., from a retry)
+    match video_repo.get(&job.video_id).await {
+        Ok(Some(mut existing_video)) => {
+            // Video exists, update title and status
+            existing_video.video_title = real_video_title.clone();
+            existing_video.video_url = canonical_video_url.clone();
+            existing_video.status = vclip_models::VideoStatus::Processing;
+            existing_video.updated_at = chrono::Utc::now();
+            
+            // Update in Firestore
+            let mut fields = std::collections::HashMap::new();
+            fields.insert("video_title".to_string(), real_video_title.clone().to_firestore_value());
+            fields.insert("video_url".to_string(), canonical_video_url.clone().to_firestore_value());
+            fields.insert("status".to_string(), vclip_models::VideoStatus::Processing.as_str().to_firestore_value());
+            fields.insert("updated_at".to_string(), chrono::Utc::now().to_firestore_value());
+            
+            ctx.firestore
+                .update_document(
+                    &format!("users/{}/videos", job.user_id),
+                    job.video_id.as_str(),
+                    fields,
+                    Some(vec!["video_title".to_string(), "video_url".to_string(), "status".to_string(), "updated_at".to_string()]),
+                )
+                .await
+                .ok(); // Ignore errors for now
         }
-    };
+        Ok(None) => {
+            // Create new video record
+            video_repo
+                .create(&video_meta)
+                .await
+                .map_err(|e| WorkerError::Firestore(e))?;
+        }
+        Err(e) => {
+            // Log error but try to continue
+            tracing::warn!("Failed to check video existence: {}", e);
+            // Try to create anyway
+            video_repo.create(&video_meta).await.ok();
+        }
+    }
 
-    ctx.progress.progress(&job.job_id, 40).await.ok();
+    // Convert AI response to storage format
+    let highlights: Vec<vclip_storage::operations::HighlightEntry> = ai_response
+        .highlights
+        .into_iter()
+        .map(|h| vclip_storage::operations::HighlightEntry {
+            id: h.id,
+            title: h.title,
+            description: h.description,
+            start: h.start,
+            end: h.end,
+            duration: h.duration,
+            hook_category: h.hook_category,
+            reason: h.reason,
+        })
+        .collect();
+
+    let highlights_data = vclip_storage::HighlightsData {
+        highlights,
+        video_url: Some(canonical_video_url.clone()), // Use canonical URL from yt-dlp
+        video_title: Some(real_video_title.clone()),   // Use real title from yt-dlp
+        custom_prompt: job.custom_prompt.clone(),
+    };
 
     // Validate highlights exist
     if highlights_data.highlights.is_empty() {
@@ -158,7 +202,7 @@ pub async fn process_video(ctx: &ProcessingContext, job: &ProcessVideoJob) -> Wo
         .await
         .map_err(|e| WorkerError::Storage(e))?;
 
-    ctx.progress.progress(&job.job_id, 45).await.ok();
+    ctx.progress.progress(&job.job_id, 40).await.ok();
 
     // Generate clip tasks from highlights
     let clip_tasks = generate_clip_tasks(&highlights_data, &job.styles, &job.crop_mode, &job.target_aspect);
@@ -179,6 +223,12 @@ pub async fn process_video(ctx: &ProcessingContext, job: &ProcessVideoJob) -> Wo
     // Process clips
     let mut completed_clips = 0u32;
     for (idx, task) in clip_tasks.iter().enumerate() {
+        // Log clip name to progress channel for UI
+        ctx.progress
+            .log(&job.job_id, format!("Processing clip {}/{}: {}", idx + 1, total_clips, task.output_filename()))
+            .await
+            .ok();
+
         match process_clip_task(
             ctx,
             &job.job_id,
@@ -194,8 +244,8 @@ pub async fn process_video(ctx: &ProcessingContext, job: &ProcessVideoJob) -> Wo
         {
             Ok(_) => {
                 completed_clips += 1;
-                // Update progress (45% to 95%)
-                let progress = 45 + ((idx + 1) * 50 / total_clips) as u32;
+                // Update progress (40% to 95%)
+                let progress = 40 + ((idx + 1) * 55 / total_clips) as u32;
                 ctx.progress.progress(&job.job_id, progress as u8).await.ok();
             }
             Err(e) => {
@@ -208,10 +258,15 @@ pub async fn process_video(ctx: &ProcessingContext, job: &ProcessVideoJob) -> Wo
     }
 
     // Mark video as completed
-    video_repo
-        .complete(&job.video_id, completed_clips)
-        .await
-        .map_err(|e| WorkerError::Firestore(e))?;
+    match video_repo.complete(&job.video_id, completed_clips).await {
+        Ok(_) => {
+            info!("Successfully marked video {} as completed with {} clips", job.video_id, completed_clips);
+        }
+        Err(e) => {
+            tracing::error!("Failed to mark video {} as completed: {}", job.video_id, e);
+            return Err(WorkerError::Firestore(e));
+        }
+    }
 
     // Cleanup work directory
     if work_dir.exists() {
@@ -288,19 +343,45 @@ pub async fn reprocess_scenes(
 
     let video_file = work_dir.join("source.mp4");
     
-    // Try to get source video from R2
+    // Try to get source video from R2 first
     let source_key = format!("{}/{}/source.mp4", job.user_id, job.video_id.as_str());
-    match ctx.storage.download_file(&source_key, &video_file).await {
+    let video_downloaded = match ctx.storage.download_file(&source_key, &video_file).await {
         Ok(_) => {
             info!("Downloaded source video from R2: {}", source_key);
+            true
         }
-        Err(e) => {
-            // If source video not in R2, we need the original URL
-            // For now, return error - in production, store source video URL in highlights
-            let err_msg = format!("Source video not found in R2: {}. Original video URL needed for reprocessing.", e);
-            ctx.progress.error(&job.job_id, err_msg.clone()).await.ok();
-            return Err(WorkerError::job_failed(&err_msg));
+        Err(r2_error) => {
+            info!("Source video not found in R2 ({}), trying original URL from highlights", r2_error);
+            
+            // Fall back to original video URL from highlights data
+            if let Some(ref video_url) = highlights.video_url {
+                ctx.progress
+                    .log(&job.job_id, "Downloading original video from source URL...")
+                    .await
+                    .ok();
+                
+                match download_video(video_url, &video_file).await {
+                    Ok(_) => {
+                        info!("Downloaded source video from original URL: {}", video_url);
+                        true
+                    }
+                    Err(url_error) => {
+                        let err_msg = format!("Source video not found in R2: {}. Failed to download from original URL {}: {}", 
+                            r2_error, video_url, url_error);
+                        ctx.progress.error(&job.job_id, err_msg.clone()).await.ok();
+                        return Err(WorkerError::job_failed(&err_msg));
+                    }
+                }
+            } else {
+                let err_msg = format!("Source video not found in R2: {}. No original video URL available in highlights data.", r2_error);
+                ctx.progress.error(&job.job_id, err_msg.clone()).await.ok();
+                return Err(WorkerError::job_failed(&err_msg));
+            }
         }
+    };
+
+    if !video_downloaded {
+        return Err(WorkerError::job_failed("Failed to download source video"));
     }
 
     ctx.progress.progress(&job.job_id, 25).await.ok();
@@ -328,6 +409,12 @@ pub async fn reprocess_scenes(
     // Process clips
     let mut completed_clips = 0u32;
     for (idx, task) in clip_tasks.iter().enumerate() {
+        // Log clip name to progress channel for UI
+        ctx.progress
+            .log(&job.job_id, format!("Processing clip {}/{}: {}", idx + 1, total_clips, task.output_filename()))
+            .await
+            .ok();
+
         match process_clip_task(
             ctx,
             &job.job_id,
@@ -523,65 +610,6 @@ pub async fn process_clip_task(
     Ok(clip_meta)
 }
 
-/// Analyze video to extract highlights using AI.
-async fn analyze_video_highlights(
-    ctx: &ProcessingContext,
-    job_id: &vclip_models::JobId,
-    video_file: &Path,
-    video_url: &str,
-    custom_prompt: Option<&str>,
-) -> WorkerResult<vclip_storage::HighlightsData> {
-    use crate::gemini::GeminiClient;
-    use vclip_storage::operations::HighlightEntry;
-
-    ctx.progress
-        .log(job_id, "Running AI analysis with Gemini...")
-        .await
-        .ok();
-
-    // Get base prompt
-    let base_prompt = custom_prompt
-        .map(|s| s.to_string())
-        .or_else(|| load_prompt_from_file())
-        .unwrap_or_else(|| DEFAULT_PROMPT.to_string());
-
-    // Create Gemini client
-    let client = GeminiClient::new()?;
-
-    // Get work directory for transcript
-    let work_dir = video_file.parent().ok_or_else(|| {
-        WorkerError::processing_failed("Failed to get work directory")
-    })?;
-
-    // Call Gemini API
-    let ai_response = client
-        .get_highlights(&base_prompt, video_url, work_dir)
-        .await?;
-
-    // Convert to storage format
-    let highlights: Vec<HighlightEntry> = ai_response
-        .highlights
-        .into_iter()
-        .map(|h| HighlightEntry {
-            id: h.id,
-            title: h.title,
-            description: h.description,
-            start: h.start,
-            end: h.end,
-            duration: h.duration,
-            hook_category: h.hook_category,
-            reason: h.reason,
-        })
-        .collect();
-
-    Ok(vclip_storage::HighlightsData {
-        highlights,
-        video_url: ai_response.video_url.or_else(|| Some(video_url.to_string())),
-        video_title: ai_response.video_title.or_else(|| Some(extract_video_title(video_url))),
-        custom_prompt: custom_prompt.map(|s| s.to_string()),
-    })
-}
-
 /// Load prompt from file.
 fn load_prompt_from_file() -> Option<String> {
     std::fs::read_to_string("prompt.txt").ok()
@@ -665,17 +693,6 @@ fn generate_clip_tasks_from_highlights(
     tasks
 }
 
-
-/// Extract video title from URL.
-fn extract_video_title(url: &str) -> String {
-    // Try to extract YouTube video ID
-    if url.contains("youtube.com") || url.contains("youtu.be") {
-        if let Some(id) = extract_youtube_id(url) {
-            return format!("YouTube Video {}", id);
-        }
-    }
-    "Video".to_string()
-}
 
 /// Extract YouTube video ID from URL.
 fn extract_youtube_id(url: &str) -> Option<String> {

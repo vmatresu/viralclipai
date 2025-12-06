@@ -94,18 +94,66 @@ impl GeminiClient {
         })
     }
 
-    /// Get video highlights using Gemini AI.
-    pub async fn get_highlights(
+    /// Get video metadata (title, URL) using yt-dlp.
+    pub async fn get_video_metadata(&self, video_url: &str) -> WorkerResult<(String, String)> {
+        info!("Getting video metadata for {} using yt-dlp", video_url);
+
+        let output = tokio::process::Command::new("yt-dlp")
+            .args(&[
+                "--print", "title",
+                "--print", "webpage_url",
+                "--no-download",
+                "--no-playlist",
+                video_url,
+            ])
+            .output()
+            .await
+            .map_err(|e| WorkerError::ai_failed(format!("Failed to run yt-dlp for metadata: {}", e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(WorkerError::ai_failed(format!(
+                "yt-dlp failed to get metadata: {}",
+                stderr
+            )));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let lines: Vec<&str> = stdout.lines().collect();
+
+        if lines.len() < 2 {
+            return Err(WorkerError::ai_failed(
+                "yt-dlp did not return expected metadata".to_string(),
+            ));
+        }
+
+        let title = lines[0].trim().to_string();
+        let canonical_url = lines[1].trim().to_string();
+
+        if title.is_empty() || canonical_url.is_empty() {
+            return Err(WorkerError::ai_failed(
+                "yt-dlp returned empty title or URL".to_string(),
+            ));
+        }
+
+        info!("Got video metadata: title='{}', url='{}'", title, canonical_url);
+        Ok((title, canonical_url))
+    }
+
+    /// Get transcript only (without calling Gemini).
+    pub async fn get_transcript_only(&self, video_url: &str, workdir: &Path) -> WorkerResult<String> {
+        self.get_transcript(video_url, workdir).await
+    }
+
+    /// Analyze transcript with Gemini AI.
+    pub async fn analyze_transcript(
         &self,
         base_prompt: &str,
         video_url: &str,
-        workdir: &Path,
+        transcript: &str,
     ) -> WorkerResult<HighlightsResponse> {
-        // 1. Get transcript
-        let transcript = self.get_transcript(video_url, workdir).await?;
-
         // 2. Build prompt
-        let prompt = self.build_prompt(base_prompt, &transcript);
+        let prompt = self.build_prompt(base_prompt, transcript);
 
         // 3. Call Gemini API with fallback models
         let models = vec![
