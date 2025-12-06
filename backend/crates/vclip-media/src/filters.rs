@@ -40,7 +40,8 @@ pub fn build_video_filter(style: Style) -> Option<String> {
         Style::LeftFocus => Some(FILTER_LEFT_FOCUS.to_string()),
         Style::RightFocus => Some(FILTER_RIGHT_FOCUS.to_string()),
         Style::Original => None, // No filter for original
-        Style::IntelligentSplit => None, // Handled separately
+        Style::Intelligent => None, // Handled separately with face detection
+        Style::IntelligentSplit => None, // Handled separately with dual face detection
     }
 }
 

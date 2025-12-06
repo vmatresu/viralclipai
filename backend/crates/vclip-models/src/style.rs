@@ -18,7 +18,9 @@ pub enum Style {
     LeftFocus,
     /// Focus on right half
     RightFocus,
-    /// Intelligent split with face tracking
+    /// Intelligent crop with face tracking (single view)
+    Intelligent,
+    /// Intelligent split with face tracking (dual view)
     IntelligentSplit,
 }
 
@@ -29,6 +31,7 @@ impl Style {
         Style::Split,
         Style::LeftFocus,
         Style::RightFocus,
+        Style::Intelligent,
         Style::IntelligentSplit,
     ];
 
@@ -38,6 +41,7 @@ impl Style {
         Style::Split,
         Style::LeftFocus,
         Style::RightFocus,
+        Style::Intelligent,
         Style::IntelligentSplit,
     ];
 
@@ -74,13 +78,14 @@ impl Style {
             Style::Split => "split",
             Style::LeftFocus => "left_focus",
             Style::RightFocus => "right_focus",
+            Style::Intelligent => "intelligent",
             Style::IntelligentSplit => "intelligent_split",
         }
     }
 
     /// Whether this style requires intelligent cropping.
     pub fn requires_intelligent_crop(&self) -> bool {
-        matches!(self, Style::IntelligentSplit)
+        matches!(self, Style::Intelligent | Style::IntelligentSplit)
     }
 }
 
@@ -99,8 +104,8 @@ impl FromStr for Style {
             "split" => Ok(Style::Split),
             "left_focus" => Ok(Style::LeftFocus),
             "right_focus" => Ok(Style::RightFocus),
-            // Support both "intelligent" and "intelligent_split" for Python parity
-            "intelligent" | "intelligent_split" => Ok(Style::IntelligentSplit),
+            "intelligent" => Ok(Style::Intelligent),
+            "intelligent_split" => Ok(Style::IntelligentSplit),
             _ => Err(StyleParseError(s.to_string())),
         }
     }
@@ -271,14 +276,19 @@ mod tests {
     }
 
     #[test]
-    fn test_intelligent_alias() {
-        // "intelligent" should parse to IntelligentSplit for Python parity
+    fn test_intelligent_styles() {
+        // "intelligent" is its own style
         assert_eq!(
             "intelligent".parse::<Style>().unwrap(),
-            Style::IntelligentSplit
+            Style::Intelligent
         );
         assert_eq!(
             "INTELLIGENT".parse::<Style>().unwrap(),
+            Style::Intelligent
+        );
+        // "intelligent_split" is a separate style
+        assert_eq!(
+            "intelligent_split".parse::<Style>().unwrap(),
             Style::IntelligentSplit
         );
     }
@@ -286,10 +296,11 @@ mod tests {
     #[test]
     fn test_expand_styles_all() {
         let styles = Style::expand_styles(&["all".to_string()]);
-        assert_eq!(styles.len(), 4);
+        assert_eq!(styles.len(), 5);
         assert!(styles.contains(&Style::Split));
         assert!(styles.contains(&Style::LeftFocus));
         assert!(styles.contains(&Style::RightFocus));
+        assert!(styles.contains(&Style::Intelligent));
         assert!(styles.contains(&Style::IntelligentSplit));
         // "all" should not include Original
         assert!(!styles.contains(&Style::Original));
@@ -315,7 +326,7 @@ mod tests {
             "split".to_string(),
         ]);
         // Should deduplicate: split appears once, all expands but split already seen
-        assert_eq!(styles.len(), 4);
+        assert_eq!(styles.len(), 5);
     }
 
     #[test]

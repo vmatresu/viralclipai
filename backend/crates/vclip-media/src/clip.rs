@@ -2,7 +2,7 @@
 //!
 //! # Architecture
 //!
-//! This module provides two main entry points for clip creation:
+//! This module provides three main entry points for clip creation:
 //!
 //! ## 1. `create_clip()` - Traditional Styles
 //! Handles: `Original`, `Split`, `LeftFocus`, `RightFocus`
@@ -10,7 +10,14 @@
 //! - Single-pass processing
 //! - Fast and efficient
 //!
-//! ## 2. `create_intelligent_split_clip()` - Intelligent Split
+//! ## 2. `create_intelligent_clip()` - Intelligent Crop (TODO)
+//! Handles: `Intelligent`
+//! - Face detection and tracking
+//! - Smart crop window computation
+//! - Smooth camera motion
+//! - Single view with face tracking
+//!
+//! ## 3. `create_intelligent_split_clip()` - Intelligent Split
 //! Handles: `IntelligentSplit`
 //! - Multi-step pipeline: extract halves → crop each → stack
 //! - Future: Will integrate ML-based face tracking
@@ -20,10 +27,10 @@
 //!
 //! **Caller Responsibility**: The processor must route to the correct function:
 //! ```rust,ignore
-//! if task.style == Style::IntelligentSplit {
-//!     create_intelligent_split_clip(...)
-//! } else {
-//!     create_clip(...)
+//! match task.style {
+//!     Style::Intelligent => create_intelligent_clip(...),
+//!     Style::IntelligentSplit => create_intelligent_split_clip(...),
+//!     _ => create_clip(...),
 //! }
 //! ```
 //!
@@ -49,10 +56,11 @@ use crate::thumbnail::generate_thumbnail;
 /// - `RightFocus`: Right half expanded to portrait
 ///
 /// # Not Supported
+/// - `Intelligent`: Use `create_intelligent_clip()` instead (TODO)
 /// - `IntelligentSplit`: Use `create_intelligent_split_clip()` instead
 ///
 /// # Errors
-/// Returns error if called with `IntelligentSplit` style or `Intelligent` crop mode.
+/// Returns error if called with `Intelligent`, `IntelligentSplit` style or `Intelligent` crop mode.
 pub async fn create_clip<P, F>(
     input: P,
     output: P,
@@ -89,6 +97,13 @@ where
         // Original style always preserves original format
         (Style::Original, _) => {
             create_basic_clip(input, output, start_secs, duration, None, encoding, progress_callback).await?;
+        }
+
+        // Intelligent style uses face tracking - should be handled by caller
+        (Style::Intelligent, _) => {
+            return Err(MediaError::UnsupportedFormat(
+                "Intelligent style must be processed using create_intelligent_clip - this is a caller error".to_string(),
+            ));
         }
 
         // Intelligent split uses special processing - should be handled by caller

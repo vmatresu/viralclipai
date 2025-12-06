@@ -1,6 +1,12 @@
 //! Job processing logic.
 
-use vclip_firestore::types::ToFirestoreValue;
+use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::Semaphore;
+use tracing::{info, warn};
+
+use vclip_firestore::{types::ToFirestoreValue, FirestoreClient};
 use vclip_media::{create_clip, create_intelligent_split_clip, download_video};
 use vclip_models::{ClipMetadata, ClipTask, EncodingConfig, VideoId, VideoMetadata};
 use vclip_queue::{ProcessVideoJob, ProgressChannel, ReprocessScenesJob};
@@ -498,6 +504,13 @@ pub async fn reprocess_scenes(
 /// - Single-pass FFmpeg with video filters
 /// - Fast and efficient
 ///
+/// ## Intelligent Style
+/// - Processed via `create_intelligent_clip()` (TODO)
+/// - Face detection and tracking
+/// - Smart crop window computation
+/// - Smooth camera motion
+/// - Single view with face tracking
+///
 /// ## IntelligentSplit Style
 /// - Processed via `create_intelligent_split_clip()`
 /// - Multi-step pipeline:
@@ -534,20 +547,35 @@ pub async fn process_clip_task(
     // Create clip - route to appropriate function based on style
     let encoding = EncodingConfig::default();
     
-    // IntelligentSplit requires special processing (extract halves, crop each, stack)
-    if task.style == vclip_models::Style::IntelligentSplit {
-        create_intelligent_split_clip(video_file, &output_path, task, &encoding, |_progress| {
-            // Could emit granular progress here
-        })
-        .await
-        .map_err(|e| WorkerError::Media(e))?;
-    } else {
+    // Route to appropriate clip creation function based on style
+    match task.style {
+        // IntelligentSplit requires special processing (extract halves, crop each, stack)
+        vclip_models::Style::IntelligentSplit => {
+            create_intelligent_split_clip(video_file, &output_path, task, &encoding, |_progress| {
+                // Could emit granular progress here
+            })
+            .await
+            .map_err(|e| WorkerError::Media(e))?;
+        }
+        // Intelligent requires face tracking and smart cropping
+        vclip_models::Style::Intelligent => {
+            // TODO: Implement intelligent cropping with face detection
+            // For now, fall back to standard clip creation
+            warn!("Intelligent style not yet fully implemented, using standard clip creation");
+            create_clip(video_file, &output_path, task, &encoding, |_progress| {
+                // Could emit granular progress here
+            })
+            .await
+            .map_err(|e| WorkerError::Media(e))?;
+        }
         // All other styles use standard clip creation
-        create_clip(video_file, &output_path, task, &encoding, |_progress| {
-            // Could emit granular progress here
-        })
-        .await
-        .map_err(|e| WorkerError::Media(e))?;
+        _ => {
+            create_clip(video_file, &output_path, task, &encoding, |_progress| {
+                // Could emit granular progress here
+            })
+            .await
+            .map_err(|e| WorkerError::Media(e))?;
+        }
     }
 
     // Get file size
