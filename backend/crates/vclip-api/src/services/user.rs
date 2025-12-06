@@ -73,7 +73,7 @@ impl Default for PlanLimits {
     fn default() -> Self {
         Self {
             plan_id: "free".to_string(),
-            max_clips_per_month: 10,
+            max_clips_per_month: 20,
             max_highlights_per_video: 3,
             max_styles_per_video: 2,
             can_reprocess: false,
@@ -218,26 +218,41 @@ impl UserService {
     pub async fn get_plan_limits(&self, uid: &str) -> ApiResult<PlanLimits> {
         let user = self.get_or_create_user(uid, None).await?;
         
-        // Get plan limits from Firestore or use defaults
-        let limits = match user.plan_id.as_str() {
-            "pro" => PlanLimits {
-                plan_id: "pro".to_string(),
-                max_clips_per_month: 100,
-                max_highlights_per_video: 10,
-                max_styles_per_video: 5,
-                can_reprocess: true,
-            },
-            "enterprise" => PlanLimits {
-                plan_id: "enterprise".to_string(),
-                max_clips_per_month: 1000,
-                max_highlights_per_video: 50,
-                max_styles_per_video: 10,
-                can_reprocess: true,
-            },
-            _ => PlanLimits::default(),
-        };
-        
-        Ok(limits)
+        // Get plan document from Firestore
+        match self.firestore.get_document("plans", &user.plan_id).await {
+            Ok(Some(plan_doc)) => {
+                // Parse plan document
+                let plan_limits = parse_plan_limits(&plan_doc)?;
+                Ok(plan_limits)
+            }
+            Ok(None) => {
+                // Plan not found, fallback to free plan
+                warn!("Plan '{}' not found for user {}, falling back to free", user.plan_id, uid);
+                match self.firestore.get_document("plans", "free").await {
+                    Ok(Some(free_doc)) => {
+                        parse_plan_limits(&free_doc)
+                    }
+                    _ => {
+                        // Ultimate fallback to hardcoded free plan
+                        warn!("Free plan not found in database, using hardcoded fallback");
+                        Ok(PlanLimits::default())
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("Error fetching plan '{}' for user {}: {}, falling back to free", user.plan_id, uid, e);
+                // Fallback to free plan on error
+                match self.firestore.get_document("plans", "free").await {
+                    Ok(Some(free_doc)) => {
+                        parse_plan_limits(&free_doc)
+                    }
+                    _ => {
+                        // Ultimate fallback to hardcoded free plan
+                        Ok(PlanLimits::default())
+                    }
+                }
+            }
+        }
     }
 
     /// Get monthly usage for a user.
@@ -427,6 +442,49 @@ fn parse_user_document(doc: &vclip_firestore::Document) -> ApiResult<UserRecord>
         role: get_string("role"),
         clips_used_this_month: get_u32("clips_used_this_month"),
         usage_reset_month: get_string("usage_reset_month"),
+    })
+}
+
+/// Parse plan limits from a Firestore plan document.
+fn parse_plan_limits(plan_doc: &vclip_firestore::Document) -> ApiResult<PlanLimits> {
+    let fields = plan_doc.fields.as_ref().ok_or_else(|| {
+        ApiError::internal("Plan document has no fields")
+    })?;
+
+    // Get plan ID
+    let plan_id = fields
+        .get("id")
+        .and_then(|v| String::from_firestore_value(v))
+        .unwrap_or_else(|| "unknown".to_string());
+
+    // Get limits map
+    let max_clips_per_month = if let Some(Value::MapValue(limits_map)) = fields.get("limits") {
+        limits_map
+            .fields
+            .as_ref()
+            .and_then(|fields| fields.get("max_clips_per_month"))
+            .and_then(|v| u32::from_firestore_value(v))
+            .unwrap_or(20) // Default fallback
+    } else {
+        20 // Default fallback
+    };
+
+    // For now, use reasonable defaults for other limits based on plan tier
+    // TODO: Store these in Firestore as well
+    let (max_highlights_per_video, max_styles_per_video, can_reprocess) = match plan_id.as_str() {
+        "free" => (3, 2, false),
+        "pro" => (10, 5, true),
+        "studio" => (25, 10, true),
+        "enterprise" => (50, 10, true),
+        _ => (3, 2, false),
+    };
+
+    Ok(PlanLimits {
+        plan_id,
+        max_clips_per_month,
+        max_highlights_per_video,
+        max_styles_per_video,
+        can_reprocess,
     })
 }
 
