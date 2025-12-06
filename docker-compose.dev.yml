@@ -1,103 +1,229 @@
 # =============================================================================
-# Development Docker Compose - Backend Only
+# Development Docker Compose - Backend Only (Apple Silicon M1/M2/M3)
 # =============================================================================
-# Minimal development setup for backend services
-# Frontend runs separately: npm run dev in web/
+# Stack: Rust API + Worker + Redis (Firebase/R2 external)
+# Frontend: Run separately with `npm run dev` in web/
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up --build
+#   docker compose -f docker-compose.dev.yml logs -f api
+#   docker compose -f docker-compose.dev.yml down -v
 # =============================================================================
 
 services:
   # ---------------------------------------------------------------------------
-  # API Service - Development with Hot Reload
+  # API Service - Axum HTTP/WebSocket Server with Hot Reload
   # ---------------------------------------------------------------------------
   api:
     build:
-      context: ./backend
-      dockerfile: ../Dockerfile
-      target: dev
-      args:
-        BUILD_DATE: ${BUILD_DATE:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}
-        VCS_REF: ${VCS_REF:-$(git rev-parse --short HEAD 2>/dev/null || echo 'dev')}
-        VERSION: ${VERSION:-dev}
+      context: .
+      dockerfile: Dockerfile.dev
+      # Native ARM64 build for M1 performance
+      platforms:
+        - linux/arm64
     image: viralclipai-api:dev
-    container_name: viralclipai-api-dev
+    container_name: vclip-api-dev
 
+    # Graceful shutdown
+    stop_grace_period: 10s
+
+    # Use .env.dev if exists, otherwise .env
     env_file:
-      - .env.dev
+      - path: .env.dev
+        required: false
+      - path: .env
+        required: false
 
     environment:
-      # Development
+      # Runtime
       - ENVIRONMENT=development
-      - RUST_LOG=debug,hyper=info,tower_http=info
-      - LOG_LEVEL=DEBUG
+      - RUST_LOG=${RUST_LOG:-debug,hyper=info,tower_http=info,h2=warn}
       - RUST_BACKTRACE=full
 
-      # GCP Credentials
-      - GOOGLE_APPLICATION_CREDENTIALS=/firebase-credentials.json
-
-      # API
+      # API Server
+      - API_HOST=0.0.0.0
       - API_PORT=8000
 
-      # Redis
+      # Firebase (credentials file mounted)
+      - GOOGLE_APPLICATION_CREDENTIALS=/secrets/firebase-credentials.json
+
+      # Redis (internal network)
       - REDIS_URL=redis://redis:6379
+
+      # R2 Storage (from env file)
+      - R2_ENDPOINT_URL=${R2_ENDPOINT_URL:-}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:-}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY:-}
+      - R2_BUCKET_NAME=${R2_BUCKET_NAME:-}
+      - R2_PUBLIC_URL=${R2_PUBLIC_URL:-}
 
     ports:
       - "${API_PORT:-8000}:8000"
+      # Prometheus metrics (optional)
+      - "${METRICS_PORT:-9090}:9090"
 
     volumes:
-      # Mount source code for hot reload
-      - ./backend:/app
-      # Exclude target directory (build artifacts)
-      - /app/target
-      # Mount Firebase credentials
-      - ./firebase-credentials.json:/firebase-credentials.json
+      # Source code mount for hot reload
+      - ./backend:/app:cached
+      # Named volume for target dir - persists builds, improves performance
+      - cargo-target:/app/target
+      # Cargo registry cache - speeds up dependency fetches
+      - cargo-registry:/usr/local/cargo/registry
+      # Firebase credentials (read-only)
+      - ./firebase-credentials.json:/secrets/firebase-credentials.json:ro
 
     networks:
-      - viralclipai-dev-network
+      - vclip-dev
 
     depends_on:
       redis:
         condition: service_healthy
 
-    restart: unless-stopped
+    # Resource hints for Docker Desktop on M1
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
+
+  # ---------------------------------------------------------------------------
+  # Worker Service - Video Processing with FFmpeg
+  # ---------------------------------------------------------------------------
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      platforms:
+        - linux/arm64
+    image: viralclipai-worker:dev
+    container_name: vclip-worker-dev
+
+    # Override default CMD to run worker binary
+    command: >
+      cargo watch
+      --why
+      --clear
+      -x "run --bin vclip-worker"
+      -i "target/"
+      -i ".git/"
+      -i "*.md"
+
+    stop_grace_period: 30s
+
+    env_file:
+      - path: .env.dev
+        required: false
+      - path: .env
+        required: false
+
+    environment:
+      # Runtime
+      - ENVIRONMENT=development
+      - RUST_LOG=${RUST_LOG:-debug,hyper=info,tower_http=info,h2=warn}
+      - RUST_BACKTRACE=full
+
+      # Worker config
+      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-2}
+
+      # Firebase
+      - GOOGLE_APPLICATION_CREDENTIALS=/secrets/firebase-credentials.json
+
+      # Redis
+      - REDIS_URL=redis://redis:6379
+
+      # R2 Storage
+      - R2_ENDPOINT_URL=${R2_ENDPOINT_URL:-}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:-}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY:-}
+      - R2_BUCKET_NAME=${R2_BUCKET_NAME:-}
+      - R2_PUBLIC_URL=${R2_PUBLIC_URL:-}
+
+      # Gemini AI
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+
+    volumes:
+      # Source code mount
+      - ./backend:/app:cached
+      # Shared target volume with API (same build artifacts)
+      - cargo-target:/app/target
+      - cargo-registry:/usr/local/cargo/registry
+      # Firebase credentials
+      - ./firebase-credentials.json:/secrets/firebase-credentials.json:ro
+      # Temp storage for video processing
+      - worker-temp:/tmp/videos
+
+    networks:
+      - vclip-dev
+
+    depends_on:
+      redis:
+        condition: service_healthy
+
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
 
   # ---------------------------------------------------------------------------
   # Redis - Job Queue & Cache
   # ---------------------------------------------------------------------------
   redis:
     image: redis:7-alpine
-    container_name: viralclipai-redis-dev
-    restart: unless-stopped
+    container_name: vclip-redis-dev
 
-    command: redis-server --appendonly yes
+    # Simple dev config - no persistence needed
+    command: >
+      redis-server
+      --appendonly no
+      --save ""
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
 
     ports:
       - "${REDIS_PORT:-6379}:6379"
 
-    volumes:
-      - redis-dev-data:/data
-
     networks:
-      - viralclipai-dev-network
+      - vclip-dev
 
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
-      retries: 5
-      start_period: 5s
+      retries: 3
+      start_period: 3s
+
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
 # -----------------------------------------------------------------------------
 # Networks
 # -----------------------------------------------------------------------------
 networks:
-  viralclipai-dev-network:
-    name: viralclipai-dev-network
+  vclip-dev:
+    name: vclip-dev
     driver: bridge
 
 # -----------------------------------------------------------------------------
-# Volumes
+# Volumes - Named volumes for performance on Docker Desktop
 # -----------------------------------------------------------------------------
 volumes:
-  redis-dev-data:
-    name: viralclipai-redis-dev-data
+  # Cargo target directory - CRITICAL for build performance
+  # Without this, incremental builds are lost on container restart
+  cargo-target:
+    name: vclip-cargo-target-dev
+    driver: local
+
+  # Cargo registry cache - speeds up `cargo build` dependency resolution
+  cargo-registry:
+    name: vclip-cargo-registry-dev
+    driver: local
+
+  # Worker temp files for video processing
+  worker-temp:
+    name: vclip-worker-temp-dev
     driver: local

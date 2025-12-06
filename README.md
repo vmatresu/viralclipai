@@ -106,12 +106,15 @@ and run the Next.js app from `web/` with `npm install` and `npm run dev`.
 This project enforces strict code quality standards through automated commit gating:
 
 ### Pre-commit Checks
+
 All commits automatically run the following validations:
+
 - **TypeScript Type Checking**: Ensures type safety and no compilation errors
 - **ESLint Linting**: Code style, consistency, and quality checks
 - **Build Validation**: Ensures the Next.js application builds successfully
 
 ### Development Workflow
+
 ```bash
 # Install dependencies (automatically sets up commit hooks)
 npm install
@@ -140,8 +143,15 @@ If any check fails, the commit is blocked. See `web/COMMIT_GATING.md` for detail
 ### Example Workflow
 
 ```bash
-# Start Docker dev stack
-docker-compose -f docker-compose.dev.yml up --build
+
+# Development (M1 Mac)
+cp .env.dev.example .env.dev
+# Add your firebase-credentials.json
+docker compose -f docker-compose.dev.yml up --build
+
+# Production build (for Ubuntu AMD64)
+docker buildx build --platform linux/amd64 -t viralclipai-api:latest --target api-runtime .
+docker buildx build --platform linux/amd64 -t viralclipai-worker:latest --target worker-runtime .
 
 # Open http://localhost:3000
 # Paste: https://www.youtube.com/watch?v=example

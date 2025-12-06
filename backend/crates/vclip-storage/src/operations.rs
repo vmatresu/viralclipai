@@ -129,16 +129,17 @@ impl R2Client {
             let filename = obj.key.split('/').last().unwrap_or(&obj.key).to_string();
             let size_mb = obj.size as f64 / (1024.0 * 1024.0);
 
-            // Check for thumbnail
+            // Check for thumbnail - prefer CDN URL if available
             let thumb_key = obj.key.replace(".mp4", ".jpg");
             let thumb_url = if keys_set.contains(&thumb_key) {
-                self.presign_get(&thumb_key, url_expiry).await.ok()
+                // Use CDN URL if configured, otherwise presigned
+                self.get_url(&thumb_key, url_expiry).await.ok()
             } else {
                 None
             };
 
-            // Generate direct URL
-            let direct_url = self.presign_get(&obj.key, url_expiry).await.ok();
+            // Generate direct URL - prefer CDN URL if available
+            let direct_url = self.get_url(&obj.key, url_expiry).await.ok();
 
             // Extract style from filename
             let style = extract_style_from_filename(&filename);
