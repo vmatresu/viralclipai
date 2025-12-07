@@ -9,14 +9,19 @@ import { invalidateClipsCache } from "@/lib/cache";
 import { frontendLogger } from "@/lib/logger";
 
 import {
-  type WSLogMessage,
-  type WSProgressMessage,
-  type WSErrorMessage,
-  type WSDoneMessage,
-  type WSClipUploadedMessage,
+  CLIP_PROCESSING_STEPS,
   isWSMessageType,
   validateWSMessage,
   WS_MESSAGE_TYPES,
+  type ClipProcessingStep,
+  type WSClipProgressMessage,
+  type WSClipUploadedMessage,
+  type WSDoneMessage,
+  type WSErrorMessage,
+  type WSLogMessage,
+  type WSProgressMessage,
+  type WSSceneCompletedMessage,
+  type WSSceneStartedMessage,
 } from "./types";
 
 export interface MessageHandlerCallbacks {
@@ -25,6 +30,59 @@ export interface MessageHandlerCallbacks {
   onError: (message: string, details?: string) => void;
   onDone: (videoId: string) => void;
   onClipUploaded: (videoId: string, clipCount: number, totalClips: number) => void;
+  // New detailed progress callbacks (optional for backward compatibility)
+  onClipProgress?: (
+    sceneId: number,
+    style: string,
+    step: ClipProcessingStep,
+    details?: string
+  ) => void;
+  onSceneStarted?: (
+    sceneId: number,
+    sceneTitle: string,
+    styleCount: number,
+    startSec: number,
+    durationSec: number
+  ) => void;
+  onSceneCompleted?: (
+    sceneId: number,
+    clipsCompleted: number,
+    clipsFailed: number
+  ) => void;
+}
+
+/**
+ * Get human-readable label for a processing step
+ */
+export function getStepLabel(step: ClipProcessingStep): string {
+  switch (step) {
+    case CLIP_PROCESSING_STEPS.EXTRACTING_SEGMENT:
+      return "Extracting segment";
+    case CLIP_PROCESSING_STEPS.DETECTING_FACES:
+      return "Detecting faces";
+    case CLIP_PROCESSING_STEPS.FACE_DETECTION_COMPLETE:
+      return "Face detection complete";
+    case CLIP_PROCESSING_STEPS.COMPUTING_CAMERA_PATH:
+      return "Computing camera path";
+    case CLIP_PROCESSING_STEPS.CAMERA_PATH_COMPLETE:
+      return "Camera path complete";
+    case CLIP_PROCESSING_STEPS.COMPUTING_CROP_WINDOWS:
+      return "Computing crop windows";
+    case CLIP_PROCESSING_STEPS.RENDERING:
+      return "Rendering";
+    case CLIP_PROCESSING_STEPS.RENDER_COMPLETE:
+      return "Render complete";
+    case CLIP_PROCESSING_STEPS.UPLOADING:
+      return "Uploading";
+    case CLIP_PROCESSING_STEPS.UPLOAD_COMPLETE:
+      return "Upload complete";
+    case CLIP_PROCESSING_STEPS.COMPLETE:
+      return "Complete";
+    case CLIP_PROCESSING_STEPS.FAILED:
+      return "Failed";
+    default:
+      return step;
+  }
 }
 
 /**
@@ -118,6 +176,63 @@ export function handleWSMessage(
         if (videoId === currentVideoId) {
           callbacks.onClipUploaded(videoId, clipCount, totalClips);
         }
+      }
+      return true;
+    }
+
+    // Handle detailed clip progress messages
+    if (
+      isWSMessageType<WSClipProgressMessage>(message, WS_MESSAGE_TYPES.CLIP_PROGRESS)
+    ) {
+      if (callbacks.onClipProgress) {
+        const sceneId = typeof message.sceneId === "number" ? message.sceneId : 0;
+        const style = typeof message.style === "string" ? message.style : "unknown";
+        const step = message.step;
+        const details =
+          typeof message.details === "string" ? message.details : undefined;
+        callbacks.onClipProgress(sceneId, style, step, details);
+      }
+      return true;
+    }
+
+    // Handle scene started messages
+    if (
+      isWSMessageType<WSSceneStartedMessage>(message, WS_MESSAGE_TYPES.SCENE_STARTED)
+    ) {
+      if (callbacks.onSceneStarted) {
+        const sceneId = typeof message.sceneId === "number" ? message.sceneId : 0;
+        const sceneTitle =
+          typeof message.sceneTitle === "string" ? message.sceneTitle : "";
+        const styleCount =
+          typeof message.styleCount === "number" ? message.styleCount : 0;
+        const startSec = typeof message.startSec === "number" ? message.startSec : 0;
+        const durationSec =
+          typeof message.durationSec === "number" ? message.durationSec : 0;
+        callbacks.onSceneStarted(
+          sceneId,
+          sceneTitle,
+          styleCount,
+          startSec,
+          durationSec
+        );
+      }
+      return true;
+    }
+
+    // Handle scene completed messages
+    if (
+      isWSMessageType<WSSceneCompletedMessage>(
+        message,
+        WS_MESSAGE_TYPES.SCENE_COMPLETED
+      )
+    ) {
+      if (callbacks.onSceneCompleted) {
+        const sceneId = typeof message.sceneId === "number" ? message.sceneId : 0;
+        const clipsCompleted =
+          typeof message.clipsCompleted === "number" ? message.clipsCompleted : 0;
+        const clipsFailed =
+          typeof message.clipsFailed === "number" ? message.clipsFailed : 0;
+        callbacks.onSceneCompleted(sceneId, clipsCompleted, clipsFailed);
       }
       return true;
     }

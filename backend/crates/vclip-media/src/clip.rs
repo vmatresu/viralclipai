@@ -36,10 +36,15 @@ use crate::filters::build_video_filter;
 use crate::progress::FfmpegProgress;
 use crate::thumbnail::generate_thumbnail;
 
-/// Extract a segment from a video file without re-encoding.
+/// Extract a segment from a video file with accurate seeking.
 ///
 /// This is used to cut out a specific time range before applying
 /// intelligent cropping, which significantly improves performance.
+///
+/// # Seeking Strategy
+/// Uses a combination of input seeking (fast) and output seeking (accurate)
+/// to avoid audio/video desync issues that occur with pure input seeking
+/// and codec copy. We re-encode the segment to ensure proper sync.
 ///
 /// # Arguments
 /// * `input` - Path to the input video file
@@ -66,13 +71,51 @@ pub async fn extract_segment<P: AsRef<Path>>(
         duration
     );
 
-    let cmd = FfmpegCommand::new(input, output)
-        .seek(start_secs)
-        .duration(duration)
-        .codec_copy(); // Fast copy without re-encoding
+    // Strategy: Use input seeking to get close to the start (fast), then use
+    // output seeking to get exact frame-accurate start. This avoids A/V desync
+    // that happens with pure input seeking + codec copy.
+    //
+    // We seek 2 seconds before the target to ensure we capture the keyframe,
+    // then use output seeking to trim to the exact start point.
+    let seek_buffer = 2.0;
+    let input_seek = (start_secs - seek_buffer).max(0.0);
+    let output_seek = if start_secs > seek_buffer { seek_buffer } else { start_secs };
 
-    let runner = FfmpegRunner::new();
-    runner.run(&cmd).await?;
+    // Build FFmpeg command with two-pass seeking for accuracy
+    // Input seek (-ss before -i): fast, seeks to nearest keyframe
+    // Output seek (-ss after -i): accurate, trims to exact frame
+    let args = vec![
+        "-y".to_string(),
+        "-v".to_string(), "error".to_string(),
+        // Input seeking - fast, approximate
+        "-ss".to_string(), format!("{:.3}", input_seek),
+        "-i".to_string(), input.to_string_lossy().to_string(),
+        // Output seeking - accurate, frame-precise  
+        "-ss".to_string(), format!("{:.3}", output_seek),
+        "-t".to_string(), format!("{:.3}", duration),
+        // Re-encode to ensure proper A/V sync
+        "-c:v".to_string(), "libx264".to_string(),
+        "-preset".to_string(), "fast".to_string(),
+        "-crf".to_string(), "18".to_string(),
+        "-c:a".to_string(), "aac".to_string(),
+        "-b:a".to_string(), "128k".to_string(),
+        "-movflags".to_string(), "+faststart".to_string(),
+        output.to_string_lossy().to_string(),
+    ];
+
+    let status = tokio::process::Command::new("ffmpeg")
+        .args(&args)
+        .output()
+        .await?;
+
+    if !status.status.success() {
+        let stderr = String::from_utf8_lossy(&status.stderr);
+        return Err(crate::error::MediaError::ffmpeg_failed(
+            "Segment extraction failed",
+            Some(stderr.to_string()),
+            status.status.code(),
+        ));
+    }
 
     info!("Segment extracted: {}", output.display());
     Ok(())

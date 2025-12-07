@@ -11,8 +11,24 @@ import { analyticsEvents } from "@/lib/analytics";
 import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { getCachedClips, invalidateClipsCache, setCachedClips } from "@/lib/cache";
+import { type ClipProcessingStep } from "@/lib/websocket/types";
 
 import { type Clip } from "../ClipGrid";
+
+/**
+ * Scene progress tracking
+ */
+export interface SceneProgress {
+  sceneId: number;
+  sceneTitle: string;
+  styleCount: number;
+  startSec: number;
+  durationSec: number;
+  status: "pending" | "processing" | "completed" | "failed";
+  clipsCompleted: number;
+  clipsFailed: number;
+  currentSteps: Map<string, { step: ClipProcessingStep; details?: string }>;
+}
 
 export function useVideoProcessing() {
   const searchParams = useSearchParams();
@@ -31,10 +47,81 @@ export function useVideoProcessing() {
   const [customPromptUsed, setCustomPromptUsed] = useState<string | null>(null);
   const [videoTitle, setVideoTitle] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  // Detailed scene progress tracking
+  const [sceneProgress, setSceneProgress] = useState<Map<number, SceneProgress>>(
+    new Map()
+  );
   const processingStartTime = useRef<number | null>(null);
   // Store processing parameters at start time for accurate analytics tracking
   const processingStyles = useRef<string[]>(["split"]);
   const processingCustomPrompt = useRef<string>("");
+
+  // Scene progress handlers
+  const handleSceneStarted = useCallback(
+    (
+      sceneId: number,
+      sceneTitle: string,
+      styleCount: number,
+      startSec: number,
+      durationSec: number
+    ) => {
+      setSceneProgress((prev) => {
+        const next = new Map(prev);
+        next.set(sceneId, {
+          sceneId,
+          sceneTitle,
+          styleCount,
+          startSec,
+          durationSec,
+          status: "processing",
+          clipsCompleted: 0,
+          clipsFailed: 0,
+          currentSteps: new Map(),
+        });
+        return next;
+      });
+    },
+    []
+  );
+
+  const handleSceneCompleted = useCallback(
+    (sceneId: number, clipsCompleted: number, clipsFailed: number) => {
+      setSceneProgress((prev) => {
+        const next = new Map(prev);
+        const scene = next.get(sceneId);
+        if (scene) {
+          next.set(sceneId, {
+            ...scene,
+            status: clipsFailed > 0 ? "failed" : "completed",
+            clipsCompleted,
+            clipsFailed,
+          });
+        }
+        return next;
+      });
+    },
+    []
+  );
+
+  const handleClipProgress = useCallback(
+    (sceneId: number, style: string, step: ClipProcessingStep, details?: string) => {
+      setSceneProgress((prev) => {
+        const next = new Map(prev);
+        const scene = next.get(sceneId);
+        if (scene) {
+          const newSteps = new Map(scene.currentSteps);
+          newSteps.set(style, { step, details });
+          next.set(sceneId, { ...scene, currentSteps: newSteps });
+        }
+        return next;
+      });
+    },
+    []
+  );
+
+  const resetSceneProgress = useCallback(() => {
+    setSceneProgress(new Map());
+  }, []);
 
   const log = useCallback(
     (msg: string, type: "info" | "error" | "success" = "info", timestamp?: string) => {
@@ -202,6 +289,8 @@ export function useVideoProcessing() {
     processingStartTime,
     processingStyles,
     processingCustomPrompt,
+    // Scene progress tracking
+    sceneProgress,
     // Actions
     log,
     loadResults,
@@ -214,5 +303,10 @@ export function useVideoProcessing() {
     setVideoTitle,
     setVideoUrl,
     searchParams,
+    // Scene progress handlers
+    handleSceneStarted,
+    handleSceneCompleted,
+    handleClipProgress,
+    resetSceneProgress,
   };
 }

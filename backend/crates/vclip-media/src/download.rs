@@ -91,6 +91,7 @@ pub fn is_supported_url(url: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vclip_models::extract_youtube_id;
 
     #[test]
     fn test_is_supported_url() {

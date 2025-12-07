@@ -75,6 +75,31 @@ pub struct IntelligentCropConfig {
 
     /// FFmpeg CRF quality (default: 20)
     pub render_crf: u32,
+
+    // === Face Activity Detection ===
+    /// Enable mouth movement detection (requires LBF landmark model)
+    pub enable_mouth_detection: bool,
+
+    /// Time window for aggregating activity scores (seconds, default: 0.5)
+    pub face_activity_window: f64,
+
+    /// Minimum duration before switching active face (seconds, default: 1.0)
+    pub min_switch_duration: f64,
+
+    /// Activity score margin required to switch faces (default: 0.2 = 20%)
+    pub switch_margin: f64,
+
+    /// Weight for mouth activity in combined score (default: 0.6)
+    pub activity_weight_mouth: f64,
+
+    /// Weight for motion activity in combined score (default: 0.3)
+    pub activity_weight_motion: f64,
+
+    /// Weight for size changes in combined score (default: 0.1)
+    pub activity_weight_size_change: f64,
+
+    /// EMA smoothing parameter for activity scores (default: 0.3)
+    pub activity_smoothing_window: f64,
 }
 
 /// Policy when no faces are detected.
@@ -116,9 +141,9 @@ impl Default for IntelligentCropConfig {
             subject_padding: 0.2,
             safe_margin: 0.05,
 
-            // Camera Smoothing
-            max_pan_speed: 200.0,
-            smoothing_window: 0.5,
+            // Camera Smoothing - increased pan speed for responsive speaker switching
+            max_pan_speed: 600.0,   // Faster transitions between speakers
+            smoothing_window: 0.3,  // Shorter smoothing for snappier movement
 
             // Zoom Limits
             max_zoom_factor: 3.0,
@@ -134,6 +159,16 @@ impl Default for IntelligentCropConfig {
             // Rendering
             render_preset: "veryfast".to_string(),
             render_crf: 20,
+
+            // Face Activity Detection
+            enable_mouth_detection: true,
+            face_activity_window: 0.5,
+            min_switch_duration: 1.0,
+            switch_margin: 0.2,
+            activity_weight_mouth: 0.6,
+            activity_weight_motion: 0.3,
+            activity_weight_size_change: 0.1,
+            activity_smoothing_window: 0.3,
         }
     }
 }

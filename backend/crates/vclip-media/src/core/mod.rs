@@ -15,11 +15,13 @@ use crate::error::MediaResult;
 // Re-export implementations
 pub use security::SecurityContext;
 pub use observability::MetricsCollector;
+pub use progress::{ProgressEvent, ProgressSender, ProgressReceiver, channel as progress_channel, noop_sender};
 
 pub mod security;
 pub mod observability;
 pub mod performance;
 pub mod infrastructure;
+pub mod progress;
 
 /// Core domain entity representing a video processing request.
 /// Wraps the task with additional context and validation.

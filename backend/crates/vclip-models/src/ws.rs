@@ -72,6 +72,84 @@ pub enum WsMessage {
         #[serde(rename = "totalClips")]
         total_clips: u32,
     },
+
+    /// Detailed clip processing progress
+    ClipProgress {
+        /// Scene ID being processed
+        #[serde(rename = "sceneId")]
+        scene_id: u32,
+        /// Style being processed
+        style: String,
+        /// Current processing step
+        step: ClipProcessingStep,
+        /// Additional details about the step
+        #[serde(skip_serializing_if = "Option::is_none")]
+        details: Option<String>,
+        /// Timestamp
+        timestamp: DateTime<Utc>,
+    },
+
+    /// Scene processing started
+    SceneStarted {
+        /// Scene ID
+        #[serde(rename = "sceneId")]
+        scene_id: u32,
+        /// Scene title
+        #[serde(rename = "sceneTitle")]
+        scene_title: String,
+        /// Number of styles being processed
+        #[serde(rename = "styleCount")]
+        style_count: u32,
+        /// Start time in seconds
+        #[serde(rename = "startSec")]
+        start_sec: f64,
+        /// Duration in seconds
+        #[serde(rename = "durationSec")]
+        duration_sec: f64,
+    },
+
+    /// Scene processing completed
+    SceneCompleted {
+        /// Scene ID
+        #[serde(rename = "sceneId")]
+        scene_id: u32,
+        /// Number of clips completed
+        #[serde(rename = "clipsCompleted")]
+        clips_completed: u32,
+        /// Number of clips failed
+        #[serde(rename = "clipsFailed")]
+        clips_failed: u32,
+    },
+}
+
+/// Detailed clip processing step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ClipProcessingStep {
+    /// Extracting video segment
+    ExtractingSegment,
+    /// Detecting faces in frames
+    DetectingFaces,
+    /// Face detection complete
+    FaceDetectionComplete,
+    /// Computing camera path
+    ComputingCameraPath,
+    /// Camera path complete
+    CameraPathComplete,
+    /// Computing crop windows
+    ComputingCropWindows,
+    /// Rendering output
+    Rendering,
+    /// Render complete
+    RenderComplete,
+    /// Uploading to storage
+    Uploading,
+    /// Upload complete
+    UploadComplete,
+    /// Clip processing complete
+    Complete,
+    /// Clip processing failed
+    Failed,
 }
 
 impl WsMessage {
@@ -124,6 +202,48 @@ impl WsMessage {
         }
     }
 
+    /// Create a clip progress message.
+    pub fn clip_progress(
+        scene_id: u32,
+        style: impl Into<String>,
+        step: ClipProcessingStep,
+        details: Option<String>,
+    ) -> Self {
+        WsMessage::ClipProgress {
+            scene_id,
+            style: style.into(),
+            step,
+            details,
+            timestamp: Utc::now(),
+        }
+    }
+
+    /// Create a scene started message.
+    pub fn scene_started(
+        scene_id: u32,
+        scene_title: impl Into<String>,
+        style_count: u32,
+        start_sec: f64,
+        duration_sec: f64,
+    ) -> Self {
+        WsMessage::SceneStarted {
+            scene_id,
+            scene_title: scene_title.into(),
+            style_count,
+            start_sec,
+            duration_sec,
+        }
+    }
+
+    /// Create a scene completed message.
+    pub fn scene_completed(scene_id: u32, clips_completed: u32, clips_failed: u32) -> Self {
+        WsMessage::SceneCompleted {
+            scene_id,
+            clips_completed,
+            clips_failed,
+        }
+    }
+
     /// Get the message type.
     pub fn message_type(&self) -> WsMessageType {
         match self {
@@ -132,6 +252,9 @@ impl WsMessage {
             WsMessage::Error { .. } => WsMessageType::Error,
             WsMessage::Done { .. } => WsMessageType::Done,
             WsMessage::ClipUploaded { .. } => WsMessageType::ClipUploaded,
+            WsMessage::ClipProgress { .. } => WsMessageType::Progress,
+            WsMessage::SceneStarted { .. } => WsMessageType::Progress,
+            WsMessage::SceneCompleted { .. } => WsMessageType::Progress,
         }
     }
 }

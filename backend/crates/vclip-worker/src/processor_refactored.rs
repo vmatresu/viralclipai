@@ -16,7 +16,9 @@ use vclip_media::{
     download_video,
     core::{ProcessingRequest, ProcessingContext as MediaProcessingContext, StyleProcessorRegistry, MetricsCollector, SecurityContext},
     styles::StyleProcessorFactory as MediaStyleProcessorFactory,
+    intelligent::parse_timestamp,
 };
+use vclip_models::ClipProcessingStep;
 use vclip_models::{AspectRatio, ClipMetadata, ClipTask, CropMode, EncodingConfig, JobId, Style, VideoId, VideoMetadata};
 use vclip_queue::{ProcessVideoJob, ProgressChannel};
 use vclip_storage::R2Client;
@@ -339,6 +341,12 @@ impl VideoProcessor {
     }
 
     /// Process a single scene with parallel style processing.
+    /// 
+    /// # Architecture
+    /// - Emits structured progress events for observability
+    /// - Processes styles in parallel for performance
+    /// - Implements graceful degradation on partial failures
+    /// - Follows fail-fast for critical errors, continue-on-error for clip failures
     async fn process_scene(
         &self,
         ctx: &EnhancedProcessingContext,
@@ -348,12 +356,50 @@ impl VideoProcessor {
         scene_tasks: &[&ClipTask],
         total_clips: usize,
     ) -> WorkerResult<SceneProcessingResults> {
+        let first_task = scene_tasks[0];
+        let scene_id = first_task.scene_id;
+
+        // Parse timing for scene started event (defensive: default to safe values)
+        let start_sec = parse_timestamp(&first_task.start).unwrap_or(0.0);
+        let end_sec = parse_timestamp(&first_task.end).unwrap_or(30.0);
+        let duration_sec = end_sec - start_sec;
+
+        // Emit scene started event with structured data
+        if let Err(e) = ctx.progress
+            .scene_started(
+                &job.job_id,
+                scene_id,
+                &first_task.scene_title,
+                scene_tasks.len() as u32,
+                start_sec,
+                duration_sec,
+            )
+            .await
+        {
+            tracing::warn!(
+                scene_id = scene_id,
+                error = %e,
+                "Failed to emit scene_started event"
+            );
+        }
+
+        // Structured logging for observability
+        tracing::info!(
+            scene_id = scene_id,
+            scene_title = %first_task.scene_title,
+            styles_count = scene_tasks.len(),
+            start_sec = start_sec,
+            duration_sec = duration_sec,
+            "Starting scene processing"
+        );
+
         ctx.progress
             .log(
                 &job.job_id,
                 format!(
-                    "Processing scene {} ({} styles in parallel)...",
-                    scene_tasks[0].scene_id,
+                    "Processing scene {} '{}' ({} styles in parallel)...",
+                    scene_id,
+                    first_task.scene_title,
                     scene_tasks.len()
                 ),
             )
@@ -390,26 +436,96 @@ impl VideoProcessor {
 
         let results = join_all(futures).await;
 
-        let mut processed = 0;
-        let mut completed = 0;
+        // Aggregate results with detailed error tracking
+        let mut processed: usize = 0;
+        let mut completed: usize = 0;
+        let mut errors = Vec::new();
 
-        for result in results {
+        for (idx, result) in results.into_iter().enumerate() {
             processed += 1;
             match result {
-                Ok(_) => completed += 1,
+                Ok(_) => {
+                    completed += 1;
+                    tracing::debug!(
+                        scene_id = scene_id,
+                        clip_index = idx,
+                        "Clip processed successfully"
+                    );
+                }
                 Err(e) => {
+                    let error_msg = format!("Failed to process clip {}: {}", idx + 1, e);
+                    tracing::error!(
+                        scene_id = scene_id,
+                        clip_index = idx,
+                        error = %e,
+                        "Clip processing failed"
+                    );
+                    errors.push(error_msg.clone());
                     ctx.progress
-                        .log(&job.job_id, format!("Failed to process clip: {}", e))
+                        .log(&job.job_id, error_msg)
                         .await
                         .ok();
                 }
             }
         }
 
-        Ok(SceneProcessingResults { processed, completed })
+        let failed = processed - completed;
+
+        // Emit scene completed event with comprehensive status
+        if let Err(e) = ctx.progress
+            .scene_completed(
+                &job.job_id,
+                scene_id,
+                completed as u32,
+                failed as u32,
+            )
+            .await
+        {
+            tracing::warn!(
+                scene_id = scene_id,
+                error = %e,
+                "Failed to emit scene_completed event"
+            );
+        }
+
+        // Structured completion log
+        tracing::info!(
+            scene_id = scene_id,
+            completed = completed,
+            failed = failed,
+            total = processed,
+            "Scene processing completed"
+        );
+
+        ctx.progress
+            .log(
+                &job.job_id,
+                format!(
+                    "Scene {} completed: {}/{} clips successful",
+                    scene_id, completed, processed
+                ),
+            )
+            .await
+            .ok();
+
+        Ok(SceneProcessingResults { 
+            processed, 
+            completed: completed as u32 
+        })
     }
 
     /// Process a single clip using the new architecture.
+    /// 
+    /// # Architecture
+    /// - Implements fine-grained progress reporting at each processing stage
+    /// - Uses semaphore for resource control (prevents FFmpeg process explosion)
+    /// - Emits failure events on errors for proper observability
+    /// - Follows single responsibility: delegates actual processing to style processors
+    /// 
+    /// # Error Handling
+    /// - Returns errors immediately (fail-fast)
+    /// - Emits failure progress event before returning
+    /// - Logs structured error data for debugging
     async fn process_single_clip(
         &self,
         ctx: &EnhancedProcessingContext,
@@ -422,21 +538,66 @@ impl VideoProcessor {
         clip_index: usize,
         total_clips: usize,
     ) -> WorkerResult<()> {
-        // Acquire semaphore for resource control
-        let _permit = ctx.ffmpeg_semaphore.acquire().await
-            .map_err(|_| WorkerError::job_failed("Failed to acquire FFmpeg permit"))?;
-
+        let scene_id = task.scene_id;
+        let style_name = task.style.to_string();
         let filename = task.output_filename();
         let output_path = clips_dir.join(&filename);
 
-        info!(
-            "Processing clip {}/{}: {}",
-            clip_index + 1,
-            total_clips,
-            filename
+        // Structured logging for clip start
+        tracing::info!(
+            scene_id = scene_id,
+            style = %style_name,
+            clip_index = clip_index + 1,
+            total_clips = total_clips,
+            filename = %filename,
+            "Starting clip processing"
         );
 
-        // Create processing request
+        // Acquire semaphore for resource control (prevents resource exhaustion)
+        let _permit = ctx.ffmpeg_semaphore.acquire().await
+            .map_err(|_| {
+                let err = WorkerError::job_failed("Failed to acquire FFmpeg permit");
+                tracing::error!(
+                    scene_id = scene_id,
+                    style = %style_name,
+                    "Semaphore acquisition failed"
+                );
+                err
+            })?;
+
+        // Parse timing with defensive defaults
+        let start_sec = parse_timestamp(&task.start).unwrap_or(0.0);
+        let end_sec = parse_timestamp(&task.end).unwrap_or(30.0);
+        let duration_sec = end_sec - start_sec;
+
+        // Helper macro for emitting progress (DRY principle)
+        // Using a macro instead of closure to avoid async borrowing issues
+        macro_rules! emit_progress {
+            ($step:expr, $details:expr) => {{
+                let step = $step;
+                let details: Option<String> = $details;
+                if let Err(e) = ctx.progress
+                    .clip_progress(job_id, scene_id, &style_name, step, details.clone())
+                    .await
+                {
+                    tracing::warn!(
+                        scene_id = scene_id,
+                        style = %style_name,
+                        step = ?step,
+                        error = %e,
+                        "Failed to emit progress event"
+                    );
+                }
+            }};
+        }
+
+        // Stage 1: Extracting segment
+        emit_progress!(
+            ClipProcessingStep::ExtractingSegment,
+            Some(format!("{:.1}s - {:.1}s ({:.1}s)", start_sec, end_sec, duration_sec))
+        );
+
+        // Create processing request with error context
         let request = ProcessingRequest::new(
             task.clone(),
             video_file,
@@ -444,9 +605,17 @@ impl VideoProcessor {
             EncodingConfig::default(), // Will be overridden by style processor
             job_id.to_string(),
             user_id.to_string(),
-        )?;
+        ).map_err(|e| {
+            tracing::error!(
+                scene_id = scene_id,
+                style = %style_name,
+                error = %e,
+                "Failed to create processing request"
+            );
+            e
+        })?;
 
-        // Create processing context
+        // Create processing context (dependency injection pattern)
         let proc_ctx = MediaProcessingContext::new(
             request.request_id.clone(),
             request.user_id.clone(),
@@ -456,36 +625,117 @@ impl VideoProcessor {
             ctx.security.clone(),
         );
 
-        // Get style processor and process
-        let processor = ctx.style_registry.get_processor(task.style).await?;
-        let result = processor.process(request, proc_ctx).await?;
+        // Stage 2: Rendering
+        emit_progress!(
+            ClipProcessingStep::Rendering,
+            Some(format!("Style: {}", style_name))
+        );
 
-        // Upload to storage
+        // Get style processor and process (strategy pattern)
+        let processor = ctx.style_registry.get_processor(task.style).await
+            .map_err(|e| {
+                tracing::error!(
+                    scene_id = scene_id,
+                    style = %style_name,
+                    error = %e,
+                    "Failed to get style processor"
+                );
+                e
+            })?;
+
+        let result = processor.process(request, proc_ctx).await
+            .map_err(|e| {
+                tracing::error!(
+                    scene_id = scene_id,
+                    style = %style_name,
+                    error = %e,
+                    "Style processor failed"
+                );
+                // Emit failure event
+                let _ = ctx.progress.clip_progress(
+                    job_id,
+                    scene_id,
+                    &style_name,
+                    ClipProcessingStep::Failed,
+                    Some(format!("Rendering failed: {}", e)),
+                );
+                e
+            })?;
+
+        // Stage 3: Render complete
+        emit_progress!(ClipProcessingStep::RenderComplete, None);
+
+        // Stage 4: Uploading
+        emit_progress!(
+            ClipProcessingStep::Uploading,
+            Some(filename.clone())
+        );
+
+        // Upload video to storage with error context
         let r2_key = ctx
             .storage
             .upload_clip(&result.output_path, user_id, video_id.as_str(), &filename)
             .await
-            .map_err(|e| WorkerError::Storage(e))?;
+            .map_err(|e| {
+                tracing::error!(
+                    scene_id = scene_id,
+                    style = %style_name,
+                    filename = %filename,
+                    error = %e,
+                    "Failed to upload clip to storage"
+                );
+                // Emit failure event
+                let _ = ctx.progress.clip_progress(
+                    job_id,
+                    scene_id,
+                    &style_name,
+                    ClipProcessingStep::Failed,
+                    Some(format!("Upload failed: {}", e)),
+                );
+                WorkerError::Storage(e)
+            })?;
 
+        // Upload thumbnail if available
         let thumb_key = if let Some(thumb_path) = &result.thumbnail_path {
             let thumb_filename = filename.replace(".mp4", ".jpg");
             Some(
                 ctx.storage
                     .upload_clip(thumb_path, user_id, video_id.as_str(), &thumb_filename)
                     .await
-                    .map_err(|e| WorkerError::Storage(e))?,
+                    .map_err(|e| {
+                        tracing::warn!(
+                            scene_id = scene_id,
+                            style = %style_name,
+                            error = %e,
+                            "Failed to upload thumbnail (non-critical)"
+                        );
+                        WorkerError::Storage(e)
+                    })?,
             )
         } else {
             None
         };
 
-        // Emit progress
-        ctx.progress
+        // Stage 5: Upload complete
+        emit_progress!(ClipProcessingStep::UploadComplete, None);
+
+        // Emit legacy clip_uploaded message for backward compatibility
+        if let Err(e) = ctx.progress
             .clip_uploaded(job_id, video_id.as_str(), clip_index as u32 + 1, total_clips as u32)
             .await
-            .ok();
+        {
+            tracing::warn!(
+                scene_id = scene_id,
+                style = %style_name,
+                error = %e,
+                "Failed to emit clip_uploaded event"
+            );
+        }
 
-        // Create clip metadata
+        // Stage 6: Complete
+        emit_progress!(ClipProcessingStep::Complete, None);
+
+        // Create clip metadata with all processing results
         let clip_meta = ClipMetadata {
             clip_id: format!("{}_{}_{}", video_id, task.scene_id, task.style),
             video_id: video_id.clone(),
@@ -493,7 +743,7 @@ impl VideoProcessor {
             scene_id: task.scene_id,
             scene_title: task.scene_title.clone(),
             scene_description: task.scene_description.clone(),
-            filename,
+            filename: filename.clone(),
             style: task.style.to_string(),
             priority: task.priority,
             start_time: task.start.clone(),
@@ -511,15 +761,34 @@ impl VideoProcessor {
             created_by: user_id.to_string(),
         };
 
-        // Save clip metadata to Firestore
+        // Persist clip metadata to Firestore (repository pattern)
         let clip_repo = ClipRepository::new(
             ctx.firestore.clone(),
             user_id,
             video_id.clone(),
         );
+        
         if let Err(e) = clip_repo.create(&clip_meta).await {
-            tracing::warn!("Failed to save clip metadata to Firestore: {}", e);
+            tracing::error!(
+                scene_id = scene_id,
+                style = %style_name,
+                clip_id = %clip_meta.clip_id,
+                error = %e,
+                "Failed to save clip metadata to Firestore (non-critical)"
+            );
+            // Note: We don't fail the job if metadata save fails
+            // The clip is already uploaded and usable
         }
+
+        // Structured success log
+        tracing::info!(
+            scene_id = scene_id,
+            style = %style_name,
+            filename = %filename,
+            duration_sec = result.duration_seconds,
+            file_size_mb = clip_meta.file_size_mb,
+            "Clip processing completed successfully"
+        );
 
         Ok(())
     }
@@ -631,8 +900,8 @@ fn generate_clip_tasks(
                 crop_mode: *crop_mode,
                 target_aspect: *target_aspect,
                 priority: highlight.id, // Use highlight ID as priority
-                pad_before: 0.0,
-                pad_after: 0.0,
+                pad_before: highlight.pad_before_seconds,
+                pad_after: highlight.pad_after_seconds,
             };
             tasks.push(task);
         }

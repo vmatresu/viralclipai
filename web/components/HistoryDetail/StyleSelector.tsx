@@ -3,17 +3,25 @@
 import { cn } from "@/lib/utils";
 
 const STYLES = [
-  { value: "split", label: "Split View (Fast)", subtitle: "Top/Bottom" },
-  { value: "left_focus", label: "Left Focus", subtitle: "Full Height" },
-  { value: "right_focus", label: "Right Focus", subtitle: "Full Height" },
-  { value: "intelligent", label: "Intelligent Crop", subtitle: "Face Tracking" },
-  {
-    value: "intelligent_split",
-    label: "Intelligent Split View",
-    subtitle: "Face Tracking Top/Bottom",
-  },
-  { value: "original", label: "Original", subtitle: "No Cropping" },
-  { value: "all", label: "All Styles", subtitle: "Generate All" },
+  // Fast/static styles
+  { value: "split", label: "Split View", subtitle: "Top/Bottom", speed: "⚡ Fast" },
+  { value: "split_fast", label: "Split View (Fast)", subtitle: "No Face Detection", speed: "⚡ Fastest" },
+  { value: "left_focus", label: "Left Focus", subtitle: "Full Height", speed: "⚡ Fast" },
+  { value: "right_focus", label: "Right Focus", subtitle: "Full Height", speed: "⚡ Fast" },
+  
+  // Intelligent single-view styles (progressive tiers)
+  { value: "intelligent", label: "Intelligent Crop", subtitle: "Face Tracking", speed: "🧠 Standard" },
+  { value: "intelligent_audio", label: "Intelligent (Audio)", subtitle: "Face + Audio Activity", speed: "🎧 Enhanced" },
+  { value: "intelligent_speaker", label: "Intelligent (Speaker)", subtitle: "Full Speaker Detection", speed: "🎯 Premium" },
+  
+  // Intelligent split-view styles (progressive tiers)
+  { value: "intelligent_split", label: "Smart Split", subtitle: "Split + Face Tracking", speed: "🧠 Standard" },
+  { value: "intelligent_split_audio", label: "Smart Split (Audio)", subtitle: "Split + Audio Activity", speed: "🎧 Enhanced" },
+  { value: "intelligent_split_speaker", label: "Smart Split (Speaker)", subtitle: "Full Speaker Detection", speed: "🎯 Premium" },
+  
+  // Special options
+  { value: "original", label: "Original", subtitle: "No Cropping", speed: "⚡ Fast" },
+  { value: "all", label: "All Styles", subtitle: "Generate All", speed: "⏱️ Varies" },
 ] as const;
 
 interface StyleSelectorProps {
@@ -56,7 +64,7 @@ export function StyleSelector({
   return (
     <div className="space-y-3">
       <h3 className="text-sm font-semibold">Select Styles</h3>
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {STYLES.map((s) => {
           const isSelected =
             s.value === "all"
@@ -81,15 +89,20 @@ export function StyleSelector({
               />
               <div
                 className={cn(
-                  "p-4 rounded-xl border transition-all text-center",
+                  "p-3 rounded-xl border transition-all text-center h-full flex flex-col justify-between",
                   "bg-card hover:bg-accent",
                   isSelected && "border-primary bg-primary/10",
                   disabled && "opacity-50 cursor-not-allowed"
                 )}
               >
-                <span className="font-medium block">{s.label}</span>
-                <span className="block text-xs text-muted-foreground mt-1">
-                  {s.subtitle}
+                <div>
+                  <span className="font-medium block text-sm">{s.label}</span>
+                  <span className="block text-xs text-muted-foreground mt-0.5">
+                    {s.subtitle}
+                  </span>
+                </div>
+                <span className="block text-xs text-muted-foreground mt-2 opacity-75">
+                  {s.speed}
                 </span>
               </div>
             </label>

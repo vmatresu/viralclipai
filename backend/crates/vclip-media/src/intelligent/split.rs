@@ -188,10 +188,12 @@ impl IntelligentSplitProcessor {
         let tile_height = ((crop_width as f64 * 8.0 / 9.0).round() as u32).min(height);
         let vertical_margin = height.saturating_sub(tile_height);
 
-        // Top panel (left person): bias upward to show more face/upper body
+        // Both panels: bias upward to show more face/upper body
+        // This ensures heads are not cut off at the top of the frame
         let top_crop_y = 0u32;
-        // Bottom panel (right person): center vertically
-        let bottom_crop_y = vertical_margin / 2;
+        // Right person (bottom panel): also bias upward to show full face
+        // Use a small offset from top to ensure head is fully visible
+        let bottom_crop_y = (vertical_margin as f64 * 0.15).round() as u32;
 
         // Step 1: Extract left and right portions with proper isolation
         let left_half = temp_dir.path().join("left.mp4");

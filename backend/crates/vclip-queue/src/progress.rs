@@ -4,7 +4,7 @@ use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-use vclip_models::{JobId, WsMessage};
+use vclip_models::{ClipProcessingStep, JobId, WsMessage};
 
 use crate::error::QueueResult;
 
@@ -93,6 +93,54 @@ impl ProgressChannel {
         self.publish(&ProgressEvent {
             job_id: job_id.clone(),
             message: WsMessage::error(message),
+        })
+        .await
+    }
+
+    /// Publish clip progress message.
+    pub async fn clip_progress(
+        &self,
+        job_id: &JobId,
+        scene_id: u32,
+        style: &str,
+        step: ClipProcessingStep,
+        details: Option<String>,
+    ) -> QueueResult<()> {
+        self.publish(&ProgressEvent {
+            job_id: job_id.clone(),
+            message: WsMessage::clip_progress(scene_id, style, step, details),
+        })
+        .await
+    }
+
+    /// Publish scene started message.
+    pub async fn scene_started(
+        &self,
+        job_id: &JobId,
+        scene_id: u32,
+        scene_title: &str,
+        style_count: u32,
+        start_sec: f64,
+        duration_sec: f64,
+    ) -> QueueResult<()> {
+        self.publish(&ProgressEvent {
+            job_id: job_id.clone(),
+            message: WsMessage::scene_started(scene_id, scene_title, style_count, start_sec, duration_sec),
+        })
+        .await
+    }
+
+    /// Publish scene completed message.
+    pub async fn scene_completed(
+        &self,
+        job_id: &JobId,
+        scene_id: u32,
+        clips_completed: u32,
+        clips_failed: u32,
+    ) -> QueueResult<()> {
+        self.publish(&ProgressEvent {
+            job_id: job_id.clone(),
+            message: WsMessage::scene_completed(scene_id, clips_completed, clips_failed),
         })
         .await
     }

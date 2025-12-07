@@ -226,6 +226,9 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
                                         clips_uploaded += 1;
                                         "clip_uploaded"
                                     },
+                                    WsMessage::ClipProgress { .. } => "clip_progress",
+                                    WsMessage::SceneStarted { .. } => "scene_started",
+                                    WsMessage::SceneCompleted { .. } => "scene_completed",
                                     WsMessage::Done { .. } => {
                                         // Increment usage counter when job completes successfully
                                         if clips_uploaded > 0 {

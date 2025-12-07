@@ -11,6 +11,7 @@
 pub mod clip;
 pub mod command;
 pub mod core;
+pub mod detection;
 pub mod download;
 pub mod error;
 pub mod filters;

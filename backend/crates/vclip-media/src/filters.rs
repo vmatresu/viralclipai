@@ -40,8 +40,17 @@ pub fn build_video_filter(style: Style) -> Option<String> {
         Style::LeftFocus => Some(FILTER_LEFT_FOCUS.to_string()),
         Style::RightFocus => Some(FILTER_RIGHT_FOCUS.to_string()),
         Style::Original => None, // No filter for original
-        Style::Intelligent => None, // Handled separately with face detection
-        Style::IntelligentSplit => None, // Handled separately with dual face detection
+        // SplitFast uses FastSplitEngine - no filter here
+        Style::SplitFast => None,
+        // All intelligent styles are handled separately with face detection
+        Style::Intelligent
+        | Style::IntelligentSplit
+        | Style::IntelligentBasic
+        | Style::IntelligentSplitBasic
+        | Style::IntelligentAudio
+        | Style::IntelligentSplitAudio
+        | Style::IntelligentSpeaker
+        | Style::IntelligentSplitSpeaker => None,
     }
 }
 

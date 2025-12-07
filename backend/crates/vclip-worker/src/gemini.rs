@@ -77,9 +77,23 @@ pub struct Highlight {
     pub start: String,
     pub end: String,
     pub duration: u32,
+    /// Padding before the start timestamp (seconds)
+    #[serde(default = "default_pad_before")]
+    pub pad_before_seconds: f64,
+    /// Padding after the end timestamp (seconds)
+    #[serde(default = "default_pad_after")]
+    pub pad_after_seconds: f64,
     pub hook_category: Option<String>,
     pub reason: Option<String>,
     pub description: Option<String>,
+}
+
+fn default_pad_before() -> f64 {
+    1.0
+}
+
+fn default_pad_after() -> f64 {
+    1.5
 }
 
 impl GeminiClient {
@@ -327,6 +341,8 @@ Return ONLY a single JSON object with this schema:
       "start": "HH:MM:SS",
       "end": "HH:MM:SS",
       "duration": 0,
+      "pad_before_seconds": 1.0,
+      "pad_after_seconds": 1.5,
       "hook_category": "Category",
       "reason": "Why this is viral",
       "description": "Engaging social media caption with hashtags"
@@ -346,6 +362,7 @@ Additional instructions:
 - You MUST verify the quotes exist in the transcript provided above.
 - Extract 3 to 10 viral segments that are 20-90 seconds long.
 - Calculate duration in seconds for each highlight.
+- Set pad_before_seconds to 1.0 and pad_after_seconds to 1.5 for natural clip boundaries.
 "#
         )
     }

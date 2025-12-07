@@ -185,6 +185,9 @@ services:
     ports:
       - "${REDIS_PORT:-6379}:6379"
 
+    volumes:
+      - redis-data:/data
+
     networks:
       - vclip-dev
 
@@ -226,4 +229,9 @@ volumes:
   # Worker temp files for video processing
   worker-temp:
     name: vclip-worker-temp-dev
+    driver: local
+
+  # Redis data (dev - no persistence but prevents anonymous volumes)
+  redis-data:
+    name: vclip-redis-data-dev
     driver: local

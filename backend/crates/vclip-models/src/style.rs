@@ -1,5 +1,6 @@
 //! Video style and crop mode definitions.
 
+use crate::detection_tier::DetectionTier;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -7,40 +8,67 @@ use std::str::FromStr;
 use thiserror::Error;
 
 /// Available clip styles.
+///
+/// Styles are organized into categories:
+/// - **Static styles**: `Split`, `LeftFocus`, `RightFocus`, `Original` - fixed crops
+/// - **Fast styles**: `SplitFast` - heuristic positioning without AI
+/// - **Intelligent styles**: Use AI detection with varying tiers
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Style {
     /// Original aspect ratio preserved
     Original,
-    /// Split view - left and right halves stacked
+    /// Split view - left and right halves stacked (static crop)
     Split,
-    /// Focus on left half
+    /// Focus on left half (static crop)
     LeftFocus,
-    /// Focus on right half
+    /// Focus on right half (static crop)
     RightFocus,
-    /// Intelligent crop with face tracking (single view)
+    /// Fast split view - heuristic positioning only, no AI detection
+    SplitFast,
+    /// Intelligent crop with face tracking (single view, basic tier)
     Intelligent,
-    /// Intelligent split with face tracking (dual view)
+    /// Intelligent split with face tracking (dual view, basic tier)
     IntelligentSplit,
+    /// Intelligent crop - YuNet face detection only
+    IntelligentBasic,
+    /// Intelligent split - YuNet face detection only
+    IntelligentSplitBasic,
+    /// Intelligent crop - YuNet + audio activity detection
+    IntelligentAudio,
+    /// Intelligent split - YuNet + audio activity detection
+    IntelligentSplitAudio,
+    /// Intelligent crop - full detection (YuNet + audio + face activity)
+    IntelligentSpeaker,
+    /// Intelligent split - full detection (YuNet + audio + face activity)
+    IntelligentSplitSpeaker,
 }
 
 impl Style {
-    /// All available styles (excluding Original for "all" expansion).
+    /// All available styles.
     pub const ALL: &'static [Style] = &[
         Style::Original,
         Style::Split,
         Style::LeftFocus,
         Style::RightFocus,
+        Style::SplitFast,
         Style::Intelligent,
         Style::IntelligentSplit,
+        Style::IntelligentBasic,
+        Style::IntelligentSplitBasic,
+        Style::IntelligentAudio,
+        Style::IntelligentSplitAudio,
+        Style::IntelligentSpeaker,
+        Style::IntelligentSplitSpeaker,
     ];
 
     /// Styles included when user requests "all".
-    /// Excludes Original as it's typically not wanted in batch processing.
+    /// Excludes Original and advanced tiers to avoid overwhelming output.
     pub const ALL_FOR_EXPANSION: &'static [Style] = &[
         Style::Split,
         Style::LeftFocus,
         Style::RightFocus,
+        Style::SplitFast,
         Style::Intelligent,
         Style::IntelligentSplit,
     ];
@@ -78,14 +106,66 @@ impl Style {
             Style::Split => "split",
             Style::LeftFocus => "left_focus",
             Style::RightFocus => "right_focus",
+            Style::SplitFast => "split_fast",
             Style::Intelligent => "intelligent",
             Style::IntelligentSplit => "intelligent_split",
+            Style::IntelligentBasic => "intelligent_basic",
+            Style::IntelligentSplitBasic => "intelligent_split_basic",
+            Style::IntelligentAudio => "intelligent_audio",
+            Style::IntelligentSplitAudio => "intelligent_split_audio",
+            Style::IntelligentSpeaker => "intelligent_speaker",
+            Style::IntelligentSplitSpeaker => "intelligent_split_speaker",
         }
     }
 
     /// Whether this style requires intelligent cropping.
     pub fn requires_intelligent_crop(&self) -> bool {
-        matches!(self, Style::Intelligent | Style::IntelligentSplit)
+        matches!(
+            self,
+            Style::Intelligent
+                | Style::IntelligentSplit
+                | Style::IntelligentBasic
+                | Style::IntelligentSplitBasic
+                | Style::IntelligentAudio
+                | Style::IntelligentSplitAudio
+                | Style::IntelligentSpeaker
+                | Style::IntelligentSplitSpeaker
+        )
+    }
+
+    /// Returns the detection tier for this style.
+    pub fn detection_tier(&self) -> DetectionTier {
+        match self {
+            Style::Original
+            | Style::Split
+            | Style::LeftFocus
+            | Style::RightFocus
+            | Style::SplitFast => DetectionTier::None,
+            Style::Intelligent
+            | Style::IntelligentSplit
+            | Style::IntelligentBasic
+            | Style::IntelligentSplitBasic => DetectionTier::Basic,
+            Style::IntelligentAudio | Style::IntelligentSplitAudio => DetectionTier::AudioAware,
+            Style::IntelligentSpeaker | Style::IntelligentSplitSpeaker => DetectionTier::SpeakerAware,
+        }
+    }
+
+    /// Returns true if this is a split-view style.
+    pub fn is_split_view(&self) -> bool {
+        matches!(
+            self,
+            Style::Split
+                | Style::SplitFast
+                | Style::IntelligentSplit
+                | Style::IntelligentSplitBasic
+                | Style::IntelligentSplitAudio
+                | Style::IntelligentSplitSpeaker
+        )
+    }
+
+    /// Returns true if this is a fast/static style (no AI detection).
+    pub fn is_fast(&self) -> bool {
+        self.detection_tier() == DetectionTier::None
     }
 }
 
@@ -104,8 +184,15 @@ impl FromStr for Style {
             "split" => Ok(Style::Split),
             "left_focus" => Ok(Style::LeftFocus),
             "right_focus" => Ok(Style::RightFocus),
+            "split_fast" => Ok(Style::SplitFast),
             "intelligent" => Ok(Style::Intelligent),
             "intelligent_split" => Ok(Style::IntelligentSplit),
+            "intelligent_basic" => Ok(Style::IntelligentBasic),
+            "intelligent_split_basic" => Ok(Style::IntelligentSplitBasic),
+            "intelligent_audio" => Ok(Style::IntelligentAudio),
+            "intelligent_split_audio" => Ok(Style::IntelligentSplitAudio),
+            "intelligent_speaker" => Ok(Style::IntelligentSpeaker),
+            "intelligent_split_speaker" => Ok(Style::IntelligentSplitSpeaker),
             _ => Err(StyleParseError(s.to_string())),
         }
     }
@@ -296,14 +383,16 @@ mod tests {
     #[test]
     fn test_expand_styles_all() {
         let styles = Style::expand_styles(&["all".to_string()]);
-        assert_eq!(styles.len(), 5);
+        assert_eq!(styles.len(), 6); // Now includes SplitFast
         assert!(styles.contains(&Style::Split));
+        assert!(styles.contains(&Style::SplitFast));
         assert!(styles.contains(&Style::LeftFocus));
         assert!(styles.contains(&Style::RightFocus));
         assert!(styles.contains(&Style::Intelligent));
         assert!(styles.contains(&Style::IntelligentSplit));
-        // "all" should not include Original
+        // "all" should not include Original or advanced tiers
         assert!(!styles.contains(&Style::Original));
+        assert!(!styles.contains(&Style::IntelligentSpeaker));
     }
 
     #[test]
@@ -326,7 +415,7 @@ mod tests {
             "split".to_string(),
         ]);
         // Should deduplicate: split appears once, all expands but split already seen
-        assert_eq!(styles.len(), 5);
+        assert_eq!(styles.len(), 6);
     }
 
     #[test]
@@ -344,4 +433,64 @@ mod tests {
     fn test_style_display() {
         assert_eq!(Style::IntelligentSplit.to_string(), "intelligent_split");
     }
+
+    #[test]
+    fn test_detection_tier_mapping() {
+        use crate::detection_tier::DetectionTier;
+        
+        // Fast styles -> None tier
+        assert_eq!(Style::Original.detection_tier(), DetectionTier::None);
+        assert_eq!(Style::Split.detection_tier(), DetectionTier::None);
+        assert_eq!(Style::SplitFast.detection_tier(), DetectionTier::None);
+        
+        // Basic tier styles
+        assert_eq!(Style::Intelligent.detection_tier(), DetectionTier::Basic);
+        assert_eq!(Style::IntelligentSplit.detection_tier(), DetectionTier::Basic);
+        assert_eq!(Style::IntelligentBasic.detection_tier(), DetectionTier::Basic);
+        
+        // Audio-aware tier
+        assert_eq!(Style::IntelligentAudio.detection_tier(), DetectionTier::AudioAware);
+        assert_eq!(Style::IntelligentSplitAudio.detection_tier(), DetectionTier::AudioAware);
+        
+        // Speaker-aware tier
+        assert_eq!(Style::IntelligentSpeaker.detection_tier(), DetectionTier::SpeakerAware);
+        assert_eq!(Style::IntelligentSplitSpeaker.detection_tier(), DetectionTier::SpeakerAware);
+    }
+
+    #[test]
+    fn test_is_split_view() {
+        // Split view styles
+        assert!(Style::Split.is_split_view());
+        assert!(Style::SplitFast.is_split_view());
+        assert!(Style::IntelligentSplit.is_split_view());
+        assert!(Style::IntelligentSplitAudio.is_split_view());
+        
+        // Non-split styles
+        assert!(!Style::Original.is_split_view());
+        assert!(!Style::Intelligent.is_split_view());
+        assert!(!Style::IntelligentSpeaker.is_split_view());
+    }
+
+    #[test]
+    fn test_is_fast() {
+        // Fast styles (no AI detection)
+        assert!(Style::Original.is_fast());
+        assert!(Style::Split.is_fast());
+        assert!(Style::SplitFast.is_fast());
+        assert!(Style::LeftFocus.is_fast());
+        
+        // Non-fast styles (use AI detection)
+        assert!(!Style::Intelligent.is_fast());
+        assert!(!Style::IntelligentSpeaker.is_fast());
+    }
+
+    #[test]
+    fn test_new_style_parse() {
+        assert_eq!("split_fast".parse::<Style>().unwrap(), Style::SplitFast);
+        assert_eq!("intelligent_audio".parse::<Style>().unwrap(), Style::IntelligentAudio);
+        assert_eq!("intelligent_speaker".parse::<Style>().unwrap(), Style::IntelligentSpeaker);
+        assert_eq!("intelligent_split_audio".parse::<Style>().unwrap(), Style::IntelligentSplitAudio);
+        assert_eq!("intelligent_split_speaker".parse::<Style>().unwrap(), Style::IntelligentSplitSpeaker);
+    }
 }
+

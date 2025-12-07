@@ -2,24 +2,54 @@
 //!
 //! Handles video processing with intelligent face tracking and cropping.
 //! Uses face detection to follow subjects and maintain optimal framing.
+//!
+//! Detection behavior is controlled by the `DetectionTier`:
+//! - `Basic`: YuNet face detection only - follows most prominent face
+//! - `AudioAware`: YuNet + speaker detection - prioritizes active speaker
+//! - `SpeakerAware`: YuNet + audio + face activity - robust speaker tracking with hysteresis
+//!
+//! # Tier Differences
+//!
+//! - **Basic**: Camera follows the largest/most confident face. Good for single-speaker content.
+//! - **AudioAware**: Camera prioritizes faces on the active speaker side (left/right).
+//!   Fast re-centering (0.2-0.5s) when speaker changes.
+//! - **SpeakerAware**: Full activity tracking with hysteresis. Minimum dwell time (1.0s)
+//!   before switching, requires 20% improvement margin. Best for multi-speaker podcasts.
 
 use async_trait::async_trait;
+use tracing::info;
+use vclip_models::{DetectionTier, Style};
 
-use vclip_models::Style;
-use crate::error::MediaResult;
-use crate::core::{ProcessingRequest, ProcessingResult, ProcessingContext, StyleProcessor};
 use crate::core::observability::ProcessingLogger;
+use crate::core::{ProcessingContext, ProcessingRequest, ProcessingResult, StyleProcessor};
+use crate::error::MediaResult;
+
 use super::utils;
 
 /// Processor for intelligent video style.
 /// Uses face detection and tracking for optimal cropping.
 #[derive(Clone)]
-pub struct IntelligentProcessor;
+pub struct IntelligentProcessor {
+    /// Detection tier controlling which providers are used.
+    tier: DetectionTier,
+}
 
 impl IntelligentProcessor {
-    /// Create a new intelligent processor.
+    /// Create a new intelligent processor with Basic tier (default).
     pub fn new() -> Self {
-        Self
+        Self {
+            tier: DetectionTier::Basic,
+        }
+    }
+
+    /// Create an intelligent processor with a specific detection tier.
+    pub fn with_tier(tier: DetectionTier) -> Self {
+        Self { tier }
+    }
+
+    /// Get the detection tier.
+    pub fn detection_tier(&self) -> DetectionTier {
+        self.tier
     }
 
     /// Get the estimated file size multiplier for intelligent processing.
@@ -39,14 +69,29 @@ impl Default for IntelligentProcessor {
 #[async_trait]
 impl StyleProcessor for IntelligentProcessor {
     fn name(&self) -> &'static str {
-        "intelligent"
+        match self.tier {
+            DetectionTier::None => "intelligent_heuristic",
+            DetectionTier::Basic => "intelligent",
+            DetectionTier::AudioAware => "intelligent_audio",
+            DetectionTier::SpeakerAware => "intelligent_speaker",
+        }
     }
 
     fn can_handle(&self, style: Style) -> bool {
-        matches!(style, Style::Intelligent)
+        matches!(
+            style,
+            Style::Intelligent
+                | Style::IntelligentBasic
+                | Style::IntelligentAudio
+                | Style::IntelligentSpeaker
+        )
     }
 
-    async fn validate(&self, request: &ProcessingRequest, ctx: &ProcessingContext) -> MediaResult<()> {
+    async fn validate(
+        &self,
+        request: &ProcessingRequest,
+        ctx: &ProcessingContext,
+    ) -> MediaResult<()> {
         utils::validate_paths(&request.input_path, &request.output_path)?;
 
         // Additional validation for intelligent processing
@@ -55,27 +100,41 @@ impl StyleProcessor for IntelligentProcessor {
         Ok(())
     }
 
-    async fn process(&self, request: ProcessingRequest, ctx: ProcessingContext) -> MediaResult<ProcessingResult> {
+    async fn process(
+        &self,
+        request: ProcessingRequest,
+        ctx: ProcessingContext,
+    ) -> MediaResult<ProcessingResult> {
+        let tier_name = self.name();
         let timer = ctx.metrics.start_timer("intelligent_processing");
         let logger = ProcessingLogger::new(
             ctx.request_id.clone(),
             ctx.user_id.clone(),
-            "intelligent".to_string(),
+            tier_name.to_string(),
         );
 
         logger.log_start(&request.input_path, &request.output_path);
 
-        // For now, delegate to the existing intelligent implementation
-        // In the full implementation, this would be refactored to use the new architecture
-        let _result = crate::intelligent::create_intelligent_clip(
+        info!(
+            "Processing with {} tier (detection: {:?})",
+            tier_name, self.tier
+        );
+
+        // Use tier-aware intelligent cropper for tier-specific behavior
+        // - Basic: Follows most prominent face (largest × confidence)
+        // - AudioAware: Prioritizes faces on active speaker side
+        // - SpeakerAware: Full activity tracking with hysteresis
+        let _result = crate::intelligent::create_tier_aware_intelligent_clip(
             request.input_path.as_ref(),
             request.output_path.as_ref(),
             &request.task,
+            self.tier,
             &request.encoding,
             |_progress| {
                 // Could emit progress updates
             },
-        ).await?;
+        )
+        .await?;
 
         let processing_time = timer.elapsed();
 
@@ -84,8 +143,9 @@ impl StyleProcessor for IntelligentProcessor {
             .map(|m| m.len())
             .unwrap_or(0);
 
-        let duration = super::super::intelligent::parse_timestamp(&request.task.end).unwrap_or(30.0) -
-                      super::super::intelligent::parse_timestamp(&request.task.start).unwrap_or(0.0);
+        let duration = super::super::intelligent::parse_timestamp(&request.task.end)
+            .unwrap_or(30.0)
+            - super::super::intelligent::parse_timestamp(&request.task.start).unwrap_or(0.0);
 
         let result = ProcessingResult {
             output_path: request.output_path.clone(),
@@ -96,11 +156,12 @@ impl StyleProcessor for IntelligentProcessor {
             metadata: Default::default(),
         };
 
-        ctx.metrics.increment_counter("processing_completed", &[("style", "intelligent")]);
+        ctx.metrics
+            .increment_counter("processing_completed", &[("style", tier_name)]);
         ctx.metrics.record_histogram(
             "processing_duration_ms",
             processing_time.as_millis() as f64,
-            &[("style", "intelligent")]
+            &[("style", tier_name)],
         );
 
         timer.success();
@@ -110,9 +171,21 @@ impl StyleProcessor for IntelligentProcessor {
     }
 
     fn estimate_complexity(&self, request: &ProcessingRequest) -> crate::core::ProcessingComplexity {
-        let duration = super::super::intelligent::parse_timestamp(&request.task.end).unwrap_or(30.0) -
-                      super::super::intelligent::parse_timestamp(&request.task.start).unwrap_or(0.0);
-        utils::estimate_complexity(duration, true)
+        let duration = super::super::intelligent::parse_timestamp(&request.task.end)
+            .unwrap_or(30.0)
+            - super::super::intelligent::parse_timestamp(&request.task.start).unwrap_or(0.0);
+
+        // Higher tiers require more processing time
+        let multiplier = match self.tier {
+            DetectionTier::None => 0.5,
+            DetectionTier::Basic => 1.0,
+            DetectionTier::AudioAware => 1.3,
+            DetectionTier::SpeakerAware => 1.6,
+        };
+
+        let mut complexity = utils::estimate_complexity(duration, true);
+        complexity.estimated_time_ms = (complexity.estimated_time_ms as f64 * multiplier) as u64;
+        complexity
     }
 }
 
@@ -126,5 +199,30 @@ mod tests {
         assert_eq!(processor.name(), "intelligent");
         assert!(processor.can_handle(Style::Intelligent));
         assert!(!processor.can_handle(Style::Split));
+        assert_eq!(processor.detection_tier(), DetectionTier::Basic);
+    }
+
+    #[tokio::test]
+    async fn test_intelligent_processor_with_tier() {
+        let processor = IntelligentProcessor::with_tier(DetectionTier::AudioAware);
+        assert_eq!(processor.name(), "intelligent_audio");
+        assert_eq!(processor.detection_tier(), DetectionTier::AudioAware);
+
+        let processor = IntelligentProcessor::with_tier(DetectionTier::SpeakerAware);
+        assert_eq!(processor.name(), "intelligent_speaker");
+        assert_eq!(processor.detection_tier(), DetectionTier::SpeakerAware);
+    }
+
+    #[test]
+    fn test_can_handle_all_intelligent_styles() {
+        let processor = IntelligentProcessor::new();
+        assert!(processor.can_handle(Style::Intelligent));
+        assert!(processor.can_handle(Style::IntelligentBasic));
+        assert!(processor.can_handle(Style::IntelligentAudio));
+        assert!(processor.can_handle(Style::IntelligentSpeaker));
+
+        assert!(!processor.can_handle(Style::IntelligentSplit));
+        assert!(!processor.can_handle(Style::Split));
     }
 }
+

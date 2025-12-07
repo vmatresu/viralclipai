@@ -10,9 +10,33 @@ export const WS_MESSAGE_TYPES = {
   ERROR: "error",
   DONE: "done",
   CLIP_UPLOADED: "clip_uploaded",
+  CLIP_PROGRESS: "clip_progress",
+  SCENE_STARTED: "scene_started",
+  SCENE_COMPLETED: "scene_completed",
 } as const;
 
 export type WSMessageType = (typeof WS_MESSAGE_TYPES)[keyof typeof WS_MESSAGE_TYPES];
+
+/**
+ * Clip processing step enum (matches backend ClipProcessingStep)
+ */
+export const CLIP_PROCESSING_STEPS = {
+  EXTRACTING_SEGMENT: "extracting_segment",
+  DETECTING_FACES: "detecting_faces",
+  FACE_DETECTION_COMPLETE: "face_detection_complete",
+  COMPUTING_CAMERA_PATH: "computing_camera_path",
+  CAMERA_PATH_COMPLETE: "camera_path_complete",
+  COMPUTING_CROP_WINDOWS: "computing_crop_windows",
+  RENDERING: "rendering",
+  RENDER_COMPLETE: "render_complete",
+  UPLOADING: "uploading",
+  UPLOAD_COMPLETE: "upload_complete",
+  COMPLETE: "complete",
+  FAILED: "failed",
+} as const;
+
+export type ClipProcessingStep =
+  (typeof CLIP_PROCESSING_STEPS)[keyof typeof CLIP_PROCESSING_STEPS];
 
 /**
  * Base WebSocket message structure
@@ -66,6 +90,39 @@ export interface WSClipUploadedMessage extends BaseWSMessage {
 }
 
 /**
+ * Detailed clip processing progress message
+ */
+export interface WSClipProgressMessage extends BaseWSMessage {
+  type: typeof WS_MESSAGE_TYPES.CLIP_PROGRESS;
+  sceneId: number;
+  style: string;
+  step: ClipProcessingStep;
+  details?: string;
+}
+
+/**
+ * Scene processing started message
+ */
+export interface WSSceneStartedMessage extends BaseWSMessage {
+  type: typeof WS_MESSAGE_TYPES.SCENE_STARTED;
+  sceneId: number;
+  sceneTitle: string;
+  styleCount: number;
+  startSec: number;
+  durationSec: number;
+}
+
+/**
+ * Scene processing completed message
+ */
+export interface WSSceneCompletedMessage extends BaseWSMessage {
+  type: typeof WS_MESSAGE_TYPES.SCENE_COMPLETED;
+  sceneId: number;
+  clipsCompleted: number;
+  clipsFailed: number;
+}
+
+/**
  * Union type of all WebSocket messages
  */
 export type WSMessage =
@@ -73,7 +130,10 @@ export type WSMessage =
   | WSProgressMessage
   | WSErrorMessage
   | WSDoneMessage
-  | WSClipUploadedMessage;
+  | WSClipUploadedMessage
+  | WSClipProgressMessage
+  | WSSceneStartedMessage
+  | WSSceneCompletedMessage;
 
 /**
  * Type guard to check if message is a specific type

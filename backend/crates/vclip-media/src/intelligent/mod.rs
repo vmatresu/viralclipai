@@ -46,27 +46,44 @@
 //!    Output Video
 //! ```
 
+pub mod activity_scorer;
 pub mod config;
 pub mod crop_planner;
 pub mod detector;
+pub mod face_activity;
+pub mod face_landmarks;
+pub mod fast_split;
 pub mod layout_detector;
 pub mod models;
 pub mod renderer;
 pub mod smoother;
 pub mod speaker_detector;
 pub mod split;
+pub mod tier_aware_cropper;
+pub mod tier_aware_smoother;
+pub mod tier_aware_split;
 pub mod tracker;
 pub mod yunet;
 
+#[cfg(test)]
+mod tests;
+
+pub use activity_scorer::{ActivityScore, TemporalActivityTracker};
 pub use config::IntelligentCropConfig;
 pub use crop_planner::CropPlanner;
 pub use detector::FaceDetector;
+pub use face_activity::{FaceActivityAnalyzer, FaceActivityConfig};
+pub use face_landmarks::{FaceLandmarkDetector, FaceLandmarks};
+pub use fast_split::{FastSplitConfig, FastSplitEngine};
 pub use layout_detector::{HeuristicGenerator, LayoutDetector, VideoLayout};
 pub use models::*;
 pub use renderer::IntelligentRenderer;
 pub use smoother::CameraSmoother;
 pub use speaker_detector::{ActiveSpeaker, SpeakerDetector, SpeakerSegment};
 pub use split::{create_intelligent_split_clip, IntelligentSplitProcessor, SplitLayout};
+pub use tier_aware_cropper::{create_tier_aware_intelligent_clip, TierAwareIntelligentCropper};
+pub use tier_aware_smoother::TierAwareCameraSmoother;
+pub use tier_aware_split::{create_tier_aware_split_clip, TierAwareSplitProcessor};
 pub use tracker::IoUTracker;
 
 use crate::error::MediaResult;

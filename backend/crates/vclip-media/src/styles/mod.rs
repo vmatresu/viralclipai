@@ -3,6 +3,11 @@
 //! Each video style (Original, Split, LeftFocus, etc.) has its own processor
 //! implementing the StyleProcessor trait. This ensures complete separation
 //! and testability of style-specific logic.
+//!
+//! Intelligent styles are instantiated with their appropriate `DetectionTier`:
+//! - `Basic`: YuNet face detection only
+//! - `AudioAware`: YuNet + speaker detection
+//! - `SpeakerAware`: YuNet + audio + face activity
 
 use std::path::Path;
 
@@ -13,6 +18,7 @@ use crate::core::{StyleProcessor, StyleProcessorFactory as StyleProcessorFactory
 
 pub mod original;
 pub mod split;
+pub mod split_fast;
 pub mod left_focus;
 pub mod right_focus;
 pub mod intelligent;
@@ -35,14 +41,47 @@ impl StyleProcessorFactory {
 #[async_trait]
 impl StyleProcessorFactoryTrait for StyleProcessorFactory {
     /// Create a processor for the given style.
+    ///
+    /// Processors are instantiated with the appropriate `DetectionTier` based on
+    /// the style's tier mapping.
     async fn create_processor(&self, style: Style) -> MediaResult<Box<dyn StyleProcessor>> {
         match style {
+            // Static/fast styles
             Style::Original => Ok(Box::new(original::OriginalProcessor::new())),
             Style::Split => Ok(Box::new(split::SplitProcessor::new())),
+            Style::SplitFast => Ok(Box::new(split_fast::SplitFastProcessor::new())),
             Style::LeftFocus => Ok(Box::new(left_focus::LeftFocusProcessor::new())),
             Style::RightFocus => Ok(Box::new(right_focus::RightFocusProcessor::new())),
-            Style::Intelligent => Ok(Box::new(intelligent::IntelligentProcessor::new())),
-            Style::IntelligentSplit => Ok(Box::new(intelligent_split::IntelligentSplitProcessor::new())),
+
+            // Intelligent single-view styles (tier-aware)
+            Style::Intelligent | Style::IntelligentBasic => {
+                Ok(Box::new(intelligent::IntelligentProcessor::new()))
+            }
+            Style::IntelligentAudio => {
+                Ok(Box::new(intelligent::IntelligentProcessor::with_tier(
+                    vclip_models::DetectionTier::AudioAware,
+                )))
+            }
+            Style::IntelligentSpeaker => {
+                Ok(Box::new(intelligent::IntelligentProcessor::with_tier(
+                    vclip_models::DetectionTier::SpeakerAware,
+                )))
+            }
+
+            // Intelligent split-view styles (tier-aware)
+            Style::IntelligentSplit | Style::IntelligentSplitBasic => {
+                Ok(Box::new(intelligent_split::IntelligentSplitProcessor::new()))
+            }
+            Style::IntelligentSplitAudio => {
+                Ok(Box::new(intelligent_split::IntelligentSplitProcessor::with_tier(
+                    vclip_models::DetectionTier::AudioAware,
+                )))
+            }
+            Style::IntelligentSplitSpeaker => {
+                Ok(Box::new(intelligent_split::IntelligentSplitProcessor::with_tier(
+                    vclip_models::DetectionTier::SpeakerAware,
+                )))
+            }
         }
     }
 }

@@ -48,6 +48,7 @@ export function ProcessingClient() {
     processingStartTime,
     processingStyles,
     processingCustomPrompt,
+    sceneProgress,
     log,
     loadResults,
     setSubmitting,
@@ -59,6 +60,10 @@ export function ProcessingClient() {
     setVideoTitle,
     setVideoUrl,
     searchParams,
+    handleSceneStarted,
+    handleSceneCompleted,
+    handleClipProgress,
+    resetSceneProgress,
   } = useVideoProcessing();
 
   const { getIdToken, loading: authLoading, user } = useAuth();
@@ -76,6 +81,7 @@ export function ProcessingClient() {
     setProgress(0);
     setClips([]);
     setVideoId(null);
+    resetSceneProgress(); // Reset scene progress for new processing
     // Store processing parameters at start time for accurate analytics tracking
     processingStartTime.current = Date.now();
     processingStyles.current = [...styles];
@@ -165,6 +171,10 @@ export function ProcessingClient() {
                 log(`📦 Clip ${clipCount}/${totalClips} uploaded`, "success");
               }
             },
+            // Detailed progress callbacks
+            onSceneStarted: handleSceneStarted,
+            onSceneCompleted: handleSceneCompleted,
+            onClipProgress: handleClipProgress,
           };
 
           const handled = handleWSMessage(message, callbacks, searchParams.get("id"));
@@ -249,7 +259,13 @@ export function ProcessingClient() {
       )}
 
       {/* Status Section */}
-      {submitting && <ProcessingStatus progress={progress} logs={logs} />}
+      {submitting && (
+        <ProcessingStatus
+          progress={progress}
+          logs={logs}
+          sceneProgress={sceneProgress}
+        />
+      )}
 
       {/* Error Section */}
       {error && <ErrorDisplay error={error} errorDetails={errorDetails} />}
