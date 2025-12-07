@@ -49,9 +49,11 @@
 pub mod config;
 pub mod crop_planner;
 pub mod detector;
+pub mod layout_detector;
 pub mod models;
 pub mod renderer;
 pub mod smoother;
+pub mod speaker_detector;
 pub mod split;
 pub mod tracker;
 pub mod yunet;
@@ -59,9 +61,11 @@ pub mod yunet;
 pub use config::IntelligentCropConfig;
 pub use crop_planner::CropPlanner;
 pub use detector::FaceDetector;
+pub use layout_detector::{HeuristicGenerator, LayoutDetector, VideoLayout};
 pub use models::*;
 pub use renderer::IntelligentRenderer;
 pub use smoother::CameraSmoother;
+pub use speaker_detector::{ActiveSpeaker, SpeakerDetector, SpeakerSegment};
 pub use split::{create_intelligent_split_clip, IntelligentSplitProcessor, SplitLayout};
 pub use tracker::IoUTracker;
 

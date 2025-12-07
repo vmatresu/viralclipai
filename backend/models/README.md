@@ -8,9 +8,10 @@ This directory contains pre-trained machine learning models used by ViralClip AI
 models/
 ├── face_detection/
 │   ├── yunet/
-│   │   ├── face_detection_yunet_2023mar.onnx          # Primary: float32, most compatible
-│   │   ├── face_detection_yunet_2023mar_int8.onnx     # Int8 quantized: faster but limited compatibility
-│   │   ├── face_detection_yunet_2023mar_int8bq.onnx   # Block-quantized: fastest but limited compatibility
+│   │   ├── face_detection_yunet_2023mar.onnx          # Primary: float32 (requires OpenCV 4.8+)
+│   │   ├── face_detection_yunet_2023mar_int8.onnx     # Int8 quantized (requires OpenCV 4.8+)
+│   │   ├── face_detection_yunet_2023mar_int8bq.onnx   # Block-quantized (requires OpenCV 4.8+)
+│   │   ├── face_detection_yunet_2022mar.onnx          # Fallback: compatible with OpenCV 4.5+
 │   │   ├── README.md                                  # Model documentation
 │   │   └── checksums.sha256                           # Integrity verification
 │   └── README.md
@@ -37,23 +38,36 @@ curl -L -o face_detection_yunet_2023mar.onnx \
 
 Models are loaded in this order of preference:
 
-1. `face_detection_yunet_2023mar.onnx` - Primary (float32, most compatible)
-2. `face_detection_yunet_2023mar_int8.onnx` - Fallback (int8 quantized)
-3. `face_detection_yunet_2023mar_int8bq.onnx` - Last resort (block-quantized)
+1. `face_detection_yunet_2023mar.onnx` - Primary (float32, requires OpenCV 4.8+)
+2. `face_detection_yunet_2023mar_int8.onnx` - Faster (int8, requires OpenCV 4.8+)
+3. `face_detection_yunet_2023mar_int8bq.onnx` - Fastest (block-quantized, requires OpenCV 4.8+)
+4. `face_detection_yunet_2022mar.onnx` - Fallback (compatible with OpenCV 4.5+)
 
-### Compatibility Notes
+### OpenCV Compatibility
 
-- **Float32 models**: Work with all OpenCV builds
-- **Quantized models**: Require `DequantizeLinear` ONNX operator support
-- Some OpenCV installations (especially in containers) may not support quantized models
+**IMPORTANT**: The 2023mar models require OpenCV 4.8+ due to new ONNX operators.
+
+| Model Version | OpenCV Required | Notes                                        |
+| ------------- | --------------- | -------------------------------------------- |
+| 2023mar       | 4.8+            | Better accuracy (0.88 AP), new architecture  |
+| 2022mar       | 4.5+            | Good accuracy (0.83 AP), wider compatibility |
+
+**Known Issue**: OpenCV 4.6.0 and 4.7.0 will fail with error:
+
+```
+Layer with requested id=-1 not found in function 'getLayerData'
+```
+
+The Rust code automatically detects this error and falls back to the 2022mar model.
 
 ### Performance Comparison
 
-| Model           | Precision | Speed       | Accuracy (AP_easy) | Compatibility |
-| --------------- | --------- | ----------- | ------------------ | ------------- |
-| Original        | float32   | ~25ms/frame | 0.8844             | ✅ Universal  |
-| Int8 Quantized  | int8      | ~8ms/frame  | 0.8810             | ⚠️ Limited    |
-| Block-Quantized | int8      | ~6ms/frame  | 0.8845             | ⚠️ Limited    |
+| Model              | Precision | Speed       | Accuracy (AP_easy) | OpenCV Version |
+| ------------------ | --------- | ----------- | ------------------ | -------------- |
+| 2023mar            | float32   | ~25ms/frame | 0.8844             | 4.8+           |
+| 2023mar Int8       | int8      | ~8ms/frame  | 0.8810             | 4.8+           |
+| 2023mar Int8-BQ    | int8      | ~6ms/frame  | 0.8845             | 4.8+           |
+| 2022mar (fallback) | float32   | ~30ms/frame | 0.8340             | 4.5+           |
 
 ### Version Control
 

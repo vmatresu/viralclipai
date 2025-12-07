@@ -22,10 +22,14 @@ MODEL_DIR="$PROJECT_ROOT/backend/models/face_detection/yunet"
 BACKUP_DIR="$MODEL_DIR/backup"
 
 # Expected model information
+# Note: 2022mar model is included for OpenCV 4.5-4.7 compatibility
+# 2023mar models require OpenCV 4.8+ due to new ONNX operators
 MODEL_INFO=(
     "face_detection_yunet_2023mar.onnx|https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx|230000|float32|25ms"
     "face_detection_yunet_2023mar_int8.onnx|https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar_int8.onnx|100000|int8|8ms"
     "face_detection_yunet_2023mar_int8bq.onnx|https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar_int8bq.onnx|120000|int8bq|6ms"
+    # 2022mar model: compatible with OpenCV 4.5+ (fallback for older OpenCV versions)
+    "face_detection_yunet_2022mar.onnx|https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2022mar.onnx|230000|float32|30ms"
 )
 
 # Colors for output
@@ -178,9 +182,10 @@ print_summary() {
     echo "📁 Install Location: $MODEL_DIR"
     echo
     echo "📊 Model Performance Comparison:"
-    echo "  • Original (float32):    ~25ms/frame, 0.8844 AP (RECOMMENDED - most compatible)"
-    echo "  • Int8 Quantized:        ~8ms/frame, 0.8810 AP (requires ONNX quantization support)"
-    echo "  • Block-Quantized:       ~6ms/frame, 0.8845 AP (requires ONNX quantization support)"
+    echo "  • 2023mar (float32):     ~25ms/frame, 0.8844 AP (RECOMMENDED - requires OpenCV 4.8+)"
+    echo "  • 2023mar Int8:          ~8ms/frame, 0.8810 AP (requires OpenCV 4.8+ and ONNX quantization)"
+    echo "  • 2023mar Block-Quant:   ~6ms/frame, 0.8845 AP (requires OpenCV 4.8+ and ONNX quantization)"
+    echo "  • 2022mar (float32):     ~30ms/frame, 0.8340 AP (FALLBACK - compatible with OpenCV 4.5+)"
     echo
     echo "🔧 Integration:"
     echo "  • Models are automatically discovered by the Rust code"

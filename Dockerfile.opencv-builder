@@ -1,0 +1,123 @@
+# OpenCV 4.12.0 Builder - Creates pre-built artifacts for development/production
+# Build with: docker build -f Dockerfile.opencv-builder -t opencv-builder .
+# Extract with: docker run --rm -v $(pwd)/opencv-artifacts:/output opencv-builder
+#
+# For ARM64 (Apple Silicon / Linux ARM):
+#   docker buildx build --platform linux/arm64 -f Dockerfile.opencv-builder -t opencv-builder .
+#
+# For AMD64:
+#   docker buildx build --platform linux/amd64 -f Dockerfile.opencv-builder -t opencv-builder .
+
+FROM ubuntu:24.04 AS builder
+
+# Install build dependencies
+# Only what's needed for core, imgproc, objdetect, videoio, dnn modules
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        git \
+        pkg-config \
+        wget \
+        unzip \
+        # Video I/O
+        libavcodec-dev \
+        libavformat-dev \
+        libswscale-dev \
+        # Image codecs
+        libjpeg-turbo8-dev \
+        libpng-dev \
+        libtiff-dev \
+        # Threading
+        libtbb-dev \
+        # WebP support (already enabled by default, but ensure dev headers are available)
+        libwebp-dev \
+        # Text rendering (for freetype module)
+        libharfbuzz-dev \
+        libfreetype6-dev \
+        # SIMD optimization
+        nasm \
+        ca-certificates \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download OpenCV 4.12.0 and contrib modules
+RUN cd /tmp && \
+    wget -O opencv.zip https://github.com/opencv/opencv/archive/4.12.0.zip && \
+    wget -O opencv_contrib.zip https://github.com/opencv/opencv_contrib/archive/4.12.0.zip && \
+    unzip opencv.zip && \
+    unzip opencv_contrib.zip
+
+# Build OpenCV with only the modules needed for ViralClip
+# Explicitly disable contrib modules with extra dependencies we don't have
+RUN cd /tmp/opencv-4.12.0 && \
+    mkdir build && cd build && \
+    cmake -D CMAKE_BUILD_TYPE=RELEASE \
+          -D CMAKE_INSTALL_PREFIX=/usr/local \
+          -D OPENCV_EXTRA_MODULES_PATH=/tmp/opencv_contrib-4.12.0/modules \
+          # Disable GUI backends (not needed for server)
+          -D WITH_GTK=OFF \
+          -D WITH_QT=OFF \
+          -D WITH_OPENGL=OFF \
+          -D WITH_IPP=OFF \
+          # Disable Python/Java bindings
+          -D BUILD_opencv_java=OFF \
+          -D BUILD_opencv_python=OFF \
+          -D BUILD_opencv_python2=OFF \
+          -D BUILD_opencv_python3=OFF \
+          # Disable docs/examples/tests
+          -D BUILD_DOCS=OFF \
+          -D BUILD_EXAMPLES=OFF \
+          -D BUILD_TESTS=OFF \
+          -D BUILD_PERF_TESTS=OFF \
+          # ============================================================
+          # DISABLE CONTRIB MODULES WITH MISSING DEPENDENCIES
+          # These require HDF5, VTK, Qt, or other heavy libs we don't need
+          # ============================================================
+          -D BUILD_opencv_alphamat=OFF \
+          -D BUILD_opencv_barcode=OFF \
+          -D BUILD_opencv_cvv=OFF \
+          -D BUILD_opencv_hdf=OFF \
+          -D BUILD_opencv_viz=OFF \
+          -D BUILD_opencv_ovis=OFF \
+          -D BUILD_opencv_sfm=OFF \
+          -D BUILD_opencv_rgbd=OFF \
+          # Also disable other heavy modules we don't use
+          -D BUILD_opencv_cudaarithm=OFF \
+          -D BUILD_opencv_cudabgsegm=OFF \
+          -D BUILD_opencv_cudacodec=OFF \
+          -D BUILD_opencv_cudafeatures2d=OFF \
+          -D BUILD_opencv_cudafilters=OFF \
+          -D BUILD_opencv_cudaimgproc=OFF \
+          -D BUILD_opencv_cudalegacy=OFF \
+          -D BUILD_opencv_cudaobjdetect=OFF \
+          -D BUILD_opencv_cudaoptflow=OFF \
+          -D BUILD_opencv_cudastereo=OFF \
+          -D BUILD_opencv_cudawarping=OFF \
+          -D BUILD_opencv_cudev=OFF \
+          # ============================================================
+          # Enable what we need
+          # ============================================================
+          -D OPENCV_GENERATE_PKGCONFIG=ON \
+          -D WITH_JASPER=OFF \
+          -D WITH_TBB=ON \
+          -D BUILD_JPEG=ON \
+          -D WITH_SIMD=ON \
+          -D ENABLE_LIBJPEG_TURBO_SIMD=ON \
+          -D OPENCV_ENABLE_NONFREE=OFF \
+          .. && \
+    make -j$(nproc) && \
+    make install
+
+# Create tarball of all installed OpenCV files and dependencies
+RUN cd /usr/local && \
+    tar -czf /opencv-4.12.0-ubuntu24.04.tar.gz \
+        include/opencv4 \
+        lib/libopencv_* \
+        lib/cmake/opencv4 \
+        lib/pkgconfig/opencv4.pc \
+        share/opencv4
+
+# Export the tarball
+FROM alpine:latest AS export
+COPY --from=builder /opencv-4.12.0-ubuntu24.04.tar.gz /opencv-4.12.0-ubuntu24.04.tar.gz
+CMD ["cp", "/opencv-4.12.0-ubuntu24.04.tar.gz", "/output/"]

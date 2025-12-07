@@ -12,7 +12,7 @@
 #
 # Build targets:
 #   --target api-runtime    → Distroless API server (~30MB)
-#   --target worker-runtime → Debian-slim with FFmpeg (~150MB)
+#   --target worker-runtime → Ubuntu-slim with FFmpeg (~150MB)
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -41,24 +41,41 @@ RUN cargo chef prepare --recipe-path recipe.json
 # -----------------------------------------------------------------------------
 # Stage 3: Builder - Cross-compile for target architecture
 # -----------------------------------------------------------------------------
-FROM rust:1.87-bookworm AS builder
+FROM ubuntu:24.04 AS builder
 
 # Build arguments for multi-arch
 ARG TARGETPLATFORM
 ARG TARGETARCH
 
-# Install build dependencies
+# Install build dependencies and pre-built OpenCV 4.12.0
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         pkg-config \
         libssl-dev \
         ca-certificates \
-        # OpenCV development libraries for YuNet compilation
-        libopencv-dev \
+        curl \
+        # OpenCV: Use pre-built 4.12.0 artifacts instead of apt packages
         # Clang/LLVM for opencv-rust bindgen
         clang \
         libclang-dev \
+        # OpenCV runtime dependencies (needed for linking during build)
+        libtbb12 \
+        libwebp7 \
+        libwebpdemux2 \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Rust 1.87 via rustup (matches rust:1.87 toolchain)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    sh -s -- -y --profile minimal --default-toolchain 1.87.0
+
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Copy and extract pre-built OpenCV 4.12.0 artifacts
+COPY opencv-artifacts/opencv-4.12.0-ubuntu24.04.tar.gz /tmp/
+RUN cd /usr/local && \
+    tar -xzf /tmp/opencv-4.12.0-ubuntu24.04.tar.gz && \
+    rm /tmp/opencv-4.12.0-ubuntu24.04.tar.gz && \
+    ldconfig
 
 # Install cargo-chef
 RUN cargo install cargo-chef --locked
@@ -67,6 +84,20 @@ WORKDIR /app
 
 # Copy dependency recipe from planner
 COPY --from=planner /app/recipe.json recipe.json
+
+# =============================================================================
+# OPENCV LINKING CONFIGURATION
+# =============================================================================
+# Explicitly specify which OpenCV libraries to link against.
+# This prevents the opencv-rust crate from using pkg-config/cmake auto-discovery
+# which finds references to contrib modules (alphamat, barcode, cvv, hdf, viz)
+# that we intentionally excluded in our custom OpenCV 4.12.0 build.
+#
+# This list includes only the modules we actually built and need:
+# - Core modules: core, imgproc, imgcodecs, videoio, objdetect, dnn, calib3d, features2d, flann
+# - Contrib modules we DID build: face, tracking, text, aruco, bgsegm, etc.
+# =============================================================================
+ENV OPENCV_LINK_LIBS="opencv_core,opencv_imgproc,opencv_imgcodecs,opencv_videoio,opencv_objdetect,opencv_dnn,opencv_calib3d,opencv_features2d,opencv_flann,opencv_photo,opencv_video,opencv_highgui,opencv_ml,opencv_stitching,opencv_aruco,opencv_bgsegm,opencv_bioinspired,opencv_ccalib,opencv_dnn_objdetect,opencv_dnn_superres,opencv_dpm,opencv_face,opencv_freetype,opencv_fuzzy,opencv_hfs,opencv_img_hash,opencv_intensity_transform,opencv_line_descriptor,opencv_mcc,opencv_optflow,opencv_phase_unwrapping,opencv_plot,opencv_quality,opencv_rapid,opencv_reg,opencv_saliency,opencv_shape,opencv_stereo,opencv_structured_light,opencv_superres,opencv_surface_matching,opencv_text,opencv_tracking,opencv_videostab,opencv_wechat_qrcode,opencv_ximgproc,opencv_xobjdetect,opencv_xphoto"
 
 # Build dependencies ONLY (cached layer - only rebuilds if Cargo.toml/lock changes)
 # This is the key optimization - dependencies are cached separately from source
@@ -118,9 +149,9 @@ EXPOSE 8000
 ENTRYPOINT ["/app/vclip-api"]
 
 # -----------------------------------------------------------------------------
-# Stage 5: Worker Runtime - Debian-slim with FFmpeg for video processing
+# Stage 5: Worker Runtime - Ubuntu-slim with FFmpeg for video processing
 # -----------------------------------------------------------------------------
-FROM debian:12-slim AS worker-runtime
+FROM ubuntu:24.04 AS worker-runtime
 
 # OCI labels
 LABEL org.opencontainers.image.title="ViralClip Worker" \
@@ -134,23 +165,30 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         python3 \
         python3-pip \
-        # OpenCV runtime libraries for YuNet face detection
-        libopencv-core4.5 \
-        libopencv-dnn4.5 \
-        libopencv-imgproc4.5 \
-        libopencv-videoio4.5 \
+        # OpenCV: Use pre-built 4.12.0 runtime libraries
+        libtbb12 \
+        libwebp7 \
+        libwebpdemux2 \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
 # Install yt-dlp for YouTube video downloads
 RUN pip3 install --no-cache-dir --break-system-packages yt-dlp
 
+# Copy and extract pre-built OpenCV 4.12.0 runtime libraries
+COPY opencv-artifacts/opencv-4.12.0-ubuntu24.04.tar.gz /tmp/
+RUN cd /usr/local && \
+    tar -xzf /tmp/opencv-4.12.0-ubuntu24.04.tar.gz && \
+    rm /tmp/opencv-4.12.0-ubuntu24.04.tar.gz && \
+    ldconfig
+
 # Copy YuNet face detection models
 COPY backend/models/face_detection/yunet /app/backend/models/face_detection/yunet
 
 # Create non-root user
-RUN groupadd -g 65532 appgroup && \
-    useradd -u 65532 -g appgroup -d /app -s /usr/sbin/nologin appuser
+# Make this idempotent and avoid failing if UID/GID 65532 already exist in the base image.
+RUN getent group appgroup >/dev/null 2>&1 || groupadd -g 65532 appgroup && \
+    id -u appuser >/dev/null 2>&1 || useradd -u 65532 -g appgroup -d /app -s /usr/sbin/nologin appuser
 
 WORKDIR /app
 

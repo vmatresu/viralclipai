@@ -10,7 +10,7 @@ const STYLES = [
   {
     value: "intelligent_split",
     label: "Intelligent Split View",
-    subtitle: "Face Tracking Left/Right",
+    subtitle: "Face Tracking Top/Bottom",
   },
   { value: "original", label: "Original", subtitle: "No Cropping" },
   { value: "all", label: "All Styles", subtitle: "Generate All" },
