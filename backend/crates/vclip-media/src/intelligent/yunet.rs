@@ -175,8 +175,8 @@ const YUNET_MODEL_PATHS_2022: &[&str] = &[
     "/usr/share/opencv/models/face_detection_yunet_2022mar.onnx",
 ];
 
-/// Score threshold for face detection
-const SCORE_THRESHOLD: f32 = 0.7;
+/// Score threshold for face detection (lowered for faster detection)
+const SCORE_THRESHOLD: f32 = 0.6;
 
 /// NMS threshold for face detection
 const NMS_THRESHOLD: f32 = 0.3;
@@ -316,10 +316,11 @@ impl YuNetDetector {
     ///
     /// Ensures dimensions are multiples of 32 for CNN compatibility
     /// and within reasonable bounds for performance.
+    /// Uses smaller dimensions for faster inference.
     fn calculate_input_size(frame_width: u32, frame_height: u32) -> (i32, i32) {
-        // Target dimensions for good balance of speed and accuracy
-        let target_width = 640.0;
-        let target_height = 480.0;
+        // Target dimensions optimized for speed (reduced from 640x480)
+        let target_width = 320.0;
+        let target_height = 240.0;
         
         // Calculate scale factor
         let scale = (frame_width as f64 / target_width)
@@ -335,9 +336,9 @@ impl YuNetDetector {
         input_width = ((input_width + ALIGNMENT / 2) / ALIGNMENT) * ALIGNMENT;
         input_height = ((input_height + ALIGNMENT / 2) / ALIGNMENT) * ALIGNMENT;
 
-        // Clamp to reasonable bounds
-        input_width = input_width.clamp(320, 640);
-        input_height = input_height.clamp(240, 480);
+        // Clamp to reasonable bounds (smaller for speed)
+        input_width = input_width.clamp(160, 320);
+        input_height = input_height.clamp(120, 240);
 
         (input_width, input_height)
     }

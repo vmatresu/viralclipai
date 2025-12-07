@@ -376,7 +376,7 @@ impl HeuristicGenerator {
         let mut transition_progress: f64 = 0.0;
         let mut transition_from = left_cx;
         let mut transition_to = left_cx;
-        let transition_duration = 0.3; // seconds for smooth transition
+        let transition_duration = 0.15; // seconds for smooth transition (reduced from 0.3)
 
         for i in 0..num_samples {
             let time = i as f64 * sample_interval;

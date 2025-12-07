@@ -8,11 +8,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IntelligentCropConfig {
     // === Analysis Settings ===
-    /// Frames per second to sample for analysis (default: 3.0)
+    /// Frames per second to sample for analysis (default: 8.0 for responsive tracking)
     pub fps_sample: f64,
 
     /// Resolution (height) to use for analysis (default: 480)
     pub analysis_resolution: u32,
+
+    /// Resolution for face detection neural network input (default: 320 for fast detection)
+    pub detection_resolution: u32,
 
     // === Face Detection ===
     /// Minimum confidence for face detection (default: 0.5)
@@ -94,9 +97,10 @@ impl Default for FallbackPolicy {
 impl Default for IntelligentCropConfig {
     fn default() -> Self {
         Self {
-            // Analysis
-            fps_sample: 3.0,
+            // Analysis - 8 fps for responsive speaker tracking
+            fps_sample: 8.0,
             analysis_resolution: 480,
+            detection_resolution: 320,
 
             // Face Detection
             min_detection_confidence: 0.5,
@@ -164,6 +168,20 @@ impl IntelligentCropConfig {
             fallback_policy: FallbackPolicy::UpperCenter,
             headroom_ratio: 0.12,
             subject_padding: 0.25,
+            ..Default::default()
+        }
+    }
+
+    /// Responsive configuration optimized for podcast speaker tracking.
+    /// Prioritizes fast detection and speaker switching.
+    pub fn responsive() -> Self {
+        Self {
+            fps_sample: 10.0,              // High sample rate for responsive tracking
+            detection_resolution: 240,     // Small resolution for fast detection
+            analysis_resolution: 360,      // Lower analysis resolution
+            smoothing_window: 0.25,        // Fast smoothing for quick transitions
+            max_pan_speed: 400.0,          // Higher pan speed for snappier movement
+            render_preset: "veryfast".to_string(),
             ..Default::default()
         }
     }

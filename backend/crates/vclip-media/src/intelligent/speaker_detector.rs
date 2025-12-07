@@ -62,11 +62,11 @@ pub struct SpeakerDetectorConfig {
 impl Default for SpeakerDetectorConfig {
     fn default() -> Self {
         Self {
-            min_segment_duration: 0.5,
+            min_segment_duration: 0.25, // Reduced from 0.5 for faster speaker changes
             volume_threshold: 0.1,
-            sample_rate: 10.0,
+            sample_rate: 15.0,          // Increased from 10.0 for finer granularity
             balance_threshold: 0.15,
-            motion_threshold: 0.2,
+            motion_threshold: 0.15,     // Reduced from 0.2 for more sensitive detection
         }
     }
 }

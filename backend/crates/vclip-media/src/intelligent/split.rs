@@ -146,15 +146,15 @@ impl IntelligentSplitProcessor {
     /// Process as split view with two panels (left half → top, right half → bottom).
     ///
     /// This function:
-    /// 1. Splits the video into left and right halves
-    /// 2. Applies face-centered crop to each half, using a WIDER crop (1:2 aspect) 
+    /// 1. Splits the video into left and right portions with slight overlap avoidance
+    /// 2. Applies face-centered crop to each portion, using a WIDER crop (9:8 aspect) 
     ///    to preserve more context while keeping faces centered
-    /// 3. Stacks the cropped halves vertically (left=top, right=bottom)
+    /// 3. Stacks the cropped portions vertically (left=top, right=bottom)
     /// 4. Scales to final 1080x1920 output
     ///
-    /// The key difference from IntelligentCrop is that we use a wider crop (1:2)
-    /// for each panel, then stack them. This shows more of each person's body
-    /// rather than a tight face crop.
+    /// The key improvement: Instead of a 50/50 split which includes overlap (other
+    /// person's arm/body visible), we crop ~45% from each side to cleanly isolate
+    /// each person.
     async fn process_split_view(
         &self,
         segment: &Path,
@@ -168,46 +168,45 @@ impl IntelligentSplitProcessor {
         // Create temp directory for intermediate files
         let temp_dir = tempfile::tempdir()?;
         
-        // For split view, we want to preserve more of each panel's width
-        // Each half is (width/2) x height = 960x1080 for a 1920x1080 source
+        // Improved split algorithm:
+        // Instead of taking exactly 50% of each side (which includes overlap where
+        // the other person's arm appears), we take ~45% from each side, cropped
+        // toward that person's position.
         //
-        // To avoid a too-narrow 9:16 look for each person, we crop each half
-        // to a wider 9:8 tile by trimming some vertical content (top/bottom)
-        // while keeping the subject centered.
+        // For a 1920x1080 source:
+        //   - Left person crop: 0 to 45% width = 0 to 864px
+        //   - Right person crop: 55% to 100% width = 1056 to 1920px (864px wide)
         //
-        // For a 960x1080 half:
-        //   - Tile width  = 960
-        //   - Tile height = 960 * 8 / 9 ≈ 853
-        // We then scale this 9:8 tile to 1080x960 and stack two tiles to
-        // obtain a final 1080x1920 portrait video without side bars.
-
-        // Step 1: Extract left and right halves with centered positioning
-        let left_half = temp_dir.path().join("left.mp4");
-        let right_half = temp_dir.path().join("right.mp4");
+        // Each crop is then made into a 9:8 tile by trimming vertically.
         
-        let half_width = width / 2;
-
-        // For each half, create a 9:8 tile by cropping vertically and keeping
-        // the full panel width. We bias the TOP panel upwards slightly so we
-        // see more of the face/upper body and less of the lower body.
-        let tile_height = ((half_width as f64 * 8.0 / 9.0).round() as u32).min(height);
+        let crop_fraction = 0.45; // Take 45% from each side
+        let crop_width = (width as f64 * crop_fraction).round() as u32;
+        let right_start_x = width - crop_width; // Start from right edge minus crop width
+        
+        // Calculate 9:8 tile dimensions
+        // Tile height = crop_width * 8 / 9
+        let tile_height = ((crop_width as f64 * 8.0 / 9.0).round() as u32).min(height);
         let vertical_margin = height.saturating_sub(tile_height);
 
-        // Top panel: place the window closer to the top (smaller y), so more
-        // of the trimmed area is taken from the bottom.
+        // Top panel (left person): bias upward to show more face/upper body
         let top_crop_y = 0u32;
-        // Bottom panel: keep centered.
-        let bottom_crop_y = (vertical_margin / 2).max(0);
+        // Bottom panel (right person): center vertically
+        let bottom_crop_y = vertical_margin / 2;
 
-        info!("  Extracting and centering left half...");
-        // Left half (top panel): crop=iw/2:ih:0:0 to get the panel, then crop to 9:8 and scale
-        let top_filter = format!(
-            "crop={}:{}:0:{},scale=1080:960:flags=lanczos",
-            half_width, tile_height, top_crop_y
+        // Step 1: Extract left and right portions with proper isolation
+        let left_half = temp_dir.path().join("left.mp4");
+        let right_half = temp_dir.path().join("right.mp4");
+
+        info!("  Extracting left person (0 to {}px width)...", crop_width);
+        // Left person: start from x=0, take crop_width pixels, then crop to 9:8 and scale
+        let left_filter = format!(
+            "crop={}:{}:0:0,crop={}:{}:0:{},scale=1080:960:flags=lanczos",
+            crop_width, height,           // First: extract left portion
+            crop_width, tile_height, top_crop_y  // Then: crop to 9:8 vertically
         );
         
         let cmd_left = FfmpegCommand::new(segment, &left_half)
-            .video_filter(&format!("crop=iw/2:ih:0:0,{}", top_filter))
+            .video_filter(&left_filter)
             .video_codec(&encoding.codec)
             .preset(&encoding.preset)
             .crf(encoding.crf)
@@ -216,15 +215,16 @@ impl IntelligentSplitProcessor {
 
         FfmpegRunner::new().run(&cmd_left).await?;
 
-        info!("  Extracting and centering right half...");
-        // Right half (bottom panel): keep the crop vertically centered.
-        let bottom_filter = format!(
-            "crop={}:{}:0:{},scale=1080:960:flags=lanczos",
-            half_width, tile_height, bottom_crop_y
+        info!("  Extracting right person ({}px to {}px width)...", right_start_x, width);
+        // Right person: start from right_start_x, take crop_width pixels, then crop to 9:8
+        let right_filter = format!(
+            "crop={}:{}:{}:0,crop={}:{}:0:{},scale=1080:960:flags=lanczos",
+            crop_width, height, right_start_x,  // First: extract right portion
+            crop_width, tile_height, bottom_crop_y  // Then: crop to 9:8 vertically
         );
 
         let cmd_right = FfmpegCommand::new(segment, &right_half)
-            .video_filter(&format!("crop=iw/2:ih:iw/2:0,{}", bottom_filter))
+            .video_filter(&right_filter)
             .video_codec(&encoding.codec)
             .preset(&encoding.preset)
             .crf(encoding.crf)
