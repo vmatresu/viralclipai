@@ -48,8 +48,7 @@ jobs:
             git reset --hard origin/main
             
             echo "Building and deploying Worker..."
-            docker compose --env-file .env -f deploy/docker-compose.worker.yml pull || true
-            docker compose --env-file .env -f deploy/docker-compose.worker.yml up -d --build --parallel
+            docker compose --env-file .env -f deploy/docker-compose.worker.yml up -d --build
             
             echo "Waiting for Worker to start..."
             sleep 15

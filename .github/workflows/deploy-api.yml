@@ -48,8 +48,7 @@ jobs:
             git reset --hard origin/main
             
             echo "Building and deploying API..."
-            docker compose --env-file .env -f deploy/docker-compose.api.yml pull || true
-            docker compose --env-file .env -f deploy/docker-compose.api.yml up -d --build --parallel
+            docker compose --env-file .env -f deploy/docker-compose.api.yml up -d --build
             
             echo "Waiting for API to be healthy..."
             sleep 10
