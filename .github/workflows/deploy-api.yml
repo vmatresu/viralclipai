@@ -43,8 +43,8 @@ jobs:
             git reset --hard origin/main
             
             echo "Building and deploying API..."
-            docker compose -f deploy/docker-compose.api.yml pull || true
-            docker compose -f deploy/docker-compose.api.yml up -d --build
+            docker compose --env-file .env -f deploy/docker-compose.api.yml pull || true
+            docker compose --env-file .env -f deploy/docker-compose.api.yml up -d --build
             
             echo "Waiting for API to be healthy..."
             sleep 10
@@ -53,7 +53,7 @@ jobs:
               echo "✅ API health check passed!"
             else
               echo "⚠️ API health check failed"
-              docker compose -f deploy/docker-compose.api.yml logs --tail=50
+              docker compose --env-file .env -f deploy/docker-compose.api.yml logs --tail=50
             fi
             
             docker image prune -f || true

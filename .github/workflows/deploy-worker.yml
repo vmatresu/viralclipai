@@ -43,17 +43,17 @@ jobs:
             git reset --hard origin/main
             
             echo "Building and deploying Worker..."
-            docker compose -f deploy/docker-compose.worker.yml pull || true
-            docker compose -f deploy/docker-compose.worker.yml up -d --build
+            docker compose --env-file .env -f deploy/docker-compose.worker.yml pull || true
+            docker compose --env-file .env -f deploy/docker-compose.worker.yml up -d --build
             
             echo "Waiting for Worker to start..."
             sleep 15
             
-            if docker compose -f deploy/docker-compose.worker.yml ps | grep -q "running"; then
+            if docker compose --env-file .env -f deploy/docker-compose.worker.yml ps | grep -q "running"; then
               echo "✅ Worker is running!"
             else
               echo "⚠️ Worker may have issues"
-              docker compose -f deploy/docker-compose.worker.yml logs --tail=50
+              docker compose --env-file .env -f deploy/docker-compose.worker.yml logs --tail=50
             fi
             
             docker image prune -f || true
