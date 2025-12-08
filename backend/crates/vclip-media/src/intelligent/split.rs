@@ -39,9 +39,10 @@ use tracing::{info, warn};
 use super::config::IntelligentCropConfig;
 use crate::clip::extract_segment;
 use crate::command::{FfmpegCommand, FfmpegRunner};
-use crate::error::{MediaError, MediaResult};
+use crate::error::MediaResult;
 use crate::probe::probe_video;
 use crate::thumbnail::generate_thumbnail;
+use crate::intelligent::stacking::stack_halves;
 use vclip_models::{ClipTask, EncodingConfig};
 
 /// Layout mode for the output (kept for API compatibility).
@@ -238,49 +239,7 @@ impl IntelligentSplitProcessor {
         // Step 2: Stack the halves vertically (left=top, right=bottom)
         // Both are now 1080x960 (9:8), stacking gives final 1080x1920
         info!("  Stacking panels...");
-        let stack_crf = encoding.crf.saturating_add(2);
-
-        let stack_args = vec![
-            "-y".to_string(),
-            "-i".to_string(),
-            left_half.to_string_lossy().to_string(),
-            "-i".to_string(),
-            right_half.to_string_lossy().to_string(),
-            "-filter_complex".to_string(),
-            // Each input is already 1080x960 (9:8 tile); stack directly to 1080x1920
-            "[0:v][1:v]vstack=inputs=2".to_string(),
-            "-c:v".to_string(),
-            encoding.codec.clone(),
-            "-preset".to_string(),
-            encoding.preset.clone(),
-            "-crf".to_string(),
-            stack_crf.to_string(),
-            "-c:a".to_string(),
-            "aac".to_string(),
-            "-b:a".to_string(),
-            encoding.audio_bitrate.clone(),
-            "-movflags".to_string(),
-            "+faststart".to_string(),
-            output.to_string_lossy().to_string(),
-        ];
-
-        let stack_status = tokio::process::Command::new("ffmpeg")
-            .args(&stack_args)
-            .output()
-            .await?;
-
-        if !stack_status.status.success() {
-            return Err(MediaError::ffmpeg_failed(
-                "Stacking failed",
-                Some(String::from_utf8_lossy(&stack_status.stderr).to_string()),
-                stack_status.status.code(),
-            ));
-        }
-
-        // The stacked output is already 1080x1920 (1080x960 * 2 = 1080x1920)
-        // No additional scaling needed
-
-        Ok(())
+        stack_halves(&left_half, &right_half, output, encoding).await
     }
 }
 

@@ -58,6 +58,7 @@ pub mod models;
 pub mod renderer;
 pub mod smoother;
 pub mod speaker_detector;
+pub mod stacking;
 pub mod split;
 pub mod tier_aware_cropper;
 pub mod tier_aware_smoother;

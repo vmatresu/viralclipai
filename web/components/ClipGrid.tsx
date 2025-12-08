@@ -41,11 +41,16 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
 // Style name mapping for display
 const STYLE_LABELS: Record<string, string> = {
-  split: "Split View (Fast)",
+  split: "Split View",
+  split_fast: "Split View (Fast)",
   left_focus: "Left Focus",
   right_focus: "Right Focus",
   intelligent: "Intelligent Crop",
-  intelligent_split: "Intelligent Split View",
+  intelligent_audio: "Intelligent (Audio)",
+  intelligent_speaker: "Intelligent (Speaker)",
+  intelligent_split: "Smart Split",
+  intelligent_split_audio: "Smart Split (Audio)",
+  intelligent_split_speaker: "Smart Split (Speaker)",
   original: "Original",
 };
 

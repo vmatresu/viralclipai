@@ -19,9 +19,10 @@ use super::models::BoundingBox;
 use super::speaker_detector::SpeakerDetector;
 use crate::clip::extract_segment;
 use crate::command::{FfmpegCommand, FfmpegRunner};
-use crate::error::{MediaError, MediaResult};
+use crate::error::MediaResult;
 use crate::probe::probe_video;
 use crate::thumbnail::generate_thumbnail;
+use crate::intelligent::stacking::stack_halves;
 
 /// Tier-aware split processor.
 pub struct TierAwareSplitProcessor {
@@ -273,45 +274,7 @@ impl TierAwareSplitProcessor {
 
         // Step 2: Stack the halves vertically
         info!("  Stacking panels...");
-        let stack_crf = encoding.crf.saturating_add(2);
-
-        let stack_args = vec![
-            "-y".to_string(),
-            "-i".to_string(),
-            left_half.to_string_lossy().to_string(),
-            "-i".to_string(),
-            right_half.to_string_lossy().to_string(),
-            "-filter_complex".to_string(),
-            "[0:v][1:v]vstack=inputs=2".to_string(),
-            "-c:v".to_string(),
-            encoding.codec.clone(),
-            "-preset".to_string(),
-            encoding.preset.clone(),
-            "-crf".to_string(),
-            stack_crf.to_string(),
-            "-c:a".to_string(),
-            "aac".to_string(),
-            "-b:a".to_string(),
-            encoding.audio_bitrate.clone(),
-            "-movflags".to_string(),
-            "+faststart".to_string(),
-            output.to_string_lossy().to_string(),
-        ];
-
-        let stack_status = tokio::process::Command::new("ffmpeg")
-            .args(&stack_args)
-            .output()
-            .await?;
-
-        if !stack_status.status.success() {
-            return Err(MediaError::ffmpeg_failed(
-                "Stacking failed",
-                Some(String::from_utf8_lossy(&stack_status.stderr).to_string()),
-                stack_status.status.code(),
-            ));
-        }
-
-        Ok(())
+        stack_halves(&left_half, &right_half, output, encoding).await
     }
 }
 
