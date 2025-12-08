@@ -70,11 +70,11 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
 
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Copy and extract pre-built OpenCV 4.12.0 artifacts
-COPY opencv-artifacts/opencv-4.12.0-ubuntu24.04.tar.gz /tmp/
+# Copy and extract pre-built OpenCV 4.12.0 artifacts (AMD64 for production)
+COPY opencv-artifacts/opencv-4.12.0-ubuntu24.04-amd64.tar.gz /tmp/opencv.tar.gz
 RUN cd /usr/local && \
-    tar -xzf /tmp/opencv-4.12.0-ubuntu24.04.tar.gz && \
-    rm /tmp/opencv-4.12.0-ubuntu24.04.tar.gz && \
+    tar -xzf /tmp/opencv.tar.gz && \
+    rm /tmp/opencv.tar.gz && \
     ldconfig
 
 # Install cargo-chef
@@ -175,11 +175,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install yt-dlp for YouTube video downloads
 RUN pip3 install --no-cache-dir --break-system-packages yt-dlp
 
-# Copy and extract pre-built OpenCV 4.12.0 runtime libraries
-COPY opencv-artifacts/opencv-4.12.0-ubuntu24.04.tar.gz /tmp/
+# Copy and extract pre-built OpenCV 4.12.0 runtime libraries (AMD64 for production)
+COPY opencv-artifacts/opencv-4.12.0-ubuntu24.04-amd64.tar.gz /tmp/opencv.tar.gz
 RUN cd /usr/local && \
-    tar -xzf /tmp/opencv-4.12.0-ubuntu24.04.tar.gz && \
-    rm /tmp/opencv-4.12.0-ubuntu24.04.tar.gz && \
+    tar -xzf /tmp/opencv.tar.gz && \
+    rm /tmp/opencv.tar.gz && \
     ldconfig
 
 # Copy YuNet face detection models
