@@ -105,14 +105,25 @@ impl TierAwareCameraSmoother {
         let mode = self.classify_camera_mode(&raw_keyframes);
         debug!("Camera mode: {:?}", mode);
 
-        // Apply smoothing based on mode
-        let smoothed = match mode {
-            CameraMode::Static => self.smooth_static(&raw_keyframes),
-            CameraMode::Tracking | CameraMode::Zoom => self.smooth_tracking(&raw_keyframes),
+        // Apply smoothing based on mode AND tier
+        // For AudioAware/SpeakerAware, use instant transitions at speaker boundaries
+        let smoothed = match (mode, self.tier) {
+            // For speaker-aware tiers with tracking, use instant transitions
+            (CameraMode::Tracking | CameraMode::Zoom, DetectionTier::AudioAware | DetectionTier::SpeakerAware) => {
+                self.smooth_with_instant_speaker_transitions(&raw_keyframes)
+            }
+            (CameraMode::Static, _) => self.smooth_static(&raw_keyframes),
+            (CameraMode::Tracking | CameraMode::Zoom, _) => self.smooth_tracking(&raw_keyframes),
         };
 
-        // Enforce motion constraints
-        self.enforce_constraints(&smoothed, width, height)
+        // Enforce motion constraints (but less strict for speaker-aware to allow fast moves)
+        match self.tier {
+            DetectionTier::AudioAware | DetectionTier::SpeakerAware => {
+                // Allow faster movements for speaker tracking
+                self.enforce_constraints_relaxed(&smoothed, width, height)
+            }
+            _ => self.enforce_constraints(&smoothed, width, height)
+        }
     }
 
     /// Build mapping of track IDs to left/right side of frame.
@@ -465,6 +476,155 @@ impl TierAwareCameraSmoother {
 
             let (new_cx, new_cy) = if speed > self.config.max_pan_speed {
                 let scale = self.config.max_pan_speed / speed;
+                (prev.cx + dx * scale, prev.cy + dy * scale)
+            } else {
+                (curr.cx, curr.cy)
+            };
+
+            let margin_x = curr.width / 2.0;
+            let margin_y = curr.height / 2.0;
+            let clamped_cx = new_cx.max(margin_x).min(width as f64 - margin_x);
+            let clamped_cy = new_cy.max(margin_y).min(height as f64 - margin_y);
+
+            constrained.push(CameraKeyframe::new(
+                curr.time,
+                clamped_cx,
+                clamped_cy,
+                curr.width,
+                curr.height,
+            ));
+        }
+
+        constrained
+    }
+
+    /// Smooth keyframes with instant transitions at speaker change points.
+    /// Uses minimal smoothing within speaker segments, but preserves raw positions at boundaries.
+    fn smooth_with_instant_speaker_transitions(&self, keyframes: &[CameraKeyframe]) -> Vec<CameraKeyframe> {
+        if keyframes.len() < 3 {
+            return keyframes.to_vec();
+        }
+
+        // Detect significant position changes (speaker switches)
+        let mut switch_indices: Vec<usize> = Vec::new();
+        let avg_width: f64 = keyframes.iter().map(|kf| kf.width).sum::<f64>() / keyframes.len() as f64;
+        let switch_threshold = avg_width * 0.3; // 30% of crop width = significant move
+
+        for i in 1..keyframes.len() {
+            let dx = (keyframes[i].cx - keyframes[i - 1].cx).abs();
+            if dx > switch_threshold {
+                switch_indices.push(i);
+            }
+        }
+
+        // If no significant switches detected, use light smoothing
+        if switch_indices.is_empty() {
+            return self.smooth_tracking(keyframes);
+        }
+
+        debug!("Detected {} speaker switches in keyframes", switch_indices.len());
+
+        // Apply smoothing within segments, but preserve positions at switch points
+        let mut result = Vec::with_capacity(keyframes.len());
+        let mut segment_start = 0;
+
+        for &switch_idx in &switch_indices {
+            // Process segment before switch
+            if switch_idx > segment_start {
+                let segment: Vec<_> = keyframes[segment_start..switch_idx].to_vec();
+                if segment.len() >= 3 {
+                    // Light smoothing within segment (small window)
+                    let smoothed = self.smooth_segment_light(&segment);
+                    result.extend(smoothed);
+                } else {
+                    result.extend(segment);
+                }
+            }
+            segment_start = switch_idx;
+        }
+
+        // Process final segment
+        if segment_start < keyframes.len() {
+            let segment: Vec<_> = keyframes[segment_start..].to_vec();
+            if segment.len() >= 3 {
+                let smoothed = self.smooth_segment_light(&segment);
+                result.extend(smoothed);
+            } else {
+                result.extend(segment);
+            }
+        }
+
+        result
+    }
+
+    /// Light smoothing for individual segments (preserves quick movements).
+    fn smooth_segment_light(&self, keyframes: &[CameraKeyframe]) -> Vec<CameraKeyframe> {
+        if keyframes.len() < 3 {
+            return keyframes.to_vec();
+        }
+
+        // Use very small window (3 samples) for minimal smoothing
+        let window = 3;
+
+        let cx: Vec<f64> = keyframes.iter().map(|kf| kf.cx).collect();
+        let cy: Vec<f64> = keyframes.iter().map(|kf| kf.cy).collect();
+        let width: Vec<f64> = keyframes.iter().map(|kf| kf.width).collect();
+        let height: Vec<f64> = keyframes.iter().map(|kf| kf.height).collect();
+
+        let cx_smooth = moving_average(&cx, window);
+        let cy_smooth = moving_average(&cy, window);
+        let width_smooth = moving_average(&width, window);
+        let height_smooth = moving_average(&height, window);
+
+        keyframes
+            .iter()
+            .enumerate()
+            .map(|(i, kf)| {
+                CameraKeyframe::new(
+                    kf.time,
+                    cx_smooth[i],
+                    cy_smooth[i],
+                    width_smooth[i],
+                    height_smooth[i],
+                )
+            })
+            .collect()
+    }
+
+    /// Relaxed motion constraints for speaker-aware tiers.
+    /// Allows faster camera movements to track speakers.
+    fn enforce_constraints_relaxed(
+        &self,
+        keyframes: &[CameraKeyframe],
+        width: u32,
+        height: u32,
+    ) -> Vec<CameraKeyframe> {
+        if keyframes.len() < 2 {
+            return keyframes.to_vec();
+        }
+
+        // Use 3x the normal max pan speed for speaker tracking
+        let relaxed_max_pan_speed = self.config.max_pan_speed * 3.0;
+
+        let mut constrained = Vec::with_capacity(keyframes.len());
+        constrained.push(keyframes[0]);
+
+        for i in 1..keyframes.len() {
+            let prev = &constrained[i - 1];
+            let curr = &keyframes[i];
+
+            let dt = curr.time - prev.time;
+            if dt <= 0.0 {
+                constrained.push(*curr);
+                continue;
+            }
+
+            let dx = curr.cx - prev.cx;
+            let dy = curr.cy - prev.cy;
+            let speed = (dx * dx + dy * dy).sqrt() / dt;
+
+            let (new_cx, new_cy) = if speed > relaxed_max_pan_speed {
+                let scale = relaxed_max_pan_speed / speed;
                 (prev.cx + dx * scale, prev.cy + dy * scale)
             } else {
                 (curr.cx, curr.cy)

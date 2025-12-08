@@ -351,22 +351,24 @@ impl SpeakerDetector {
         self.motion_to_speaker_segments(&left_motion, &right_motion, duration)
     }
 
-    /// Analyze motion in a specific region of the video.
+    /// Analyze motion in a specific region of the video using frame differencing.
     async fn analyze_region_motion<P: AsRef<Path>>(
         &self,
         video_path: P,
         x: u32,
-        y: u32,
+        _y: u32,
         width: u32,
         duration: f64,
     ) -> MediaResult<Vec<f64>> {
         let video_path = video_path.as_ref();
         let num_samples = (duration * self.config.sample_rate).ceil() as usize;
 
-        // Use FFmpeg to analyze motion in the cropped region
+        // Use FFmpeg to analyze motion in the cropped region using frame differencing
+        // tblend with difference mode computes pixel differences between consecutive frames
+        // metadata=lavfi.blur outputs the average brightness which correlates with motion
         let filter = format!(
-            "crop={}:ih:{}:{},fps={},select='gt(scene,0)',showinfo",
-            width, x, y, self.config.sample_rate
+            "crop={}:ih:{}:0,fps={},tblend=all_mode=difference,metadata=lavfi.signalstats",
+            width, x, self.config.sample_rate
         );
 
         let mut cmd = Command::new("ffmpeg");
@@ -390,27 +392,50 @@ impl SpeakerDetector {
 
         let stderr = String::from_utf8_lossy(&output.stderr);
 
-        // Parse scene change scores
+        // Parse YAVG (average luminance) values - higher values mean more motion
         let mut motion_levels = Vec::new();
 
         for line in stderr.lines() {
-            if line.contains("scene:") {
-                if let Some(score_part) = line.split("scene:").nth(1) {
-                    if let Some(score_str) = score_part.split_whitespace().next() {
-                        if let Ok(score) = score_str.parse::<f64>() {
-                            motion_levels.push(score);
+            // Look for lavfi.signalstats.YAVG which gives average luminance of the diff frame
+            if line.contains("YAVG") || line.contains("Parsed_") && line.contains("mean_diff") {
+                if let Some(val_part) = line.split('=').nth(1) {
+                    if let Some(val_str) = val_part.split_whitespace().next() {
+                        if let Ok(val) = val_str.trim_matches(|c: char| !c.is_numeric() && c != '.' && c != '-').parse::<f64>() {
+                            // Normalize to 0-1 range (YAVG is typically 0-255)
+                            motion_levels.push((val / 255.0).clamp(0.0, 1.0));
                         }
                     }
                 }
             }
         }
 
-        // Fill to expected sample count
-        while motion_levels.len() < num_samples {
-            motion_levels.push(0.0);
+        // If we got no YAVG values, try alternative parsing for frame info
+        if motion_levels.is_empty() {
+            for line in stderr.lines() {
+                if line.contains("n:") && line.contains("pts_time:") {
+                    // Extract any numerical motion value we can find
+                    if let Some(pos) = line.find("mean:") {
+                        if let Some(val_str) = line[pos+5..].split_whitespace().next() {
+                            if let Ok(val) = val_str.parse::<f64>() {
+                                motion_levels.push((val / 255.0).clamp(0.0, 1.0));
+                            }
+                        }
+                    }
+                }
+            }
         }
 
-        Ok(motion_levels.into_iter().take(num_samples).collect())
+        // If still empty, create uniform low motion (but NOT zero - to avoid defaulting to one side)
+        if motion_levels.is_empty() {
+            debug!("No motion data extracted for region x={}, using uniform baseline", x);
+            // Return baseline motion level for all samples
+            motion_levels = vec![0.1; num_samples];
+        }
+
+        // Resample to expected count
+        let resampled = Self::resample_to_count(&motion_levels, num_samples);
+        
+        Ok(resampled)
     }
 
     /// Convert motion analysis to speaker segments.
