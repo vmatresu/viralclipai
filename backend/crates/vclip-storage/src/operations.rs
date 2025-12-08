@@ -52,8 +52,22 @@ pub struct HighlightEntry {
     pub start: String,
     pub end: String,
     pub duration: u32,
+    /// Padding before the start timestamp (seconds)
+    #[serde(default = "default_pad_before")]
+    pub pad_before_seconds: f64,
+    /// Padding after the end timestamp (seconds)
+    #[serde(default = "default_pad_after")]
+    pub pad_after_seconds: f64,
     pub hook_category: Option<String>,
     pub reason: Option<String>,
+}
+
+fn default_pad_before() -> f64 {
+    1.0
+}
+
+fn default_pad_after() -> f64 {
+    1.0
 }
 
 impl R2Client {

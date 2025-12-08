@@ -93,7 +93,7 @@ fn default_pad_before() -> f64 {
 }
 
 fn default_pad_after() -> f64 {
-    1.5
+    1.0
 }
 
 impl GeminiClient {
@@ -342,7 +342,7 @@ Return ONLY a single JSON object with this schema:
       "end": "HH:MM:SS",
       "duration": 0,
       "pad_before_seconds": 1.0,
-      "pad_after_seconds": 1.5,
+          "pad_after_seconds": 1.0,
       "hook_category": "Category",
       "reason": "Why this is viral",
       "description": "Engaging social media caption with hashtags"
@@ -362,7 +362,7 @@ Additional instructions:
 - You MUST verify the quotes exist in the transcript provided above.
 - Extract 3 to 10 viral segments that are 20-90 seconds long.
 - Calculate duration in seconds for each highlight.
-- Set pad_before_seconds to 1.0 and pad_after_seconds to 1.5 for natural clip boundaries.
+- Set pad_before_seconds to 1.0 and pad_after_seconds to 1.0 for natural clip boundaries.
 "#
         )
     }

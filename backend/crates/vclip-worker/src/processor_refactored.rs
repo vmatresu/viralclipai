@@ -244,6 +244,8 @@ impl VideoProcessor {
                     start: h.start.clone(),
                     end: h.end.clone(),
                     duration: h.duration,
+                    pad_before_seconds: h.pad_before_seconds,
+                    pad_after_seconds: h.pad_after_seconds,
                     hook_category: h.hook_category.clone(),
                     reason: h.reason.clone(),
                 }
