@@ -41,3 +41,4 @@ web/tsconfig.tsbuildinfo
 web/playwright-report/
 web/test-results/
 .vercel
+youtube-cookies.txt

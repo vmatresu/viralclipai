@@ -35,14 +35,25 @@ pub async fn download_video(url: &str, output_path: impl AsRef<Path>) -> MediaRe
 
     info!("Downloading video from {} to {}", url, output_path.display());
 
+    // Use cookies file if available for YouTube authentication
+    let cookies_path = "/app/youtube-cookies.txt";
+    let mut args = vec![
+        "--remote-components", "ejs:github",
+        "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        "-o",
+    ];
+    
+    let output_path_str = output_path.to_string_lossy();
+    args.push(&output_path_str);
+    
+    if Path::new(cookies_path).exists() {
+        args.push("--cookies");
+        args.push(cookies_path);
+    }
+    args.push(url);
+
     let output = Command::new("yt-dlp")
-        .args([
-            "--remote-components", "ejs:github",
-            "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-            "-o",
-        ])
-        .arg(output_path)
-        .arg(url)
+        .args(&args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

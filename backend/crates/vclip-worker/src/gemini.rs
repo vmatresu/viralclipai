@@ -112,14 +112,23 @@ impl GeminiClient {
     pub async fn get_video_metadata(&self, video_url: &str) -> WorkerResult<(String, String)> {
         info!("Getting video metadata for {} using yt-dlp", video_url);
 
+        // Use cookies file if available for YouTube authentication
+        let cookies_path = "/app/youtube-cookies.txt";
+        let mut args = vec![
+            "--print", "title",
+            "--print", "webpage_url",
+            "--no-download",
+            "--no-playlist",
+        ];
+        
+        if std::path::Path::new(cookies_path).exists() {
+            args.push("--cookies");
+            args.push(cookies_path);
+        }
+        args.push(video_url);
+
         let output = tokio::process::Command::new("yt-dlp")
-            .args(&[
-                "--print", "title",
-                "--print", "webpage_url",
-                "--no-download",
-                "--no-playlist",
-                video_url,
-            ])
+            .args(&args)
             .output()
             .await
             .map_err(|e| WorkerError::ai_failed(format!("Failed to run yt-dlp for metadata: {}", e)))?;
@@ -207,16 +216,26 @@ impl GeminiClient {
         let output_template = workdir.join("%(id)s");
 
         // Run yt-dlp to download subtitles
+        // Use cookies file if available for YouTube authentication
+        let cookies_path = "/app/youtube-cookies.txt";
+        let output_template_str = output_template.to_string_lossy();
+        let mut args = vec![
+            "--write-auto-sub",
+            "--write-sub",
+            "--sub-lang", "en,en-US,en-GB",
+            "--skip-download",
+            "--sub-format", "vtt",
+            "--output", &output_template_str,
+        ];
+        
+        if std::path::Path::new(cookies_path).exists() {
+            args.push("--cookies");
+            args.push(cookies_path);
+        }
+        args.push(video_url);
+
         let output = tokio::process::Command::new("yt-dlp")
-            .args(&[
-                "--write-auto-sub",
-                "--write-sub",
-                "--sub-lang", "en,en-US,en-GB",
-                "--skip-download",
-                "--sub-format", "vtt",
-                "--output", &output_template.to_string_lossy(),
-                video_url,
-            ])
+            .args(&args)
             .output()
             .await
             .map_err(|e| WorkerError::ai_failed(format!("Failed to run yt-dlp: {}", e)))?;
