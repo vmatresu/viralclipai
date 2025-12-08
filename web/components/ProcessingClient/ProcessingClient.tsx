@@ -9,6 +9,7 @@
 import { type FormEvent } from "react";
 import { toast } from "sonner";
 
+import { DetailedProcessingStatus } from "@/components/shared/DetailedProcessingStatus";
 import { analyticsEvents } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
@@ -21,7 +22,6 @@ import { createWebSocketConnection, getWebSocketUrl } from "@/lib/websocket-clie
 
 import { ErrorDisplay } from "./ErrorDisplay";
 import { useVideoProcessing } from "./hooks";
-import { DetailedProcessingStatus } from "@/components/shared/DetailedProcessingStatus";
 import { Results } from "./Results";
 import { VideoForm } from "./VideoForm";
 

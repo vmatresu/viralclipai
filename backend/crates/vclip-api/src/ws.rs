@@ -458,50 +458,86 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
         }
     }
 
-    // Subscribe to progress events
+    // Subscribe to progress events with heartbeat
     let mut done_sent = false;
     match state.progress.subscribe(&job_id).await {
         Ok(mut stream) => {
+            let mut heartbeat = interval(WS_HEARTBEAT_INTERVAL);
+            let mut last_activity = std::time::Instant::now();
             let mut clips_uploaded = 0u32;
 
-            while let Some(event) = stream.next().await {
-                let msg_type = match &event.message {
-                    WsMessage::ClipUploaded { .. } => {
-                        clips_uploaded += 1;
-                        "clip_uploaded"
+            loop {
+                tokio::select! {
+                    // Progress event from worker
+                    event = stream.next() => {
+                        match event {
+                            Some(event) => {
+                                last_activity = std::time::Instant::now();
+                                let msg_type = match &event.message {
+                                    WsMessage::ClipUploaded { .. } => {
+                                        clips_uploaded += 1;
+                                        "clip_uploaded"
+                                    }
+                                    WsMessage::Done { .. } => {
+                                        done_sent = true;
+                                        if clips_uploaded > 0 {
+                                            if let Err(e) = state.user_service.increment_usage(&uid, clips_uploaded).await {
+                                                warn!("Failed to increment usage for user {}: {}", uid, e);
+                                            } else {
+                                                info!("Incremented usage by {} clips for user {}", clips_uploaded, uid);
+                                            }
+                                        }
+                                        "done"
+                                    }
+                                    WsMessage::Error { .. } => "error",
+                                    WsMessage::Log { .. } => "log",
+                                    WsMessage::Progress { .. } => "progress",
+                                    WsMessage::ClipProgress { .. } => "clip_progress",
+                                    WsMessage::SceneStarted { .. } => "scene_started",
+                                    WsMessage::SceneCompleted { .. } => "scene_completed",
+                                };
+
+                                metrics::record_ws_message_sent("reprocess", msg_type);
+
+                                let json = match serde_json::to_string(&event.message) {
+                                    Ok(j) => j,
+                                    Err(_) => continue,
+                                };
+
+                                if sender.send(Message::Text(json)).await.is_err() {
+                                    warn!("WebSocket send failed, client disconnected");
+                                    break;
+                                }
+
+                                if matches!(event.message, WsMessage::Done { .. } | WsMessage::Error { .. }) {
+                                    break;
+                                }
+                            }
+                            None => break, // Stream ended
+                        }
                     }
-                    WsMessage::Done { .. } => {
-                        done_sent = true;
-                        if clips_uploaded > 0 {
-                            if let Err(e) = state.user_service.increment_usage(&uid, clips_uploaded).await {
-                                warn!("Failed to increment usage for user {}: {}", uid, e);
-                            } else {
-                                info!("Incremented usage by {} clips for user {}", clips_uploaded, uid);
+                    // Heartbeat to keep connection alive during long processing
+                    _ = heartbeat.tick() => {
+                        if last_activity.elapsed() > WS_HEARTBEAT_INTERVAL / 2 {
+                            if sender.send(Message::Ping(vec![])).await.is_err() {
+                                warn!("Reprocess heartbeat failed, client disconnected");
+                                break;
                             }
                         }
-                        "done"
                     }
-                    WsMessage::Error { .. } => "error",
-                    WsMessage::Log { .. } => "log",
-                    WsMessage::Progress { .. } => "progress",
-                    WsMessage::ClipProgress { .. } => "clip_progress",
-                    WsMessage::SceneStarted { .. } => "scene_started",
-                    WsMessage::SceneCompleted { .. } => "scene_completed",
-                };
-
-                metrics::record_ws_message_sent("reprocess", msg_type);
-
-                let json = match serde_json::to_string(&event.message) {
-                    Ok(j) => j,
-                    Err(_) => continue,
-                };
-
-                if sender.send(Message::Text(json)).await.is_err() {
-                    break;
-                }
-
-                if matches!(event.message, WsMessage::Done { .. } | WsMessage::Error { .. }) {
-                    break;
+                    // Client message (for pong responses)
+                    client_msg = receiver.next() => {
+                        match client_msg {
+                            Some(Ok(Message::Pong(_))) => {
+                                last_activity = std::time::Instant::now();
+                            }
+                            Some(Ok(Message::Close(_))) | None => {
+                                info!("Client closed reprocess connection");
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
                 }
             }
         }

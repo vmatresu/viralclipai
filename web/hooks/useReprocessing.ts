@@ -10,7 +10,7 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/lib/auth";
 import { invalidateClipsCache } from "@/lib/cache";
-import { useProcessing } from "@/lib/processing-context";
+import { type ProcessingJob, useProcessing } from "@/lib/processing-context";
 import {
   reprocessScenesWebSocket,
   type ReprocessCallbacks,
@@ -45,6 +45,8 @@ export function useReprocessing({
     error: null,
   });
   const wsRef = useRef<WebSocket | null>(null);
+  // Track if done was received to avoid stale closure issue in onClose
+  const doneReceivedRef = useRef<boolean>(false);
 
   // Avoid React “setState during render of another component” by deferring cross-context updates
   const deferUpdateJob = useCallback(
@@ -98,7 +100,8 @@ export function useReprocessing({
         // Calculate total clips
         const totalClips = sceneIds.length * styles.length;
 
-        // Reset state
+        // Reset state and done tracking
+        doneReceivedRef.current = false;
         setState({
           isProcessing: true,
           progress: 0,
@@ -126,6 +129,8 @@ export function useReprocessing({
             deferUpdateJob({ currentStep: message });
           },
           onDone: () => {
+            // Mark done received before any state updates to avoid stale closure issue in onClose
+            doneReceivedRef.current = true;
             setState((prev) => ({
               ...prev,
               isProcessing: false,
@@ -141,6 +146,8 @@ export function useReprocessing({
             onComplete?.();
           },
           onError: (message, details) => {
+            // Mark as handled to prevent onClose from double-reporting
+            doneReceivedRef.current = true;
             const errorMsg = message || "An error occurred during reprocessing";
             setState((prev) => ({
               ...prev,
@@ -157,8 +164,9 @@ export function useReprocessing({
             onError?.(errorMsg);
           },
           onClose: () => {
-            // Connection closed - check if we're still processing
-            if (state.isProcessing) {
+            // Connection closed - check if we completed successfully using ref (avoids stale closure)
+            // If done was received, this is expected close after success
+            if (!doneReceivedRef.current) {
               setState((prev) => ({
                 ...prev,
                 isProcessing: false,

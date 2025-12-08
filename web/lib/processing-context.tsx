@@ -12,10 +12,8 @@ import React, {
   useCallback,
   useContext,
   useEffect,
-  useRef,
   useState,
 } from "react";
-import { toast } from "sonner";
 
 import { useAuth } from "@/lib/auth";
 
@@ -108,36 +106,8 @@ async function requestNotificationPermission(): Promise<boolean> {
   return false;
 }
 
-// Show browser notification
-function showNotification(title: string, body: string, onClick?: () => void) {
-  if (!("Notification" in window) || Notification.permission !== "granted") {
-    return;
-  }
-
-  try {
-    const notification = new Notification(title, {
-      body,
-      icon: "/favicon.ico",
-      tag: "vclip-processing",
-    });
-
-    if (onClick) {
-      notification.onclick = () => {
-        window.focus();
-        onClick();
-        notification.close();
-      };
-    }
-
-    // Auto-close after 10 seconds
-    setTimeout(() => notification.close(), 10000);
-  } catch (e) {
-    console.error("Failed to show notification:", e);
-  }
-}
-
 export function ProcessingProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  useAuth(); // Ensure auth is initialized for processing state hydration
   const [jobs, setJobs] = useState<Map<string, ProcessingJob>>(new Map());
   const [initialized, setInitialized] = useState(false);
 

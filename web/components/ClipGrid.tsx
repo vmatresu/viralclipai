@@ -39,6 +39,35 @@ import { frontendLogger } from "@/lib/logger";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
+function cacheBustToken(clip: Clip): string {
+  return clip.completed_at ?? clip.updated_at ?? clip.name ?? Date.now().toString();
+}
+
+function buildDownloadUrl(clip: Clip): string {
+  // Build the base URL (absolute) then append cache-busting param
+  const baseUrl = clip.url.startsWith("/")
+    ? API_BASE_URL.endsWith("/")
+      ? API_BASE_URL.slice(0, -1)
+      : API_BASE_URL
+    : "";
+
+  const raw = clip.url.startsWith("/") && baseUrl ? `${baseUrl}${clip.url}` : clip.url;
+
+  const token = cacheBustToken(clip);
+
+  try {
+    const url = new URL(
+      raw,
+      typeof window !== "undefined" ? window.location.origin : undefined
+    );
+    url.searchParams.set("t", token);
+    return url.toString();
+  } catch {
+    const sep = raw.includes("?") ? "&" : "?";
+    return `${raw}${sep}t=${encodeURIComponent(token)}`;
+  }
+}
+
 // Style name mapping for display
 const STYLE_LABELS: Record<string, string> = {
   split: "Split View",
@@ -142,6 +171,8 @@ export interface Clip {
   thumbnail?: string | null;
   size: string;
   style?: string;
+  completed_at?: string | null;
+  updated_at?: string | null;
 }
 
 interface ClipGridProps {
@@ -741,11 +772,7 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
                     }}
                   >
                     <a
-                      href={
-                        clip.url.startsWith("/")
-                          ? `${API_BASE_URL}${clip.url}`
-                          : clip.url
-                      }
+                      href={buildDownloadUrl(clip)}
                       download
                       onClick={async (e) => {
                         // For relative URLs, we need to fetch with auth first
@@ -763,11 +790,14 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
                             const fullUrl = baseUrl
                               ? `${baseUrl}${clip.url}`
                               : clip.url;
-                            const response = await fetch(fullUrl, {
-                              headers: {
-                                Authorization: `Bearer ${token}`,
-                              },
-                            });
+                            const response = await fetch(
+                              buildDownloadUrl({ ...clip, url: fullUrl }),
+                              {
+                                headers: {
+                                  Authorization: `Bearer ${token}`,
+                                },
+                              }
+                            );
                             if (!response.ok) {
                               throw new Error("Failed to download");
                             }
@@ -797,9 +827,7 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
                     size="icon"
                     className="shrink-0"
                     onClick={() => {
-                      const urlToCopy = clip.url.startsWith("/")
-                        ? `${API_BASE_URL}${clip.url}`
-                        : clip.url;
+                      const urlToCopy = buildDownloadUrl(clip);
                       void navigator.clipboard.writeText(urlToCopy);
                       toast.success("Link copied to clipboard");
                       void analyticsEvents.clipCopiedLink({

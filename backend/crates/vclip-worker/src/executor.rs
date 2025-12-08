@@ -229,6 +229,27 @@ impl JobExecutor {
                         warn!("Failed to clear dedup key for job {}: {}", job_id, e);
                     }
 
+                    // Update video status to "Failed" in Firestore so it doesn't stay stuck in "processing"
+                    let (user_id, video_id) = match &job {
+                        QueueJob::ProcessVideo(j) => (j.user_id.clone(), j.video_id.clone()),
+                        QueueJob::ReprocessScenes(j) => (j.user_id.clone(), j.video_id.clone()),
+                    };
+                    let video_repo = vclip_firestore::VideoRepository::new(
+                        ctx.firestore.clone(),
+                        &user_id,
+                    );
+                    if let Err(fail_err) = video_repo
+                        .fail(&video_id, &format!("Job failed after {} retries: {}", max_retries, e))
+                        .await
+                    {
+                        error!(
+                            "Failed to mark video {} as failed: {}",
+                            video_id, fail_err
+                        );
+                    } else {
+                        info!("Marked video {} as failed after max retries", video_id);
+                    }
+
                     // Emit error to progress channel
                     ctx.progress
                         .error(

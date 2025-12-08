@@ -14,10 +14,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { type Clip } from "@/components/ClipGrid";
-import { DetailedProcessingStatus } from "@/components/shared/DetailedProcessingStatus";
 import { SceneCard, type Highlight } from "@/components/HistoryDetail/SceneCard";
 import { StyleSelector } from "@/components/HistoryDetail/StyleSelector";
 import { Results } from "@/components/ProcessingClient/Results";
+import { DetailedProcessingStatus } from "@/components/shared/DetailedProcessingStatus";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -29,6 +29,7 @@ import {
 import { useReprocessing } from "@/hooks/useReprocessing";
 import { apiFetch, getVideoDetails, getVideoHighlights } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
+import { useProcessing } from "@/lib/processing-context";
 
 interface UserSettings {
   plan: string;
@@ -60,6 +61,11 @@ export default function HistoryDetailPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
+  const {
+    getJob,
+    completeJob: contextCompleteJob,
+    failJob: contextFailJob,
+  } = useProcessing();
 
   const {
     isProcessing: isReprocessing,
@@ -77,6 +83,13 @@ export default function HistoryDetailPage() {
       setIsProcessing(false);
     },
   });
+
+  // Get job from global context for resuming/monitoring
+  const contextJob = getJob(videoId);
+  const effectiveProgress = isReprocessing
+    ? reprocessProgress
+    : (contextJob?.progress ?? 0);
+  const effectiveLogs = isReprocessing ? reprocessLogs : (contextJob?.logs ?? []);
 
   const loadData = useCallback(async () => {
     if (authLoading || !user) {
@@ -171,13 +184,31 @@ export default function HistoryDetailPage() {
         if (cancelled) return;
 
         const video = data.videos.find((v) => (v.video_id ?? v.id) === videoId);
-        // Update video details if found
-        // if (video) setVideoDetails((prev) => ({ ...prev, ...video }));
 
         // Set processing status based on API
         // We trust the API status. If it says processing, we show the status window.
         // This allows monitoring to persist across refreshes for both initial processing and reprocessing.
         const statusIsProcessing = video?.status === "processing";
+
+        // Auto-refresh data when processing completes
+        if (isProcessing && !statusIsProcessing && video?.status === "completed") {
+          void loadData();
+        }
+
+        // Sync processing context with API status
+        // If API says completed/failed but context still says processing, update context
+        // This handles the case where WebSocket disconnects before 'done' message is received
+        const job = contextJob;
+        if (job && (job.status === "pending" || job.status === "processing")) {
+          if (video?.status === "completed") {
+            console.log("API shows completed, syncing processing context");
+            contextCompleteJob(videoId);
+          } else if (video?.status === "failed") {
+            console.log("API shows failed, syncing processing context");
+            contextFailJob(videoId, "Processing failed");
+          }
+        }
+
         setIsProcessing(statusIsProcessing);
       } catch (err) {
         if (!cancelled) {
@@ -195,7 +226,16 @@ export default function HistoryDetailPage() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [user, videoId, getIdToken, highlightsData]);
+  }, [
+    user,
+    videoId,
+    getIdToken,
+    isProcessing,
+    loadData,
+    contextJob,
+    contextCompleteJob,
+    contextFailJob,
+  ]);
 
   const handleSceneToggle = useCallback((sceneId: number) => {
     setSelectedScenes((prev) => {
@@ -405,8 +445,8 @@ export default function HistoryDetailPage() {
 
       {(isProcessing || isReprocessing) && (
         <DetailedProcessingStatus
-          progress={isReprocessing ? reprocessProgress : 0}
-          logs={isReprocessing ? reprocessLogs : []}
+          progress={effectiveProgress}
+          logs={effectiveLogs}
           isResuming={!isReprocessing && isProcessing}
         />
       )}
