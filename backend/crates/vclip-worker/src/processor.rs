@@ -16,11 +16,11 @@ use vclip_media::{
     download_video,
     styles::StyleProcessorFactory as MediaStyleProcessorFactory,
 };
-use vclip_models::{ClipTask, JobId, VideoId, VideoMetadata};
+use vclip_models::{JobId, VideoMetadata};
 use vclip_queue::{ProcessVideoJob, ProgressChannel, ReprocessScenesJob};
 use vclip_storage::R2Client;
 
-use crate::clip_pipeline::{self, process_scene, process_single_clip, ClipProcessingResults};
+use crate::clip_pipeline::{self, ClipProcessingResults};
 use crate::config::WorkerConfig;
 use crate::error::{WorkerError, WorkerResult};
 use crate::gemini::GeminiClient;
@@ -337,46 +337,6 @@ impl VideoProcessor {
         analysis: &AnalysisData,
     ) -> WorkerResult<ClipProcessingResults> {
         clip_pipeline::process_clips(ctx, job, work_dir, analysis).await
-    }
-
-    /// Process a single scene with parallel style processing.
-    async fn process_scene(
-        &self,
-        ctx: &EnhancedProcessingContext,
-        job: &ProcessVideoJob,
-        clips_dir: &Path,
-        video_file: &Path,
-        scene_tasks: &[&ClipTask],
-        total_clips: usize,
-    ) -> WorkerResult<clip_pipeline::SceneProcessingResults> {
-        process_scene(ctx, job, clips_dir, video_file, scene_tasks, total_clips).await
-    }
-
-    /// Process a single clip task with full error handling and progress reporting.
-    async fn process_single_clip(
-        &self,
-        ctx: &EnhancedProcessingContext,
-        job_id: &JobId,
-        video_id: &VideoId,
-        user_id: &str,
-        video_file: &Path,
-        clips_dir: &Path,
-        task: &ClipTask,
-        clip_index: usize,
-        total_clips: usize,
-    ) -> WorkerResult<()> {
-        process_single_clip(
-            ctx,
-            job_id,
-            video_id,
-            user_id,
-            video_file,
-            clips_dir,
-            task,
-            clip_index,
-            total_clips,
-        )
-        .await
     }
 
     /// Finalize video processing.

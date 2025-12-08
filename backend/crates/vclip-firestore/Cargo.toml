@@ -17,6 +17,7 @@ tracing = { workspace = true }
 reqwest = { workspace = true }
 gcp_auth = { workspace = true }
 chrono = { workspace = true }
+metrics = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }

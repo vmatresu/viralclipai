@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use chrono::Utc;
+use metrics::counter;
 use tracing::info;
 
 use vclip_models::{ClipMetadata, ClipStatus, VideoId, VideoMetadata, VideoStatus};
@@ -208,11 +209,27 @@ impl ClipRepository {
     /// Create a clip record.
     pub async fn create(&self, clip: &ClipMetadata) -> FirestoreResult<()> {
         let fields = clip_metadata_to_fields(clip);
-        self.client
-            .create_document(&self.collection(), &clip.clip_id, fields)
-            .await?;
-        info!("Created clip record: {}", clip.clip_id);
-        Ok(())
+        match self
+            .client
+            .create_document(&self.collection(), &clip.clip_id, fields.clone())
+            .await
+        {
+            Ok(_) => {
+                info!("Created clip record: {}", clip.clip_id);
+                Ok(())
+            }
+            Err(FirestoreError::AlreadyExists(_)) => {
+                // Upsert existing clip metadata to keep storage and Firestore in sync
+                let update_mask: Vec<String> = fields.keys().cloned().collect();
+                self.client
+                    .update_document(&self.collection(), &clip.clip_id, fields, Some(update_mask))
+                    .await?;
+                counter!("clip_metadata_upsert_total", "outcome" => "updated");
+                info!("Updated existing clip record: {}", clip.clip_id);
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Update clip status to completed.
@@ -404,6 +421,12 @@ fn clip_metadata_to_fields(clip: &ClipMetadata) -> HashMap<String, Value> {
     }
     fields.insert("status".to_string(), clip.status.as_str().to_firestore_value());
     fields.insert("created_at".to_string(), clip.created_at.to_firestore_value());
+    if let Some(completed_at) = clip.completed_at {
+        fields.insert("completed_at".to_string(), completed_at.to_firestore_value());
+    }
+    // Always persist an updated_at to support deterministic upserts
+    let updated_at = clip.updated_at.unwrap_or_else(Utc::now);
+    fields.insert("updated_at".to_string(), updated_at.to_firestore_value());
     fields.insert("created_by".to_string(), clip.created_by.to_firestore_value());
     fields
 }
@@ -479,4 +502,59 @@ fn document_to_clip_metadata(doc: &crate::types::Document) -> FirestoreResult<Cl
             .and_then(|v| chrono::DateTime::from_firestore_value(v)),
         created_by: get_string("created_by"),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vclip_models::{ClipStatus, VideoId};
+
+    fn sample_clip() -> ClipMetadata {
+        ClipMetadata {
+            clip_id: "clip-1".to_string(),
+            video_id: VideoId::from_string("video-1"),
+            user_id: "user-1".to_string(),
+            scene_id: 1,
+            scene_title: "Scene".to_string(),
+            scene_description: None,
+            filename: "clip_01_1_scene_intelligent.mp4".to_string(),
+            style: "intelligent".to_string(),
+            priority: 1,
+            start_time: "00:00:00".to_string(),
+            end_time: "00:00:10".to_string(),
+            duration_seconds: 10.0,
+            file_size_bytes: 1_000,
+            file_size_mb: 1.0,
+            has_thumbnail: true,
+            r2_key: "r2/key".to_string(),
+            thumbnail_r2_key: Some("r2/thumb".to_string()),
+            status: ClipStatus::Completed,
+            created_at: Utc::now(),
+            completed_at: None,
+            updated_at: None,
+            created_by: "user-1".to_string(),
+        }
+    }
+
+    #[test]
+    fn clip_fields_include_updated_at_even_when_missing() {
+        let clip = sample_clip();
+        let fields = clip_metadata_to_fields(&clip);
+        assert!(
+            fields.contains_key("updated_at"),
+            "updated_at should be set for upserts"
+        );
+    }
+
+    #[test]
+    fn clip_fields_include_completed_at_when_present() {
+        let mut clip = sample_clip();
+        let now = Utc::now();
+        clip.completed_at = Some(now);
+        let fields = clip_metadata_to_fields(&clip);
+        assert!(
+            fields.get("completed_at").is_some(),
+            "completed_at should be included when provided"
+        );
+    }
 }

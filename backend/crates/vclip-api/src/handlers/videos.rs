@@ -51,6 +51,96 @@ pub struct ClipInfo {
     pub updated_at: Option<String>,
 }
 
+// ============================================================================
+// Scene/Style Index (for overwrite confirmation)
+// ============================================================================
+
+#[derive(Serialize)]
+pub struct SceneStyleEntry {
+    pub scene_id: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scene_title: Option<String>,
+    pub styles: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct SceneStyleResponse {
+    pub video_id: String,
+    pub scene_styles: Vec<SceneStyleEntry>,
+}
+
+/// Return the list of scene/style combinations already generated for a video.
+/// This lets the frontend present an accurate overwrite confirmation dialog.
+pub async fn get_video_scene_styles(
+    State(state): State<AppState>,
+    Path(video_id): Path<String>,
+    user: AuthUser,
+) -> ApiResult<Json<SceneStyleResponse>> {
+    // Validate video_id format
+    if !is_valid_video_id(&video_id) {
+        return Err(ApiError::bad_request("Invalid video ID format"));
+    }
+
+    // Verify ownership early
+    if !state.user_service.user_owns_video(&user.uid, &video_id).await? {
+        return Err(ApiError::not_found("Video not found"));
+    }
+
+    let video_id_obj = VideoId::from_string(&video_id);
+
+    // Best-effort highlight titles (do not fail if missing)
+    let highlight_titles: HashMap<u32, String> = match state
+        .storage
+        .load_highlights(&user.uid, &video_id)
+        .await
+    {
+        Ok(highlights) => highlights
+            .highlights
+            .into_iter()
+            .map(|h| (h.id, h.title))
+            .collect(),
+        Err(_) => HashMap::new(),
+    };
+
+    let clip_repo = vclip_firestore::ClipRepository::new(
+        (*state.firestore).clone(),
+        &user.uid,
+        video_id_obj.clone(),
+    );
+    let clips = clip_repo.list(None).await.map_err(ApiError::from)?;
+
+    let mut index: HashMap<u32, SceneStyleEntry> = HashMap::new();
+    for clip in clips {
+        let entry = index.entry(clip.scene_id).or_insert_with(|| SceneStyleEntry {
+            scene_id: clip.scene_id,
+            scene_title: highlight_titles
+                .get(&clip.scene_id)
+                .cloned()
+                .or_else(|| Some(clip.scene_title.clone())),
+            styles: Vec::new(),
+        });
+
+        if !entry
+            .styles
+            .iter()
+            .any(|s| s.eq_ignore_ascii_case(&clip.style))
+        {
+            entry.styles.push(clip.style.clone());
+        }
+    }
+
+    let mut scene_styles: Vec<SceneStyleEntry> = index.into_values().collect();
+    scene_styles.sort_by_key(|e| e.scene_id);
+    for entry in &mut scene_styles {
+        entry.styles.sort();
+    }
+
+    Ok(Json(SceneStyleResponse {
+        video_id,
+        scene_styles,
+    }))
+}
+
 /// Get video info.
 pub async fn get_video_info(
     State(state): State<AppState>,

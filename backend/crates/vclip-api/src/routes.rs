@@ -10,7 +10,7 @@ use crate::handlers::admin::{enqueue_synthetic_job, get_queue_status, get_system
 use crate::handlers::settings::{get_settings, update_settings};
 use crate::handlers::videos::{
     bulk_delete_clips, bulk_delete_videos, delete_all_clips, delete_clip, delete_video, get_video_highlights, get_video_info,
-    list_user_videos, reprocess_scenes, stream_clip, update_video_title,
+    get_video_scene_styles, list_user_videos, reprocess_scenes, stream_clip, update_video_title,
 };
 use crate::metrics::metrics_middleware;
 use crate::middleware::{cors_layer, rate_limit_middleware, request_id, request_logging, security_headers, RateLimiterCache};
@@ -33,6 +33,8 @@ pub fn create_router(state: AppState, metrics_handle: Option<PrometheusHandle>) 
         .route("/videos/:video_id/clips/all", delete(delete_all_clips))
         // Highlights
         .route("/videos/:video_id/highlights", get(get_video_highlights))
+        // Scene/style index for overwrite detection
+        .route("/videos/:video_id/scene-styles", get(get_video_scene_styles))
         // Title update
         .route("/videos/:video_id/title", patch(update_video_title))
         // Reprocess

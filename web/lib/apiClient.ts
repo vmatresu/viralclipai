@@ -337,3 +337,23 @@ export function getVideoDetails(
     token,
   });
 }
+
+/**
+ * Get existing scene/style combinations for a video
+ */
+export function getVideoSceneStyles(
+  videoId: string,
+  token: string
+): Promise<{
+  video_id: string;
+  scene_styles: Array<{
+    scene_id: number;
+    scene_title?: string;
+    styles: string[];
+  }>;
+}> {
+  return apiFetch(`/api/videos/${encodeURIComponent(videoId)}/scene-styles`, {
+    method: "GET",
+    token,
+  });
+}

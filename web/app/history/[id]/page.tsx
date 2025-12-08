@@ -16,6 +16,10 @@ import { toast } from "sonner";
 import { type Clip } from "@/components/ClipGrid";
 import { SceneCard, type Highlight } from "@/components/HistoryDetail/SceneCard";
 import { StyleSelector } from "@/components/HistoryDetail/StyleSelector";
+import {
+  OverwriteConfirmationDialog,
+  type OverwriteTarget,
+} from "@/components/HistoryDetail/OverwriteConfirmationDialog";
 import { Results } from "@/components/ProcessingClient/Results";
 import { DetailedProcessingStatus } from "@/components/shared/DetailedProcessingStatus";
 import { Button } from "@/components/ui/button";
@@ -30,6 +34,7 @@ import { useReprocessing } from "@/hooks/useReprocessing";
 import { apiFetch, getVideoDetails, getVideoHighlights } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { useProcessing } from "@/lib/processing-context";
+import { getVideoSceneStyles } from "@/lib/apiClient";
 
 interface UserSettings {
   plan: string;
@@ -44,6 +49,36 @@ interface HighlightsData {
   video_url?: string;
   video_title?: string;
   highlights: Highlight[];
+}
+
+interface SceneStyleEntryDto {
+  scene_id: number;
+  scene_title?: string;
+  styles: string[];
+}
+
+interface ReprocessPlan {
+  sceneIds: number[];
+  styles: string[];
+  conflicts: OverwriteTarget[];
+  fresh: OverwriteTarget[];
+}
+
+function parseClipIdentifier(clip: Clip): { sceneId: number; style: string } | null {
+  const style = clip.style?.toLowerCase();
+  const baseName = (clip.name || clip.title || "").replace(/\.(mp4|mov|mkv)$/i, "");
+  const match = baseName.match(/^clip_\d+_(\d+)_.*_([a-z0-9_]+)$/i);
+
+  if (match) {
+    const sceneId = Number(match[1]);
+    const inferredStyle = (style ?? match[2]).toLowerCase();
+    if (!Number.isNaN(sceneId)) {
+      return { sceneId, style: inferredStyle };
+    }
+  }
+
+  // If we have an explicit style but could not parse scene id, skip (cannot map to selection)
+  return null;
 }
 
 export default function HistoryDetailPage() {
@@ -61,6 +96,12 @@ export default function HistoryDetailPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
+  const [overwriteDialogOpen, setOverwriteDialogOpen] = useState(false);
+  const [pendingPlan, setPendingPlan] = useState<ReprocessPlan | null>(null);
+  const [sceneStylesData, setSceneStylesData] = useState<SceneStyleEntryDto[] | null>(
+    null
+  );
+  const [overwritePromptEnabled, setOverwritePromptEnabled] = useState<boolean>(true);
   const {
     getJob,
     completeJob: contextCompleteJob,
@@ -92,6 +133,90 @@ export default function HistoryDetailPage() {
     : (contextJob?.progress ?? 0);
   const effectiveLogs = isReprocessing ? reprocessLogs : (contextJob?.logs ?? []);
 
+  const sceneTitleById = useMemo(() => {
+    const map = new Map<number, string>();
+    highlightsData?.highlights.forEach((h) => map.set(h.id, h.title));
+    sceneStylesData?.forEach((entry) => {
+      if (entry.scene_title && !map.has(entry.scene_id)) {
+        map.set(entry.scene_id, entry.scene_title);
+      }
+    });
+    return map;
+  }, [highlightsData?.highlights, sceneStylesData]);
+
+  const existingClipIndex = useMemo(() => {
+    const map = new Map<number, Set<string>>();
+
+    if (sceneStylesData) {
+      sceneStylesData.forEach((entry) => {
+        const styles = map.get(entry.scene_id) ?? new Set<string>();
+        entry.styles.forEach((s) => styles.add(s.toLowerCase()));
+        map.set(entry.scene_id, styles);
+      });
+      return map;
+    }
+
+    clips.forEach((clip) => {
+      const parsed = parseClipIdentifier(clip);
+      if (!parsed) return;
+      const styles = map.get(parsed.sceneId) ?? new Set<string>();
+      styles.add(parsed.style.toLowerCase());
+      map.set(parsed.sceneId, styles);
+    });
+    return map;
+  }, [clips, sceneStylesData]);
+
+  const buildReprocessPlan = useCallback(
+    (sceneIds: number[], styles: string[]): ReprocessPlan => {
+      const normalizedStyles = styles.map((s) => s.toLowerCase());
+      const conflicts: OverwriteTarget[] = [];
+      const fresh: OverwriteTarget[] = [];
+
+      sceneIds.forEach((sceneId) => {
+        normalizedStyles.forEach((style) => {
+          const target: OverwriteTarget = {
+            sceneId,
+            sceneTitle: sceneTitleById.get(sceneId) ?? undefined,
+            style,
+          };
+          const existingStyles = existingClipIndex.get(sceneId);
+          if (existingStyles?.has(style)) {
+            conflicts.push(target);
+          } else {
+            fresh.push(target);
+          }
+        });
+      });
+
+      return { sceneIds, styles: normalizedStyles, conflicts, fresh };
+    },
+    [existingClipIndex, sceneTitleById]
+  );
+
+  const startReprocess = useCallback(
+    async (plan: ReprocessPlan) => {
+      setIsProcessing(true);
+      await reprocess(plan.sceneIds, plan.styles);
+    },
+    [reprocess]
+  );
+
+  const handleConfirmOverwrite = useCallback(async () => {
+    if (!pendingPlan) return;
+    setOverwriteDialogOpen(false);
+    await startReprocess(pendingPlan);
+  }, [pendingPlan, startReprocess]);
+
+  const handleCancelOverwrite = useCallback(() => {
+    setOverwriteDialogOpen(false);
+    setPendingPlan(null);
+  }, []);
+
+  const handleTogglePrompt = useCallback((value: boolean) => {
+    setOverwritePromptEnabled(value);
+    sessionStorage.setItem("overwritePromptEnabled", value ? "true" : "false");
+  }, []);
+
   const loadData = useCallback(async () => {
     if (authLoading || !user) {
       setLoading(false);
@@ -104,10 +229,11 @@ export default function HistoryDetailPage() {
         throw new Error("Failed to get authentication token");
       }
 
-      // Load highlights and video details (including clips) in parallel
-      const [highlights, details] = await Promise.all([
+      // Load highlights, video details, and existing scene/style index in parallel
+      const [highlights, details, sceneStyles] = await Promise.all([
         getVideoHighlights(videoId, token).catch(() => null),
         getVideoDetails(videoId, token).catch(() => null),
+        getVideoSceneStyles(videoId, token).catch(() => null),
       ]);
 
       if (!highlights) {
@@ -117,6 +243,7 @@ export default function HistoryDetailPage() {
       setHighlightsData(highlights);
       setClips(details?.clips ?? []);
       setCustomPrompt(details?.custom_prompt ?? null);
+      setSceneStylesData(sceneStyles?.scene_styles ?? null);
 
       // If highlights doesn't have title/url but details does, use details
       if ((!highlights.video_title || !highlights.video_url) && details) {
@@ -162,6 +289,14 @@ export default function HistoryDetailPage() {
     void loadData();
     void loadUserSettings();
   }, [loadData, loadUserSettings]);
+
+  // Load persisted overwrite prompt preference (session-scoped)
+  useEffect(() => {
+    const stored = sessionStorage.getItem("overwritePromptEnabled");
+    if (stored === "false") {
+      setOverwritePromptEnabled(false);
+    }
+  }, []);
 
   // Check if video is processing with proper cleanup
   useEffect(() => {
@@ -305,9 +440,26 @@ export default function HistoryDetailPage() {
       return;
     }
 
-    setIsProcessing(true);
-    await reprocess(Array.from(selectedScenes), Array.from(selectedStyles));
-  }, [selectedScenes, selectedStyles, isProcessing, isReprocessing, reprocess]);
+    const sceneIds = Array.from(selectedScenes);
+    const styles = Array.from(selectedStyles);
+    const plan = buildReprocessPlan(sceneIds, styles);
+    setPendingPlan(plan);
+
+    if (plan.conflicts.length > 0 && overwritePromptEnabled) {
+      setOverwriteDialogOpen(true);
+      return;
+    }
+
+    await startReprocess(plan);
+  }, [
+    selectedScenes,
+    selectedStyles,
+    isProcessing,
+    isReprocessing,
+    buildReprocessPlan,
+    startReprocess,
+    overwritePromptEnabled,
+  ]);
 
   const formatTime = useCallback((timeStr: string): string => {
     // Handle HH:MM:SS format
@@ -539,6 +691,16 @@ export default function HistoryDetailPage() {
             prev ? { ...prev, video_title: newTitle } : null
           );
         }}
+      />
+
+      <OverwriteConfirmationDialog
+        open={overwriteDialogOpen}
+        conflicts={pendingPlan?.conflicts ?? []}
+        fresh={pendingPlan?.fresh ?? []}
+        onCancel={handleCancelOverwrite}
+        onConfirm={handleConfirmOverwrite}
+        promptEnabled={overwritePromptEnabled}
+        onTogglePrompt={handleTogglePrompt}
       />
     </div>
   );
