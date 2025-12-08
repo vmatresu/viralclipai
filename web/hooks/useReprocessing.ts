@@ -46,19 +46,28 @@ export function useReprocessing({
   });
   const wsRef = useRef<WebSocket | null>(null);
 
+  // Avoid React “setState during render of another component” by deferring cross-context updates
+  const deferUpdateJob = useCallback(
+    (updates: Partial<ProcessingJob>) => {
+      // Defer to next macrotask to escape render phase
+      setTimeout(() => updateJob(videoId, updates), 0);
+    },
+    [updateJob, videoId]
+  );
+
   const addLog = useCallback(
     (message: string) => {
       setState((prev) => {
         const nextLogs = [...prev.logs, message];
         // Persist logs + current step to global processing context for refresh resilience
-        updateJob(videoId, { logs: nextLogs, currentStep: message });
+        deferUpdateJob({ logs: nextLogs, currentStep: message });
         return {
           ...prev,
           logs: nextLogs,
         };
       });
     },
-    [updateJob, videoId]
+    [deferUpdateJob]
   );
 
   const cleanup = useCallback(() => {
@@ -109,12 +118,12 @@ export function useReprocessing({
               progress: value,
             }));
             // Update global processing context
-            updateJob(videoId, { progress: value, status: "processing" });
+            deferUpdateJob({ progress: value, status: "processing" });
           },
           onLog: (message) => {
             addLog(message);
             // Update current step in global context
-            updateJob(videoId, { currentStep: message });
+            deferUpdateJob({ currentStep: message });
           },
           onDone: () => {
             setState((prev) => ({

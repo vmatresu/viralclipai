@@ -27,9 +27,9 @@ pub const FILTER_LEFT_FOCUS: &str = concat!(
 pub const FILTER_RIGHT_FOCUS: &str = concat!(
     "scale=1920:-2,",
     "crop=960:1080:960:0,",
-    // Scale height to 1920, then crop width to 1080 to avoid top padding
-    "scale=-2:1920,",
-    "crop=1080:1920:(iw-1080)/2:0"
+    "scale=1080:1920:force_original_aspect_ratio=decrease,",
+    // Anchor video to the top; pad only below
+    "pad=1080:1920:(ow-iw)/2:0"
 );
 
 /// Default portrait crop filter.
