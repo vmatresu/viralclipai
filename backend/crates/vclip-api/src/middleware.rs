@@ -83,16 +83,28 @@ pub fn create_rate_limiter(requests_per_second: u32) -> Arc<GlobalRateLimiter> {
 
 /// Create CORS layer.
 pub fn cors_layer(origins: &[String]) -> CorsLayer {
-    let cors = CorsLayer::new()
-        .allow_methods(Any)
-        .allow_headers(Any)
-        .expose_headers(Any)
-        .allow_credentials(true)
-        .max_age(std::time::Duration::from_secs(600));
+    use axum::http::{Method, header};
+    
+    // Common headers needed for API requests
+    let allowed_headers = [
+        header::AUTHORIZATION,
+        header::CONTENT_TYPE,
+        header::ACCEPT,
+        header::ORIGIN,
+        header::X_REQUESTED_WITH,
+    ];
+    
+    let allowed_methods = [
+        Method::GET,
+        Method::POST,
+        Method::PUT,
+        Method::PATCH,
+        Method::DELETE,
+        Method::OPTIONS,
+    ];
 
     if origins.iter().any(|o| o == "*") {
-        // Note: allow_credentials(true) is incompatible with allow_origin(Any)
-        // In production, always use explicit origins
+        // Wildcard origin - no credentials allowed
         CorsLayer::new()
             .allow_methods(Any)
             .allow_headers(Any)
@@ -100,11 +112,19 @@ pub fn cors_layer(origins: &[String]) -> CorsLayer {
             .allow_origin(Any)
             .max_age(std::time::Duration::from_secs(600))
     } else {
+        // Explicit origins - credentials allowed with explicit headers
         let origins: Vec<HeaderValue> = origins
             .iter()
             .filter_map(|o| o.parse().ok())
             .collect();
-        cors.allow_origin(origins)
+        
+        CorsLayer::new()
+            .allow_methods(allowed_methods)
+            .allow_headers(allowed_headers)
+            .expose_headers(Any)
+            .allow_credentials(true)
+            .allow_origin(origins)
+            .max_age(std::time::Duration::from_secs(600))
     }
 }
 
