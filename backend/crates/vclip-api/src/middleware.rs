@@ -87,10 +87,18 @@ pub fn cors_layer(origins: &[String]) -> CorsLayer {
         .allow_methods(Any)
         .allow_headers(Any)
         .expose_headers(Any)
+        .allow_credentials(true)
         .max_age(std::time::Duration::from_secs(600));
 
     if origins.iter().any(|o| o == "*") {
-        cors.allow_origin(Any)
+        // Note: allow_credentials(true) is incompatible with allow_origin(Any)
+        // In production, always use explicit origins
+        CorsLayer::new()
+            .allow_methods(Any)
+            .allow_headers(Any)
+            .expose_headers(Any)
+            .allow_origin(Any)
+            .max_age(std::time::Duration::from_secs(600))
     } else {
         let origins: Vec<HeaderValue> = origins
             .iter()
