@@ -1,182 +1,79 @@
 # Production Deployment Guide
 
-This document describes how to run Viral Clip AI in development and production with security hardening.
+Distributed architecture: **API droplet** + **Worker droplet** + **Managed Valkey** + **Vercel frontend**
 
 ---
 
-## Quick Start (Production)
+## Quick Setup
 
-```bash
-# 1. On DROPLET - Run server hardening
-sudo ./deploy/server-hardening.sh deploy
-
-# 2. On DROPLET - Setup SSL
-sudo ./deploy/certbot-setup.sh api.yourdomain.com admin@yourdomain.com
-
-# 3. On DROPLET - Configure environment
-cp .env.example .env  # Edit with production values
-
-# 4. On DROPLET - Start services
-docker compose up -d
+### 1. Vercel Frontend
+Set in Vercel Dashboard → Environment Variables:
+```
+NEXT_PUBLIC_API_BASE_URL = https://api.viralclipai.io
 ```
 
----
-
-## Local Development
-
-See `DOCKER_SETUP.md` for a detailed quickstart. In summary:
-
+### 2. API Droplet (api.viralclipai.io)
 ```bash
-# 1. Setup environment files
-cp .env.dev.example .env.dev
-cp web/.env.local.example web/.env.local
-
-# 2. Run development stack
-docker-compose -f docker-compose.dev.yml up --build
-```
-
-- Backend API: `http://localhost:8000`
-- Frontend: `http://localhost:3000`
-
----
-
-## Production Server Setup
-
-### 1. Initial Droplet Setup
-
-```bash
-# SSH as root
-ssh root@your-droplet-ip
-
-# Clone repository
-git clone https://github.com/yourusername/viralclipai.git /var/www/viralclipai-backend
+ssh root@api-droplet-ip
+git clone https://github.com/youruser/viralclipai.git /var/www/viralclipai-backend
 cd /var/www/viralclipai-backend
 
-# Run hardening script (creates 'deploy' user)
-chmod +x deploy/server-hardening.sh
-./deploy/server-hardening.sh deploy 22
-
-# IMPORTANT: Test SSH in NEW terminal before closing!
-# ssh deploy@your-droplet-ip
+sudo ./deploy/server-hardening.sh deploy
+sudo ./deploy/certbot-setup.sh api.viralclipai.io
+cp deploy/.env.api.example .env  # Edit with your values
+docker compose -f deploy/docker-compose.api.yml up -d
 ```
 
-### 2. SSL Configuration
-
+### 3. Worker Droplet
 ```bash
-# Copy nginx template and setup SSL
-sudo cp deploy/nginx/nginx.conf /etc/nginx/nginx.conf.template
-sudo chmod +x deploy/certbot-setup.sh
-sudo ./deploy/certbot-setup.sh api.viralclipai.com
-```
+ssh root@worker-droplet-ip
+git clone https://github.com/youruser/viralclipai.git /var/www/viralclipai-backend
+cd /var/www/viralclipai-backend
 
-### 3. Environment Configuration
-
-Create `.env` on server with:
-
-```bash
-# Firebase (from Firebase Console)
-FIREBASE_PROJECT_ID=your-project-id
-FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-FIREBASE_CLIENT_EMAIL=firebase-adminsdk@your-project.iam.gserviceaccount.com
-
-# R2 Storage
-R2_ENDPOINT_URL=https://account-id.r2.cloudflarestorage.com
-R2_ACCESS_KEY_ID=your-key
-R2_SECRET_ACCESS_KEY=your-secret
-R2_BUCKET_NAME=your-bucket
-
-# Security secrets (generate with: openssl rand -base64 64)
-JWT_SECRET=your-random-string
-REDIS_PASSWORD=your-redis-password
+sudo ./deploy/server-hardening.sh deploy
+cp deploy/.env.worker.example .env  # Edit with your values
+docker compose -f deploy/docker-compose.worker.yml up -d
 ```
 
 ---
 
-## GitHub Actions Deployment
+## Managed Valkey Connection
 
-Configure these GitHub secrets (Settings → Secrets):
+From DO Dashboard → Databases → Your Valkey:
+```
+VALKEY_URL=rediss://:PASSWORD@db-valkey-xxx.c.db.ondigitalocean.com:25061
+```
+Use `rediss://` (with s) for TLS.
+
+---
+
+## GitHub Secrets
 
 | Secret | Value |
 |--------|-------|
-| `DO_HOST` | Droplet IP |
+| `API_HOST` | API droplet IP |
+| `WORKER_HOST` | Worker droplet IP |
 | `DO_USER` | `deploy` |
-| `DO_PORT` | SSH port (default: 22) |
+| `DO_PORT` | `22` |
 | `DO_SSH_KEY` | Private SSH key |
 
-Pushes to `main` auto-deploy via `.github/workflows/deploy.yml`.
-
 ---
 
-## Security Features
-
-### Server Hardening (deploy/server-hardening.sh)
-
-- SSH: Root login disabled, key-only auth, strong ciphers
-- Firewall: UFW with minimal ports (22, 80, 443)
-- Intrusion detection: fail2ban with auto-ban
-- Auto-updates: unattended-upgrades for security patches
-- Audit logging: auditd for security events
-- Kernel: sysctl hardening (SYN flood protection, etc.)
-
-### Docker Security (docker-compose.yml)
-
-- Non-root containers
-- `no-new-privileges` enabled
-- All capabilities dropped
-- Read-only filesystems where possible
-- Redis password authentication
-- No external Redis port binding
-
-### CI/CD Security (.github/workflows/)
-
-- SHA-pinned GitHub Actions
-- Trivy container vulnerability scanning
-- cargo-audit for Rust dependencies
-- npm-audit for web dependencies
-- SBOM generation
-- Secret detection with TruffleHog
-
----
-
-## Monitoring
+## Verification
 
 ```bash
-# Service health
-docker compose ps
-curl http://localhost:8000/health
-
-# Security status
-sudo fail2ban-client status sshd
-sudo ufw status
-
-# Logs
-docker compose logs -f api worker
+curl https://api.viralclipai.io/health  # Should return OK
 ```
 
 ---
 
-## Backup & Recovery
+## Files Reference
 
-```bash
-# Backup Redis
-docker compose exec redis redis-cli -a $REDIS_PASSWORD BGSAVE
-docker cp vclip-redis:/data/dump.rdb ./backups/
-
-# Restore
-docker compose down
-docker cp ./backups/dump.rdb vclip-redis:/data/
-docker compose up -d
-```
-
----
-
-## Troubleshooting
-
-| Issue | Solution |
-|-------|----------|
-| API not responding | `docker compose logs api --tail=100` |
-| Redis auth failed | Check `REDIS_PASSWORD` matches in API, Worker, and Redis |
-| SSL issues | `sudo certbot renew --dry-run` |
-| SSH locked out | Access via DO console, check `/etc/ssh/sshd_config.d/` |
-
-For storage configuration, see `docs/storage-and-media.md`.
+| File | Purpose |
+|------|---------|
+| `deploy/docker-compose.api.yml` | API service |
+| `deploy/docker-compose.worker.yml` | Worker service |
+| `deploy/.env.api.example` | API env template |
+| `deploy/.env.worker.example` | Worker env template |
+| `.github/workflows/deploy-api.yml` | API auto-deploy |
+| `.github/workflows/deploy-worker.yml` | Worker auto-deploy |

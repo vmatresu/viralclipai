@@ -1,0 +1,60 @@
+name: Deploy Worker to DigitalOcean
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'Dockerfile'
+      - 'deploy/docker-compose.worker.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-worker:
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: worker-deploy
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+
+      - name: Deploy Worker via SSH
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262  # v1.0.3
+        with:
+          host: ${{ secrets.WORKER_HOST }}
+          username: ${{ secrets.DO_USER }}
+          port: ${{ secrets.DO_PORT }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          command_timeout: 30m
+          script: |
+            set -euo pipefail
+            
+            APP_DIR=/var/www/viralclipai-backend
+            cd "$APP_DIR"
+            
+            echo "Pulling latest changes..."
+            git fetch origin main
+            git reset --hard origin/main
+            
+            echo "Building and deploying Worker..."
+            docker compose -f deploy/docker-compose.worker.yml pull || true
+            docker compose -f deploy/docker-compose.worker.yml up -d --build
+            
+            echo "Waiting for Worker to start..."
+            sleep 15
+            
+            if docker compose -f deploy/docker-compose.worker.yml ps | grep -q "running"; then
+              echo "✅ Worker is running!"
+            else
+              echo "⚠️ Worker may have issues"
+              docker compose -f deploy/docker-compose.worker.yml logs --tail=50
+            fi
+            
+            docker image prune -f || true
+            echo "Worker deployment complete!"

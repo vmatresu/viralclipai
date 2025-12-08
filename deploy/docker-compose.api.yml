@@ -1,0 +1,87 @@
+# =============================================================================
+# ViralClip AI - API Service (Standalone)
+# =============================================================================
+# For deployment on dedicated API droplet with external managed Valkey
+# Usage: docker compose -f docker-compose.api.yml up -d
+# =============================================================================
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: api-runtime
+    image: viralclipai-api:${VERSION:-latest}
+    container_name: vclip-api
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+    environment:
+      # Runtime
+      - RUST_LOG=${RUST_LOG:-info,tower_http=info}
+      - RUST_BACKTRACE=${RUST_BACKTRACE:-1}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+
+      # API Server
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+
+      # Firebase/Firestore
+      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID:?FIREBASE_PROJECT_ID required}
+      - FIREBASE_PRIVATE_KEY=${FIREBASE_PRIVATE_KEY:?FIREBASE_PRIVATE_KEY required}
+      - FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL:?FIREBASE_CLIENT_EMAIL required}
+
+      # Managed Valkey/Redis (Digital Ocean)
+      # Format: rediss://:password@host:port (rediss:// for TLS)
+      - REDIS_URL=${VALKEY_URL:?VALKEY_URL required}
+      - REDIS_POOL_SIZE=${REDIS_POOL_SIZE:-10}
+
+      # Cloudflare R2 Storage
+      - R2_ENDPOINT_URL=${R2_ENDPOINT_URL:?R2_ENDPOINT_URL required}
+      - R2_ACCOUNT_ID=${R2_ACCOUNT_ID:-}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:?R2_ACCESS_KEY_ID required}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY:?R2_SECRET_ACCESS_KEY required}
+      - R2_BUCKET_NAME=${R2_BUCKET_NAME:?R2_BUCKET_NAME required}
+      - R2_REGION=${R2_REGION:-auto}
+      - R2_PUBLIC_URL=${R2_PUBLIC_URL:-}
+
+      # JWT Authentication
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET required}
+
+    ports:
+      - "127.0.0.1:8000:8000"
+
+    healthcheck:
+      test: ["CMD", "/app/vclip-api", "--health-check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    # Security hardening
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=100m
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+        compress: "true"

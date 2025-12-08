@@ -12,7 +12,7 @@
 # -----------------------------------------------------------------------------
 # Stage 1: Base - Common configuration
 # -----------------------------------------------------------------------------
-FROM node:20-alpine AS base
+FROM node:24-alpine AS base
 
 # Build arguments
 ARG BUILD_DATE
@@ -96,7 +96,7 @@ RUN npm run build
 # -----------------------------------------------------------------------------
 # Stage 4: Runner - Production runtime image
 # -----------------------------------------------------------------------------
-FROM node:20-alpine AS runner
+FROM node:24-alpine AS runner
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
