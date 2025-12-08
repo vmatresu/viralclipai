@@ -102,6 +102,23 @@ impl VideoRepository {
         Ok(())
     }
 
+    /// Update the clip count without touching status/timestamps unrelated to completion.
+    pub async fn update_clips_count(&self, video_id: &VideoId, clips_count: u32) -> FirestoreResult<()> {
+        let mut fields = HashMap::new();
+        fields.insert("clips_count".to_string(), clips_count.to_firestore_value());
+        fields.insert("updated_at".to_string(), Utc::now().to_firestore_value());
+
+        self.client
+            .update_document(
+                &self.collection(),
+                video_id.as_str(),
+                fields,
+                Some(vec!["clips_count".to_string(), "updated_at".to_string()]),
+            )
+            .await?;
+        Ok(())
+    }
+
     /// Mark video as failed.
     pub async fn fail(&self, video_id: &VideoId, error: &str) -> FirestoreResult<()> {
         let mut fields = HashMap::new();

@@ -31,7 +31,8 @@ const nextConfig = {
     const cspDirectives = [
       "default-src 'self'",
       `script-src 'self' 'unsafe-inline' ${isDev ? "'unsafe-eval'" : ""} https://www.googletagmanager.com https://www.google-analytics.com https://apis.google.com https://accounts.google.com`,
-      "style-src 'self' 'unsafe-inline' https://accounts.google.com",
+      "style-src 'self' 'unsafe-inline' https://accounts.google.com https://fonts.googleapis.com",
+      "style-src-elem 'self' 'unsafe-inline' https://accounts.google.com https://fonts.googleapis.com",
       "img-src 'self' data: https: blob:",
       "font-src 'self' data: https://fonts.gstatic.com https://fonts.googleapis.com",
       "connect-src 'self' https://*.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://apis.google.com https://accounts.google.com https://*.firebaseapp.com https://*.firebaseio.com wss://* ws://* http://localhost:8000 ws://localhost:8000 http://localhost:8001 ws://localhost:8001",

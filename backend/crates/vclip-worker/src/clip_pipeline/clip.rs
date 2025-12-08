@@ -24,9 +24,11 @@ fn encoding_for_style(style: Style) -> EncodingConfig {
         | Style::IntelligentSplitBasic
         | Style::IntelligentSplitAudio
         | Style::IntelligentSplitSpeaker => EncodingConfig::for_intelligent_crop(),
-        // Static Split gets a slightly higher CRF to shrink output size.
+        // Static Split/Focus styles use higher CRF to shrink output size.
         Style::Split => EncodingConfig::for_split_view().with_crf(24),
-        Style::SplitFast => EncodingConfig::for_split_view(),
+        Style::SplitFast => EncodingConfig::for_split_view().with_crf(24),
+        Style::LeftFocus => EncodingConfig::for_split_view().with_crf(24),
+        Style::RightFocus => EncodingConfig::for_split_view().with_crf(24),
         _ => EncodingConfig::default(),
     }
 }

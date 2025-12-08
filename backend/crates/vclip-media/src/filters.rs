@@ -19,7 +19,8 @@ pub const FILTER_LEFT_FOCUS: &str = concat!(
     "scale=1920:-2,",
     "crop=910:1080:0:0,",
     "scale=1080:1920:force_original_aspect_ratio=decrease,",
-    "pad=1080:1920:(ow-iw)/2:(oh-ih)/2"
+    // Anchor video to the top; pad only below
+    "pad=1080:1920:(ow-iw)/2:0"
 );
 
 /// Right focus filter (right half expanded to portrait).
@@ -27,7 +28,8 @@ pub const FILTER_RIGHT_FOCUS: &str = concat!(
     "scale=1920:-2,",
     "crop=960:1080:960:0,",
     "scale=1080:1920:force_original_aspect_ratio=decrease,",
-    "pad=1080:1920:(ow-iw)/2:(oh-ih)/2"
+    // Anchor video to the top; pad only below
+    "pad=1080:1920:(ow-iw)/2:0"
 );
 
 /// Default portrait crop filter.

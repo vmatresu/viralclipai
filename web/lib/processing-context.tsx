@@ -17,7 +17,6 @@ import React, {
 } from "react";
 import { toast } from "sonner";
 
-import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 
 // Types
@@ -33,13 +32,19 @@ export interface ProcessingJob {
   error?: string;
   clipsCompleted: number;
   totalClips: number;
+  waitingForProcessing?: boolean; // If true, ignore 'completed'/'failed' status from API until 'processing' is seen or timeout
 }
 
 interface ProcessingContextValue {
   jobs: Map<string, ProcessingJob>;
   activeJobCount: number;
   getJob: (videoId: string) => ProcessingJob | undefined;
-  startJob: (videoId: string, videoTitle?: string, totalClips?: number) => void;
+  startJob: (
+    videoId: string,
+    videoTitle?: string,
+    totalClips?: number,
+    waitForProcessing?: boolean
+  ) => void;
   updateJob: (videoId: string, updates: Partial<ProcessingJob>) => void;
   completeJob: (videoId: string) => void;
   failJob: (videoId: string, error: string) => void;
@@ -132,10 +137,9 @@ function showNotification(title: string, body: string, onClick?: () => void) {
 }
 
 export function ProcessingProvider({ children }: { children: React.ReactNode }) {
-  const { getIdToken, user } = useAuth();
+  const { user } = useAuth();
   const [jobs, setJobs] = useState<Map<string, ProcessingJob>>(new Map());
   const [initialized, setInitialized] = useState(false);
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load from localStorage on mount
   useEffect(() => {
@@ -154,106 +158,15 @@ export function ProcessingProvider({ children }: { children: React.ReactNode }) 
     }
   }, [jobs, initialized]);
 
-  // Poll for status updates on processing jobs
-  useEffect(() => {
-    if (!user || !initialized) return;
-
-    const processingJobs = Array.from(jobs.values()).filter(
-      (j) => j.status === "pending" || j.status === "processing"
-    );
-
-    if (processingJobs.length === 0) {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-      return;
-    }
-
-    const pollStatus = async () => {
-      try {
-        const token = await getIdToken();
-        if (!token) return;
-
-        const data = await apiFetch<{
-          videos: Array<{
-            video_id?: string;
-            id?: string;
-            status?: string;
-            clips_count?: number;
-            video_title?: string;
-          }>;
-        }>("/api/user/videos", { token });
-
-        const videoMap = new Map(data.videos.map((v) => [v.video_id ?? v.id ?? "", v]));
-
-        setJobs((prev) => {
-          const next = new Map(prev);
-          let hasChanges = false;
-
-          for (const [videoId, job] of next) {
-            if (job.status !== "pending" && job.status !== "processing") continue;
-
-            const apiVideo = videoMap.get(videoId);
-            if (!apiVideo) continue;
-
-            if (apiVideo.status === "completed") {
-              hasChanges = true;
-              next.set(videoId, {
-                ...job,
-                status: "completed",
-                progress: 100,
-                completedAt: Date.now(),
-                clipsCompleted: apiVideo.clips_count ?? job.totalClips,
-                currentStep: "Complete!",
-              });
-
-              // Show notification
-              showNotification(
-                "Video Processing Complete! 🎉",
-                `${apiVideo.video_title ?? "Your video"} is ready to view.`,
-                () => {
-                  window.location.href = `/?id=${encodeURIComponent(videoId)}`;
-                }
-              );
-
-              toast.success(`${apiVideo.video_title ?? "Video"} processing complete!`);
-            } else if (apiVideo.status === "failed") {
-              hasChanges = true;
-              next.set(videoId, {
-                ...job,
-                status: "failed",
-                completedAt: Date.now(),
-                error: "Processing failed",
-              });
-
-              toast.error(`${apiVideo.video_title ?? "Video"} processing failed`);
-            }
-          }
-
-          return hasChanges ? next : prev;
-        });
-      } catch (e) {
-        console.error("Failed to poll processing status:", e);
-      }
-    };
-
-    // Poll immediately and then every 5 seconds
-    void pollStatus();
-    pollIntervalRef.current = setInterval(() => void pollStatus(), 5000);
-
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-    };
-  }, [user, initialized, jobs, getIdToken]);
-
   const getJob = useCallback((videoId: string) => jobs.get(videoId), [jobs]);
 
   const startJob = useCallback(
-    (videoId: string, videoTitle?: string, totalClips?: number) => {
+    (
+      videoId: string,
+      videoTitle?: string,
+      totalClips?: number,
+      waitForProcessing?: boolean
+    ) => {
       setJobs((prev) => {
         const next = new Map(prev);
         next.set(videoId, {
@@ -265,6 +178,7 @@ export function ProcessingProvider({ children }: { children: React.ReactNode }) 
           startedAt: Date.now(),
           clipsCompleted: 0,
           totalClips: totalClips ?? 0,
+          waitingForProcessing: waitForProcessing ?? false,
         });
         return next;
       });
@@ -295,6 +209,8 @@ export function ProcessingProvider({ children }: { children: React.ReactNode }) 
         progress: 100,
         completedAt: Date.now(),
         currentStep: "Complete!",
+        // Reset logs after completion so refreshes don't show stale monitoring
+        logs: [],
       });
       return next;
     });

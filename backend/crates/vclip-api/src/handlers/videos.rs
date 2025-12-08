@@ -485,6 +485,11 @@ pub async fn delete_clip(
     );
     let metadata_deleted = clip_repo.delete_by_filename(&clip_name).await?;
 
+    // Refresh video clips_count to reflect deletion
+    if let Err(e) = refresh_clips_count(&state, &user.uid, &video_id).await {
+        warn!("Failed to refresh clips_count after deleting {}: {}", clip_name, e);
+    }
+
     info!("Deleted clip {} from video {} for user {} ({} files, metadata deleted: {})", 
           clip_name, video_id, user.uid, files_deleted, metadata_deleted);
 
@@ -531,6 +536,28 @@ pub struct DeleteAllClipsResponse {
     pub results: HashMap<String, BulkDeleteResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+}
+
+/// Recompute clips_count for a video and persist to Firestore.
+async fn refresh_clips_count(state: &AppState, user_id: &str, video_id: &str) -> ApiResult<()> {
+    let video_id_obj = vclip_models::VideoId::from_string(video_id);
+    let clip_repo = vclip_firestore::ClipRepository::new(
+        (*state.firestore).clone(),
+        user_id,
+        video_id_obj.clone(),
+    );
+
+    let video_repo = vclip_firestore::VideoRepository::new((*state.firestore).clone(), user_id);
+
+    let clips = clip_repo.list(None).await.map_err(ApiError::from)?;
+    let new_count = clips.len() as u32;
+
+    video_repo
+        .update_clips_count(&video_id_obj, new_count)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(())
 }
 
 /// Bulk delete clips for a video.
@@ -610,6 +637,11 @@ pub async fn bulk_delete_clips(
 
         info!("Deleted clip {} from video {} for user {} ({} files, metadata deleted: {})", 
               clip_name, video_id, user.uid, files_deleted, metadata_deleted);
+    }
+
+    // Refresh video clips_count to reflect deletions
+    if let Err(e) = refresh_clips_count(&state, &user.uid, &video_id).await {
+        warn!("Failed to refresh clips_count after bulk delete: {}", e);
     }
 
     Ok(Json(BulkDeleteClipsResponse {
@@ -720,6 +752,11 @@ pub async fn delete_all_clips(
                 failed_count += 1;
             }
         }
+    }
+
+    // Refresh video clips_count to reflect deletions
+    if let Err(e) = refresh_clips_count(&state, &user.uid, &video_id).await {
+        warn!("Failed to refresh clips_count after delete all: {}", e);
     }
 
     Ok(Json(DeleteAllClipsResponse {
@@ -997,10 +1034,6 @@ pub async fn reprocess_scenes(
         .user_service
         .update_video_status(&user.uid, &video_id, vclip_models::VideoStatus::Processing)
         .await?;
-
-    // Increment usage counter
-    let clip_count = request.scene_ids.len() as u32 * request.styles.len() as u32;
-    state.user_service.increment_usage(&user.uid, clip_count).await.ok();
 
     info!(
         "Reprocessing job {} enqueued for video {} by user {}: {} scenes, {} styles",

@@ -403,13 +403,6 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
         return;
     }
 
-    // Increment usage counter upfront (like REST API)
-    if let Err(e) = state.user_service.increment_usage(&uid, total_clips).await {
-        warn!("Failed to increment usage for user {}: {}", uid, e);
-    } else {
-        info!("Incremented usage by {} clips for user {}", total_clips, uid);
-    }
-
     // Update video status to processing
     if let Err(e) = state.user_service.update_video_status(&uid, &request.video_id, VideoStatus::Processing).await {
         warn!("Failed to update video status: {}", e);
@@ -442,7 +435,34 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
     // Subscribe to progress events
     match state.progress.subscribe(&job_id).await {
         Ok(mut stream) => {
+            let mut clips_uploaded = 0u32;
+
             while let Some(event) = stream.next().await {
+                let msg_type = match &event.message {
+                    WsMessage::ClipUploaded { .. } => {
+                        clips_uploaded += 1;
+                        "clip_uploaded"
+                    }
+                    WsMessage::Done { .. } => {
+                        if clips_uploaded > 0 {
+                            if let Err(e) = state.user_service.increment_usage(&uid, clips_uploaded).await {
+                                warn!("Failed to increment usage for user {}: {}", uid, e);
+                            } else {
+                                info!("Incremented usage by {} clips for user {}", clips_uploaded, uid);
+                            }
+                        }
+                        "done"
+                    }
+                    WsMessage::Error { .. } => "error",
+                    WsMessage::Log { .. } => "log",
+                    WsMessage::Progress { .. } => "progress",
+                    WsMessage::ClipProgress { .. } => "clip_progress",
+                    WsMessage::SceneStarted { .. } => "scene_started",
+                    WsMessage::SceneCompleted { .. } => "scene_completed",
+                };
+
+                metrics::record_ws_message_sent("reprocess", msg_type);
+
                 let json = match serde_json::to_string(&event.message) {
                     Ok(j) => j,
                     Err(_) => continue,

@@ -37,7 +37,7 @@ export function useReprocessing({
   onError,
 }: UseReprocessingOptions) {
   const { getIdToken } = useAuth();
-  const { startJob, updateJob, completeJob, failJob } = useProcessing();
+  const { startJob, updateJob, completeJob, failJob, getJob } = useProcessing();
   const [state, setState] = useState<ReprocessingState>({
     isProcessing: false,
     progress: 0,
@@ -46,12 +46,20 @@ export function useReprocessing({
   });
   const wsRef = useRef<WebSocket | null>(null);
 
-  const addLog = useCallback((message: string) => {
-    setState((prev) => ({
-      ...prev,
-      logs: [...prev.logs, message],
-    }));
-  }, []);
+  const addLog = useCallback(
+    (message: string) => {
+      setState((prev) => {
+        const nextLogs = [...prev.logs, message];
+        // Persist logs + current step to global processing context for refresh resilience
+        updateJob(videoId, { logs: nextLogs, currentStep: message });
+        return {
+          ...prev,
+          logs: nextLogs,
+        };
+      });
+    },
+    [updateJob, videoId]
+  );
 
   const cleanup = useCallback(() => {
     if (wsRef.current) {
@@ -90,7 +98,8 @@ export function useReprocessing({
         });
 
         // Start job in global processing context
-        startJob(videoId, videoTitle, totalClips);
+        // Set waitForProcessing=true to handle race condition where API might still show old 'completed' status
+        startJob(videoId, videoTitle, totalClips, true);
 
         // Use dedicated WebSocket client for better separation of concerns
         const callbacks: ReprocessCallbacks = {
@@ -100,7 +109,7 @@ export function useReprocessing({
               progress: value,
             }));
             // Update global processing context
-            updateJob(videoId, { progress: value });
+            updateJob(videoId, { progress: value, status: "processing" });
           },
           onLog: (message) => {
             addLog(message);
@@ -207,6 +216,20 @@ export function useReprocessing({
     });
     toast.info("Reprocessing cancelled");
   }, [cleanup]);
+
+  // Hydrate from processing context on mount/refresh so logs/progress persist
+  useEffect(() => {
+    const job = getJob(videoId);
+    if (job && (job.status === "pending" || job.status === "processing")) {
+      setState((prev) => ({
+        ...prev,
+        isProcessing: true,
+        progress: job.progress ?? prev.progress,
+        logs: job.logs ?? prev.logs,
+        error: null,
+      }));
+    }
+  }, [getJob, videoId]);
 
   // Cleanup WebSocket on unmount
   useEffect(() => {
