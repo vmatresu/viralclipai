@@ -16,6 +16,9 @@ const config: Config = {
       },
     },
     extend: {
+      fontFamily: {
+        sans: ["var(--font-outfit)", "system-ui", "sans-serif"],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -71,6 +74,12 @@ const config: Config = {
         sm: "calc(var(--radius) - 4px)",
       },
       keyframes: {
+        shake: {
+            "10%, 90%": { transform: "translate3d(-1px, 0, 0)" },
+            "20%, 80%": { transform: "translate3d(2px, 0, 0)" },
+            "30%, 50%, 70%": { transform: "translate3d(-4px, 0, 0)" },
+            "40%, 60%": { transform: "translate3d(4px, 0, 0)" }
+        },
         "accordion-down": {
           from: { height: "0" },
           to: { height: "var(--radix-accordion-content-height)" },

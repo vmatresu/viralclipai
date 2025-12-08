@@ -4,78 +4,70 @@
 
 @layer base {
   :root {
-    /* 
-      Light Theme - High Contrast & Professional 
-      Base hue: 222 (Slate-ish blue gray) for a modern tech feel
-    */
-    --background: 0 0% 100%; /* Pure white for cleanliness */
-    --foreground: 222.2 47.4% 11.2%; /* Slate-900: #0f172a - Sharp text */
+    /* Base hue: 222 (Slate) */
+    --background: 222 47% 98%;
+    --foreground: 222 47% 11%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222.2 47.4% 11.2%;
+    --card-foreground: 222 47% 11%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 47.4% 11.2%;
+    --popover-foreground: 222 47% 11%;
 
-    /* Brand Primary - Indigo/Violet */
-    --primary: 239 84% 67%; /* #6366f1 - Brand 500 */
+    --primary: 239 84% 67%;
     --primary-foreground: 210 40% 98%;
 
-    /* Secondary - Used for subtle backgrounds/buttons */
-    --secondary: 210 40% 96.1%; /* Slate-100 */
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222 47% 11%;
 
-    /* Muted - Used for secondary text/backgrounds */
     --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%; /* Slate-500 - #64748b - Readable gray */
+    --muted-foreground: 215.4 16.3% 46.9%;
 
-    /* Accent - Hover states etc */
     --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --accent-foreground: 222 47% 11%;
 
-    /* Destructive - Error states */
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
 
-    /* Borders & Inputs - Increased contrast for visibility */
-    --border: 214.3 31.8% 85%; /* Slate-200 darkening */
-    --input: 214.3 31.8% 85%;
-    --ring: 239 84% 67%; /* Matches Primary */
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 239 84% 67%;
 
     --radius: 0.5rem;
   }
 
   .dark {
     /* 
-      Dark Theme - Deep & Rich
-      Background is a very dark slate blue, not just gray 
+      Dark Theme - Modern AI SaaS Vibe
+      Background: Deep Slate Blue (Slate-950)
+      Surface: Rich Dark Blue
     */
-    --background: 222.2 84% 4.9%; /* Slate-950 */
-    --foreground: 210 40% 98%; /* Slate-50 */
+    --background: 222 47% 6%; /* Slate-950+ */
+    --foreground: 210 40% 98%;
 
-    --card: 222.2 84% 6.9%; /* Slightly lighter than bg */
+    --card: 222 47% 8%;
     --card-foreground: 210 40% 98%;
 
-    --popover: 222.2 84% 6.9%;
+    --popover: 222 47% 8%;
     --popover-foreground: 210 40% 98%;
 
-    --primary: 239 84% 67%; /* Brand 500 - Pops against dark */
-    --primary-foreground: 0 0% 100%;
+    --primary: 239 84% 67%; /* Indigo-500 equivalent */
+    --primary-foreground: 210 40% 98%;
 
-    --secondary: 217.2 32.6% 17.5%; /* Slate-800 */
+    --secondary: 217 33% 13%;
     --secondary-foreground: 210 40% 98%;
 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%; /* Slate-400 */
+    --muted: 217 33% 13%;
+    --muted-foreground: 215 20.2% 65.1%;
 
-    --accent: 217.2 32.6% 17.5%;
+    --accent: 217 33% 13%;
     --accent-foreground: 210 40% 98%;
 
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
 
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
+    --border: 217 33% 13%;
+    --input: 217 33% 13%;
     --ring: 239 84% 67%;
   }
 }
@@ -85,7 +77,7 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
   }
 }
 
@@ -93,23 +85,31 @@ html {
   scroll-behavior: smooth;
 }
 
-/* Glass morphism utility */
+/* Glass effect for modern UI */
 .glass {
-  @apply bg-background/80 backdrop-blur-md border-b border-border/50 supports-[backdrop-filter]:bg-background/60;
+  @apply bg-background/60 backdrop-blur-lg border border-white/10 shadow-xl;
+}
+
+/* Glowing text/border utilities */
+.text-glow {
+  text-shadow: 0 0 20px theme('colors.primary.DEFAULT');
+}
+.border-glow {
+  box-shadow: 0 0 20px -5px theme('colors.primary.DEFAULT');
 }
 
 /* Utility for consistent page layout */
 .page-container {
-  @apply max-w-5xl mx-auto px-4 md:px-6 pt-24 pb-12 space-y-8;
+  @apply max-w-6xl mx-auto px-4 md:px-6 pt-24 pb-12 space-y-12;
 }
 
-/* Typography Utilities */
+/* Typography Utilities - refined */
 .h1 {
-  @apply scroll-m-20 text-4xl font-extrabold tracking-tight lg:text-5xl;
+  @apply scroll-m-20 text-4xl font-extrabold tracking-tight lg:text-5xl bg-clip-text text-transparent bg-gradient-to-r from-white to-white/70;
 }
 
 .h2 {
-  @apply scroll-m-20 border-b pb-2 text-3xl font-semibold tracking-tight first:mt-0;
+  @apply scroll-m-20 border-b border-white/10 pb-2 text-3xl font-semibold tracking-tight first:mt-0;
 }
 
 .h3 {
@@ -117,9 +117,5 @@ html {
 }
 
 .p {
-  @apply leading-7 [&:not(:first-child)]:mt-6;
-}
-
-.lead {
-  @apply text-xl text-muted-foreground;
+  @apply leading-7 [&:not(:first-child)]:mt-6 text-muted-foreground;
 }

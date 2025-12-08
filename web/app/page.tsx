@@ -1,20 +1,15 @@
 "use client";
 
-import { Sparkles, Users, Video } from "lucide-react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect } from "react";
 
+// New Components
+import { FeatureHighlights } from "@/components/home/FeaturesSection";
+import { HeroSection } from "@/components/home/HeroSection";
+import { HowItWorks } from "@/components/home/HowItWorks";
+import { SocialProof } from "@/components/home/SocialProof";
+import { ProcessVideoInterface } from "@/components/process/ProcessVideoInterface";
 import { ProcessingClient } from "@/components/ProcessingClient";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { analyticsEvents } from "@/lib/analytics";
 import { usePageView } from "@/lib/usePageView";
 
 function HomePageContent() {
@@ -31,94 +26,52 @@ function HomePageContent() {
     }
   }, [videoId]);
 
-  return (
-    <div className="space-y-12">
-      {!isViewingVideo && (
-        <>
-          <section className="space-y-4">
-            <h1 className="text-3xl md:text-4xl font-extrabold">
-              Turn long-form videos into viral clips in minutes.
-            </h1>
-            <p className="text-muted-foreground max-w-2xl">
-              Viral Clip AI analyzes your YouTube commentary videos, finds the most
-              engaging moments, and generates social-ready clips optimized for TikTok,
-              Shorts, and Reels.
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <Button
-                asChild
-                variant="brand"
-                size="lg"
-                onClick={() => {
-                  void analyticsEvents.ctaClicked({
-                    ctaName: "try_it_now",
-                    location: "home",
-                  });
-                }}
-              >
-                <a href="#app">Try it now</a>
-              </Button>
-              <Button
-                asChild
-                variant="outline"
-                size="lg"
-                onClick={() => {
-                  void analyticsEvents.ctaClicked({
-                    ctaName: "view_pricing",
-                    location: "home",
-                  });
-                }}
-              >
-                <Link href="/pricing">View pricing</Link>
-              </Button>
-            </div>
-          </section>
-
-          <section className="grid md:grid-cols-3 gap-6">
-            <Card className="glass">
-              <CardHeader>
-                <Sparkles className="h-6 w-6 text-primary mb-2" />
-                <CardTitle>AI highlight detection</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <CardDescription>
-                  Powered by Gemini to find high-retention segments and automatically
-                  propose clip boundaries.
-                </CardDescription>
-              </CardContent>
-            </Card>
-            <Card className="glass">
-              <CardHeader>
-                <Video className="h-6 w-6 text-primary mb-2" />
-                <CardTitle>Vertical-ready formats</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <CardDescription>
-                  Split view, left/right focus, or all styles—designed for TikTok,
-                  Shorts, and Reels.
-                </CardDescription>
-              </CardContent>
-            </Card>
-            <Card className="glass">
-              <CardHeader>
-                <Users className="h-6 w-6 text-primary mb-2" />
-                <CardTitle>Per-user history & limits</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <CardDescription>
-                  Firebase Auth, Firestore, and S3-backed storage so every creator has
-                  their own secure workspace.
-                </CardDescription>
-              </CardContent>
-            </Card>
-          </section>
-        </>
-      )}
-
-      <section id="app">
+  if (isViewingVideo) {
+    return (
+      <section id="app" className="page-container">
         <Suspense fallback={<div className="text-muted-foreground">Loading...</div>}>
           <ProcessingClient />
         </Suspense>
+      </section>
+    );
+  }
+
+  return (
+    <div className="flex flex-col min-h-screen">
+      {/* Hero Section */}
+      <HeroSection />
+
+      {/* Main Processor Interface - Anchored for conversion */}
+      <section
+        id="process-video"
+        className="container px-4 relative z-10 -mt-20 lg:-mt-32 mb-20"
+      >
+        <ProcessVideoInterface />
+      </section>
+
+      {/* Social Proof */}
+      <SocialProof />
+
+      {/* How it Works */}
+      <HowItWorks />
+
+      {/* Features */}
+      <FeatureHighlights />
+
+      {/* Final CTA Area */}
+      <section className="py-24 text-center">
+        <div className="container px-4">
+          <h2 className="text-3xl md:text-4xl font-bold mb-6">Ready to go viral?</h2>
+          <p className="text-muted-foreground mb-8 max-w-2xl mx-auto">
+            Join thousands of creators using AI to dominate TikTok and Reels.
+          </p>
+          <a
+            href="#process-video"
+            className="inline-flex items-center justify-center h-12 px-8 rounded-full bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-colors shadow-[0_0_20px_-5px_theme(colors.primary.DEFAULT)] hover:shadow-[0_0_30px_-5px_theme(colors.primary.DEFAULT)]"
+          >
+            Create your first clip
+          </a>
+        </div>
       </section>
     </div>
   );

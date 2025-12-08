@@ -1,3 +1,4 @@
+import { Outfit } from "next/font/google";
 import { type ReactNode } from "react";
 import { Toaster } from "sonner";
 
@@ -10,6 +11,8 @@ import { ThemeProvider } from "@/lib/theme-provider";
 import type { Metadata } from "next";
 
 import "./globals.css";
+
+const outfit = Outfit({ subsets: ["latin"], variable: "--font-outfit" });
 
 export const metadata: Metadata = {
   title: "Viral Clip AI",
@@ -28,11 +31,11 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning data-scroll-behavior="smooth">
-      <body className="min-h-screen font-sans antialiased">
+      <body className={`min-h-screen font-sans antialiased ${outfit.variable}`}>
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
-          enableSystem
+          enableSystem={false}
           disableTransitionOnChange={false}
         >
           <AuthProvider>
