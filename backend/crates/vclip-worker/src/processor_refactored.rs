@@ -695,23 +695,24 @@ impl VideoProcessor {
                 WorkerError::Storage(e)
             })?;
 
-        // Upload thumbnail if available
+        // Upload thumbnail if available (truly non-critical - continue on failure)
         let thumb_key = if let Some(thumb_path) = &result.thumbnail_path {
             let thumb_filename = filename.replace(".mp4", ".jpg");
-            Some(
-                ctx.storage
-                    .upload_clip(thumb_path, user_id, video_id.as_str(), &thumb_filename)
-                    .await
-                    .map_err(|e| {
-                        tracing::warn!(
-                            scene_id = scene_id,
-                            style = %style_name,
-                            error = %e,
-                            "Failed to upload thumbnail (non-critical)"
-                        );
-                        WorkerError::Storage(e)
-                    })?,
-            )
+            match ctx.storage
+                .upload_clip(thumb_path, user_id, video_id.as_str(), &thumb_filename)
+                .await
+            {
+                Ok(key) => Some(key),
+                Err(e) => {
+                    tracing::warn!(
+                        scene_id = scene_id,
+                        style = %style_name,
+                        error = %e,
+                        "Failed to upload thumbnail (non-critical) - continuing without thumbnail"
+                    );
+                    None
+                }
+            }
         } else {
             None
         };
