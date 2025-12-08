@@ -21,7 +21,7 @@ import { createWebSocketConnection, getWebSocketUrl } from "@/lib/websocket-clie
 
 import { ErrorDisplay } from "./ErrorDisplay";
 import { useVideoProcessing } from "./hooks";
-import { ProcessingStatus } from "./ProcessingStatus";
+import { DetailedProcessingStatus } from "@/components/shared/DetailedProcessingStatus";
 import { Results } from "./Results";
 import { VideoForm } from "./VideoForm";
 
@@ -260,7 +260,7 @@ export function ProcessingClient() {
 
       {/* Status Section */}
       {submitting && (
-        <ProcessingStatus
+        <DetailedProcessingStatus
           progress={progress}
           logs={logs}
           sceneProgress={sceneProgress}

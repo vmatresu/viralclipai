@@ -12,23 +12,9 @@ import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { getCachedClips, invalidateClipsCache, setCachedClips } from "@/lib/cache";
 import { type ClipProcessingStep } from "@/lib/websocket/types";
+import { type SceneProgress } from "@/types/processing";
 
 import { type Clip } from "../ClipGrid";
-
-/**
- * Scene progress tracking
- */
-export interface SceneProgress {
-  sceneId: number;
-  sceneTitle: string;
-  styleCount: number;
-  startSec: number;
-  durationSec: number;
-  status: "pending" | "processing" | "completed" | "failed";
-  clipsCompleted: number;
-  clipsFailed: number;
-  currentSteps: Map<string, { step: ClipProcessingStep; details?: string }>;
-}
 
 export function useVideoProcessing() {
   const searchParams = useSearchParams();

@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { type Clip } from "@/components/ClipGrid";
-import { ProcessingStatus } from "@/components/HistoryDetail/ProcessingStatus";
+import { DetailedProcessingStatus } from "@/components/shared/DetailedProcessingStatus";
 import { SceneCard, type Highlight } from "@/components/HistoryDetail/SceneCard";
 import { StyleSelector } from "@/components/HistoryDetail/StyleSelector";
 import { Results } from "@/components/ProcessingClient/Results";
@@ -65,6 +65,7 @@ export default function HistoryDetailPage() {
     isProcessing: isReprocessing,
     reprocess,
     progress: reprocessProgress,
+    logs: reprocessLogs,
   } = useReprocessing({
     videoId,
     videoTitle: highlightsData?.video_title,
@@ -173,20 +174,11 @@ export default function HistoryDetailPage() {
         // Update video details if found
         // if (video) setVideoDetails((prev) => ({ ...prev, ...video }));
 
-        // Only set as processing if status is explicitly "processing"
-        // AND we don't have highlights loaded yet (to handle stuck processing state)
+        // Set processing status based on API
+        // We trust the API status. If it says processing, we show the status window.
+        // This allows monitoring to persist across refreshes for both initial processing and reprocessing.
         const statusIsProcessing = video?.status === "processing";
-        const hasHighlights = highlightsData && highlightsData.highlights.length > 0;
-
-        // If we have highlights, the video is effectively complete regardless of status
-        // This handles cases where the status got stuck as "processing"
-        const isActuallyProcessing = statusIsProcessing && !hasHighlights;
-        setIsProcessing(isActuallyProcessing);
-
-        // Also reload clips if processing just finished (transitioned from processing to completed)
-        // This is tricky without prev status, but we can poll clips if status is processing?
-        // Or just let the user refresh. Results component handles its own polling/updates via ProcessingClient logic usually?
-        // Here we are just viewing.
+        setIsProcessing(statusIsProcessing);
       } catch (err) {
         if (!cancelled) {
           console.error("Failed to check video status:", err);
@@ -412,11 +404,10 @@ export default function HistoryDetailPage() {
       </div>
 
       {(isProcessing || isReprocessing) && (
-        <ProcessingStatus
-          videoId={videoId}
-          videoTitle={highlightsData?.video_title}
-          progress={reprocessProgress}
-          status={isReprocessing ? "processing" : "pending"}
+        <DetailedProcessingStatus
+          progress={isReprocessing ? reprocessProgress : 0}
+          logs={isReprocessing ? reprocessLogs : []}
+          isResuming={!isReprocessing && isProcessing}
         />
       )}
 

@@ -105,9 +105,17 @@ export function ProcessingBanner() {
     <div className="fixed top-0 left-0 right-0 z-50 bg-background/95 backdrop-blur-sm border-b shadow-sm">
       <div className="max-w-7xl mx-auto px-4">
         {/* Collapsed view */}
-        <button
+        <div
           onClick={() => setIsExpanded(!isExpanded)}
-          className="w-full flex items-center justify-between py-2 text-sm"
+          className="w-full flex items-center justify-between py-2 text-sm cursor-pointer"
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              setIsExpanded(!isExpanded);
+            }
+          }}
         >
           <div className="flex items-center gap-3">
             {activeJobCount > 0 ? (
@@ -148,7 +156,7 @@ export function ProcessingBanner() {
               <ChevronDown className="h-4 w-4" />
             )}
           </div>
-        </button>
+        </div>
 
         {/* Progress bar for collapsed view */}
         {!isExpanded && activeJobCount > 0 && (
