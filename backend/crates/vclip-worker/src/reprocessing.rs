@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use tracing::info;
 
 use vclip_media::download_video;
-use vclip_models::ClipTask;
+use vclip_models::{ClipStatus, ClipTask};
 use vclip_queue::ReprocessScenesJob;
 
 use crate::clip_pipeline;
@@ -203,6 +203,23 @@ async fn process_selected_scenes(
     highlights: &vclip_storage::HighlightsData,
     total_clips: usize,
 ) -> WorkerResult<u32> {
+    // Load existing completed clips for skip-on-resume.
+    let existing_completed: std::collections::HashSet<String> =
+        match vclip_firestore::ClipRepository::new(
+            ctx.firestore.clone(),
+            &job.user_id,
+            job.video_id.clone(),
+        )
+        .list(Some(ClipStatus::Completed))
+        .await
+        {
+            Ok(clips) => clips.into_iter().map(|c| c.clip_id).collect(),
+            Err(e) => {
+                tracing::info!("Failed to list completed clips (processing all): {}", e);
+                std::collections::HashSet::new()
+            }
+        };
+
     // Group clips by scene_id for parallel processing of styles within each scene
     let mut scene_groups: HashMap<u32, Vec<&ClipTask>> = HashMap::new();
     for task in clip_tasks {
@@ -251,6 +268,7 @@ async fn process_selected_scenes(
             clips_dir,
             video_file,
             scene_tasks,
+            &existing_completed,
             total_clips,
         )
         .await?;

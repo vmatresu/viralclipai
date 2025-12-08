@@ -15,6 +15,12 @@ pub struct WorkerConfig {
     pub shutdown_timeout: Duration,
     /// Work directory for temporary files
     pub work_dir: String,
+    /// How often the worker should scan for orphaned pending jobs
+    pub claim_interval: Duration,
+    /// Minimum idle time before a pending job can be claimed (crash recovery)
+    pub claim_min_idle: Duration,
+    /// Interval for refreshing job ownership while processing (prevents premature reclamation)
+    pub job_heartbeat_interval: Duration,
 }
 
 impl Default for WorkerConfig {
@@ -25,6 +31,9 @@ impl Default for WorkerConfig {
             job_timeout: Duration::from_secs(3600), // 1 hour
             shutdown_timeout: Duration::from_secs(30),
             work_dir: "/tmp/vclip".to_string(),
+            claim_interval: Duration::from_secs(30),
+            claim_min_idle: Duration::from_secs(300), // 5 minutes
+            job_heartbeat_interval: Duration::from_secs(30),
         }
     }
 }
@@ -55,6 +64,24 @@ impl WorkerConfig {
             ),
             work_dir: std::env::var("WORKER_WORK_DIR")
                 .unwrap_or_else(|_| "/tmp/vclip".to_string()),
+            claim_interval: Duration::from_secs(
+                std::env::var("WORKER_CLAIM_INTERVAL_SECS")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(30),
+            ),
+            claim_min_idle: Duration::from_secs(
+                std::env::var("WORKER_CLAIM_MIN_IDLE_SECS")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(300),
+            ),
+            job_heartbeat_interval: Duration::from_secs(
+                std::env::var("WORKER_JOB_HEARTBEAT_SECS")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(30),
+            ),
         }
     }
 }

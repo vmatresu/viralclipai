@@ -13,6 +13,11 @@ use vclip_models::{
 use crate::error::{WorkerError, WorkerResult};
 use crate::processor::EnhancedProcessingContext;
 
+/// Deterministic clip id for a scene/style of a video.
+pub fn clip_id(video_id: &VideoId, task: &ClipTask) -> String {
+    format!("{}_{}_{}", video_id, task.scene_id, task.style)
+}
+
 /// Select encoding configuration per style.
 fn encoding_for_style(style: Style) -> EncodingConfig {
     match style {

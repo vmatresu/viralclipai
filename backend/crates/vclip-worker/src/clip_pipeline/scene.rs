@@ -4,13 +4,14 @@ use futures::future::join_all;
 use vclip_models::ClipTask;
 use vclip_queue::ProcessVideoJob;
 
-use crate::clip_pipeline::clip::{compute_padded_timing, process_single_clip};
+use crate::clip_pipeline::clip::{clip_id, compute_padded_timing, process_single_clip};
 use crate::error::WorkerResult;
 use crate::processor::EnhancedProcessingContext;
 
 pub struct SceneProcessingResults {
     pub processed: usize,
     pub completed: u32,
+    pub skipped: usize,
 }
 
 /// Process a single scene with parallel style processing.
@@ -20,6 +21,7 @@ pub async fn process_scene(
     clips_dir: &Path,
     video_file: &Path,
     scene_tasks: &[&ClipTask],
+    existing_completed: &std::collections::HashSet<String>,
     total_clips: usize,
 ) -> WorkerResult<SceneProcessingResults> {
     let first_task = scene_tasks[0];
@@ -71,8 +73,49 @@ pub async fn process_scene(
         .await
         .ok();
 
-    let futures: Vec<_> = scene_tasks
+    // Partition tasks into pending (not yet completed) and skipped (already completed).
+    let (pending_tasks, skipped_tasks): (Vec<&ClipTask>, Vec<&ClipTask>) = scene_tasks
         .iter()
+        .cloned()
+        .partition(|task| !existing_completed.contains(&clip_id(&job.video_id, task)));
+
+    if !skipped_tasks.is_empty() {
+        tracing::info!(
+            scene_id = scene_id,
+            skipped = skipped_tasks.len(),
+            total = scene_tasks.len(),
+            "Skipping already-completed clips for scene"
+        );
+    }
+
+    // If all styles are already done, emit completion and return.
+    if pending_tasks.is_empty() {
+        if let Err(e) = ctx
+            .progress
+            .scene_completed(
+                &job.job_id,
+                scene_id,
+                scene_tasks.len() as u32,
+                scene_tasks.len() as u32,
+            )
+            .await
+        {
+            tracing::warn!(
+                scene_id = scene_id,
+                error = %e,
+                "Failed to emit scene_completed event for skipped scene"
+            );
+        }
+
+        return Ok(SceneProcessingResults {
+            processed: scene_tasks.len(),
+            completed: scene_tasks.len() as u32,
+            skipped: scene_tasks.len(),
+        });
+    }
+
+    let futures: Vec<_> = scene_tasks
+        .iter() // use original ordering for progress indexes
         .enumerate()
         .map(|(idx, task)| {
             let ctx = ctx;
@@ -83,6 +126,9 @@ pub async fn process_scene(
             let clips_dir = clips_dir;
 
             async move {
+                if existing_completed.contains(&clip_id(video_id, task)) {
+                    return Ok(());
+                }
                 process_single_clip(
                     ctx,
                     job_id,
@@ -146,8 +192,9 @@ pub async fn process_scene(
     }
 
     Ok(SceneProcessingResults {
-        processed,
-        completed: completed as u32,
+        processed: processed + skipped_tasks.len(),
+        completed: completed as u32 + skipped_tasks.len() as u32,
+        skipped: skipped_tasks.len(),
     })
 }
 

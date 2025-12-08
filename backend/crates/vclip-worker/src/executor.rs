@@ -65,10 +65,10 @@ impl JobExecutor {
         let semaphore_clone = Arc::clone(&self.job_semaphore);
         let video_processor_clone = self.video_processor.clone();
         let mut shutdown_rx_claim = self.shutdown.subscribe();
+        let config = self.config.clone();
 
         let claim_task = tokio::spawn(async move {
-            // Run claim check every 60 seconds instead of 30
-            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            let mut interval = tokio::time::interval(config.claim_interval);
             loop {
                 tokio::select! {
                     _ = shutdown_rx_claim.changed() => {
@@ -77,16 +77,27 @@ impl JobExecutor {
                         }
                     }
                     _ = interval.tick() => {
-                        // Claim jobs that have been pending for more than 30 minutes (1,800,000ms)
-                        // Video processing jobs can take 10-20+ minutes for long clips with multiple styles
-                        // Previous 5-minute timeout caused duplicate processing of in-progress jobs
-                        match queue_clone.claim_pending(&consumer_name, 1_800_000, 5).await {
+                        // Claim jobs that have been idle longer than the configured threshold.
+                        let min_idle_ms: u64 = config
+                            .claim_min_idle
+                            .as_millis()
+                            .try_into()
+                            .unwrap_or(u64::MAX);
+
+                        // Clone per-iteration to avoid moving the captured consumer name.
+                        let consumer_name_claim = consumer_name.clone();
+
+                        match queue_clone
+                            .claim_pending(&consumer_name_claim, min_idle_ms, config.max_concurrent_jobs)
+                            .await
+                        {
                             Ok(jobs) if !jobs.is_empty() => {
                                 info!("Claimed {} pending jobs", jobs.len());
                                 for (message_id, job) in jobs {
                                     let ctx = Arc::clone(&ctx_clone);
                                     let queue = Arc::clone(&queue_clone);
                                     let video_processor = video_processor_clone.clone();
+                                    let consumer_name_job = consumer_name_claim.clone();
                                     let permit = semaphore_clone.clone().acquire_owned().await;
                                     if permit.is_err() {
                                         break;
@@ -95,7 +106,15 @@ impl JobExecutor {
 
                                     tokio::spawn(async move {
                                         let _permit = permit;
-                                        Self::execute_job(ctx, queue, message_id, job, video_processor).await;
+                                        Self::execute_job(
+                                            ctx,
+                                            queue,
+                                            message_id,
+                                            job,
+                                            video_processor,
+                                            consumer_name_job,
+                                        )
+                                        .await;
                                     });
                                 }
                             }
@@ -169,6 +188,7 @@ impl JobExecutor {
             let ctx = Arc::clone(ctx);
             let queue = Arc::clone(&self.queue);
             let video_processor = self.video_processor.clone();
+            let consumer_name = self.consumer_name.clone();
             let permit = self
                 .job_semaphore
                 .clone()
@@ -178,7 +198,15 @@ impl JobExecutor {
 
             tokio::spawn(async move {
                 let _permit = permit;
-                Self::execute_job(ctx, queue, message_id, job, video_processor).await;
+                Self::execute_job(
+                    ctx,
+                    queue,
+                    message_id,
+                    job,
+                    video_processor,
+                    consumer_name,
+                )
+                .await;
             });
         }
 
@@ -192,11 +220,36 @@ impl JobExecutor {
         message_id: String,
         job: QueueJob,
         video_processor: VideoProcessor,
+        consumer_name: String,
     ) {
         let job_id = job.job_id().to_string();
         info!("Executing job {}", job_id);
 
+        // Heartbeat to keep the job "alive" for long-running processing so Redis
+        // does not consider it idle and re-deliver it to another consumer.
+        let hb_queue = Arc::clone(&queue);
+        let hb_message_id = message_id.clone();
+        let hb_consumer = consumer_name.clone();
+        let hb_interval = ctx.config.job_heartbeat_interval.max(Duration::from_secs(1));
+        let heartbeat_task = tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(hb_interval);
+            loop {
+                ticker.tick().await;
+                if let Err(e) = hb_queue
+                    .refresh_visibility(&hb_consumer, &hb_message_id)
+                    .await
+                {
+                    warn!(
+                        "Failed to heartbeat job {} (message {}): {}",
+                        hb_message_id, hb_consumer, e
+                    );
+                }
+            }
+        });
+
         let result = Self::process_job(Arc::clone(&ctx), job.clone(), video_processor).await;
+
+        heartbeat_task.abort();
 
         match result {
             Ok(()) => {

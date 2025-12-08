@@ -1,6 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
+use tracing::info;
+use vclip_firestore::ClipRepository;
+use vclip_models::ClipStatus;
 use vclip_models::ClipTask;
 use vclip_queue::ProcessVideoJob;
 
@@ -27,8 +30,12 @@ pub async fn process_clips(
     work_dir: &Path,
     analysis: &AnalysisData,
 ) -> WorkerResult<ClipProcessingResults> {
-    let clip_tasks =
-        tasks::generate_clip_tasks(&analysis.highlights, &job.styles, &job.crop_mode, &job.target_aspect);
+    let clip_tasks = tasks::generate_clip_tasks(
+        &analysis.highlights,
+        &job.styles,
+        &job.crop_mode,
+        &job.target_aspect,
+    );
     let total_clips = clip_tasks.len();
 
     ctx.progress
@@ -52,11 +59,34 @@ pub async fn process_clips(
         scene_groups.entry(task.scene_id).or_default().push(task);
     }
 
+    // Load existing completed clips to enable skip-on-resume.
+    let existing_completed: HashSet<String> = match ClipRepository::new(
+        ctx.firestore.clone(),
+        &job.user_id,
+        job.video_id.clone(),
+    )
+    .list(Some(ClipStatus::Completed))
+    .await
+    {
+        Ok(clips) => clips.into_iter().map(|c| c.clip_id).collect(),
+        Err(e) => {
+            info!("Failed to list completed clips (will process all): {}", e);
+            HashSet::new()
+        }
+    };
+
+    if !existing_completed.is_empty() {
+        info!(
+            existing = existing_completed.len(),
+            "Found existing completed clips, will skip those tasks"
+        );
+    }
+
     let mut scene_ids: Vec<u32> = scene_groups.keys().copied().collect();
     scene_ids.sort();
 
-    let mut completed_clips = 0u32;
-    let mut processed_count = 0usize;
+    let mut completed_clips = existing_completed.len() as u32;
+    let mut processed_count = existing_completed.len();
 
     // Process each scene
     for scene_id in scene_ids {
@@ -67,6 +97,7 @@ pub async fn process_clips(
             &clips_dir,
             &analysis.video_file,
             scene_tasks,
+            &existing_completed,
             total_clips,
         )
         .await?;

@@ -423,4 +423,28 @@ impl JobQueue {
     pub fn max_retries(&self) -> u32 {
         self.config.max_retries
     }
+
+    /// Refresh visibility/ownership for a job that is still processing.
+    /// This resets the idle timer so long-running jobs are not reclaimed while active.
+    pub async fn refresh_visibility(
+        &self,
+        consumer_name: &str,
+        message_id: &str,
+    ) -> QueueResult<()> {
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
+
+        // XCLAIM with min-idle=0 moves the message to this consumer and resets its idle time.
+        // JUSTID avoids transferring the full payload and keeps this lightweight.
+        let _res: redis::Value = redis::cmd("XCLAIM")
+            .arg(&self.config.stream_name)
+            .arg(&self.config.consumer_group)
+            .arg(consumer_name)
+            .arg(0) // min-idle-ms
+            .arg(message_id)
+            .arg("JUSTID")
+            .query_async(&mut conn)
+            .await?;
+
+        Ok(())
+    }
 }
