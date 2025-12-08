@@ -66,7 +66,7 @@ if id "$DEPLOY_USER" &>/dev/null; then
     log_warn "User $DEPLOY_USER already exists"
 else
     log_info "Creating deploy user: $DEPLOY_USER"
-    useradd -m -s /bin/bash -G sudo,docker "$DEPLOY_USER"
+    useradd -m -s /bin/bash -G sudo "$DEPLOY_USER"
     
     # Copy SSH keys from root to deploy user
     mkdir -p /home/$DEPLOY_USER/.ssh
@@ -345,7 +345,14 @@ systemctl restart auditd
 if ! command -v docker &> /dev/null; then
     log_info "Installing Docker..."
     curl -fsSL https://get.docker.com | sh
+fi
+
+# Add deploy user to docker group (whether Docker was just installed or already existed)
+if getent group docker > /dev/null 2>&1; then
     usermod -aG docker $DEPLOY_USER
+    log_info "Added $DEPLOY_USER to docker group"
+else
+    log_warn "Docker group not found, skipping group assignment"
 fi
 
 # Configure Docker daemon for security
