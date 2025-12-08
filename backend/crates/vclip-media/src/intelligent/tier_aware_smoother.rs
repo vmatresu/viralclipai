@@ -17,6 +17,7 @@ use super::activity_scorer::TemporalActivityTracker;
 use super::config::{FallbackPolicy, IntelligentCropConfig};
 use super::face_activity::FaceActivityConfig;
 use super::models::{BoundingBox, CameraKeyframe, CameraMode, Detection, FrameDetections};
+use super::smoothing_utils::{mean, median, moving_average, std_deviation};
 use super::speaker_detector::{ActiveSpeaker, SpeakerSegment};
 
 /// Tier-aware camera smoother that uses speaker and activity information.
@@ -106,11 +107,15 @@ impl TierAwareCameraSmoother {
         debug!("Camera mode: {:?}", mode);
 
         // Apply smoothing based on mode AND tier
-        // For AudioAware/SpeakerAware, use instant transitions at speaker boundaries
+        // For speaker-aware and activity-aware tiers with tracking, use instant transitions at speaker boundaries
         let smoothed = match (mode, self.tier) {
             // For speaker-aware tiers with tracking, use instant transitions
             (CameraMode::Tracking | CameraMode::Zoom, DetectionTier::AudioAware | DetectionTier::SpeakerAware) => {
                 self.smooth_with_instant_speaker_transitions(&raw_keyframes)
+            }
+            // For visual activity tiers, use tracking-style smoothing (no audio-based instant transitions)
+            (CameraMode::Tracking | CameraMode::Zoom, DetectionTier::MotionAware | DetectionTier::ActivityAware) => {
+                self.smooth_tracking(&raw_keyframes)
             }
             (CameraMode::Static, _) => self.smooth_static(&raw_keyframes),
             (CameraMode::Tracking | CameraMode::Zoom, _) => self.smooth_tracking(&raw_keyframes),
@@ -120,6 +125,10 @@ impl TierAwareCameraSmoother {
         match self.tier {
             DetectionTier::AudioAware | DetectionTier::SpeakerAware => {
                 // Allow faster movements for speaker tracking
+                self.enforce_constraints_relaxed(&smoothed, width, height)
+            }
+            DetectionTier::MotionAware | DetectionTier::ActivityAware => {
+                // Allow faster movements for visual activity tracking (but still constrained)
                 self.enforce_constraints_relaxed(&smoothed, width, height)
             }
             _ => self.enforce_constraints(&smoothed, width, height)
@@ -188,6 +197,13 @@ impl TierAwareCameraSmoother {
                         self.compute_focus_audio_aware(frame_dets, current_time, width, height)
                     }
                     DetectionTier::SpeakerAware => {
+                        self.compute_focus_speaker_aware(frame_dets, current_time, width, height)
+                    }
+                    // Visual activity tiers use basic focus (visual activity is handled in smoother)
+                    DetectionTier::MotionAware => {
+                        self.compute_focus_basic(frame_dets, width, height)
+                    }
+                    DetectionTier::ActivityAware => {
                         self.compute_focus_speaker_aware(frame_dets, current_time, width, height)
                     }
                 };
@@ -662,56 +678,8 @@ impl TierAwareCameraSmoother {
         constrained
     }
 }
-
-// === Helper Functions ===
-
-fn mean(values: &[f64]) -> f64 {
-    if values.is_empty() {
-        return 0.0;
-    }
-    values.iter().sum::<f64>() / values.len() as f64
-}
-
-fn std_deviation(values: &[f64]) -> f64 {
-    if values.len() < 2 {
-        return 0.0;
-    }
-    let avg = mean(values);
-    let variance = values.iter().map(|v| (v - avg).powi(2)).sum::<f64>() / values.len() as f64;
-    variance.sqrt()
-}
-
-fn median(values: &[f64]) -> f64 {
-    if values.is_empty() {
-        return 0.0;
-    }
-    let mut sorted = values.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let mid = sorted.len() / 2;
-    if sorted.len() % 2 == 0 {
-        (sorted[mid - 1] + sorted[mid]) / 2.0
-    } else {
-        sorted[mid]
-    }
-}
-
-fn moving_average(data: &[f64], window: usize) -> Vec<f64> {
-    if data.len() < window {
-        return data.to_vec();
-    }
-
-    let pad = window / 2;
-    let mut result = Vec::with_capacity(data.len());
-
-    for i in 0..data.len() {
-        let start = if i >= pad { i - pad } else { 0 };
-        let end = (i + pad + 1).min(data.len());
-        let slice = &data[start..end];
-        result.push(slice.iter().sum::<f64>() / slice.len() as f64);
-    }
-
-    result
-}
+// NOTE: Helper functions (mean, median, std_deviation, moving_average) have been
+// extracted to smoothing_utils.rs for reuse across the codebase.
 
 #[cfg(test)]
 mod tests {

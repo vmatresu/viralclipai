@@ -74,6 +74,8 @@ impl StyleProcessor for IntelligentSplitProcessor {
             DetectionTier::Basic => "intelligent_split",
             DetectionTier::AudioAware => "intelligent_split_audio",
             DetectionTier::SpeakerAware => "intelligent_split_speaker",
+            DetectionTier::MotionAware => "intelligent_split_motion",
+            DetectionTier::ActivityAware => "intelligent_split_activity",
         }
     }
 
@@ -84,6 +86,8 @@ impl StyleProcessor for IntelligentSplitProcessor {
                 | Style::IntelligentSplitBasic
                 | Style::IntelligentSplitAudio
                 | Style::IntelligentSplitSpeaker
+                | Style::IntelligentSplitMotion
+                | Style::IntelligentSplitActivity
         )
     }
 
@@ -180,7 +184,9 @@ impl StyleProcessor for IntelligentSplitProcessor {
             DetectionTier::None => 0.6,
             DetectionTier::Basic => 1.2,
             DetectionTier::AudioAware => 1.5,
+            DetectionTier::MotionAware => 1.4,
             DetectionTier::SpeakerAware => 1.8,
+            DetectionTier::ActivityAware => 1.7,
         };
 
         let mut complexity = utils::estimate_complexity(duration, true);

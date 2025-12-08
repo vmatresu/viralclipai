@@ -54,6 +54,18 @@ impl PipelineBuilder {
                 info!("Building SpeakerAware tier pipeline (YuNet + audio + face activity)");
                 Ok(Box::new(SpeakerAwarePipeline::new()))
             }
+            DetectionTier::MotionAware => {
+                // MotionAware uses Basic pipeline for face detection,
+                // visual activity is computed separately in the cropper
+                info!("Building MotionAware tier pipeline (YuNet + visual motion)");
+                Ok(Box::new(BasicPipeline::new()))
+            }
+            DetectionTier::ActivityAware => {
+                // ActivityAware uses Basic pipeline for face detection,
+                // full visual activity with temporal tracking in the cropper
+                info!("Building ActivityAware tier pipeline (YuNet + full visual activity)");
+                Ok(Box::new(BasicPipeline::new()))
+            }
         }
     }
 }

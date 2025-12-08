@@ -74,6 +74,8 @@ impl StyleProcessor for IntelligentProcessor {
             DetectionTier::Basic => "intelligent",
             DetectionTier::AudioAware => "intelligent_audio",
             DetectionTier::SpeakerAware => "intelligent_speaker",
+            DetectionTier::MotionAware => "intelligent_motion",
+            DetectionTier::ActivityAware => "intelligent_activity",
         }
     }
 
@@ -84,6 +86,8 @@ impl StyleProcessor for IntelligentProcessor {
                 | Style::IntelligentBasic
                 | Style::IntelligentAudio
                 | Style::IntelligentSpeaker
+                | Style::IntelligentMotion
+                | Style::IntelligentActivity
         )
     }
 
@@ -180,7 +184,9 @@ impl StyleProcessor for IntelligentProcessor {
             DetectionTier::None => 0.5,
             DetectionTier::Basic => 1.0,
             DetectionTier::AudioAware => 1.3,
+            DetectionTier::MotionAware => 1.4,
             DetectionTier::SpeakerAware => 1.6,
+            DetectionTier::ActivityAware => 1.7,
         };
 
         let mut complexity = utils::estimate_complexity(duration, true);

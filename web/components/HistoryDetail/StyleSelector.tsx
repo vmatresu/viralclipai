@@ -24,7 +24,7 @@ const STYLES = [
     speed: "⚡ Fast",
   },
 
-  // Intelligent single-view styles (face tracking only - no audio dependency)
+  // Intelligent single-view styles (Basic tier)
   {
     value: "intelligent",
     label: "Intelligent Crop",
@@ -32,12 +32,40 @@ const STYLES = [
     speed: "🧠 Standard",
   },
 
-  // Intelligent split-view styles (face tracking only - no audio dependency)
+  // Visual activity styles (Motion/Activity tiers - work with any audio)
+  {
+    value: "intelligent_motion",
+    label: "Intelligent (Motion)",
+    subtitle: "Face + Motion Detection",
+    speed: "🎯 Enhanced",
+  },
+  {
+    value: "intelligent_activity",
+    label: "Intelligent (Activity)",
+    subtitle: "Full Visual Tracking",
+    speed: "🎯 Premium",
+  },
+
+  // Intelligent split-view styles (Basic tier)
   {
     value: "intelligent_split",
     label: "Smart Split",
     subtitle: "Split + Face Tracking",
     speed: "🧠 Standard",
+  },
+
+  // Visual activity split styles (Motion/Activity tiers - work with any audio)
+  {
+    value: "intelligent_split_motion",
+    label: "Smart Split (Motion)",
+    subtitle: "Split + Motion Detection",
+    speed: "🎯 Enhanced",
+  },
+  {
+    value: "intelligent_split_activity",
+    label: "Smart Split (Activity)",
+    subtitle: "Full Visual Tracking",
+    speed: "🎯 Premium",
   },
 
   // Special options

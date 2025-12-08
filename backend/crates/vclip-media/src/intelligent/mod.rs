@@ -57,6 +57,7 @@ pub mod layout_detector;
 pub mod models;
 pub mod renderer;
 pub mod smoother;
+pub mod smoothing_utils;
 pub mod speaker_detector;
 pub mod stacking;
 pub mod split;
@@ -64,6 +65,8 @@ pub mod tier_aware_cropper;
 pub mod tier_aware_smoother;
 pub mod tier_aware_split;
 pub mod tracker;
+pub mod visual_activity_cropper;
+pub mod visual_activity_split;
 pub mod yunet;
 
 #[cfg(test)]
@@ -86,6 +89,8 @@ pub use tier_aware_cropper::{create_tier_aware_intelligent_clip, TierAwareIntell
 pub use tier_aware_smoother::TierAwareCameraSmoother;
 pub use tier_aware_split::{create_tier_aware_split_clip, TierAwareSplitProcessor};
 pub use tracker::IoUTracker;
+pub use visual_activity_cropper::{create_visual_activity_clip, VisualActivityCropper};
+pub use visual_activity_split::{create_visual_activity_split_clip, VisualActivitySplitProcessor};
 
 use crate::error::MediaResult;
 use crate::probe::probe_video;
