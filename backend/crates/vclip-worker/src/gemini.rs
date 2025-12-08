@@ -115,6 +115,7 @@ impl GeminiClient {
         // Use cookies file if available for YouTube authentication
         let cookies_path = "/app/youtube-cookies.txt";
         let mut args = vec![
+            "--remote-components", "ejs:github",
             "--print", "title",
             "--print", "webpage_url",
             "--no-download",
@@ -220,6 +221,7 @@ impl GeminiClient {
         let cookies_path = "/app/youtube-cookies.txt";
         let output_template_str = output_template.to_string_lossy();
         let mut args = vec![
+            "--remote-components", "ejs:github",
             "--write-auto-sub",
             "--write-sub",
             "--sub-lang", "en,en-US,en-GB",
