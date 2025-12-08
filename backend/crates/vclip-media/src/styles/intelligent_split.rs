@@ -125,20 +125,34 @@ impl StyleProcessor for IntelligentSplitProcessor {
             tier_name, self.tier
         );
 
-        // Use tier-aware split processor for tier-specific behavior
-        // - Basic: Fixed vertical positioning (0% left, 15% right)
-        // - AudioAware/SpeakerAware: Face-aware positioning per panel
-        let _result = crate::intelligent::create_tier_aware_split_clip(
-            request.input_path.as_ref(),
-            request.output_path.as_ref(),
-            &request.task,
-            self.tier,
-            &request.encoding,
-            |_progress| {
-                // Could emit progress updates
-            },
-        )
-        .await?;
+        match self.tier {
+            DetectionTier::ActivityAware => {
+                crate::intelligent::create_activity_split_clip(
+                    request.input_path.as_ref(),
+                    request.output_path.as_ref(),
+                    &request.task,
+                    &request.encoding,
+                    |_progress| {},
+                )
+                .await?
+            }
+            _ => {
+                // Use tier-aware split processor for tier-specific behavior
+                // - Basic: Fixed vertical positioning (0% left, 15% right)
+                // - AudioAware/SpeakerAware: Face-aware positioning per panel
+                crate::intelligent::create_tier_aware_split_clip(
+                    request.input_path.as_ref(),
+                    request.output_path.as_ref(),
+                    &request.task,
+                    self.tier,
+                    &request.encoding,
+                    |_progress| {
+                        // Could emit progress updates
+                    },
+                )
+                .await?
+            }
+        };
 
         let processing_time = timer.elapsed();
 

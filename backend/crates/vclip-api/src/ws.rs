@@ -212,7 +212,7 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
         Ok(mut stream) => {
             let mut heartbeat = interval(WS_HEARTBEAT_INTERVAL);
             let mut last_activity = std::time::Instant::now();
-            let mut clips_uploaded = 0u32;
+            let mut credits_consumed = 0u32;
 
             loop {
                 tokio::select! {
@@ -224,8 +224,8 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
                                 let msg_type = match &event.message {
                                     WsMessage::Log { .. } => "log",
                                     WsMessage::Progress { .. } => "progress",
-                                    WsMessage::ClipUploaded { .. } => {
-                                        clips_uploaded += 1;
+                                    WsMessage::ClipUploaded { credits, .. } => {
+                                        credits_consumed = credits_consumed.saturating_add(*credits);
                                         "clip_uploaded"
                                     },
                                     WsMessage::ClipProgress { .. } => "clip_progress",
@@ -234,11 +234,11 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
                                     WsMessage::Done { .. } => {
                                         done_sent = true;
                                         // Increment usage counter when job completes successfully
-                                        if clips_uploaded > 0 {
-                                            if let Err(e) = state.user_service.increment_usage(&uid, clips_uploaded).await {
+                                        if credits_consumed > 0 {
+                                            if let Err(e) = state.user_service.increment_usage(&uid, credits_consumed).await {
                                                 warn!("Failed to increment usage for user {}: {}", uid, e);
                                             } else {
-                                                info!("Incremented usage by {} clips for user {}", clips_uploaded, uid);
+                                                info!("Incremented usage by {} credits for user {}", credits_consumed, uid);
                                             }
                                         }
                                         "done"
@@ -464,7 +464,7 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
         Ok(mut stream) => {
             let mut heartbeat = interval(WS_HEARTBEAT_INTERVAL);
             let mut last_activity = std::time::Instant::now();
-            let mut clips_uploaded = 0u32;
+            let mut credits_consumed = 0u32;
 
             loop {
                 tokio::select! {
@@ -474,17 +474,17 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
                             Some(event) => {
                                 last_activity = std::time::Instant::now();
                                 let msg_type = match &event.message {
-                                    WsMessage::ClipUploaded { .. } => {
-                                        clips_uploaded += 1;
+                                    WsMessage::ClipUploaded { credits, .. } => {
+                                        credits_consumed = credits_consumed.saturating_add(*credits);
                                         "clip_uploaded"
                                     }
                                     WsMessage::Done { .. } => {
                                         done_sent = true;
-                                        if clips_uploaded > 0 {
-                                            if let Err(e) = state.user_service.increment_usage(&uid, clips_uploaded).await {
+                                        if credits_consumed > 0 {
+                                            if let Err(e) = state.user_service.increment_usage(&uid, credits_consumed).await {
                                                 warn!("Failed to increment usage for user {}: {}", uid, e);
                                             } else {
-                                                info!("Incremented usage by {} clips for user {}", clips_uploaded, uid);
+                                                info!("Incremented usage by {} credits for user {}", credits_consumed, uid);
                                             }
                                         }
                                         "done"

@@ -240,7 +240,13 @@ pub async fn process_single_clip(
     // Emit legacy clip_uploaded message for backward compatibility
     if let Err(e) = ctx
         .progress
-        .clip_uploaded(job_id, video_id.as_str(), clip_index as u32 + 1, total_clips as u32)
+        .clip_uploaded(
+            job_id,
+            video_id.as_str(),
+            clip_index as u32 + 1,
+            total_clips as u32,
+            task.style.credit_cost(),
+        )
         .await
     {
         tracing::warn!(

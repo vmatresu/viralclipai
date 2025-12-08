@@ -47,6 +47,7 @@
 //! ```
 
 pub mod activity_scorer;
+pub mod activity_split;
 pub mod camera_constraints;
 pub mod config;
 pub mod crop_planner;
@@ -75,6 +76,7 @@ pub mod yunet;
 mod tests;
 
 pub use activity_scorer::{ActivityScore, TemporalActivityTracker};
+pub use activity_split::create_activity_split_clip;
 pub use config::IntelligentCropConfig;
 pub use crop_planner::CropPlanner;
 pub use detector::FaceDetector;

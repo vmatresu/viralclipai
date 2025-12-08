@@ -71,10 +71,11 @@ impl ProgressChannel {
         video_id: &str,
         clip_count: u32,
         total_clips: u32,
+        credits: u32,
     ) -> QueueResult<()> {
         self.publish(&ProgressEvent {
             job_id: job_id.clone(),
-            message: WsMessage::clip_uploaded(video_id, clip_count, total_clips),
+            message: WsMessage::clip_uploaded_with_credits(video_id, clip_count, total_clips, credits),
         })
         .await
     }

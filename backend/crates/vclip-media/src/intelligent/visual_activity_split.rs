@@ -120,6 +120,17 @@ where
     P: AsRef<Path>,
     F: Fn(crate::progress::FfmpegProgress) + Send + 'static,
 {
+    if matches!(tier, DetectionTier::ActivityAware) {
+        return crate::intelligent::create_activity_split_clip(
+            input.as_ref(),
+            output.as_ref(),
+            task,
+            encoding,
+            _progress_callback,
+        )
+        .await;
+    }
+
     let input = input.as_ref();
     let output = output.as_ref();
 

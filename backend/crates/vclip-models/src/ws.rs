@@ -71,6 +71,9 @@ pub enum WsMessage {
         clip_count: u32,
         #[serde(rename = "totalClips")]
         total_clips: u32,
+        /// Credits consumed for this clip (defaults to 1 for backward compatibility).
+        #[serde(default = "default_clip_credits", rename = "credits")]
+        credits: u32,
     },
 
     /// Detailed clip processing progress
@@ -208,6 +211,22 @@ impl WsMessage {
             video_id: video_id.into(),
             clip_count,
             total_clips,
+            credits: default_clip_credits(),
+        }
+    }
+
+    /// Create a clip uploaded message with explicit credit consumption.
+    pub fn clip_uploaded_with_credits(
+        video_id: impl Into<String>,
+        clip_count: u32,
+        total_clips: u32,
+        credits: u32,
+    ) -> Self {
+        WsMessage::ClipUploaded {
+            video_id: video_id.into(),
+            clip_count,
+            total_clips,
+            credits,
         }
     }
 
@@ -305,6 +324,10 @@ fn default_aspect() -> String {
     "9:16".to_string()
 }
 
+fn default_clip_credits() -> u32 {
+    1
+}
+
 /// Request to reprocess scenes via WebSocket.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct WsReprocessRequest {
@@ -357,5 +380,13 @@ mod tests {
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("\"clipCount\":5"));
         assert!(json.contains("\"totalClips\":10"));
+        assert!(json.contains("\"credits\":1"));
+    }
+
+    #[test]
+    fn test_ws_message_clip_uploaded_with_credits() {
+        let msg = WsMessage::clip_uploaded_with_credits("video123", 1, 4, 3);
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"credits\":3"));
     }
 }

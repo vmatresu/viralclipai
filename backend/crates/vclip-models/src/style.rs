@@ -172,6 +172,13 @@ impl Style {
         }
     }
 
+    /// Credits required to generate a single clip in this style.
+    ///
+    /// Kept at 1 for all styles today, but structured for future per-style pricing.
+    pub fn credit_cost(&self) -> u32 {
+        1
+    }
+
     /// Returns true if this is a split-view style.
     pub fn is_split_view(&self) -> bool {
         matches!(
@@ -460,6 +467,13 @@ mod tests {
     #[test]
     fn test_style_display() {
         assert_eq!(Style::IntelligentSplit.to_string(), "intelligent_split");
+    }
+
+    #[test]
+    fn test_style_credit_cost_defaults_to_one() {
+        for style in Style::ALL.iter() {
+            assert_eq!(style.credit_cost(), 1, "unexpected credit cost for {:?}", style);
+        }
     }
 
     #[test]
