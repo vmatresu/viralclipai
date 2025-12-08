@@ -32,6 +32,9 @@ services:
       - API_HOST=0.0.0.0
       - API_PORT=8000
 
+      # CORS Configuration
+      - CORS_ORIGINS=${CORS_ORIGINS:-https://www.viralclipai.io,https://viralclipai.io}
+
       # Firebase/Firestore
       - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID:?FIREBASE_PROJECT_ID required}
       - FIREBASE_PRIVATE_KEY=${FIREBASE_PRIVATE_KEY:?FIREBASE_PRIVATE_KEY required}

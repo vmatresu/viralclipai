@@ -91,7 +91,13 @@ pub fn cors_layer(origins: &[String]) -> CorsLayer {
         header::CONTENT_TYPE,
         header::ACCEPT,
         header::ORIGIN,
-        header::X_REQUESTED_WITH,
+    ];
+    
+    // Headers to expose to the browser
+    let exposed_headers = [
+        header::CONTENT_LENGTH,
+        header::CONTENT_TYPE,
+        header::CONTENT_DISPOSITION,
     ];
     
     let allowed_methods = [
@@ -104,7 +110,7 @@ pub fn cors_layer(origins: &[String]) -> CorsLayer {
     ];
 
     if origins.iter().any(|o| o == "*") {
-        // Wildcard origin - no credentials allowed
+        // Wildcard origin - no credentials allowed, can use Any
         CorsLayer::new()
             .allow_methods(Any)
             .allow_headers(Any)
@@ -112,7 +118,8 @@ pub fn cors_layer(origins: &[String]) -> CorsLayer {
             .allow_origin(Any)
             .max_age(std::time::Duration::from_secs(600))
     } else {
-        // Explicit origins - credentials allowed with explicit headers
+        // Explicit origins - credentials allowed BUT cannot use Any for headers
+        // tower-http panics if you combine credentials with wildcard headers
         let origins: Vec<HeaderValue> = origins
             .iter()
             .filter_map(|o| o.parse().ok())
@@ -121,7 +128,7 @@ pub fn cors_layer(origins: &[String]) -> CorsLayer {
         CorsLayer::new()
             .allow_methods(allowed_methods)
             .allow_headers(allowed_headers)
-            .expose_headers(Any)
+            .expose_headers(exposed_headers)
             .allow_credentials(true)
             .allow_origin(origins)
             .max_age(std::time::Duration::from_secs(600))
