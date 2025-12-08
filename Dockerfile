@@ -62,6 +62,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libtbb12 \
         libwebp7 \
         libwebpdemux2 \
+        libwebpmux3 \
+        # FFmpeg libraries (OpenCV was built with ffmpeg support)
+        libavcodec60 \
+        libavformat60 \
+        libavutil58 \
+        libswscale7 \
+        # Image codec libraries (required by opencv_imgcodecs)
+        libpng16-16 \
+        libtiff6 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust 1.87 via rustup (matches rust:1.87 toolchain)
