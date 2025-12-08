@@ -155,9 +155,12 @@ pub enum ClipProcessingStep {
 impl WsMessage {
     /// Create a log message.
     pub fn log(message: impl Into<String>) -> Self {
+        let now = Utc::now();
+        let ts = now.format("%H:%M:%S").to_string();
+        let message = format!("[{}] {}", ts, message.into());
         WsMessage::Log {
-            message: message.into(),
-            timestamp: Utc::now(),
+            message,
+            timestamp: now,
         }
     }
 
@@ -170,19 +173,25 @@ impl WsMessage {
 
     /// Create an error message.
     pub fn error(message: impl Into<String>) -> Self {
+        let now = Utc::now();
+        let ts = now.format("%H:%M:%S").to_string();
+        let message = format!("[{}] {}", ts, message.into());
         WsMessage::Error {
-            message: message.into(),
+            message,
             details: None,
-            timestamp: Utc::now(),
+            timestamp: now,
         }
     }
 
     /// Create an error message with details.
     pub fn error_with_details(message: impl Into<String>, details: impl Into<String>) -> Self {
+        let now = Utc::now();
+        let ts = now.format("%H:%M:%S").to_string();
+        let message = format!("[{}] {}", ts, message.into());
         WsMessage::Error {
-            message: message.into(),
+            message,
             details: Some(details.into()),
-            timestamp: Utc::now(),
+            timestamp: now,
         }
     }
 
@@ -209,12 +218,15 @@ impl WsMessage {
         step: ClipProcessingStep,
         details: Option<String>,
     ) -> Self {
+        let now = Utc::now();
+        let ts = now.format("%H:%M:%S").to_string();
+        let details = details.map(|d| format!("[{}] {}", ts, d));
         WsMessage::ClipProgress {
             scene_id,
             style: style.into(),
             step,
             details,
-            timestamp: Utc::now(),
+            timestamp: now,
         }
     }
 
