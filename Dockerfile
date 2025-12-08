@@ -195,7 +195,9 @@ RUN pip3 install --no-cache-dir --break-system-packages yt-dlp
 
 # Install deno - required JavaScript runtime for yt-dlp YouTube extraction
 # YouTube extraction without a JS runtime has been deprecated in yt-dlp
-RUN curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh
+RUN apt-get update && apt-get install -y --no-install-recommends unzip \
+    && curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy and extract pre-built OpenCV 4.12.0 runtime libraries (AMD64 for production)
 COPY opencv-artifacts/opencv-4.12.0-ubuntu24.04-amd64.tar.gz /tmp/opencv.tar.gz
