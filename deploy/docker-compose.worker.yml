@@ -34,7 +34,7 @@ services:
 
       # Managed Valkey/Redis (Digital Ocean)
       # Format: rediss://:password@host:port (rediss:// for TLS)
-      - REDIS_URL=${VALKEY_URL:?VALKEY_URL required}
+      - REDIS_URL=${REDIS_URL:?REDIS_URL required}
       - REDIS_POOL_SIZE=${REDIS_POOL_SIZE:-10}
 
       # Cloudflare R2 Storage
