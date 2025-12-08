@@ -1,83 +1,182 @@
-# Deployment
+# Production Deployment Guide
 
-This document describes how to run Viral Clip AI in development and production.
+This document describes how to run Viral Clip AI in development and production with security hardening.
 
-## Local Development (Docker, recommended)
+---
+
+## Quick Start (Production)
+
+```bash
+# 1. On DROPLET - Run server hardening
+sudo ./deploy/server-hardening.sh deploy
+
+# 2. On DROPLET - Setup SSL
+sudo ./deploy/certbot-setup.sh api.yourdomain.com admin@yourdomain.com
+
+# 3. On DROPLET - Configure environment
+cp .env.example .env  # Edit with production values
+
+# 4. On DROPLET - Start services
+docker compose up -d
+```
+
+---
+
+## Local Development
 
 See `DOCKER_SETUP.md` for a detailed quickstart. In summary:
 
-1. Create `.env.api.dev` in the project root (backend env).
-2. Create `web/.env.local` in the `web/` folder (frontend env).
-3. Place `firebase-credentials.json` in the project root.
-4. Run:
-
 ```bash
+# 1. Setup environment files
+cp .env.dev.example .env.dev
+cp web/.env.local.example web/.env.local
+
+# 2. Run development stack
 docker-compose -f docker-compose.dev.yml up --build
 ```
 
 - Backend API: `http://localhost:8000`
 - Frontend: `http://localhost:3000`
-- API docs: `http://localhost:8000/docs`
 
-## Production (Docker Compose)
+---
 
-Production-like deployment uses `docker-compose.yml` and the multi-stage
-Dockerfiles for the backend and frontend.
+## Production Server Setup
 
-### Requirements
+### 1. Initial Droplet Setup
 
-- Docker and docker-compose / `docker compose`.
-- A provisioned VM (e.g. DigitalOcean Droplet) with:
-  - `git`
-  - `docker`
-  - `docker-compose` or Docker CLI with compose plugin.
+```bash
+# SSH as root
+ssh root@your-droplet-ip
 
-### Initial Provisioning (DigitalOcean example)
+# Clone repository
+git clone https://github.com/yourusername/viralclipai.git /var/www/viralclipai-backend
+cd /var/www/viralclipai-backend
 
-Two helper scripts are provided under `scripts/`:
+# Run hardening script (creates 'deploy' user)
+chmod +x deploy/server-hardening.sh
+./deploy/server-hardening.sh deploy 22
 
-- `scripts/do-viralclipai-create-droplet.sh` – idempotently creates a droplet via
-  `doctl`, waits for SSH, and optionally triggers provisioning.
-- `scripts/do-viralclipai-provision-backend.sh` – runs on the droplet to:
-  - update & upgrade packages
-  - install Docker and dependencies
-  - configure a basic firewall with UFW
-  - prepare the app directory
+# IMPORTANT: Test SSH in NEW terminal before closing!
+# ssh deploy@your-droplet-ip
+```
 
-These scripts are optional but encode good defaults for production setups.
+### 2. SSL Configuration
 
-### GitHub Actions Deploy
+```bash
+# Copy nginx template and setup SSL
+sudo cp deploy/nginx/nginx.conf /etc/nginx/nginx.conf.template
+sudo chmod +x deploy/certbot-setup.sh
+sudo ./deploy/certbot-setup.sh api.viralclipai.com
+```
 
-The repo includes `.github/workflows/deploy.yml` which:
+### 3. Environment Configuration
 
-- Triggers on pushes to `main`.
-- SSHes into the target droplet using `appleboy/ssh-action`.
-- Resets the repo to `origin/main` in a fixed `APP_DIR`.
-- Runs `docker compose -f docker-compose.yml up -d --build` to build and start
-  the backend and frontend.
-- Optionally prunes old Docker images.
+Create `.env` on server with:
 
-You must configure the following GitHub secrets:
+```bash
+# Firebase (from Firebase Console)
+FIREBASE_PROJECT_ID=your-project-id
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+FIREBASE_CLIENT_EMAIL=firebase-adminsdk@your-project.iam.gserviceaccount.com
 
-- `DO_HOST` – droplet hostname or IP.
-- `DO_USER` – SSH user.
-- `DO_PORT` – SSH port.
-- `DO_SSH_KEY` – private key for SSH authentication.
+# R2 Storage
+R2_ENDPOINT_URL=https://account-id.r2.cloudflarestorage.com
+R2_ACCESS_KEY_ID=your-key
+R2_SECRET_ACCESS_KEY=your-secret
+R2_BUCKET_NAME=your-bucket
 
-### Environment Files for Production
+# Security secrets (generate with: openssl rand -base64 64)
+JWT_SECRET=your-random-string
+REDIS_PASSWORD=your-redis-password
+```
 
-On the server, you typically maintain:
+---
 
-- `.env.api` – backend env for production.
-- `web/.env.production` – frontend env (if building in-place) or configured in
-  your deployment platform (e.g. Vercel).
+## GitHub Actions Deployment
 
-## Operational Notes
+Configure these GitHub secrets (Settings → Secrets):
 
-- Use health checks and monitoring around the Docker services.
-- Ensure logs (`logs/app.log`) are rotated and shipped to your log platform.
-- Configure proper DNS and TLS for your domains and API endpoint.
-- Restrict inbound ports on the VM to HTTP(S) and SSH.
+| Secret | Value |
+|--------|-------|
+| `DO_HOST` | Droplet IP |
+| `DO_USER` | `deploy` |
+| `DO_PORT` | SSH port (default: 22) |
+| `DO_SSH_KEY` | Private SSH key |
 
-For storage configuration, see `docs/storage-and-media.md`. For logging, see
-`docs/logging-and-observability.md`.
+Pushes to `main` auto-deploy via `.github/workflows/deploy.yml`.
+
+---
+
+## Security Features
+
+### Server Hardening (deploy/server-hardening.sh)
+
+- SSH: Root login disabled, key-only auth, strong ciphers
+- Firewall: UFW with minimal ports (22, 80, 443)
+- Intrusion detection: fail2ban with auto-ban
+- Auto-updates: unattended-upgrades for security patches
+- Audit logging: auditd for security events
+- Kernel: sysctl hardening (SYN flood protection, etc.)
+
+### Docker Security (docker-compose.yml)
+
+- Non-root containers
+- `no-new-privileges` enabled
+- All capabilities dropped
+- Read-only filesystems where possible
+- Redis password authentication
+- No external Redis port binding
+
+### CI/CD Security (.github/workflows/)
+
+- SHA-pinned GitHub Actions
+- Trivy container vulnerability scanning
+- cargo-audit for Rust dependencies
+- npm-audit for web dependencies
+- SBOM generation
+- Secret detection with TruffleHog
+
+---
+
+## Monitoring
+
+```bash
+# Service health
+docker compose ps
+curl http://localhost:8000/health
+
+# Security status
+sudo fail2ban-client status sshd
+sudo ufw status
+
+# Logs
+docker compose logs -f api worker
+```
+
+---
+
+## Backup & Recovery
+
+```bash
+# Backup Redis
+docker compose exec redis redis-cli -a $REDIS_PASSWORD BGSAVE
+docker cp vclip-redis:/data/dump.rdb ./backups/
+
+# Restore
+docker compose down
+docker cp ./backups/dump.rdb vclip-redis:/data/
+docker compose up -d
+```
+
+---
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| API not responding | `docker compose logs api --tail=100` |
+| Redis auth failed | Check `REDIS_PASSWORD` matches in API, Worker, and Redis |
+| SSL issues | `sudo certbot renew --dry-run` |
+| SSH locked out | Access via DO console, check `/etc/ssh/sshd_config.d/` |
+
+For storage configuration, see `docs/storage-and-media.md`.

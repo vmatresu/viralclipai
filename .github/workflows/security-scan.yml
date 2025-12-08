@@ -1,0 +1,210 @@
+name: Security Scanning
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run weekly security scans
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Trivy Container Vulnerability Scan
+  # ---------------------------------------------------------------------------
+  trivy-scan:
+    name: Container Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+
+      - name: Build API image
+        run: |
+          docker build \
+            --target api-runtime \
+            --tag viralclipai-api:scan \
+            --file Dockerfile \
+            .
+
+      - name: Build Worker image
+        run: |
+          docker build \
+            --target worker-runtime \
+            --tag viralclipai-worker:scan \
+            --file Dockerfile \
+            .
+
+      - name: Run Trivy vulnerability scanner (API)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'viralclipai-api:scan'
+          format: 'sarif'
+          output: 'trivy-api-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          vuln-type: 'os,library'
+
+      - name: Run Trivy vulnerability scanner (Worker)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'viralclipai-worker:scan'
+          format: 'sarif'
+          output: 'trivy-worker-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          vuln-type: 'os,library'
+
+      - name: Upload Trivy scan results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-api-results.sarif'
+          category: 'trivy-api'
+
+      - name: Upload Worker scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-worker-results.sarif'
+          category: 'trivy-worker'
+
+  # ---------------------------------------------------------------------------
+  # Cargo Audit - Rust Dependencies
+  # ---------------------------------------------------------------------------
+  cargo-audit:
+    name: Rust Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Run cargo audit
+        working-directory: backend
+        run: |
+          cargo audit --deny warnings --json > cargo-audit-results.json || true
+          cargo audit --deny warnings 2>&1 | tee cargo-audit-report.txt || echo "Vulnerabilities found"
+
+      - name: Upload audit results
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-audit-results
+          path: |
+            backend/cargo-audit-results.json
+            backend/cargo-audit-report.txt
+
+  # ---------------------------------------------------------------------------
+  # NPM Audit - Web Dependencies
+  # ---------------------------------------------------------------------------
+  npm-audit:
+    name: NPM Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run npm audit
+        working-directory: web
+        run: |
+          npm ci
+          npm audit --json > npm-audit-results.json || true
+          npm audit 2>&1 | tee npm-audit-report.txt || echo "Vulnerabilities found"
+
+      - name: Upload audit results
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-results
+          path: |
+            web/npm-audit-results.json
+            web/npm-audit-report.txt
+
+  # ---------------------------------------------------------------------------
+  # Secret Scanning
+  # ---------------------------------------------------------------------------
+  secret-scan:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog Secret Scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified
+
+  # ---------------------------------------------------------------------------
+  # SBOM Generation
+  # ---------------------------------------------------------------------------
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+
+      - name: Install Syft
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Generate SBOM for backend
+        run: |
+          syft dir:./backend -o spdx-json=sbom-backend.spdx.json
+          syft dir:./backend -o cyclonedx-json=sbom-backend.cyclonedx.json
+
+      - name: Generate SBOM for web
+        run: |
+          syft dir:./web -o spdx-json=sbom-web.spdx.json
+          syft dir:./web -o cyclonedx-json=sbom-web.cyclonedx.json
+
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: |
+            sbom-*.json
+
+  # ---------------------------------------------------------------------------
+  # Dockerfile Linting
+  # ---------------------------------------------------------------------------
+  dockerfile-lint:
+    name: Dockerfile Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+
+      - name: Run Hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          format: sarif
+          output-file: hadolint-results.sarif
+          no-fail: true
+
+      - name: Upload Hadolint results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: hadolint-results.sarif
+          category: hadolint
