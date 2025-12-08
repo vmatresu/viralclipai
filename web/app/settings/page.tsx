@@ -169,29 +169,29 @@ export default function SettingsPage() {
   return (
     <div className="space-y-8">
       <section className="glass rounded-2xl p-6 space-y-4">
-        <h2 className="text-xl font-semibold text-white">Plan &amp; Usage</h2>
+        <h2 className="text-xl font-semibold text-foreground">Plan &amp; Usage</h2>
         {(() => {
           if (loading && !data) {
             return (
-              <div className="text-sm text-gray-400">Loading plan information...</div>
+              <div className="text-sm text-muted-foreground">Loading plan information...</div>
             );
           }
           if (data) {
             return (
-              <div className="space-y-1 text-sm text-gray-300">
+              <div className="space-y-1 text-sm text-muted-foreground">
                 <div>
-                  <span className="font-semibold">Plan:</span>{" "}
-                  <span className="uppercase text-blue-400 text-xs">{data.plan}</span>
+                  <span className="font-semibold text-foreground">Plan:</span>{" "}
+                  <span className="uppercase text-brand-600 text-xs">{data.plan}</span>
                 </div>
                 <div>
-                  <span className="font-semibold">Monthly Clips:</span>{" "}
+                  <span className="font-semibold text-foreground">Monthly Clips:</span>{" "}
                   {data.clips_used_this_month} / {data.max_clips_per_month}
                 </div>
               </div>
             );
           }
           return (
-            <div className="text-sm text-gray-400">
+            <div className="text-sm text-muted-foreground">
               {status ?? "Unable to load plan information."}
             </div>
           );
@@ -199,8 +199,8 @@ export default function SettingsPage() {
       </section>
 
       <section className="glass rounded-2xl p-6 space-y-4">
-        <h2 className="text-xl font-semibold text-white">TikTok Integration</h2>
-        <p className="text-sm text-gray-400">
+        <h2 className="text-xl font-semibold text-foreground">TikTok Integration</h2>
+        <p className="text-sm text-muted-foreground">
           Connect your TikTok account by providing the access token and account ID from
           your TikTok developer application.
         </p>
@@ -208,7 +208,7 @@ export default function SettingsPage() {
           <div>
             <label
               htmlFor="tiktok-access-token"
-              className="block text-xs font-semibold text-gray-400 uppercase mb-1"
+              className="block text-xs font-semibold text-muted-foreground uppercase mb-1"
             >
               TikTok Access Token
             </label>
@@ -217,14 +217,14 @@ export default function SettingsPage() {
               type="password"
               value={accessToken}
               onChange={(e) => setAccessToken(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:border-blue-500 outline-none"
+              className="w-full h-11 rounded-lg border border-brand-100 bg-white px-3 text-sm text-foreground shadow-sm placeholder:text-muted-foreground/70 focus:border-brand-300 focus:ring-2 focus:ring-brand-500/20 outline-none transition-colors dark:border-white/10 dark:bg-slate-900 dark:text-white dark:placeholder:text-white/60"
               placeholder="Paste your TikTok access token"
             />
           </div>
           <div>
             <label
               htmlFor="tiktok-account-id"
-              className="block text-xs font-semibold text-gray-400 uppercase mb-1"
+              className="block text-xs font-semibold text-muted-foreground uppercase mb-1"
             >
               TikTok Account ID
             </label>
@@ -233,16 +233,16 @@ export default function SettingsPage() {
               type="text"
               value={accountId}
               onChange={(e) => setAccountId(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:border-blue-500 outline-none"
+              className="w-full h-11 rounded-lg border border-brand-100 bg-white px-3 text-sm text-foreground shadow-sm placeholder:text-muted-foreground/70 focus:border-brand-300 focus:ring-2 focus:ring-brand-500/20 outline-none transition-colors dark:border-white/10 dark:bg-slate-900 dark:text-white dark:placeholder:text-white/60"
               placeholder="Your TikTok account ID or advertiser ID"
             />
           </div>
           <div className="flex items-center justify-between mt-4 text-sm">
-            <div className="text-gray-400">{status}</div>
+            <div className="text-muted-foreground">{status}</div>
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-colors"
+              className="px-4 h-11 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-colors shadow-sm shadow-brand-500/20"
             >
               {saving ? "Saving..." : "Save Settings"}
             </button>
@@ -252,20 +252,20 @@ export default function SettingsPage() {
 
       {data?.role === "superadmin" && (
         <section className="glass rounded-2xl p-6 space-y-4">
-          <h2 className="text-xl font-semibold text-white">Admin: Global Prompt</h2>
-          <p className="text-sm text-gray-400">
+          <h2 className="text-xl font-semibold text-foreground">Admin: Global Prompt</h2>
+          <p className="text-sm text-muted-foreground">
             Manage the global base prompt used for video analysis. This prompt is used
             when users don't provide a custom prompt. The prompt is stored in Firestore
             and is the source of truth for the system.
           </p>
           {promptLoading ? (
-            <div className="text-sm text-gray-400">Loading prompt...</div>
+            <div className="text-sm text-muted-foreground">Loading prompt...</div>
           ) : (
             <form onSubmit={onPromptSubmit} className="space-y-4">
               <div>
                 <label
                   htmlFor="admin-prompt"
-                  className="block text-xs font-semibold text-gray-400 uppercase mb-1"
+                  className="block text-xs font-semibold text-muted-foreground uppercase mb-1"
                 >
                   Global Base Prompt
                 </label>
@@ -274,19 +274,19 @@ export default function SettingsPage() {
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   rows={15}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:border-blue-500 outline-none font-mono"
+                  className="w-full rounded-lg border border-brand-100 bg-white px-3 py-2 text-sm text-foreground shadow-sm focus:border-brand-300 focus:ring-2 focus:ring-brand-500/20 outline-none transition-colors font-mono dark:border-white/10 dark:bg-slate-900 dark:text-white"
                   placeholder="Enter the global prompt for video analysis..."
                 />
-                <div className="text-xs text-gray-500 mt-1">
+                <div className="text-xs text-muted-foreground mt-1">
                   {prompt.length} characters
                 </div>
               </div>
               <div className="flex items-center justify-between mt-4 text-sm">
-                <div className="text-gray-400">{promptStatus}</div>
+                <div className="text-muted-foreground">{promptStatus}</div>
                 <button
                   type="submit"
                   disabled={promptSaving}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-colors"
+                  className="px-4 h-11 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-colors shadow-sm shadow-brand-500/20"
                 >
                   {promptSaving ? "Saving..." : "Save Prompt"}
                 </button>

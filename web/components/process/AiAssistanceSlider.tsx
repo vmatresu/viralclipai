@@ -79,9 +79,9 @@ export function AiAssistanceSlider({ value, onChange }: AiAssistanceSliderProps)
   };
 
   return (
-    <div className="w-full bg-white/5 border border-white/5 rounded-xl backdrop-blur-sm overflow-hidden">
+    <div className="w-full rounded-xl border border-brand-100/70 bg-white/95 shadow-xl shadow-brand-500/10 backdrop-blur-sm overflow-hidden dark:border-white/5 dark:bg-white/5 dark:shadow-none">
       {/* Header / Current Selection */}
-      <div className="px-6 py-5 border-b border-white/5 bg-white/[0.02]">
+      <div className="px-6 py-5 border-b border-brand-100/80 bg-white/90 backdrop-blur-sm dark:border-white/5 dark:bg-white/[0.02]">
         <div className="flex items-center justify-between mb-2">
           <Label className="text-base text-muted-foreground uppercase tracking-widest font-semibold text-[10px]">
             Intelligence Level
@@ -106,7 +106,7 @@ export function AiAssistanceSlider({ value, onChange }: AiAssistanceSliderProps)
       </div>
 
       {/* Slider Area */}
-      <div className="px-6 py-8">
+      <div className="px-6 py-8 bg-gradient-to-b from-brand-50/60 to-white dark:from-transparent dark:to-transparent">
         <div className="relative pb-16">
           <Slider
             defaultValue={[safeIndex]}
@@ -165,8 +165,8 @@ export function AiAssistanceSlider({ value, onChange }: AiAssistanceSliderProps)
                 className={cn(
                   "flex items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
                   isActive
-                    ? "border-primary/60 bg-primary/10 text-white"
-                    : "border-white/5 bg-white/5 text-muted-foreground hover:border-white/20 hover:text-white"
+                    ? "border-brand-300 bg-brand-50 text-foreground shadow-sm dark:border-primary/60 dark:bg-primary/10 dark:text-white"
+                    : "border-brand-100 bg-white text-muted-foreground hover:border-brand-200 hover:text-foreground dark:border-white/5 dark:bg-white/5 dark:text-muted-foreground dark:hover:border-white/20 dark:hover:text-white"
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" />

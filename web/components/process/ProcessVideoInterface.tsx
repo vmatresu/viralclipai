@@ -54,7 +54,7 @@ export function ProcessVideoInterface() {
   };
 
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-8 p-4 md:p-8 rounded-2xl border border-white/10 bg-background/50 backdrop-blur-xl shadow-2xl relative overflow-hidden">
+    <div className="w-full max-w-4xl mx-auto space-y-8 p-4 md:p-8 rounded-2xl border border-brand-100/80 bg-white/90 backdrop-blur-xl shadow-[0_30px_80px_rgba(99,102,241,0.15)] relative overflow-hidden dark:border-white/10 dark:bg-background/50 dark:shadow-2xl">
       {/* Glow effect background */}
       <div className="absolute -top-20 -right-20 w-64 h-64 bg-primary/10 rounded-full blur-[80px] pointer-events-none" />
       <div className="absolute -bottom-20 -left-20 w-64 h-64 bg-indigo-500/10 rounded-full blur-[80px] pointer-events-none" />
@@ -85,10 +85,8 @@ export function ProcessVideoInterface() {
             ref={inputRef}
             placeholder="Paste YouTube URL here..."
             className={cn(
-              "relative bg-black/40 border-white/10 h-14 pl-12 text-lg shadow-inner transition-all duration-300",
-              shouldAnimateInput
-                ? "ring-2 ring-primary border-primary animate-shake"
-                : "focus:ring-2 focus:ring-primary/50"
+              "relative h-14 pl-12 text-lg shadow-sm transition-all duration-300 border border-brand-100/80 bg-white text-foreground placeholder:text-muted-foreground/70 focus:ring-2 focus:ring-brand-500/25 focus:border-brand-300 dark:bg-black/40 dark:border-white/10 dark:placeholder:text-white/60",
+              shouldAnimateInput ? "ring-2 ring-primary border-primary animate-shake" : undefined
             )}
             value={url}
             onChange={(e) => {
@@ -114,7 +112,7 @@ export function ProcessVideoInterface() {
 
           <Textarea
             placeholder="e.g. Find moments about crypto, funny jokes, or specific topics..."
-            className="bg-white/5 border-white/10 min-h-[100px] text-base leading-relaxed p-4"
+            className="min-h-[100px] rounded-xl border border-brand-100/80 bg-white p-4 text-base leading-relaxed shadow-sm focus:border-brand-300 focus:ring-2 focus:ring-brand-500/25 dark:border-white/10 dark:bg-white/5"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
           />
@@ -131,7 +129,7 @@ export function ProcessVideoInterface() {
                 <button
                   key={p}
                   onClick={() => handlePromptClick(p)}
-                  className="text-xs bg-secondary/50 hover:bg-secondary text-secondary-foreground px-3 py-1.5 rounded-full border border-white/5 hover:border-white/20 transition-all font-medium"
+                  className="text-xs px-3 py-1.5 rounded-full border transition-all font-medium bg-brand-50 text-brand-700 border-brand-100 hover:border-brand-200 hover:bg-brand-100/60 dark:bg-secondary/50 dark:text-secondary-foreground dark:border-white/5 dark:hover:border-white/20"
                 >
                   + {p}
                 </button>
