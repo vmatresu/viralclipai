@@ -14,14 +14,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { type Clip } from "@/components/ClipGrid";
-import { SceneCard, type Highlight } from "@/components/HistoryDetail/SceneCard";
-import { StyleSelector } from "@/components/HistoryDetail/StyleSelector";
 import {
   OverwriteConfirmationDialog,
   type OverwriteTarget,
 } from "@/components/HistoryDetail/OverwriteConfirmationDialog";
+import { SceneCard, type Highlight } from "@/components/HistoryDetail/SceneCard";
 import { Results } from "@/components/ProcessingClient/Results";
 import { DetailedProcessingStatus } from "@/components/shared/DetailedProcessingStatus";
+import { StyleQualitySelector } from "@/components/style-quality/StyleQualitySelector";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -31,10 +31,14 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useReprocessing } from "@/hooks/useReprocessing";
-import { apiFetch, getVideoDetails, getVideoHighlights } from "@/lib/apiClient";
+import {
+  apiFetch,
+  getVideoDetails,
+  getVideoHighlights,
+  getVideoSceneStyles,
+} from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { useProcessing } from "@/lib/processing-context";
-import { getVideoSceneStyles } from "@/lib/apiClient";
 
 interface UserSettings {
   plan: string;
@@ -71,7 +75,9 @@ function parseClipIdentifier(clip: Clip): { sceneId: number; style: string } | n
 
   if (match) {
     const sceneId = Number(match[1]);
-    const inferredStyle = (style ?? match[2]).toLowerCase();
+    const inferredStyleSource = style ?? match[2];
+    if (!inferredStyleSource) return null;
+    const inferredStyle = inferredStyleSource.toLowerCase();
     if (!Number.isNaN(sceneId)) {
       return { sceneId, style: inferredStyle };
     }
@@ -92,7 +98,7 @@ export default function HistoryDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedScenes, setSelectedScenes] = useState<Set<number>>(new Set());
-  const [selectedStyles, setSelectedStyles] = useState<Set<string>>(new Set());
+  const [selectedStyles, setSelectedStyles] = useState<string[]>(["split"]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
@@ -251,8 +257,8 @@ export default function HistoryDetailPage() {
           prev
             ? {
                 ...prev,
-                video_title: prev.video_title || details.video_title,
-                video_url: prev.video_url || details.video_url,
+                video_title: prev.video_title ?? details.video_title,
+                video_url: prev.video_url ?? details.video_url,
               }
             : null
         );
@@ -337,10 +343,8 @@ export default function HistoryDetailPage() {
         const job = contextJob;
         if (job && (job.status === "pending" || job.status === "processing")) {
           if (video?.status === "completed") {
-            console.log("API shows completed, syncing processing context");
             contextCompleteJob(videoId);
           } else if (video?.status === "failed") {
-            console.log("API shows failed, syncing processing context");
             contextFailJob(videoId, "Processing failed");
           }
         }
@@ -385,37 +389,8 @@ export default function HistoryDetailPage() {
     });
   }, []);
 
-  const handleStyleToggle = useCallback((style: string) => {
-    const ALL_STYLES = [
-      "split",
-      "left_focus",
-      "right_focus",
-      "intelligent",
-      "intelligent_split",
-      "original",
-    ];
-
-    setSelectedStyles((prev) => {
-      const next = new Set(prev);
-      if (style === "all") {
-        // "All Styles" is a special case - toggle all available styles
-        if (ALL_STYLES.every((s) => next.has(s))) {
-          // If all are selected, deselect all
-          ALL_STYLES.forEach((s) => next.delete(s));
-        } else {
-          // Otherwise, select all
-          ALL_STYLES.forEach((s) => next.add(s));
-        }
-      } else {
-        // Toggle individual style
-        if (next.has(style)) {
-          next.delete(style);
-        } else {
-          next.add(style);
-        }
-      }
-      return next;
-    });
+  const handleStylesChange = useCallback((styles: string[]) => {
+    setSelectedStyles(styles);
   }, []);
 
   const handleCopyUrl = useCallback(async () => {
@@ -430,7 +405,7 @@ export default function HistoryDetailPage() {
   }, [highlightsData?.video_url]);
 
   const handleReprocess = useCallback(async () => {
-    if (selectedScenes.size === 0 || selectedStyles.size === 0) {
+    if (selectedScenes.size === 0 || selectedStyles.length === 0) {
       toast.error("Please select at least one scene and one style");
       return;
     }
@@ -441,8 +416,7 @@ export default function HistoryDetailPage() {
     }
 
     const sceneIds = Array.from(selectedScenes);
-    const styles = Array.from(selectedStyles);
-    const plan = buildReprocessPlan(sceneIds, styles);
+    const plan = buildReprocessPlan(sceneIds, selectedStyles);
     setPendingPlan(plan);
 
     if (plan.conflicts.length > 0 && overwritePromptEnabled) {
@@ -476,17 +450,17 @@ export default function HistoryDetailPage() {
   }, []);
 
   const totalClipsToGenerate = useMemo(() => {
-    return selectedScenes.size * selectedStyles.size;
-  }, [selectedScenes.size, selectedStyles.size]);
+    return selectedScenes.size * selectedStyles.length;
+  }, [selectedScenes.size, selectedStyles.length]);
 
   const canReprocess = useMemo(() => {
     return (
       selectedScenes.size > 0 &&
-      selectedStyles.size > 0 &&
+      selectedStyles.length > 0 &&
       !isProcessing &&
       !isReprocessing
     );
-  }, [selectedScenes.size, selectedStyles.size, isProcessing, isReprocessing]);
+  }, [selectedScenes.size, selectedStyles.length, isProcessing, isReprocessing]);
 
   const hasProOrStudioPlan = useMemo(() => {
     return userSettings?.plan === "pro" || userSettings?.plan === "studio";
@@ -498,7 +472,7 @@ export default function HistoryDetailPage() {
     } else if (type === "success") {
       toast.success(msg);
     } else {
-      console.log(msg);
+      toast(msg);
     }
   }, []);
 
@@ -637,10 +611,10 @@ export default function HistoryDetailPage() {
           </CardHeader>
           {!isCollapsed && (
             <CardContent className="space-y-6">
-              <StyleSelector
+              <StyleQualitySelector
                 selectedStyles={selectedStyles}
+                onChange={handleStylesChange}
                 disabled={isProcessing || isReprocessing}
-                onStyleToggle={handleStyleToggle}
               />
 
               <div className="space-y-3">

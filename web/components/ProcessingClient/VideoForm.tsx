@@ -6,6 +6,7 @@
 
 import { type FormEvent } from "react";
 
+import { StyleQualitySelector } from "@/components/style-quality/StyleQualitySelector";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -17,76 +18,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
-
-const STYLES = [
-  // Fast/static styles
-  { value: "split", label: "Split View", subtitle: "Top/Bottom", speed: "⚡ Fast" },
-  {
-    value: "split_fast",
-    label: "Split View (Fast)",
-    subtitle: "No Face Detection",
-    speed: "⚡ Fastest",
-  },
-  {
-    value: "left_focus",
-    label: "Left Focus",
-    subtitle: "Full Height",
-    speed: "⚡ Fast",
-  },
-  {
-    value: "right_focus",
-    label: "Right Focus",
-    subtitle: "Full Height",
-    speed: "⚡ Fast",
-  },
-
-  // Intelligent single-view styles
-  // Note: Audio-based styles are not available in frontend due to compatibility issues
-  // with duplicated audio channels (e.g., podcasts)
-  {
-    value: "intelligent",
-    label: "Intelligent Crop",
-    subtitle: "Face Tracking",
-    speed: "🧠 Standard",
-  },
-  {
-    value: "intelligent_motion",
-    label: "Intelligent (Motion)",
-    subtitle: "Face + Motion Detection",
-    speed: "🎯 Enhanced",
-  },
-  {
-    value: "intelligent_activity",
-    label: "Intelligent (Activity)",
-    subtitle: "Full Visual Tracking",
-    speed: "🎯 Premium",
-  },
-
-  // Intelligent split-view styles
-  {
-    value: "intelligent_split",
-    label: "Smart Split",
-    subtitle: "Split + Face Tracking",
-    speed: "🧠 Standard",
-  },
-  {
-    value: "intelligent_split_motion",
-    label: "Smart Split (Motion)",
-    subtitle: "Split + Motion Detection",
-    speed: "🎯 Enhanced",
-  },
-  {
-    value: "intelligent_split_activity",
-    label: "Smart Split (Activity)",
-    subtitle: "Split + Full Visual Tracking",
-    speed: "🎯 Premium",
-  },
-
-  // Special options
-  { value: "original", label: "Original", subtitle: "No Cropping", speed: "⚡ Fast" },
-  { value: "all", label: "All Styles", subtitle: "Generate All", speed: "⏱️ Varies" },
-];
 
 interface VideoFormProps {
   url: string;
@@ -109,31 +40,6 @@ export function VideoForm({
   onSubmit,
   submitting,
 }: VideoFormProps) {
-  const toggleStyle = (styleValue: string) => {
-    if (styleValue === "all") {
-      // "All Styles" is a special case - toggle all available styles
-      const allStyleValues = STYLES.filter((s) => s.value !== "all").map(
-        (s) => s.value
-      );
-      if (
-        styles.length === allStyleValues.length &&
-        styles.every((s) => allStyleValues.includes(s))
-      ) {
-        // If all are selected, deselect all
-        setStyles([]);
-      } else {
-        // Otherwise, select all
-        setStyles([...allStyleValues]);
-      }
-    } else {
-      // Toggle individual style
-      if (styles.includes(styleValue)) {
-        setStyles(styles.filter((s) => s !== styleValue));
-      } else {
-        setStyles([...styles, styleValue]);
-      }
-    }
-  };
   return (
     <Card className="glass shadow-2xl">
       <CardHeader>
@@ -234,75 +140,7 @@ export function VideoForm({
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label className="uppercase tracking-wider">Output Style</Label>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {STYLES.map((s) => {
-                const isSelected =
-                  s.value === "all"
-                    ? STYLES.filter((st) => st.value !== "all").every((st) =>
-                        styles.includes(st.value)
-                      )
-                    : styles.includes(s.value);
-                return (
-                  <label
-                    key={s.value}
-                    htmlFor={`style-${s.value}`}
-                    className="cursor-pointer"
-                  >
-                    <input
-                      id={`style-${s.value}`}
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => toggleStyle(s.value)}
-                      className="peer sr-only"
-                      aria-label={`${s.label} - ${s.subtitle}`}
-                    />
-                    <div
-                      className={cn(
-                        "p-3 rounded-xl border transition-all text-center h-full flex flex-col justify-between",
-                        "bg-card hover:bg-accent",
-                        isSelected && "border-primary bg-primary/10"
-                      )}
-                    >
-                      <div>
-                        <span className="font-medium block text-sm">{s.label}</span>
-                        <span className="block text-xs text-muted-foreground mt-0.5">
-                          {s.subtitle}
-                        </span>
-                      </div>
-                      <span className="block text-xs text-muted-foreground mt-2 opacity-75">
-                        {s.speed}
-                      </span>
-                    </div>
-                  </label>
-                );
-              })}
-            </div>
-            {styles.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                Please select at least one style
-              </p>
-            )}
-            {styles.length > 0 && (
-              <div className="mt-4">
-                <p className="text-sm font-medium mb-2">SELECTED STYLES:</p>
-                <div className="flex flex-wrap gap-2">
-                  {styles.map((styleValue) => {
-                    const style = STYLES.find((s) => s.value === styleValue);
-                    return style ? (
-                      <span
-                        key={styleValue}
-                        className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-primary/10 text-primary border border-primary/20"
-                      >
-                        {style.label}
-                      </span>
-                    ) : null;
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
+          <StyleQualitySelector selectedStyles={styles} onChange={setStyles} />
 
           <Button
             type="submit"
