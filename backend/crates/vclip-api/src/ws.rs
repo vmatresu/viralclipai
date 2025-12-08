@@ -13,6 +13,7 @@ use tokio::time::interval;
 use tracing::{debug, info, warn};
 
 use vclip_models::{AspectRatio, CropMode, Style, VideoStatus, WsMessage};
+use vclip_firestore::VideoRepository;
 use vclip_queue::ProcessVideoJob;
 
 use crate::metrics;
@@ -433,6 +434,7 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
     }
 
     // Subscribe to progress events
+    let mut done_sent = false;
     match state.progress.subscribe(&job_id).await {
         Ok(mut stream) => {
             let mut clips_uploaded = 0u32;
@@ -444,6 +446,7 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
                         "clip_uploaded"
                     }
                     WsMessage::Done { .. } => {
+                        done_sent = true;
                         if clips_uploaded > 0 {
                             if let Err(e) = state.user_service.increment_usage(&uid, clips_uploaded).await {
                                 warn!("Failed to increment usage for user {}: {}", uid, e);
@@ -480,6 +483,22 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
         Err(e) => {
             let error = WsMessage::error(format!("Failed to subscribe to progress: {}", e));
             let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
+        }
+    }
+
+    // If no done message was emitted (e.g., reconnect after completion), check video status and emit Done if completed.
+    if !done_sent {
+        let video_repo = VideoRepository::new((*state.firestore).clone(), &uid);
+        match video_repo.get(&video_id).await {
+            Ok(Some(video)) if video.status == VideoStatus::Completed => {
+                let done = WsMessage::done(video_id.as_str());
+                let _ = sender.send(Message::Text(serde_json::to_string(&done).unwrap())).await;
+            }
+            Ok(Some(video)) if video.status == VideoStatus::Failed => {
+                let err = WsMessage::error("Video processing failed");
+                let _ = sender.send(Message::Text(serde_json::to_string(&err).unwrap())).await;
+            }
+            _ => {}
         }
     }
 
