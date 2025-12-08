@@ -67,21 +67,17 @@ function buildDownloadUrl(clip: Clip): string {
 }
 
 // Style name mapping for display
+// Note: Audio-based styles (intelligent_audio, intelligent_speaker, etc.) are not available in frontend
+// due to compatibility issues with duplicated audio channels (e.g., podcasts)
 const STYLE_LABELS: Record<string, string> = {
   split: "Split View",
   split_fast: "Split View (Fast)",
   left_focus: "Left Focus",
   right_focus: "Right Focus",
   intelligent: "Intelligent Crop",
-  intelligent_basic: "Intelligent Crop (Basic)",
-  intelligent_audio: "Intelligent (Audio)",
-  intelligent_speaker: "Intelligent (Speaker)",
   intelligent_motion: "Intelligent (Motion)",
   intelligent_activity: "Intelligent (Activity)",
   intelligent_split: "Smart Split",
-  intelligent_split_basic: "Smart Split (Basic)",
-  intelligent_split_audio: "Smart Split (Audio)",
-  intelligent_split_speaker: "Smart Split (Speaker)",
   intelligent_split_motion: "Smart Split (Motion)",
   intelligent_split_activity: "Smart Split (Activity)",
   original: "Original",

@@ -24,30 +24,14 @@ const STYLES = [
     speed: "⚡ Fast",
   },
 
-  // Intelligent single-view styles (progressive tiers)
+  // Intelligent single-view styles
+  // Note: Audio-based styles are not available in frontend due to compatibility issues
+  // with duplicated audio channels (e.g., podcasts)
   {
     value: "intelligent",
     label: "Intelligent Crop",
     subtitle: "Face Tracking",
     speed: "🧠 Standard",
-  },
-  {
-    value: "intelligent_basic",
-    label: "Intelligent Crop (Basic)",
-    subtitle: "YuNet Face Detection",
-    speed: "🧠 Basic",
-  },
-  {
-    value: "intelligent_audio",
-    label: "Intelligent (Audio)",
-    subtitle: "Face + Audio Activity",
-    speed: "🎧 Enhanced",
-  },
-  {
-    value: "intelligent_speaker",
-    label: "Intelligent (Speaker)",
-    subtitle: "Full Speaker Detection",
-    speed: "🎯 Premium",
   },
   {
     value: "intelligent_motion",
@@ -62,30 +46,12 @@ const STYLES = [
     speed: "🎯 Premium",
   },
 
-  // Intelligent split-view styles (progressive tiers)
+  // Intelligent split-view styles
   {
     value: "intelligent_split",
     label: "Smart Split",
     subtitle: "Split + Face Tracking",
     speed: "🧠 Standard",
-  },
-  {
-    value: "intelligent_split_basic",
-    label: "Smart Split (Basic)",
-    subtitle: "Split + YuNet Face Detection",
-    speed: "🧠 Basic",
-  },
-  {
-    value: "intelligent_split_audio",
-    label: "Smart Split (Audio)",
-    subtitle: "Split + Audio Activity",
-    speed: "🎧 Enhanced",
-  },
-  {
-    value: "intelligent_split_speaker",
-    label: "Smart Split (Speaker)",
-    subtitle: "Split + Full Speaker Detection",
-    speed: "🎯 Premium",
   },
   {
     value: "intelligent_split_motion",
