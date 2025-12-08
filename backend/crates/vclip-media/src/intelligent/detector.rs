@@ -172,6 +172,55 @@ impl FaceDetector {
         Ok(all_detections)
     }
 
+    /// Detect motion tracks for fallback rendering when no faces are available.
+    pub async fn detect_motion_tracks<P: AsRef<Path>>(
+        &self,
+        video_path: P,
+        start_time: f64,
+        duration: f64,
+        width: u32,
+        height: u32,
+    ) -> MediaResult<Vec<FrameDetections>> {
+        let video_path = video_path.as_ref();
+        let sample_interval = 1.0 / self.config.fps_sample;
+
+        // Use the existing FFmpeg motion analysis path to find moving regions
+        let motion_boxes = self
+            .analyze_motion(video_path, start_time, duration, width, height)
+            .await?;
+
+        let mut tracker = IoUTracker::new(self.config.iou_threshold, self.config.max_track_gap);
+        let mut frames = Vec::with_capacity(motion_boxes.len());
+        let mut current_time = start_time;
+
+        for boxes in motion_boxes {
+            // Track motion blobs as pseudo faces so downstream camera planners work unchanged
+            let tracked = tracker.update(&boxes);
+            let frame_dets: FrameDetections = tracked
+                .into_iter()
+                .map(|(track_id, bbox, score)| Detection::new(current_time, bbox, score, track_id))
+                .collect();
+            frames.push(frame_dets);
+            current_time += sample_interval;
+        }
+
+        let has_any_detection = frames.iter().any(|f| !f.is_empty());
+        if !has_any_detection {
+            let (bbox, score) = self.heuristic_generator.create_centered_detection(width, height, 0.6);
+            let expected_frames = (duration / sample_interval).ceil().max(1.0) as usize;
+
+            frames = (0..expected_frames)
+                .map(|i| {
+                    let mut det =
+                        Detection::new(start_time + i as f64 * sample_interval, bbox, score, 0);
+                    vec![det]
+                })
+                .collect();
+        }
+
+        Ok(frames)
+    }
+
     /// Extract face regions from video using the best available method.
     ///
     /// Priority:

@@ -147,7 +147,7 @@ impl ActivitySplitRenderer {
         track_id: u32,
         span: &LayoutSpan,
     ) -> MediaResult<Vec<FrameDetections>> {
-        let mut frames: Vec<FrameDetections> = Vec::new();
+        let mut frames: Vec<(f64, Option<Detection>)> = Vec::new();
         let start_idx = (span.start / self.sample_interval).floor() as usize;
         let end_idx = ((span.end / self.sample_interval).ceil() as usize).min(detections.len());
 
@@ -158,27 +158,65 @@ impl ActivitySplitRenderer {
         }
 
         let mut last_det: Option<Detection> = None;
+        let mut first_det: Option<Detection> = None;
+        let mut first_det_offset: Option<usize> = None;
         for idx in start_idx..end_idx {
             let frame_time = span.start + (idx - start_idx) as f64 * self.sample_interval;
             let frame = detections.get(idx).cloned().unwrap_or_default();
             if let Some(det) = frame.iter().find(|d| d.track_id == track_id) {
                 let mut det = det.clone();
                 det.time = frame_time;
+                if first_det.is_none() {
+                    first_det = Some(det.clone());
+                    first_det_offset = Some(idx - start_idx);
+                }
                 last_det = Some(det.clone());
-                frames.push(vec![det]);
-            } else if let Some(prev) = last_det.clone() {
-                let mut carry = prev;
-                carry.time = frame_time;
-                frames.push(vec![carry]);
+                frames.push((frame_time, Some(det)));
             } else {
-                // Gap at the start of span – treat as fatal
-                return Err(MediaError::detection_failed(
-                    "Missing face data at span start for Smart Split (Activity)",
-                ));
+                frames.push((frame_time, last_det.clone()));
             }
         }
 
-        Ok(frames)
+        let first_det = first_det.ok_or_else(|| {
+            MediaError::detection_failed("Missing face data for Smart Split (Activity)")
+        })?;
+
+        // Backfill leading frames before the first detection
+        if let Some(first_idx) = first_det_offset {
+            for idx in 0..first_idx {
+                let frame_time = frames[idx].0;
+                let mut det = first_det.clone();
+                det.time = frame_time;
+                frames[idx].1 = Some(det);
+            }
+        }
+
+        // Ensure all frames have a detection (carry forward last seen)
+        let mut carry = None;
+        for (time, det_opt) in frames.iter_mut() {
+            if let Some(det) = det_opt.clone() {
+                carry = Some(det);
+            } else if let Some(mut det) = carry.clone() {
+                det.time = *time;
+                *det_opt = Some(det);
+            }
+        }
+
+        let filled_frames: Vec<FrameDetections> = frames
+            .into_iter()
+            .filter_map(|(time, det_opt)| det_opt.map(|mut det| {
+                det.time = time;
+                vec![det]
+            }))
+            .collect();
+
+        if filled_frames.is_empty() {
+            return Err(MediaError::detection_failed(
+                "Unable to compute camera plan for Smart Split (Activity)",
+            ));
+        }
+
+        Ok(filled_frames)
     }
 
     async fn scale_to_portrait(&self, input: &Path, output: &Path) -> MediaResult<()> {

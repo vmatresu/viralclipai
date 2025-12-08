@@ -164,17 +164,21 @@ impl LayoutPlanner {
             }
         }
 
-        let final_layout = current_layout.ok_or_else(|| {
-            MediaError::detection_failed(
-                "Smart Split (Activity) could not determine a valid layout from detected faces",
-            )
-        })?;
+        let final_layout = current_layout
+            .or_else(|| self.fallback_layout(frames))
+            .ok_or_else(|| {
+                MediaError::detection_failed(
+                    "Smart Split (Activity) could not determine a valid layout from detected faces",
+                )
+            })?;
 
-        spans.push(LayoutSpan {
-            start: layout_since,
-            end: duration,
-            layout: final_layout,
-        });
+        let span_start = if spans.is_empty() {
+            frames.first().map(|f| f.time).unwrap_or(0.0)
+        } else {
+            layout_since
+        };
+
+        spans.push(LayoutSpan { start: span_start, end: duration, layout: final_layout });
 
         Ok(spans)
     }
@@ -189,6 +193,45 @@ impl LayoutPlanner {
             weight_size: self.config.activity_weight_size_change,
             smoothing_alpha: self.config.activity_smoothing_window,
             enable_mouth_detection: false,
+        }
+    }
+
+    fn fallback_layout(&self, frames: &[TimelineFrame]) -> Option<LayoutMode> {
+        let mut counts: HashMap<u32, usize> = HashMap::new();
+        let mut simultaneous_pair: Option<(u32, u32)> = None;
+
+        for frame in frames {
+            if frame.detections.len() >= 2 && simultaneous_pair.is_none() {
+                let mut ids: Vec<u32> = frame.detections.iter().map(|d| d.track_id).collect();
+                ids.sort();
+                ids.dedup();
+                if ids.len() >= 2 {
+                    simultaneous_pair = Some((ids[0], ids[1]));
+                }
+            }
+
+            for det in &frame.detections {
+                *counts.entry(det.track_id).or_insert(0) += 1;
+            }
+        }
+
+        let Some((&primary, _)) = counts.iter().max_by_key(|(_, count)| *count) else {
+            return None;
+        };
+
+        let secondary = counts
+            .iter()
+            .filter(|(id, _)| **id != primary)
+            .max_by_key(|(_, count)| *count)
+            .map(|(id, _)| *id);
+
+        match (simultaneous_pair, secondary) {
+            // Prefer a pair that appeared together on screen
+            (Some((p, s)), _) if counts.contains_key(&p) && counts.contains_key(&s) => {
+                Some(LayoutMode::Split { primary: p, secondary: s })
+            }
+            (_, Some(sec)) => Some(LayoutMode::Split { primary, secondary: sec }),
+            _ => Some(LayoutMode::Full { primary }),
         }
     }
 }

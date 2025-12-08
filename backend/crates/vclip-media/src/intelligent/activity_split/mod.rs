@@ -5,7 +5,7 @@ pub(crate) mod renderer;
 use std::path::Path;
 
 use analyzer::ActivityAnalyzer;
-use layout_planner::LayoutPlanner;
+use layout_planner::{LayoutMode, LayoutPlanner, LayoutSpan};
 use renderer::ActivitySplitRenderer;
 use tracing::info;
 use vclip_models::{ClipTask, EncodingConfig, Style};
@@ -14,6 +14,7 @@ use crate::clip::extract_segment;
 use crate::error::{MediaError, MediaResult};
 use crate::intelligent::config::IntelligentCropConfig;
 use crate::intelligent::detector::FaceDetector;
+use crate::intelligent::models::FrameDetections;
 use crate::probe::probe_video;
 use crate::thumbnail::generate_thumbnail;
 
@@ -65,27 +66,68 @@ where
     let fps = video_info.fps;
 
     let config = IntelligentCropConfig::default();
-    let detector = FaceDetector::new(config.clone());
-    let detections = detector
-        .detect_in_video(&segment_path, 0.0, duration, width, height, fps)
-        .await?;
-
-    let analyzer = ActivityAnalyzer::new(config.clone(), width, height);
-    let timeline = analyzer.build_timeline(&detections, duration)?;
-
-    let planner = LayoutPlanner::new(config.clone());
-    let spans = planner.plan(&timeline, duration)?;
-    if spans.is_empty() {
-        return Err(MediaError::detection_failed(
-            "Smart Split (Activity) could not determine any layout spans",
-        ));
-    }
-
     let sample_interval = if config.fps_sample > 0.0 {
         1.0 / config.fps_sample
     } else {
         0.125
     };
+    let detector = FaceDetector::new(config.clone());
+    let mut detections = detector
+        .detect_in_video(&segment_path, 0.0, duration, width, height, fps)
+        .await?;
+
+    let analyzer = ActivityAnalyzer::new(config.clone(), width, height);
+    let planner = LayoutPlanner::new(config.clone());
+
+    let timeline = match analyzer.build_timeline(&detections, duration) {
+        Ok(timeline) => Some(timeline),
+        Err(MediaError::DetectionFailed(msg)) => {
+            info!(
+                "Smart Split (Activity): face activity timeline unavailable ({}); using motion fallback",
+                msg
+            );
+            None
+        }
+        Err(e) => return Err(e),
+    };
+
+    let spans: Vec<LayoutSpan>;
+    if let Some(timeline) = timeline {
+        match planner.plan(&timeline, duration) {
+            Ok(plan) if !plan.is_empty() => {
+                spans = plan;
+            }
+            Ok(_) => {
+                info!("Smart Split (Activity): planner returned no spans; using motion fallback");
+                (detections, spans) = motion_fallback(
+                    &detector,
+                    &segment_path,
+                    duration,
+                    width,
+                    height,
+                )
+                .await?;
+            }
+            Err(MediaError::DetectionFailed(msg)) => {
+                info!(
+                    "Smart Split (Activity): planner could not determine layout ({}); using motion fallback",
+                    msg
+                );
+                (detections, spans) = motion_fallback(
+                    &detector,
+                    &segment_path,
+                    duration,
+                    width,
+                    height,
+                )
+                .await?;
+            }
+            Err(e) => return Err(e),
+        }
+    } else {
+        (detections, spans) = motion_fallback(&detector, &segment_path, duration, width, height).await?;
+    }
+
     let renderer = ActivitySplitRenderer::new(
         config.clone(),
         encoding.clone(),
@@ -107,5 +149,32 @@ where
     }
 
     Ok(())
+}
+
+async fn motion_fallback(
+    detector: &FaceDetector,
+    segment_path: &Path,
+    duration: f64,
+    width: u32,
+    height: u32,
+) -> MediaResult<(Vec<FrameDetections>, Vec<LayoutSpan>)> {
+    info!("Smart Split (Activity): no reliable faces found, selecting motion-based framing");
+
+    let detections = detector
+        .detect_motion_tracks(segment_path, 0.0, duration, width, height)
+        .await?;
+
+    let primary_track = detections
+        .iter()
+        .find_map(|frame| frame.first().map(|d| d.track_id))
+        .unwrap_or(0);
+
+    let spans = vec![LayoutSpan {
+        start: 0.0,
+        end: duration,
+        layout: LayoutMode::Full { primary: primary_track },
+    }];
+
+    Ok((detections, spans))
 }
 
