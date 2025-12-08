@@ -49,6 +49,12 @@ const STYLES = [
     speed: "🧠 Standard",
   },
   {
+    value: "intelligent_basic",
+    label: "Intelligent Crop (Basic)",
+    subtitle: "YuNet Face Detection",
+    speed: "🧠 Basic",
+  },
+  {
     value: "intelligent_audio",
     label: "Intelligent (Audio)",
     subtitle: "Face + Audio Activity",
@@ -60,6 +66,18 @@ const STYLES = [
     subtitle: "Full Speaker Detection",
     speed: "🎯 Premium",
   },
+  {
+    value: "intelligent_motion",
+    label: "Intelligent (Motion)",
+    subtitle: "Face + Motion Detection",
+    speed: "🎯 Enhanced",
+  },
+  {
+    value: "intelligent_activity",
+    label: "Intelligent (Activity)",
+    subtitle: "Full Visual Tracking",
+    speed: "🎯 Premium",
+  },
 
   // Intelligent split-view styles (progressive tiers)
   {
@@ -67,6 +85,12 @@ const STYLES = [
     label: "Smart Split",
     subtitle: "Split + Face Tracking",
     speed: "🧠 Standard",
+  },
+  {
+    value: "intelligent_split_basic",
+    label: "Smart Split (Basic)",
+    subtitle: "Split + YuNet Face Detection",
+    speed: "🧠 Basic",
   },
   {
     value: "intelligent_split_audio",
@@ -77,7 +101,19 @@ const STYLES = [
   {
     value: "intelligent_split_speaker",
     label: "Smart Split (Speaker)",
-    subtitle: "Full Speaker Detection",
+    subtitle: "Split + Full Speaker Detection",
+    speed: "🎯 Premium",
+  },
+  {
+    value: "intelligent_split_motion",
+    label: "Smart Split (Motion)",
+    subtitle: "Split + Motion Detection",
+    speed: "🎯 Enhanced",
+  },
+  {
+    value: "intelligent_split_activity",
+    label: "Smart Split (Activity)",
+    subtitle: "Split + Full Visual Tracking",
     speed: "🎯 Premium",
   },
 

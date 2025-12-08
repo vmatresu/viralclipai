@@ -46,9 +46,7 @@ function cacheBustToken(clip: Clip): string {
 function buildDownloadUrl(clip: Clip): string {
   // Build the base URL (absolute) then append cache-busting param
   const baseUrl = clip.url.startsWith("/")
-    ? API_BASE_URL.endsWith("/")
-      ? API_BASE_URL.slice(0, -1)
-      : API_BASE_URL
+    ? API_BASE_URL.replace(/\/$/, "") // Remove trailing slash if present
     : "";
 
   const raw = clip.url.startsWith("/") && baseUrl ? `${baseUrl}${clip.url}` : clip.url;
@@ -75,11 +73,17 @@ const STYLE_LABELS: Record<string, string> = {
   left_focus: "Left Focus",
   right_focus: "Right Focus",
   intelligent: "Intelligent Crop",
+  intelligent_basic: "Intelligent Crop (Basic)",
   intelligent_audio: "Intelligent (Audio)",
   intelligent_speaker: "Intelligent (Speaker)",
+  intelligent_motion: "Intelligent (Motion)",
+  intelligent_activity: "Intelligent (Activity)",
   intelligent_split: "Smart Split",
+  intelligent_split_basic: "Smart Split (Basic)",
   intelligent_split_audio: "Smart Split (Audio)",
   intelligent_split_speaker: "Smart Split (Speaker)",
+  intelligent_split_motion: "Smart Split (Motion)",
+  intelligent_split_activity: "Smart Split (Activity)",
   original: "Original",
 };
 

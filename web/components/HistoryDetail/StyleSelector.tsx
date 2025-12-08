@@ -24,15 +24,31 @@ const STYLES = [
     speed: "⚡ Fast",
   },
 
-  // Intelligent single-view styles (Basic tier)
+  // Intelligent single-view styles (progressive tiers)
   {
     value: "intelligent",
     label: "Intelligent Crop",
     subtitle: "Face Tracking",
     speed: "🧠 Standard",
   },
-
-  // Visual activity styles (Motion/Activity tiers - work with any audio)
+  {
+    value: "intelligent_basic",
+    label: "Intelligent Crop (Basic)",
+    subtitle: "YuNet Face Detection",
+    speed: "🧠 Basic",
+  },
+  {
+    value: "intelligent_audio",
+    label: "Intelligent (Audio)",
+    subtitle: "Face + Audio Activity",
+    speed: "🎧 Enhanced",
+  },
+  {
+    value: "intelligent_speaker",
+    label: "Intelligent (Speaker)",
+    subtitle: "Full Speaker Detection",
+    speed: "🎯 Premium",
+  },
   {
     value: "intelligent_motion",
     label: "Intelligent (Motion)",
@@ -46,15 +62,31 @@ const STYLES = [
     speed: "🎯 Premium",
   },
 
-  // Intelligent split-view styles (Basic tier)
+  // Intelligent split-view styles (progressive tiers)
   {
     value: "intelligent_split",
     label: "Smart Split",
     subtitle: "Split + Face Tracking",
     speed: "🧠 Standard",
   },
-
-  // Visual activity split styles (Motion/Activity tiers - work with any audio)
+  {
+    value: "intelligent_split_basic",
+    label: "Smart Split (Basic)",
+    subtitle: "Split + YuNet Face Detection",
+    speed: "🧠 Basic",
+  },
+  {
+    value: "intelligent_split_audio",
+    label: "Smart Split (Audio)",
+    subtitle: "Split + Audio Activity",
+    speed: "🎧 Enhanced",
+  },
+  {
+    value: "intelligent_split_speaker",
+    label: "Smart Split (Speaker)",
+    subtitle: "Split + Full Speaker Detection",
+    speed: "🎯 Premium",
+  },
   {
     value: "intelligent_split_motion",
     label: "Smart Split (Motion)",
@@ -64,7 +96,7 @@ const STYLES = [
   {
     value: "intelligent_split_activity",
     label: "Smart Split (Activity)",
-    subtitle: "Full Visual Tracking",
+    subtitle: "Split + Full Visual Tracking",
     speed: "🎯 Premium",
   },
 
