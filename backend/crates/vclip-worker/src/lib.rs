@@ -11,9 +11,9 @@ pub mod config;
 pub mod error;
 pub mod executor;
 pub mod gemini;
-pub mod processor_refactored;
+pub mod processor;
 
 pub use config::WorkerConfig;
 pub use error::{WorkerError, WorkerResult};
 pub use executor::JobExecutor;
-pub use processor_refactored::{VideoProcessor, EnhancedProcessingContext};
+pub use processor::{VideoProcessor, EnhancedProcessingContext};

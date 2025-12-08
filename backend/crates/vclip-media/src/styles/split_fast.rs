@@ -11,6 +11,7 @@ use tracing::info;
 use crate::core::{ProcessingComplexity, ProcessingContext, ProcessingRequest, ProcessingResult, StyleProcessor};
 use crate::error::MediaResult;
 use crate::intelligent::{parse_timestamp, FastSplitEngine};
+use crate::thumbnail::generate_thumbnail;
 use crate::probe::probe_video;
 use vclip_models::Style;
 use super::utils;
@@ -96,6 +97,10 @@ impl StyleProcessor for SplitFastProcessor {
         let file_size = tokio::fs::metadata(&*request.output_path).await?.len();
 
         let thumbnail_path = utils::thumbnail_path(&request.output_path);
+
+        if let Err(e) = generate_thumbnail(&request.output_path, &thumbnail_path).await {
+            tracing::warn!("Failed to generate thumbnail for split_fast: {}", e);
+        }
 
         let result = ProcessingResult {
             output_path: request.output_path.clone(),

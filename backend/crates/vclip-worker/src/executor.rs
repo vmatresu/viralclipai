@@ -13,7 +13,7 @@ use vclip_queue::{JobQueue, QueueJob};
 
 use crate::config::WorkerConfig;
 use crate::error::{WorkerError, WorkerResult};
-use crate::processor_refactored::{EnhancedProcessingContext, VideoProcessor};
+use crate::processor::{EnhancedProcessingContext, VideoProcessor};
 
 /// Job executor that processes jobs from the queue.
 pub struct JobExecutor {

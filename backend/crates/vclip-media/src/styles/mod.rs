@@ -95,6 +95,10 @@ impl Default for StyleProcessorFactory {
 /// Utility functions shared across style processors.
 pub mod utils {
     use super::*;
+    use std::time::Instant;
+    use crate::clip::create_clip;
+    use crate::core::observability::ProcessingLogger;
+    use crate::intelligent::parse_timestamp;
 
     /// Validate that input and output paths are accessible.
     pub fn validate_paths(input: &Path, output: &Path) -> MediaResult<()> {
@@ -134,5 +138,66 @@ pub mod utils {
             memory_mb: if requires_intelligence { 512 } else { 128 },
             temp_space_mb: 256,
         }
+    }
+
+    /// Execute a basic FFmpeg-driven style using the shared clip pipeline.
+    /// Centralizes logging, metrics, padding, and thumbnail handling for static styles.
+    pub async fn run_basic_style(
+        request: crate::core::ProcessingRequest,
+        ctx: crate::core::ProcessingContext,
+        style_label: &'static str,
+    ) -> crate::error::MediaResult<crate::core::ProcessingResult> {
+        let timer = ctx.metrics.start_timer(&format!("{style_label}_processing"));
+        let logger = ProcessingLogger::new(
+            ctx.request_id.clone(),
+            ctx.user_id.clone(),
+            style_label.to_string(),
+        );
+
+        logger.log_start(&request.input_path, &request.output_path);
+
+        let start_time = Instant::now();
+
+        create_clip(
+            request.input_path.as_ref(),
+            request.output_path.as_ref(),
+            &request.task,
+            &request.encoding,
+            |_progress| {},
+        )
+        .await?;
+
+        let processing_time = start_time.elapsed();
+        let file_size = tokio::fs::metadata(&*request.output_path)
+            .await
+            .map(|m| m.len())?;
+        let duration = parse_timestamp(&request.task.end).unwrap_or(0.0)
+            - parse_timestamp(&request.task.start).unwrap_or(0.0)
+            + request.task.pad_before
+            + request.task.pad_after;
+
+        let thumbnail_path = thumbnail_path(&request.output_path);
+
+        let result = crate::core::ProcessingResult {
+            output_path: request.output_path.clone(),
+            thumbnail_path: Some(thumbnail_path.into()),
+            duration_seconds: duration,
+            file_size_bytes: file_size,
+            processing_time_ms: processing_time.as_millis() as u64,
+            metadata: Default::default(),
+        };
+
+        ctx.metrics
+            .increment_counter("processing_completed", &[("style", style_label)]);
+        ctx.metrics.record_histogram(
+            "processing_duration_ms",
+            processing_time.as_millis() as f64,
+            &[("style", style_label)],
+        );
+
+        timer.success();
+        logger.log_completion(&result);
+
+        Ok(result)
     }
 }

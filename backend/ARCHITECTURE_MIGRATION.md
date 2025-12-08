@@ -37,7 +37,7 @@ styles/
 ├── intelligent.rs - Intelligent processor
 └── intelligent_split.rs - Intelligent split processor
 
-processor_refactored.rs (400 lines)
+processor.rs (formerly processor_refactored.rs) (≈400 lines)
 ├── VideoProcessor - Clean orchestration
 ├── EnhancedProcessingContext - Rich context
 └── Focused responsibilities
@@ -151,7 +151,7 @@ let result = processor.process(request, processing_context).await?;
 
 | File            | Before    | After                               | Reduction            |
 | --------------- | --------- | ----------------------------------- | -------------------- |
-| processor.rs    | 849 lines | 400 lines (processor_refactored.rs) | 53%                  |
+| processor.rs    | 849 lines | 400 lines (processor.rs) | 53%                  |
 | Total new files | -         | ~2000 lines                         | Modular architecture |
 
 ## Security Improvements
@@ -297,7 +297,7 @@ styles/                 # Style-specific processors
 ├── intelligent.rs     # Intelligent processor
 └── intelligent_split.rs # Intelligent split processor
 
-processor_refactored.rs # Clean orchestration layer (400 lines)
+processor.rs # Clean orchestration layer (400 lines)
 executor.rs            # Updated job executor with new architecture
 ```
 

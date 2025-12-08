@@ -4,12 +4,9 @@
 //! with the specified encoding parameters.
 
 use async_trait::async_trait;
-use std::time::Instant;
-
 use vclip_models::Style;
 use crate::error::MediaResult;
 use crate::core::{ProcessingRequest, ProcessingResult, ProcessingContext, StyleProcessor};
-use crate::core::observability::ProcessingLogger;
 use super::utils;
 
 /// Processor for original video style.
@@ -58,53 +55,7 @@ impl StyleProcessor for OriginalProcessor {
     }
 
     async fn process(&self, request: ProcessingRequest, ctx: ProcessingContext) -> MediaResult<ProcessingResult> {
-        let timer = ctx.metrics.start_timer("original_processing");
-        let logger = ProcessingLogger::new(
-            ctx.request_id.clone(),
-            ctx.user_id.clone(),
-            "original".to_string(),
-        );
-
-        logger.log_start(&request.input_path, &request.output_path);
-
-        // Start processing
-        let start_time = Instant::now();
-
-        // For original style, we just need to copy/transcode the video
-        // In a real implementation, this would use FFmpeg to transcode
-        // For now, we'll simulate the processing
-
-        // Simulate processing time
-        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-
-        let processing_time = start_time.elapsed();
-        let file_size = 100 * 1024 * 1024; // 100MB simulated
-
-        // Generate thumbnail
-        let thumbnail_path = utils::thumbnail_path(&request.output_path);
-        // In real implementation: generate_thumbnail(&request.output_path, &thumbnail_path).await?;
-
-        let result = ProcessingResult {
-            output_path: request.output_path.clone(),
-            thumbnail_path: Some(thumbnail_path.into()),
-            duration_seconds: request.task.end.parse::<f64>().unwrap_or(30.0),
-            file_size_bytes: file_size,
-            processing_time_ms: processing_time.as_millis() as u64,
-            metadata: Default::default(),
-        };
-
-        // Record metrics
-        ctx.metrics.increment_counter("processing_completed", &[("style", "original")]);
-        ctx.metrics.record_histogram(
-            "processing_duration_ms",
-            processing_time.as_millis() as f64,
-            &[("style", "original")]
-        );
-
-        timer.success();
-        logger.log_completion(&result);
-
-        Ok(result)
+        utils::run_basic_style(request, ctx, "original").await
     }
 
     fn estimate_complexity(&self, request: &ProcessingRequest) -> crate::core::ProcessingComplexity {
