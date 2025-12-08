@@ -10,17 +10,19 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/lib/auth";
 import { invalidateClipsCache } from "@/lib/cache";
-import { type ProcessingJob, useProcessing } from "@/lib/processing-context";
+import { useProcessing, type ProcessingJob } from "@/lib/processing-context";
 import {
   reprocessScenesWebSocket,
   type ReprocessCallbacks,
 } from "@/lib/websocket/reprocess-client";
+import { type SceneProgress } from "@/types/processing";
 
 interface ReprocessingState {
   isProcessing: boolean;
   progress: number;
   logs: string[];
   error: string | null;
+  sceneProgress: Map<number, SceneProgress>;
 }
 
 interface UseReprocessingOptions {
@@ -43,6 +45,7 @@ export function useReprocessing({
     progress: 0,
     logs: [],
     error: null,
+    sceneProgress: new Map(),
   });
   const wsRef = useRef<WebSocket | null>(null);
   // Track if done was received to avoid stale closure issue in onClose
@@ -107,6 +110,7 @@ export function useReprocessing({
           progress: 0,
           logs: [],
           error: null,
+          sceneProgress: new Map(),
         });
 
         // Start job in global processing context
@@ -178,6 +182,51 @@ export function useReprocessing({
             }
             cleanup();
           },
+          // Scene progress handlers
+          onSceneStarted: (sceneId, sceneTitle, styleCount, startSec, durationSec) => {
+            setState((prev) => {
+              const next = new Map(prev.sceneProgress);
+              next.set(sceneId, {
+                sceneId,
+                sceneTitle,
+                styleCount,
+                startSec,
+                durationSec,
+                status: "processing",
+                clipsCompleted: 0,
+                clipsFailed: 0,
+                currentSteps: new Map(),
+              });
+              return { ...prev, sceneProgress: next };
+            });
+          },
+          onSceneCompleted: (sceneId, clipsCompleted, clipsFailed) => {
+            setState((prev) => {
+              const next = new Map(prev.sceneProgress);
+              const scene = next.get(sceneId);
+              if (scene) {
+                next.set(sceneId, {
+                  ...scene,
+                  status: clipsFailed > 0 ? "failed" : "completed",
+                  clipsCompleted,
+                  clipsFailed,
+                });
+              }
+              return { ...prev, sceneProgress: next };
+            });
+          },
+          onClipProgress: (sceneId, style, step, details) => {
+            setState((prev) => {
+              const next = new Map(prev.sceneProgress);
+              const scene = next.get(sceneId);
+              if (scene) {
+                const newSteps = new Map(scene.currentSteps);
+                newSteps.set(style, { step, details });
+                next.set(sceneId, { ...scene, currentSteps: newSteps });
+              }
+              return { ...prev, sceneProgress: next };
+            });
+          },
         };
 
         // Create WebSocket connection using dedicated client
@@ -230,6 +279,7 @@ export function useReprocessing({
       progress: 0,
       logs: [],
       error: null,
+      sceneProgress: new Map(),
     });
     toast.info("Reprocessing cancelled");
   }, [cleanup]);

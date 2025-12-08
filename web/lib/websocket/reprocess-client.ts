@@ -7,6 +7,8 @@
 import { invalidateClipsCache } from "@/lib/cache";
 import { frontendLogger } from "@/lib/logger";
 
+import { type ClipProcessingStep } from "./types";
+
 export interface ReprocessProgressMessage {
   type: "progress";
   value: number;
@@ -29,11 +31,46 @@ export interface ReprocessErrorMessage {
   timestamp?: string;
 }
 
+export interface ReprocessSceneStartedMessage {
+  type: "scene_started";
+  sceneId: number;
+  sceneTitle: string;
+  styleCount: number;
+  startSec: number;
+  durationSec: number;
+}
+
+export interface ReprocessSceneCompletedMessage {
+  type: "scene_completed";
+  sceneId: number;
+  clipsCompleted: number;
+  clipsFailed: number;
+}
+
+export interface ReprocessClipProgressMessage {
+  type: "clip_progress";
+  sceneId: number;
+  style: string;
+  step: ClipProcessingStep;
+  details?: string;
+}
+
+export interface ReprocessClipUploadedMessage {
+  type: "clip_uploaded";
+  videoId: string;
+  clipCount: number;
+  totalClips: number;
+}
+
 export type ReprocessMessage =
   | ReprocessProgressMessage
   | ReprocessLogMessage
   | ReprocessDoneMessage
-  | ReprocessErrorMessage;
+  | ReprocessErrorMessage
+  | ReprocessSceneStartedMessage
+  | ReprocessSceneCompletedMessage
+  | ReprocessClipProgressMessage
+  | ReprocessClipUploadedMessage;
 
 export interface ReprocessCallbacks {
   onProgress?: (value: number) => void;
@@ -41,6 +78,25 @@ export interface ReprocessCallbacks {
   onDone?: (videoId: string) => void;
   onError?: (message: string, details?: string) => void;
   onClose?: () => void;
+  onSceneStarted?: (
+    sceneId: number,
+    sceneTitle: string,
+    styleCount: number,
+    startSec: number,
+    durationSec: number
+  ) => void;
+  onSceneCompleted?: (
+    sceneId: number,
+    clipsCompleted: number,
+    clipsFailed: number
+  ) => void;
+  onClipProgress?: (
+    sceneId: number,
+    style: string,
+    step: ClipProcessingStep,
+    details?: string
+  ) => void;
+  onClipUploaded?: (videoId: string, clipCount: number, totalClips: number) => void;
 }
 
 export interface ReprocessOptions {
@@ -202,6 +258,32 @@ export function reprocessScenesWebSocket(
         clearTimeout(timeoutId);
         callbacks.onError?.(data.message, data.details);
         ws.close();
+        break;
+
+      case "scene_started":
+        callbacks.onSceneStarted?.(
+          data.sceneId,
+          data.sceneTitle,
+          data.styleCount,
+          data.startSec,
+          data.durationSec
+        );
+        break;
+
+      case "scene_completed":
+        callbacks.onSceneCompleted?.(
+          data.sceneId,
+          data.clipsCompleted,
+          data.clipsFailed
+        );
+        break;
+
+      case "clip_progress":
+        callbacks.onClipProgress?.(data.sceneId, data.style, data.step, data.details);
+        break;
+
+      case "clip_uploaded":
+        callbacks.onClipUploaded?.(data.videoId, data.clipCount, data.totalClips);
         break;
 
       default:

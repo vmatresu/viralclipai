@@ -72,6 +72,7 @@ export default function HistoryDetailPage() {
     reprocess,
     progress: reprocessProgress,
     logs: reprocessLogs,
+    sceneProgress: reprocessSceneProgress,
   } = useReprocessing({
     videoId,
     videoTitle: highlightsData?.video_title,
@@ -447,6 +448,7 @@ export default function HistoryDetailPage() {
         <DetailedProcessingStatus
           progress={effectiveProgress}
           logs={effectiveLogs}
+          sceneProgress={isReprocessing ? reprocessSceneProgress : undefined}
           isResuming={!isReprocessing && isProcessing}
         />
       )}

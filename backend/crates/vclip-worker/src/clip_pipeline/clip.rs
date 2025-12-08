@@ -29,6 +29,7 @@ fn encoding_for_style(style: Style) -> EncodingConfig {
         Style::SplitFast => EncodingConfig::for_split_view().with_crf(24),
         Style::LeftFocus => EncodingConfig::for_split_view().with_crf(24),
         Style::RightFocus => EncodingConfig::for_split_view().with_crf(24),
+        Style::Original => EncodingConfig::default().with_crf(24),
         _ => EncodingConfig::default(),
     }
 }

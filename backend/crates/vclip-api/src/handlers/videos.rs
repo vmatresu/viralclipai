@@ -43,6 +43,12 @@ pub struct ClipInfo {
     pub size: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub style: Option<String>,
+    /// When the clip was completed (for cache busting)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
+    /// When the clip was last updated (for cache busting)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
 }
 
 /// Get video info.
@@ -139,6 +145,8 @@ pub async fn get_video_info(
             thumbnail: thumbnail_url,
             size: size_str,
             style: Some(clip_meta.style),
+            completed_at: clip_meta.completed_at.map(|dt| dt.to_rfc3339()),
+            updated_at: clip_meta.updated_at.map(|dt| dt.to_rfc3339()),
         });
     }
 

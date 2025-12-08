@@ -259,7 +259,7 @@ export function ProcessingClient() {
       )}
 
       {/* Status Section */}
-      {submitting && (
+      {submitting && !videoId && (
         <DetailedProcessingStatus
           progress={progress}
           logs={logs}

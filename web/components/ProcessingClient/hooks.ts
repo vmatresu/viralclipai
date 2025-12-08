@@ -241,6 +241,9 @@ export function useVideoProcessing() {
     // SECURITY: Only load results if user is authenticated
     if (existingId && !authLoading && user) {
       setVideoId(existingId);
+      // Ensure we're not in a submitting state when viewing results
+      setSubmitting(false);
+      // Don't reset scene progress when loading existing results - preserve it for display
       void loadResults(existingId);
     } else if (!user && !authLoading) {
       // User is signed out - clear any displayed data
@@ -249,8 +252,12 @@ export function useVideoProcessing() {
       setCustomPromptUsed(null);
       setVideoTitle(null);
       setVideoUrl(null);
+      setSubmitting(false);
+      setProgress(0);
+      setLogs([]);
+      resetSceneProgress();
     }
-  }, [searchParams, loadResults, authLoading, user]);
+  }, [searchParams, loadResults, authLoading, user, resetSceneProgress]);
 
   return {
     // State
