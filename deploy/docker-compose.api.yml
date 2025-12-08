@@ -11,6 +11,10 @@ services:
       context: ..
       dockerfile: Dockerfile
       target: api-runtime
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+      cache_from:
+        - viralclipai-api:latest
     image: viralclipai-api:${VERSION:-latest}
     container_name: vclip-api
     restart: unless-stopped

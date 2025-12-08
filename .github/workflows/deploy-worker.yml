@@ -35,6 +35,11 @@ jobs:
           script: |
             set -euo pipefail
             
+            # Enable BuildKit parallel builds
+            export DOCKER_BUILDKIT=1
+            export COMPOSE_DOCKER_CLI_BUILD=1
+            export BUILDKIT_PROGRESS=plain
+            
             APP_DIR=/var/www/viralclipai-backend
             cd "$APP_DIR"
             
@@ -44,7 +49,7 @@ jobs:
             
             echo "Building and deploying Worker..."
             docker compose --env-file .env -f deploy/docker-compose.worker.yml pull || true
-            docker compose --env-file .env -f deploy/docker-compose.worker.yml up -d --build
+            docker compose --env-file .env -f deploy/docker-compose.worker.yml up -d --build --parallel
             
             echo "Waiting for Worker to start..."
             sleep 15

@@ -11,6 +11,10 @@ services:
       context: ..
       dockerfile: Dockerfile
       target: worker-runtime
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+      cache_from:
+        - viralclipai-worker:latest
     image: viralclipai-worker:${VERSION:-latest}
     container_name: vclip-worker
     restart: unless-stopped
