@@ -54,6 +54,13 @@ services:
       # JWT Authentication
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET required}
 
+      # GCP Auth (for Firestore) - requires service account JSON file
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/firebase-service-account.json
+
+    volumes:
+      # Firebase service account for Firestore auth
+      - ../firebase-service-account.json:/app/firebase-service-account.json:ro
+
     ports:
       - "127.0.0.1:8000:8000"
 

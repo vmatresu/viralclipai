@@ -53,7 +53,12 @@ services:
       # Gemini AI
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
 
+      # GCP Auth (for Firestore) - requires service account JSON file
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/firebase-service-account.json
+
     volumes:
+      # Firebase service account for Firestore auth
+      - ../firebase-service-account.json:/app/firebase-service-account.json:ro
       # Temp storage for video processing
       - worker-temp:/tmp/videos
 
