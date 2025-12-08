@@ -8,11 +8,11 @@ import { SignInDialog } from "@/components/SignInDialog";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { Button } from "@/components/ui/button";
 import {
-    Sheet,
-    SheetContent,
-    SheetHeader,
-    SheetTitle,
-    SheetTrigger,
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
 } from "@/components/ui/sheet";
 import { useAuth } from "@/lib/auth";
 
@@ -166,7 +166,7 @@ export function Navbar() {
           <div className="flex items-center gap-2">
             <DesktopNav />
             <ThemeSwitcher />
-            
+
             {/* Desktop Auth */}
             {!loading && !user && (
               <div className="hidden sm:block">

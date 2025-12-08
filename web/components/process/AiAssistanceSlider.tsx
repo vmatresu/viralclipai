@@ -14,7 +14,12 @@ interface AiAssistanceSliderProps {
   onChange: (value: AiLevel) => void;
 }
 
-const steps: { value: AiLevel; label: string; shortLabel: string; description: string }[] = [
+const steps: {
+  value: AiLevel;
+  label: string;
+  shortLabel: string;
+  description: string;
+}[] = [
   {
     value: "fast",
     label: "Fast",
@@ -59,7 +64,7 @@ export function AiAssistanceSlider({ value, onChange }: AiAssistanceSliderProps)
   const handleSliderChange = (vals: number[]) => {
     const newIndex = vals[0];
     if (typeof newIndex === "number" && newIndex >= 0 && newIndex < steps.length) {
-      onChange(steps[newIndex].value);
+      onChange(steps[newIndex]!.value);
     }
   };
 
@@ -109,7 +114,7 @@ export function AiAssistanceSlider({ value, onChange }: AiAssistanceSliderProps)
                 key={step.value}
                 type="button"
                 className="absolute flex flex-col items-center gap-2 cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded -translate-x-1/2"
-                style={{ left: `${percentage}%`, top: '24px' }}
+                style={{ left: `${percentage}%`, top: "24px" }}
                 onClick={() => onChange(step.value)}
               >
                 <div

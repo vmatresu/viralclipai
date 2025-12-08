@@ -4,6 +4,7 @@ import { AlertTriangle, CheckCircle2, ShieldAlert } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -12,7 +13,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Checkbox } from "@/components/ui/checkbox";
 
 export interface OverwriteTarget {
   sceneId: number;
@@ -151,7 +151,9 @@ export function OverwriteConfirmationDialog({
         <DialogFooter className="gap-2 sm:justify-end">
           <div className="flex flex-1 flex-col gap-2 text-sm text-muted-foreground">
             <div className="flex items-center justify-between">
-              <span>Will overwrite {overwriteCount}, create {newCount}</span>
+              <span>
+                Will overwrite {overwriteCount}, create {newCount}
+              </span>
               <div className="flex items-center gap-2">
                 <Checkbox
                   id="overwrite-prompt-toggle"
@@ -178,4 +180,3 @@ export function OverwriteConfirmationDialog({
     </Dialog>
   );
 }
-
