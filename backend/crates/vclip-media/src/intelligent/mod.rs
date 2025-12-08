@@ -47,6 +47,7 @@
 //! ```
 
 pub mod activity_scorer;
+pub mod camera_constraints;
 pub mod config;
 pub mod crop_planner;
 pub mod detector;
@@ -56,6 +57,7 @@ pub mod fast_split;
 pub mod layout_detector;
 pub mod models;
 pub mod renderer;
+pub mod segment_analysis;
 pub mod smoother;
 pub mod smoothing_utils;
 pub mod speaker_detector;

@@ -14,9 +14,13 @@ use tracing::{debug, info};
 use vclip_models::DetectionTier;
 
 use super::activity_scorer::TemporalActivityTracker;
+use super::camera_constraints::{
+    compute_switch_threshold, smooth_segment_light, CameraConstraintEnforcer,
+};
 use super::config::{FallbackPolicy, IntelligentCropConfig};
 use super::face_activity::FaceActivityConfig;
 use super::models::{BoundingBox, CameraKeyframe, CameraMode, Detection, FrameDetections};
+use super::segment_analysis::{flatten_short_segments, segment_boundaries};
 use super::smoothing_utils::{mean, median, moving_average, std_deviation};
 use super::speaker_detector::{ActiveSpeaker, SpeakerSegment};
 
@@ -37,7 +41,7 @@ pub struct TierAwareCameraSmoother {
 impl TierAwareCameraSmoother {
     /// Create a new tier-aware camera smoother.
     pub fn new(config: IntelligentCropConfig, tier: DetectionTier, fps: f64) -> Self {
-        let activity_config = FaceActivityConfig {
+        let mut activity_config = FaceActivityConfig {
             activity_window: config.face_activity_window,
             min_switch_duration: config.min_switch_duration,
             switch_margin: config.switch_margin,
@@ -47,6 +51,22 @@ impl TierAwareCameraSmoother {
             smoothing_alpha: config.activity_smoothing_window,
             ..Default::default()
         };
+
+        // Tighten hysteresis for motion-based tiers to prevent micro-switching
+        // and keep the camera from drifting when someone just shifts slightly.
+        match tier {
+            DetectionTier::MotionAware => {
+                activity_config.min_switch_duration =
+                    activity_config.min_switch_duration.max(2.0);
+                activity_config.switch_margin =
+                    activity_config.switch_margin.max(0.25);
+            }
+            DetectionTier::ActivityAware => {
+                activity_config.min_switch_duration =
+                    activity_config.min_switch_duration.max(1.5);
+            }
+            _ => {}
+        }
 
         Self {
             config,
@@ -109,29 +129,29 @@ impl TierAwareCameraSmoother {
         // Apply smoothing based on mode AND tier
         // For speaker-aware and activity-aware tiers with tracking, use instant transitions at speaker boundaries
         let smoothed = match (mode, self.tier) {
-            // For speaker-aware tiers with tracking, use instant transitions
+            // Speaker-aware tiers: snap between speakers with minimal drift
             (CameraMode::Tracking | CameraMode::Zoom, DetectionTier::AudioAware | DetectionTier::SpeakerAware) => {
                 self.smooth_with_instant_speaker_transitions(&raw_keyframes)
             }
-            // For visual activity tiers, use tracking-style smoothing (no audio-based instant transitions)
+            // Visual activity tiers: snap transitions and suppress short-lived motion
             (CameraMode::Tracking | CameraMode::Zoom, DetectionTier::MotionAware | DetectionTier::ActivityAware) => {
-                self.smooth_tracking(&raw_keyframes)
+                let min_segment = self.min_segment_duration_for_tier();
+                self.smooth_with_instant_switches(&raw_keyframes, min_segment)
             }
             (CameraMode::Static, _) => self.smooth_static(&raw_keyframes),
             (CameraMode::Tracking | CameraMode::Zoom, _) => self.smooth_tracking(&raw_keyframes),
         };
 
-        // Enforce motion constraints (but less strict for speaker-aware to allow fast moves)
+        // Enforce motion constraints using the extracted constraint enforcer
+        let enforcer = CameraConstraintEnforcer::new(self.config.clone());
         match self.tier {
             DetectionTier::AudioAware | DetectionTier::SpeakerAware => {
-                // Allow faster movements for speaker tracking
-                self.enforce_constraints_relaxed(&smoothed, width, height)
+                enforcer.enforce_constraints_relaxed(&smoothed, width, height)
             }
             DetectionTier::MotionAware | DetectionTier::ActivityAware => {
-                // Allow faster movements for visual activity tracking (but still constrained)
-                self.enforce_constraints_relaxed(&smoothed, width, height)
+                enforcer.enforce_constraints_with_snaps(&smoothed, width, height)
             }
-            _ => self.enforce_constraints(&smoothed, width, height)
+            _ => enforcer.enforce_constraints(&smoothed, width, height)
         }
     }
 
@@ -565,7 +585,7 @@ impl TierAwareCameraSmoother {
                 let segment: Vec<_> = keyframes[segment_start..switch_idx].to_vec();
                 if segment.len() >= 3 {
                     // Light smoothing within segment (small window)
-                    let smoothed = self.smooth_segment_light(&segment);
+                    let smoothed = smooth_segment_light(&segment);
                     result.extend(smoothed);
                 } else {
                     result.extend(segment);
@@ -578,7 +598,7 @@ impl TierAwareCameraSmoother {
         if segment_start < keyframes.len() {
             let segment: Vec<_> = keyframes[segment_start..].to_vec();
             if segment.len() >= 3 {
-                let smoothed = self.smooth_segment_light(&segment);
+                let smoothed = smooth_segment_light(&segment);
                 result.extend(smoothed);
             } else {
                 result.extend(segment);
@@ -588,96 +608,63 @@ impl TierAwareCameraSmoother {
         result
     }
 
-    /// Light smoothing for individual segments (preserves quick movements).
-    fn smooth_segment_light(&self, keyframes: &[CameraKeyframe]) -> Vec<CameraKeyframe> {
+    /// Snap camera between segments and ignore short-lived switches (used for Motion/Activity tiers).
+    fn smooth_with_instant_switches(
+        &self,
+        keyframes: &[CameraKeyframe],
+        min_segment_duration: f64,
+    ) -> Vec<CameraKeyframe> {
         if keyframes.len() < 3 {
             return keyframes.to_vec();
         }
 
-        // Use very small window (3 samples) for minimal smoothing
-        let window = 3;
+        let switch_threshold = compute_switch_threshold(keyframes);
+        let flattened = flatten_short_segments(keyframes, switch_threshold, min_segment_duration);
 
-        let cx: Vec<f64> = keyframes.iter().map(|kf| kf.cx).collect();
-        let cy: Vec<f64> = keyframes.iter().map(|kf| kf.cy).collect();
-        let width: Vec<f64> = keyframes.iter().map(|kf| kf.width).collect();
-        let height: Vec<f64> = keyframes.iter().map(|kf| kf.height).collect();
-
-        let cx_smooth = moving_average(&cx, window);
-        let cy_smooth = moving_average(&cy, window);
-        let width_smooth = moving_average(&width, window);
-        let height_smooth = moving_average(&height, window);
-
-        keyframes
-            .iter()
-            .enumerate()
-            .map(|(i, kf)| {
-                CameraKeyframe::new(
-                    kf.time,
-                    cx_smooth[i],
-                    cy_smooth[i],
-                    width_smooth[i],
-                    height_smooth[i],
-                )
-            })
-            .collect()
+        // After flattening transient switches, smooth within each segment lightly
+        self.smooth_segments_with_snaps(&flattened, switch_threshold)
     }
 
-    /// Relaxed motion constraints for speaker-aware tiers.
-    /// Allows faster camera movements to track speakers.
-    fn enforce_constraints_relaxed(
+    /// Light smoothing inside segments while keeping instantaneous jumps at boundaries.
+    fn smooth_segments_with_snaps(
         &self,
         keyframes: &[CameraKeyframe],
-        width: u32,
-        height: u32,
+        switch_threshold: f64,
     ) -> Vec<CameraKeyframe> {
-        if keyframes.len() < 2 {
+        let segments = segment_boundaries(keyframes, switch_threshold);
+        if segments.len() <= 1 {
             return keyframes.to_vec();
         }
 
-        // Use 3x the normal max pan speed for speaker tracking
-        let relaxed_max_pan_speed = self.config.max_pan_speed * 3.0;
-
-        let mut constrained = Vec::with_capacity(keyframes.len());
-        constrained.push(keyframes[0]);
-
-        for i in 1..keyframes.len() {
-            let prev = &constrained[i - 1];
-            let curr = &keyframes[i];
-
-            let dt = curr.time - prev.time;
-            if dt <= 0.0 {
-                constrained.push(*curr);
-                continue;
-            }
-
-            let dx = curr.cx - prev.cx;
-            let dy = curr.cy - prev.cy;
-            let speed = (dx * dx + dy * dy).sqrt() / dt;
-
-            let (new_cx, new_cy) = if speed > relaxed_max_pan_speed {
-                let scale = relaxed_max_pan_speed / speed;
-                (prev.cx + dx * scale, prev.cy + dy * scale)
+        let mut result = Vec::with_capacity(keyframes.len());
+        for (start, end) in segments {
+            let segment = &keyframes[start..end];
+            if segment.len() >= 3 {
+                let smoothed = smooth_segment_light(segment);
+                result.extend(smoothed);
             } else {
-                (curr.cx, curr.cy)
-            };
-
-            let margin_x = curr.width / 2.0;
-            let margin_y = curr.height / 2.0;
-            let clamped_cx = new_cx.max(margin_x).min(width as f64 - margin_x);
-            let clamped_cy = new_cy.max(margin_y).min(height as f64 - margin_y);
-
-            constrained.push(CameraKeyframe::new(
-                curr.time,
-                clamped_cx,
-                clamped_cy,
-                curr.width,
-                curr.height,
-            ));
+                result.extend_from_slice(segment);
+            }
         }
 
-        constrained
+        result
+    }
+
+    // NOTE: The following methods have been extracted to separate modules:
+    // - flatten_short_segments, segment_boundaries, segment_representative -> segment_analysis.rs
+    // - compute_switch_threshold, smooth_segment_light -> camera_constraints.rs
+    // - enforce_constraints, enforce_constraints_relaxed, enforce_constraints_with_snaps -> camera_constraints.rs
+
+    /// Minimum segment duration required before snapping to a new subject for the current tier.
+    fn min_segment_duration_for_tier(&self) -> f64 {
+        match self.tier {
+            DetectionTier::MotionAware => 2.0,
+            DetectionTier::ActivityAware => self.config.min_switch_duration.max(1.0),
+            _ => self.config.min_switch_duration,
+        }
     }
 }
+
 // NOTE: Helper functions (mean, median, std_deviation, moving_average) have been
 // extracted to smoothing_utils.rs for reuse across the codebase.
 

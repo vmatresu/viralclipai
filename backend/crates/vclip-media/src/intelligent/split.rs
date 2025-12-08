@@ -33,17 +33,21 @@
 //! └─────────────────┘
 //! ```
 
+use std::collections::HashMap;
 use std::path::Path;
 use tracing::{info, warn};
 
 use super::config::IntelligentCropConfig;
+use super::detector::FaceDetector;
+use super::models::{BoundingBox, Detection};
+use super::TierAwareIntelligentCropper;
 use crate::clip::extract_segment;
 use crate::command::{FfmpegCommand, FfmpegRunner};
 use crate::error::MediaResult;
 use crate::probe::probe_video;
 use crate::thumbnail::generate_thumbnail;
 use crate::intelligent::stacking::stack_halves;
-use vclip_models::{ClipTask, EncodingConfig};
+use vclip_models::{ClipTask, DetectionTier, EncodingConfig};
 
 /// Layout mode for the output (kept for API compatibility).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -53,6 +57,18 @@ pub enum SplitLayout {
     /// Single full frame with face tracking (not used in current implementation)
     #[allow(dead_code)]
     FullFrame,
+}
+
+#[derive(Debug, Default)]
+struct SplitAnalysis {
+    distinct_tracks: usize,
+    multi_face_time: f64,
+    left_vertical_bias: f64,
+    right_vertical_bias: f64,
+    /// Average horizontal center of left face as fraction of left half width (0.0-1.0)
+    left_horizontal_center: f64,
+    /// Average horizontal center of right face as fraction of right half width (0.0-1.0)
+    right_horizontal_center: f64,
 }
 
 /// Intelligent Split processor.
@@ -104,15 +120,30 @@ impl IntelligentSplitProcessor {
             width, height, fps, duration
         );
 
-        // IntelligentSplit ALWAYS splits into left/right halves and applies
-        // intelligent crop to each half. This matches the Python implementation
-        // which works well for podcast-style videos with two people.
-        //
-        // The layout analysis was removed because:
-        // 1. Face detection on full frame often classifies both people as "center"
-        // 2. The Python version always splits and it works correctly
-        // 3. Users expect split view when they select "Intelligent Split"
-        
+        // Analyze faces to decide between full-frame (single face) and split (2+ faces)
+        let detector = FaceDetector::new(self.config.clone());
+        let detections = detector
+            .detect_in_video(segment, 0.0, duration, width, height, fps)
+            .await?;
+        let analysis = self.analyze_detections(&detections, width, height);
+        let should_split =
+            analysis.distinct_tracks >= 2 && analysis.multi_face_time >= self.multi_face_threshold();
+
+        if !should_split {
+            info!(
+                "Single-face detected (tracks: {}, multi-face time: {:.2}s) → using full-frame intelligent crop",
+                analysis.distinct_tracks, analysis.multi_face_time
+            );
+            let cropper = TierAwareIntelligentCropper::new(
+                self.config.clone(),
+                DetectionTier::Basic,
+            );
+            cropper.process(segment, output).await?;
+            self.generate_thumbnail(output).await;
+            info!("Intelligent split (single-face fallback) complete: {:?}", output);
+            return Ok(SplitLayout::FullFrame);
+        }
+
         info!("Step 1/4: Splitting video into left/right halves...");
         info!("Step 2/4: Applying face-centered crop to each panel...");
         info!("Step 3/4: Stacking panels...");
@@ -123,18 +154,13 @@ impl IntelligentSplitProcessor {
             output,
             width,
             height,
-            fps,
-            duration,
+            &analysis,
             encoding,
         )
         .await?;
 
         // 3. Generate thumbnail
-        info!("Step 3/3: Generating thumbnail...");
-        let thumb_path = output.with_extension("jpg");
-        if let Err(e) = generate_thumbnail(output, &thumb_path).await {
-            warn!("Failed to generate thumbnail: {}", e);
-        }
+        self.generate_thumbnail(output).await;
 
         info!("Intelligent split complete: {:?}", output);
         Ok(SplitLayout::SplitTopBottom) // Always returns split layout now
@@ -147,64 +173,81 @@ impl IntelligentSplitProcessor {
     /// Process as split view with two panels (left half → top, right half → bottom).
     ///
     /// This function:
-    /// 1. Splits the video into left and right portions with slight overlap avoidance
-    /// 2. Applies face-centered crop to each portion, using a WIDER crop (9:8 aspect) 
-    ///    to preserve more context while keeping faces centered
+    /// 1. Computes crop regions dynamically centered on detected face positions
+    /// 2. Applies face-centered crop to each portion with 9:16 portrait aspect
     /// 3. Stacks the cropped portions vertically (left=top, right=bottom)
     /// 4. Scales to final 1080x1920 output
     ///
-    /// The key improvement: Instead of a 50/50 split which includes overlap (other
-    /// person's arm/body visible), we crop ~45% from each side to cleanly isolate
-    /// each person.
+    /// The key improvement: Crops are centered on actual detected face positions,
+    /// not just a fixed percentage from each edge.
     async fn process_split_view(
         &self,
         segment: &Path,
         output: &Path,
         width: u32,
         height: u32,
-        _fps: f64,
-        _duration: f64,
+        analysis: &SplitAnalysis,
         encoding: &EncodingConfig,
     ) -> MediaResult<()> {
         // Create temp directory for intermediate files
         let temp_dir = tempfile::tempdir()?;
         
-        // Improved split algorithm:
-        // Instead of taking exactly 50% of each side (which includes overlap where
-        // the other person's arm appears), we take ~45% from each side, cropped
-        // toward that person's position.
-        //
-        // For a 1920x1080 source:
-        //   - Left person crop: 0 to 45% width = 0 to 864px
-        //   - Right person crop: 55% to 100% width = 1056 to 1920px (864px wide)
-        //
-        // Each crop is then made into a 9:8 tile by trimming vertically.
+        let half_width = width as f64 / 2.0;
         
-        let crop_fraction = 0.45; // Take 45% from each side
-        let crop_width = (width as f64 * crop_fraction).round() as u32;
-        let right_start_x = width - crop_width; // Start from right edge minus crop width
+        // Target crop width: we want each panel to be 9:8 aspect ratio (for stacking to 9:16)
+        // The crop width should be tall enough to capture faces well
+        // Target: capture ~50-55% of the frame width for each person, centered on their face
+        let target_crop_fraction = 0.50; // Capture 50% width per person
+        let crop_width_f = (width as f64 * target_crop_fraction).min(half_width * 1.1);
+        let crop_width = crop_width_f.round() as u32;
         
         // Calculate 9:8 tile dimensions
-        // Tile height = crop_width * 8 / 9
         let tile_height = ((crop_width as f64 * 8.0 / 9.0).round() as u32).min(height);
         let vertical_margin = height.saturating_sub(tile_height);
 
-        // Both panels: bias upward to show more face/upper body
-        // This ensures heads are not cut off at the top of the frame
-        let top_crop_y = 0u32;
-        // Right person (bottom panel): also bias upward to show full face
-        // Use a small offset from top to ensure head is fully visible
-        let bottom_crop_y = (vertical_margin as f64 * 0.15).round() as u32;
+        // === LEFT HALF CROP ===
+        // Center the crop on the detected face position
+        // left_horizontal_center is 0.0-1.0 within the left half
+        let left_face_x = half_width * analysis.left_horizontal_center;
+        
+        // Compute crop start X: center the crop on the face, but clamp to not go outside left half
+        let left_crop_x = (left_face_x - crop_width_f / 2.0)
+            .max(0.0)
+            .min(half_width - crop_width_f.min(half_width))
+            .round() as u32;
+        
+        // Vertical bias
+        let top_crop_y = (vertical_margin as f64 * analysis.left_vertical_bias).round() as u32;
 
-        // Step 1: Extract left and right portions with proper isolation
+        // === RIGHT HALF CROP ===
+        // Center the crop on the detected face position
+        // right_horizontal_center is 0.0-1.0 within the right half
+        let right_face_x = half_width + half_width * analysis.right_horizontal_center;
+        
+        // Compute crop start X: center the crop on the face, but clamp to stay within right half
+        let right_crop_x = (right_face_x - crop_width_f / 2.0)
+            .max(half_width)
+            .min(width as f64 - crop_width_f)
+            .round() as u32;
+        
+        // Vertical bias
+        let bottom_crop_y = (vertical_margin as f64 * analysis.right_vertical_bias).round() as u32;
+
+        // Step 1: Extract left and right portions with face-centered crops
         let left_half = temp_dir.path().join("left.mp4");
         let right_half = temp_dir.path().join("right.mp4");
 
-        info!("  Extracting left person (0 to {}px width)...", crop_width);
-        // Left person: start from x=0, take crop_width pixels, then crop to 9:8 and scale
+        info!(
+            "  Extracting left person (x={} to {}, face at {:.0}%)",
+            left_crop_x,
+            left_crop_x + crop_width,
+            analysis.left_horizontal_center * 100.0
+        );
+        
+        // Left person: crop centered on face, then scale to 9:8
         let left_filter = format!(
-            "crop={}:{}:0:0,crop={}:{}:0:{},scale=1080:960:flags=lanczos",
-            crop_width, height,           // First: extract left portion
+            "crop={}:{}:{}:0,crop={}:{}:0:{},scale=1080:960:flags=lanczos",
+            crop_width, height, left_crop_x,  // First: extract left portion centered on face
             crop_width, tile_height, top_crop_y  // Then: crop to 9:8 vertically
         );
         
@@ -218,11 +261,17 @@ impl IntelligentSplitProcessor {
 
         FfmpegRunner::new().run(&cmd_left).await?;
 
-        info!("  Extracting right person ({}px to {}px width)...", right_start_x, width);
-        // Right person: start from right_start_x, take crop_width pixels, then crop to 9:8
+        info!(
+            "  Extracting right person (x={} to {}, face at {:.0}%)",
+            right_crop_x,
+            right_crop_x + crop_width,
+            analysis.right_horizontal_center * 100.0
+        );
+        
+        // Right person: crop centered on face, then scale to 9:8
         let right_filter = format!(
             "crop={}:{}:{}:0,crop={}:{}:0:{},scale=1080:960:flags=lanczos",
-            crop_width, height, right_start_x,  // First: extract right portion
+            crop_width, height, right_crop_x,  // First: extract right portion centered on face
             crop_width, tile_height, bottom_crop_y  // Then: crop to 9:8 vertically
         );
 
@@ -240,6 +289,110 @@ impl IntelligentSplitProcessor {
         // Both are now 1080x960 (9:8), stacking gives final 1080x1920
         info!("  Stacking panels...");
         stack_halves(&left_half, &right_half, output, encoding).await
+    }
+
+    /// Analyze detections to understand face presence and positioning.
+    fn analyze_detections(
+        &self,
+        detections: &[Vec<Detection>],
+        width: u32,
+        height: u32,
+    ) -> SplitAnalysis {
+        if detections.is_empty() {
+            return SplitAnalysis::default();
+        }
+
+        let sample_interval = if self.config.fps_sample > 0.0 {
+            1.0 / self.config.fps_sample
+        } else {
+            0.125
+        };
+
+        let center_x = width as f64 / 2.0;
+        let half_width = center_x;
+        let mut track_presence: HashMap<u32, f64> = HashMap::new();
+        let mut multi_face_time = 0.0;
+        let mut left_faces: Vec<BoundingBox> = Vec::new();
+        let mut right_faces: Vec<BoundingBox> = Vec::new();
+
+        for frame_dets in detections {
+            if frame_dets.len() >= 2 {
+                multi_face_time += sample_interval;
+            }
+            for det in frame_dets {
+                *track_presence.entry(det.track_id).or_insert(0.0) += sample_interval;
+                if det.bbox.cx() < center_x {
+                    left_faces.push(det.bbox);
+                } else {
+                    right_faces.push(det.bbox);
+                }
+            }
+        }
+
+        let (left_vertical_bias, right_vertical_bias) =
+            self.compute_vertical_biases(&left_faces, &right_faces, height);
+
+        // Compute horizontal centers relative to each half
+        let left_horizontal_center = if left_faces.is_empty() {
+            0.5 // Default to center of left half
+        } else {
+            let avg_cx: f64 = left_faces.iter().map(|f| f.cx()).sum::<f64>() / left_faces.len() as f64;
+            // Normalize to 0.0-1.0 within the left half
+            (avg_cx / half_width).max(0.1).min(0.9)
+        };
+
+        let right_horizontal_center = if right_faces.is_empty() {
+            0.5 // Default to center of right half
+        } else {
+            let avg_cx: f64 = right_faces.iter().map(|f| f.cx()).sum::<f64>() / right_faces.len() as f64;
+            // Normalize to 0.0-1.0 within the right half (cx is from center_x to width)
+            ((avg_cx - center_x) / half_width).max(0.1).min(0.9)
+        };
+
+        SplitAnalysis {
+            distinct_tracks: track_presence.len(),
+            multi_face_time,
+            left_vertical_bias,
+            right_vertical_bias,
+            left_horizontal_center,
+            right_horizontal_center,
+        }
+    }
+
+    fn compute_vertical_biases(
+        &self,
+        left_faces: &[BoundingBox],
+        right_faces: &[BoundingBox],
+        height: u32,
+    ) -> (f64, f64) {
+        (
+            self.compute_vertical_bias(left_faces, height),
+            self.compute_vertical_bias(right_faces, height),
+        )
+    }
+
+    fn compute_vertical_bias(&self, faces: &[BoundingBox], height: u32) -> f64 {
+        if faces.is_empty() {
+            return 0.15;
+        }
+
+        let avg_cy: f64 = faces.iter().map(|f| f.cy()).sum::<f64>() / faces.len() as f64;
+        let normalized_y = avg_cy / height as f64;
+
+        (normalized_y - 0.3).max(0.0).min(0.4)
+    }
+
+    fn multi_face_threshold(&self) -> f64 {
+        // Require sustained presence to avoid toggling for brief motions
+        1.5
+    }
+
+    async fn generate_thumbnail(&self, output: &Path) {
+        info!("Step 3/3: Generating thumbnail...");
+        let thumb_path = output.with_extension("jpg");
+        if let Err(e) = generate_thumbnail(output, &thumb_path).await {
+            warn!("Failed to generate thumbnail: {}", e);
+        }
     }
 }
 
