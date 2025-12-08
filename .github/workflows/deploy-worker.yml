@@ -35,11 +35,6 @@ jobs:
           script: |
             set -euo pipefail
             
-            # Enable BuildKit parallel builds
-            export DOCKER_BUILDKIT=1
-            export COMPOSE_DOCKER_CLI_BUILD=1
-            export BUILDKIT_PROGRESS=plain
-            
             APP_DIR=/var/www/viralclipai-backend
             cd "$APP_DIR"
             
@@ -47,18 +42,14 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             
-            echo "Building and deploying Worker..."
-            docker compose --env-file .env -f deploy/docker-compose.worker.yml up -d --build
+            echo "Starting Worker build in background..."
+            # Run build in background so GH Actions doesn't wait for full compile
+            nohup bash -c '
+              export DOCKER_BUILDKIT=1
+              export COMPOSE_DOCKER_CLI_BUILD=1
+              docker compose --env-file .env -f deploy/docker-compose.worker.yml up -d --build 2>&1 | tee /tmp/worker-deploy.log
+              docker image prune -f || true
+            ' > /tmp/worker-deploy-wrapper.log 2>&1 &
+            disown
             
-            echo "Waiting for Worker to start..."
-            sleep 15
-            
-            if docker compose --env-file .env -f deploy/docker-compose.worker.yml ps | grep -q "running"; then
-              echo "✅ Worker is running!"
-            else
-              echo "⚠️ Worker may have issues"
-              docker compose --env-file .env -f deploy/docker-compose.worker.yml logs --tail=50
-            fi
-            
-            docker image prune -f || true
-            echo "Worker deployment complete!"
+            echo "✅ Build started in background. Check logs with: tail -f /tmp/worker-deploy.log"

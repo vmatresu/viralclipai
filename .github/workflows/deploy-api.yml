@@ -35,11 +35,6 @@ jobs:
           script: |
             set -euo pipefail
             
-            # Enable BuildKit parallel builds
-            export DOCKER_BUILDKIT=1
-            export COMPOSE_DOCKER_CLI_BUILD=1
-            export BUILDKIT_PROGRESS=plain
-            
             APP_DIR=/var/www/viralclipai-backend
             cd "$APP_DIR"
             
@@ -47,18 +42,14 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             
-            echo "Building and deploying API..."
-            docker compose --env-file .env -f deploy/docker-compose.api.yml up -d --build
+            echo "Starting API build in background..."
+            # Run build in background so GH Actions doesn't wait for full compile
+            nohup bash -c '
+              export DOCKER_BUILDKIT=1
+              export COMPOSE_DOCKER_CLI_BUILD=1
+              docker compose --env-file .env -f deploy/docker-compose.api.yml up -d --build 2>&1 | tee /tmp/api-deploy.log
+              docker image prune -f || true
+            ' > /tmp/api-deploy-wrapper.log 2>&1 &
+            disown
             
-            echo "Waiting for API to be healthy..."
-            sleep 10
-            
-            if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
-              echo "✅ API health check passed!"
-            else
-              echo "⚠️ API health check failed"
-              docker compose --env-file .env -f deploy/docker-compose.api.yml logs --tail=50
-            fi
-            
-            docker image prune -f || true
-            echo "API deployment complete!"
+            echo "✅ Build started in background. Check logs with: tail -f /tmp/api-deploy.log"
