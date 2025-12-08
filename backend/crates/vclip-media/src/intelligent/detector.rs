@@ -230,14 +230,43 @@ impl FaceDetector {
             .analyze_with_ffmpeg(video_path, start_time, duration, width, height, fps)
             .await?;
 
-        if !detections.is_empty() && detections.iter().any(|d| !d.is_empty()) {
+        let has_faces = detections.iter().any(|d| !d.is_empty());
+        let has_multi_face_spread = Self::has_multi_face_spread(&detections, width);
+
+        if has_faces && has_multi_face_spread {
             return Ok(detections);
         }
 
-        // Fallback: Use intelligent heuristic based on video layout analysis
-        info!("Using intelligent heuristic face detection");
-        self.smart_heuristic_detection(video_path, width, height, num_samples)
-            .await
+        // If FFmpeg analysis only produced single-track/centered detections,
+        // fall back to layout-aware heuristics so two-person podcasts still
+        // leverage speaker detection to move the camera.
+        info!(
+            "FFmpeg analysis produced low-information detections (faces: {}, spread: {}); using layout-aware heuristics",
+            has_faces,
+            has_multi_face_spread
+        );
+
+        let layout_detector = LayoutDetector::new();
+        let layout = layout_detector.detect_layout(video_path, width, height).await?;
+
+        match layout {
+            VideoLayout::SinglePerson => {
+                if has_faces {
+                    Ok(detections)
+                } else {
+                    info!("Using single-person heuristic detections");
+                    Ok(self
+                        .heuristic_generator
+                        .single_person_heuristic(width, height, num_samples))
+                }
+            }
+            VideoLayout::TwoPeopleSideBySide => {
+                info!("Using speaker-aware heuristic detections for podcast layout");
+                self.heuristic_generator
+                    .speaker_aware_heuristic(video_path, width, height, num_samples)
+                    .await
+            }
+        }
     }
 
     /// Analyze video using FFmpeg's filters for face detection.
@@ -452,6 +481,38 @@ impl FaceDetector {
                     .await
             }
         }
+    }
+}
+
+impl FaceDetector {
+    /// Determine if detections show multiple faces on distinct sides of the frame.
+    fn has_multi_face_spread(detections: &[Vec<(BoundingBox, f64)>], width: u32) -> bool {
+        if width == 0 {
+            return false;
+        }
+
+        let spread_threshold = (width as f64 * 0.15).max(1.0);
+
+        detections.iter().any(|frame| {
+            if frame.len() < 2 {
+                return false;
+            }
+
+            let mut min_cx = f64::INFINITY;
+            let mut max_cx = f64::NEG_INFINITY;
+
+            for (bbox, _) in frame {
+                let cx = bbox.cx();
+                if cx < min_cx {
+                    min_cx = cx;
+                }
+                if cx > max_cx {
+                    max_cx = cx;
+                }
+            }
+
+            (max_cx - min_cx) > spread_threshold
+        })
     }
 }
 

@@ -5,7 +5,6 @@ use vclip_models::ClipTask;
 use vclip_queue::ProcessVideoJob;
 
 use crate::clip_pipeline::clip::{compute_padded_timing, process_single_clip};
-use crate::clip_pipeline::SceneProcessingResults;
 use crate::error::WorkerResult;
 use crate::processor::EnhancedProcessingContext;
 
@@ -27,7 +26,7 @@ pub async fn process_scene(
     let scene_id = first_task.scene_id;
 
     // Parse timing for scene started event (defensive: default to safe values)
-    let (start_sec, end_sec, duration_sec) = compute_padded_timing(first_task);
+    let (start_sec, _end_sec, duration_sec) = compute_padded_timing(first_task);
 
     // Emit scene started event with structured data
     if let Err(e) = ctx

@@ -2,12 +2,12 @@
 
 import {
   AlertCircle,
-  Calendar,
   Check,
   CheckSquare,
   Clock,
   Copy,
   Film,
+  MoreHorizontal,
   Square,
   Trash2,
   TrendingUp,
@@ -35,6 +35,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { VideoStatusBadge } from "@/components/VideoStatusBadge";
 import { useVideoPolling } from "@/hooks/useVideoPolling";
 import {
@@ -580,192 +594,181 @@ export default function HistoryList() {
         </Card>
       )}
 
-      {videos.length > 0 && (
-        <div className="flex items-center gap-2 pb-2 border-b">
-          <button
-            onClick={handleSelectAll}
-            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-            type="button"
-          >
-            {selectedVideos.size === videos.length ? (
-              <CheckSquare className="h-4 w-4" />
-            ) : (
-              <Square className="h-4 w-4" />
-            )}
-            <span>Select All</span>
-          </button>
-          {selectedVideos.size > 0 && (
-            <span className="text-sm text-muted-foreground">
-              {selectedVideos.size} selected
-            </span>
-          )}
-        </div>
-      )}
+      <div className="rounded-md border bg-background/50 backdrop-blur-sm">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[50px]">
+                <button
+                  onClick={handleSelectAll}
+                  className="flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+                  type="button"
+                  aria-label="Select all videos"
+                >
+                  {selectedVideos.size === videos.length && videos.length > 0 ? (
+                    <CheckSquare className="h-4 w-4 text-primary" />
+                  ) : (
+                    <Square className="h-4 w-4" />
+                  )}
+                </button>
+              </TableHead>
+              <TableHead className="w-[400px]">Video Details</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Date</TableHead>
+              <TableHead className="w-[100px] text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {videos.map((v) => {
+              const id = v.video_id ?? v.id ?? "";
+              const isSelected = selectedVideos.has(id);
+              let dateStr = v.created_at ?? "";
+              try {
+                if (dateStr) {
+                  const dateObj = new Date(dateStr);
+                  dateStr = dateObj.toLocaleDateString(undefined, {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                  });
+                }
+              } catch (_e) {
+                // keep original string if parse fails
+              }
 
-      <div className="grid gap-4 max-w-4xl">
-        {videos.map((v) => {
-          const id = v.video_id ?? v.id ?? "";
-          const isSelected = selectedVideos.has(id);
-          // Format date if possible
-          let dateStr = v.created_at ?? "";
-          let fullDateStr = v.created_at ?? "";
-          try {
-            if (dateStr) {
-              const dateObj = new Date(dateStr);
-              dateStr = dateObj.toLocaleDateString(undefined, {
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              });
-              fullDateStr = dateObj.toLocaleDateString(undefined, {
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-                timeZoneName: "short",
-              });
-            }
-          } catch (_e) {
-            // keep original string if parse fails
-          }
-
-          return (
-            <Link
-              key={id}
-              href={`/history/${encodeURIComponent(id)}`}
-              className={`block glass p-6 rounded-xl hover:shadow-md transition-all border ${
-                isSelected ? "border-primary/50 bg-primary/5" : "border-border/50"
-              } hover:bg-muted/30`}
-            >
-              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                <div className="flex items-start gap-3 flex-1 min-w-0">
-                  <button
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      handleSelectVideo(id);
-                    }}
-                    className="mt-1 flex-shrink-0"
-                    type="button"
-                    aria-label={isSelected ? "Deselect video" : "Select video"}
-                  >
-                    {isSelected ? (
-                      <CheckSquare className="h-5 w-5 text-primary" />
-                    ) : (
-                      <Square className="h-5 w-5 text-muted-foreground" />
-                    )}
-                  </button>
-                  <div className="flex-1 min-w-0 space-y-2 group">
-                    <div className="flex items-center gap-2 flex-wrap">
+              return (
+                <TableRow
+                  key={id}
+                  className={`group ${isSelected ? "bg-muted/50" : ""}`}
+                >
+                  <TableCell>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSelectVideo(id);
+                      }}
+                      className="flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+                      type="button"
+                      aria-label={isSelected ? "Deselect video" : "Select video"}
+                    >
+                      {isSelected ? (
+                        <CheckSquare className="h-4 w-4 text-primary" />
+                      ) : (
+                        <Square className="h-4 w-4" />
+                      )}
+                    </button>
+                  </TableCell>
+                  <TableCell>
+                    <div className="space-y-1.5">
                       <div
                         onClick={(e) => {
-                          // Prevent navigation when clicking on editable title
-                          e.preventDefault();
                           e.stopPropagation();
                         }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            e.stopPropagation();
-                          }
-                        }}
-                        className="flex-1 min-w-0"
-                        role="button"
-                        tabIndex={0}
                       >
                         <EditableTitle
                           title={v.video_title ?? "Untitled Video"}
                           onSave={(newTitle) => handleTitleUpdate(id, newTitle)}
-                          className="truncate"
+                          renderTitle={(title) => (
+                            <Link
+                              href={`/history/${encodeURIComponent(id)}`}
+                              className="font-medium hover:underline block max-w-[300px] truncate"
+                              title={title}
+                            >
+                              {title}
+                            </Link>
+                          )}
                         />
                       </div>
-                      <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold border-transparent bg-secondary text-secondary-foreground">
-                        ID: {id.substring(0, 8)}...
-                      </span>
-                      <VideoStatusBadge
-                        videoId={id}
-                        status={v.status}
-                        clipsCount={v.clips_count}
-                      />
+
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span className="font-mono bg-muted px-1.5 py-0.5 rounded">
+                          {id.substring(0, 8)}
+                        </span>
+                        {v.video_url && (
+                          <div className="flex items-center gap-1 group/url max-w-[200px]">
+                            <span className="truncate">{v.video_url}</span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-4 w-4 opacity-0 group-hover/url:opacity-100 transition-opacity"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (v.video_url) {
+                                  void handleCopyUrl(v.video_url, e);
+                                }
+                              }}
+                              aria-label="Copy URL"
+                            >
+                              {copiedUrl === v.video_url ? (
+                                <Check className="h-3 w-3 text-green-500" />
+                              ) : (
+                                <Copy className="h-3 w-3" />
+                              )}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+
+                      {v.custom_prompt && (
+                        <p
+                          className="text-xs text-muted-foreground italic truncate max-w-[350px]"
+                          title={v.custom_prompt}
+                        >
+                          Prompt: {v.custom_prompt}
+                        </p>
+                      )}
                     </div>
-
-                    {v.video_url && (
-                      <div className="flex items-center gap-2 group/url">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            window.open(v.video_url, "_blank", "noopener,noreferrer");
-                          }}
-                          className="text-sm text-muted-foreground truncate font-mono bg-muted/30 px-2 py-1 rounded hover:text-primary hover:bg-muted/50 transition-colors flex-1 min-w-0 text-left"
-                        >
-                          {v.video_url}
-                        </button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 flex-shrink-0"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            if (v.video_url) {
-                              void handleCopyUrl(v.video_url, e);
-                            }
-                          }}
-                          aria-label="Copy URL"
-                        >
-                          {copiedUrl === v.video_url ? (
-                            <Check className="h-4 w-4 text-green-500" />
-                          ) : (
-                            <Copy className="h-4 w-4" />
-                          )}
+                  </TableCell>
+                  <TableCell>
+                    <VideoStatusBadge
+                      videoId={id}
+                      status={v.status}
+                      clipsCount={v.clips_count}
+                    />
+                  </TableCell>
+                  <TableCell className="text-muted-foreground text-sm">
+                    {dateStr}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <MoreHorizontal className="h-4 w-4" />
+                          <span className="sr-only">Actions</span>
                         </Button>
-                      </div>
-                    )}
-
-                    {v.custom_prompt && (
-                      <div className="mt-2 text-xs text-muted-foreground bg-muted/20 p-2 rounded border border-border/30">
-                        <span className="font-semibold mr-1">Custom Prompt:</span>
-                        <span className="italic">{v.custom_prompt}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 sm:flex-row flex-row-reverse justify-end">
-                  <div
-                    className="text-xs text-muted-foreground whitespace-nowrap flex items-center gap-1.5 sm:text-right hover:text-foreground transition-colors cursor-help group/date"
-                    title={fullDateStr}
-                  >
-                    <Calendar className="h-3.5 w-3.5 group-hover/date:text-primary transition-colors" />
-                    <span className="group-hover/date:text-foreground transition-colors">
-                      {dateStr}
-                    </span>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      handleDeleteClick("single", id);
-                    }}
-                    disabled={deleting}
-                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                    aria-label="Delete video"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </Link>
-          );
-        })}
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem asChild>
+                          <Link href={`/history/${encodeURIComponent(id)}`}>
+                            View Details
+                          </Link>
+                        </DropdownMenuItem>
+                        {v.video_url && (
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              window.open(v.video_url, "_blank", "noopener,noreferrer");
+                            }}
+                          >
+                            Open Original Video
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onClick={() => handleDeleteClick("single", id)}
+                        >
+                          Delete Video
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
       </div>
 
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

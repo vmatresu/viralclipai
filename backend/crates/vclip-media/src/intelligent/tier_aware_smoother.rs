@@ -140,6 +140,17 @@ impl TierAwareCameraSmoother {
         }
     }
 
+    /// Update track side assignments for tracks that appear later in the clip.
+    fn update_track_sides_from_frame(&mut self, detections: &[Detection], width: u32) {
+        let center_x = width as f64 / 2.0;
+
+        for det in detections {
+            self.track_sides
+                .entry(det.track_id)
+                .or_insert_with(|| det.bbox.cx() < center_x);
+        }
+    }
+
     /// Compute raw focus points using tier-specific selection.
     fn compute_raw_focus(
         &mut self,
@@ -157,6 +168,10 @@ impl TierAwareCameraSmoother {
 
         while current_time < end_time && frame_idx < detections.len() {
             let frame_dets = &detections[frame_idx];
+
+            if !frame_dets.is_empty() {
+                self.update_track_sides_from_frame(frame_dets, width);
+            }
 
             let keyframe = if frame_dets.is_empty() {
                 self.create_fallback_keyframe(current_time, width, height)

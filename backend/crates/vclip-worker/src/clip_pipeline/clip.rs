@@ -3,7 +3,7 @@ use std::path::Path;
 use tracing::info;
 use vclip_firestore::ClipRepository;
 use vclip_media::core::{
-    ProcessingContext as MediaProcessingContext, ProcessingRequest, ProcessingResult,
+    ProcessingContext as MediaProcessingContext, ProcessingRequest,
 };
 use vclip_media::intelligent::parse_timestamp;
 use vclip_models::{
@@ -38,7 +38,7 @@ pub(super) fn compute_padded_timing(task: &ClipTask) -> (f64, f64, f64) {
 }
 
 /// Process a single clip task with full error handling and progress reporting.
-pub(super) async fn process_single_clip(
+pub async fn process_single_clip(
     ctx: &EnhancedProcessingContext,
     job_id: &JobId,
     video_id: &VideoId,
@@ -222,7 +222,7 @@ pub(super) async fn process_single_clip(
     };
 
     // Stage 5: Uploaded
-    emit_progress!(ClipProcessingStep::Uploaded, Some(filename.clone()));
+    emit_progress!(ClipProcessingStep::UploadComplete, Some(filename.clone()));
 
     // Emit legacy clip_uploaded message for backward compatibility
     if let Err(e) = ctx
@@ -288,7 +288,7 @@ pub(super) async fn process_single_clip(
         style = %style_name,
         filename = %filename,
         duration_sec = result.duration_seconds,
-        file_size_mb = result.file_size_mb,
+        file_size_mb = result.file_size_bytes as f64 / (1024.0 * 1024.0),
         "Clip processing completed successfully"
     );
 

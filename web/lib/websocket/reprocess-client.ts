@@ -4,6 +4,7 @@
  * Provides a clean, type-safe interface for reprocessing scenes via WebSocket.
  */
 
+import { invalidateClipsCache } from "@/lib/cache";
 import { frontendLogger } from "@/lib/logger";
 
 export interface ReprocessProgressMessage {
@@ -191,6 +192,8 @@ export function reprocessScenesWebSocket(
 
       case "done":
         clearTimeout(timeoutId);
+        // Invalidate cache so the new clips are fetched fresh
+        void invalidateClipsCache(data.videoId);
         callbacks.onDone?.(data.videoId);
         ws.close();
         break;

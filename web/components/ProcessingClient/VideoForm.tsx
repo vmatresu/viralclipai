@@ -8,11 +8,11 @@ import { type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,20 +22,65 @@ import { cn } from "@/lib/utils";
 const STYLES = [
   // Fast/static styles
   { value: "split", label: "Split View", subtitle: "Top/Bottom", speed: "⚡ Fast" },
-  { value: "split_fast", label: "Split View (Fast)", subtitle: "No Face Detection", speed: "⚡ Fastest" },
-  { value: "left_focus", label: "Left Focus", subtitle: "Full Height", speed: "⚡ Fast" },
-  { value: "right_focus", label: "Right Focus", subtitle: "Full Height", speed: "⚡ Fast" },
-  
+  {
+    value: "split_fast",
+    label: "Split View (Fast)",
+    subtitle: "No Face Detection",
+    speed: "⚡ Fastest",
+  },
+  {
+    value: "left_focus",
+    label: "Left Focus",
+    subtitle: "Full Height",
+    speed: "⚡ Fast",
+  },
+  {
+    value: "right_focus",
+    label: "Right Focus",
+    subtitle: "Full Height",
+    speed: "⚡ Fast",
+  },
+
   // Intelligent single-view styles (progressive tiers)
-  { value: "intelligent", label: "Intelligent Crop", subtitle: "Face Tracking", speed: "🧠 Standard" },
-  { value: "intelligent_audio", label: "Intelligent (Audio)", subtitle: "Face + Audio Activity", speed: "🎧 Enhanced" },
-  { value: "intelligent_speaker", label: "Intelligent (Speaker)", subtitle: "Full Speaker Detection", speed: "🎯 Premium" },
-  
+  {
+    value: "intelligent",
+    label: "Intelligent Crop",
+    subtitle: "Face Tracking",
+    speed: "🧠 Standard",
+  },
+  {
+    value: "intelligent_audio",
+    label: "Intelligent (Audio)",
+    subtitle: "Face + Audio Activity",
+    speed: "🎧 Enhanced",
+  },
+  {
+    value: "intelligent_speaker",
+    label: "Intelligent (Speaker)",
+    subtitle: "Full Speaker Detection",
+    speed: "🎯 Premium",
+  },
+
   // Intelligent split-view styles (progressive tiers)
-  { value: "intelligent_split", label: "Smart Split", subtitle: "Split + Face Tracking", speed: "🧠 Standard" },
-  { value: "intelligent_split_audio", label: "Smart Split (Audio)", subtitle: "Split + Audio Activity", speed: "🎧 Enhanced" },
-  { value: "intelligent_split_speaker", label: "Smart Split (Speaker)", subtitle: "Full Speaker Detection", speed: "🎯 Premium" },
-  
+  {
+    value: "intelligent_split",
+    label: "Smart Split",
+    subtitle: "Split + Face Tracking",
+    speed: "🧠 Standard",
+  },
+  {
+    value: "intelligent_split_audio",
+    label: "Smart Split (Audio)",
+    subtitle: "Split + Audio Activity",
+    speed: "🎧 Enhanced",
+  },
+  {
+    value: "intelligent_split_speaker",
+    label: "Smart Split (Speaker)",
+    subtitle: "Full Speaker Detection",
+    speed: "🎯 Premium",
+  },
+
   // Special options
   { value: "original", label: "Original", subtitle: "No Cropping", speed: "⚡ Fast" },
   { value: "all", label: "All Styles", subtitle: "Generate All", speed: "⏱️ Varies" },

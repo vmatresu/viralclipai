@@ -11,7 +11,9 @@ pub mod config;
 pub mod error;
 pub mod executor;
 pub mod gemini;
+pub mod clip_pipeline;
 pub mod processor;
+pub mod reprocessing;
 
 pub use config::WorkerConfig;
 pub use error::{WorkerError, WorkerResult};

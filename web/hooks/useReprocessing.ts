@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { useAuth } from "@/lib/auth";
+import { invalidateClipsCache } from "@/lib/cache";
 import { useProcessing } from "@/lib/processing-context";
 import {
   reprocessScenesWebSocket,
@@ -114,6 +115,8 @@ export function useReprocessing({
             }));
             addLog("Reprocessing complete!");
             toast.success("Reprocessing complete!");
+            // Invalidate cache to ensure fresh data is loaded (defense in depth)
+            void invalidateClipsCache(videoId);
             // Complete job in global context
             completeJob(videoId);
             cleanup();

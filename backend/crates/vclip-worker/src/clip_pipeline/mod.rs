@@ -12,6 +12,7 @@ pub mod scene;
 pub mod clip;
 
 pub use scene::SceneProcessingResults;
+pub use scene::process_scene;
 pub use clip::process_single_clip;
 
 pub struct ClipProcessingResults {

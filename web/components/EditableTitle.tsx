@@ -10,6 +10,7 @@ interface EditableTitleProps {
   onSave: (newTitle: string) => Promise<void>;
   className?: string;
   maxLength?: number;
+  renderTitle?: (title: string) => React.ReactNode;
 }
 
 export function EditableTitle({
@@ -17,6 +18,7 @@ export function EditableTitle({
   onSave,
   className = "",
   maxLength = 500,
+  renderTitle,
 }: EditableTitleProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editedTitle, setEditedTitle] = useState(title);
@@ -85,7 +87,7 @@ export function EditableTitle({
           value={editedTitle}
           onChange={(e) => setEditedTitle(e.target.value.slice(0, maxLength))}
           onKeyDown={handleKeyDown}
-          className="flex-1 px-2 py-1 text-lg font-semibold bg-background border border-primary rounded focus:outline-none focus:ring-2 focus:ring-primary"
+          className="flex-1 px-2 py-1 text-sm font-semibold bg-background border border-primary rounded focus:outline-none focus:ring-2 focus:ring-primary min-w-[200px]"
           disabled={isSaving}
           maxLength={maxLength}
         />
@@ -113,7 +115,11 @@ export function EditableTitle({
 
   return (
     <div className={`flex items-center gap-2 group ${className}`}>
-      <span className="text-lg font-semibold">{title}</span>
+      {renderTitle ? (
+        renderTitle(title)
+      ) : (
+        <span className="text-lg font-semibold">{title}</span>
+      )}
       <Button
         variant="ghost"
         size="icon"

@@ -3,8 +3,6 @@
 //! Modular, testable coordinator that handles transcript fetch, analysis,
 //! clip task generation, and style routing using the new processor framework.
 
-mod clip_pipeline;
-
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
@@ -14,18 +12,18 @@ use tracing::info;
 
 use vclip_firestore::{types::ToFirestoreValue, FirestoreClient};
 use vclip_media::{
+    core::{MetricsCollector, SecurityContext, StyleProcessorRegistry},
     download_video,
-    core::{StyleProcessorRegistry, MetricsCollector, SecurityContext},
     styles::StyleProcessorFactory as MediaStyleProcessorFactory,
 };
 use vclip_models::{ClipTask, JobId, VideoId, VideoMetadata};
-use vclip_queue::{ProcessVideoJob, ProgressChannel};
+use vclip_queue::{ProcessVideoJob, ProgressChannel, ReprocessScenesJob};
 use vclip_storage::R2Client;
 
+use crate::clip_pipeline::{self, process_scene, process_single_clip, ClipProcessingResults};
 use crate::config::WorkerConfig;
 use crate::error::{WorkerError, WorkerResult};
 use crate::gemini::GeminiClient;
-use crate::clip_pipeline::ClipProcessingResults;
 
 /// Default prompt for AI analysis when no custom prompt is provided.
 const DEFAULT_PROMPT: &str = r#"You are a viral content expert. Analyze this video transcript and identify the most engaging, viral-worthy moments that would work well as short-form clips for TikTok, YouTube Shorts, or Instagram Reels.
@@ -74,10 +72,9 @@ impl EnhancedProcessingContext {
             .await
             .map_err(|e| WorkerError::Firestore(e))?;
 
-        let redis_url = std::env::var("REDIS_URL")
-            .unwrap_or_else(|_| "redis://localhost:6379".to_string());
-        let progress =
-            ProgressChannel::new(&redis_url).map_err(|e| WorkerError::Queue(e))?;
+        let redis_url =
+            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
+        let progress = ProgressChannel::new(&redis_url).map_err(|e| WorkerError::Queue(e))?;
 
         let ffmpeg_semaphore = Arc::new(Semaphore::new(config.max_ffmpeg_processes));
 
@@ -99,7 +96,6 @@ impl EnhancedProcessingContext {
             security,
         })
     }
-
 }
 
 /// Video processing coordinator using the new architecture.
@@ -141,19 +137,28 @@ impl VideoProcessor {
         ctx.progress.progress(&job.job_id, 10).await.ok();
 
         // Download video and analyze in parallel
-        let analysis_data = self.download_and_analyze(ctx, job, &work_dir, &transcript_data).await?;
+        let analysis_data = self
+            .download_and_analyze(ctx, job, &work_dir, &transcript_data)
+            .await?;
         ctx.progress.progress(&job.job_id, 35).await.ok();
 
         // Store video metadata
-        self.store_video_metadata(ctx, job, &transcript_data, &analysis_data).await?;
+        self.store_video_metadata(ctx, job, &transcript_data, &analysis_data)
+            .await?;
 
         // Generate and process clips
-        let clip_results = self.process_clips(ctx, job, &work_dir, &analysis_data).await?;
+        let clip_results = self
+            .process_clips(ctx, job, &work_dir, &analysis_data)
+            .await?;
 
         // Finalize video
-        self.finalize_video(ctx, job, clip_results.total_processed as u32).await?;
+        self.finalize_video(ctx, job, clip_results.total_processed as u32)
+            .await?;
 
-        job_logger.log_completion(&format!("Processed {} clips successfully", clip_results.completed_count));
+        job_logger.log_completion(&format!(
+            "Processed {} clips successfully",
+            clip_results.completed_count
+        ));
 
         Ok(())
     }
@@ -169,15 +174,26 @@ impl VideoProcessor {
             .await
             .ok();
 
-        let base_prompt = job.custom_prompt.as_deref()
+        let base_prompt = job
+            .custom_prompt
+            .as_deref()
             .map(|s| s.to_string())
             .or_else(|| load_prompt_from_file())
             .unwrap_or_else(|| DEFAULT_PROMPT.to_string());
 
-        let (real_video_title, canonical_video_url) = self.gemini_client.get_video_metadata(&job.video_url).await
+        let (real_video_title, canonical_video_url) = self
+            .gemini_client
+            .get_video_metadata(&job.video_url)
+            .await
             .map_err(|e| WorkerError::ai_failed(format!("Failed to get video metadata: {}", e)))?;
 
-        let transcript = self.gemini_client.get_transcript_only(&job.video_url, &PathBuf::from(&ctx.config.work_dir).join("temp")).await
+        let transcript = self
+            .gemini_client
+            .get_transcript_only(
+                &job.video_url,
+                &PathBuf::from(&ctx.config.work_dir).join("temp"),
+            )
+            .await
             .map_err(|e| WorkerError::ai_failed(format!("Failed to get transcript: {}", e)))?;
 
         Ok(TranscriptData {
@@ -205,7 +221,11 @@ impl VideoProcessor {
 
         let (download_result, analysis_result) = tokio::join!(
             download_video(&job.video_url, &video_file),
-            self.gemini_client.analyze_transcript(&transcript.prompt, &job.video_url, &transcript.content)
+            self.gemini_client.analyze_transcript(
+                &transcript.prompt,
+                &job.video_url,
+                &transcript.content
+            )
         );
 
         download_result?;
@@ -236,8 +256,11 @@ impl VideoProcessor {
 
         // Store highlights
         let highlights_data = vclip_storage::HighlightsData {
-            highlights: analysis.highlights.highlights.iter().map(|h| {
-                vclip_storage::operations::HighlightEntry {
+            highlights: analysis
+                .highlights
+                .highlights
+                .iter()
+                .map(|h| vclip_storage::operations::HighlightEntry {
                     id: h.id,
                     title: h.title.clone(),
                     description: h.description.clone(),
@@ -248,8 +271,8 @@ impl VideoProcessor {
                     pad_after_seconds: h.pad_after_seconds,
                     hook_category: h.hook_category.clone(),
                     reason: h.reason.clone(),
-                }
-            }).collect(),
+                })
+                .collect(),
             video_url: Some(transcript.url.clone()),
             video_title: Some(transcript.title.clone()),
             custom_prompt: job.custom_prompt.clone(),
@@ -267,16 +290,31 @@ impl VideoProcessor {
             existing_video.status = vclip_models::VideoStatus::Processing;
 
             let mut fields = HashMap::new();
-            fields.insert("video_title".to_string(), transcript.title.clone().to_firestore_value());
-            fields.insert("video_url".to_string(), transcript.url.clone().to_firestore_value());
-            fields.insert("status".to_string(), vclip_models::VideoStatus::Processing.as_str().to_firestore_value());
+            fields.insert(
+                "video_title".to_string(),
+                transcript.title.clone().to_firestore_value(),
+            );
+            fields.insert(
+                "video_url".to_string(),
+                transcript.url.clone().to_firestore_value(),
+            );
+            fields.insert(
+                "status".to_string(),
+                vclip_models::VideoStatus::Processing
+                    .as_str()
+                    .to_firestore_value(),
+            );
 
             ctx.firestore
                 .update_document(
                     &format!("users/{}/videos", job.user_id),
                     job.video_id.as_str(),
                     fields,
-                    Some(vec!["video_title".to_string(), "video_url".to_string(), "status".to_string()]),
+                    Some(vec![
+                        "video_title".to_string(),
+                        "video_url".to_string(),
+                        "status".to_string(),
+                    ]),
                 )
                 .await
                 .ok();
@@ -311,7 +349,7 @@ impl VideoProcessor {
         scene_tasks: &[&ClipTask],
         total_clips: usize,
     ) -> WorkerResult<clip_pipeline::SceneProcessingResults> {
-        clip_pipeline::process_scene(ctx, job, clips_dir, video_file, scene_tasks, total_clips).await
+        process_scene(ctx, job, clips_dir, video_file, scene_tasks, total_clips).await
     }
 
     /// Process a single clip task with full error handling and progress reporting.
@@ -327,7 +365,7 @@ impl VideoProcessor {
         clip_index: usize,
         total_clips: usize,
     ) -> WorkerResult<()> {
-        clip_pipeline::process_single_clip(
+        process_single_clip(
             ctx,
             job_id,
             video_id,
@@ -337,7 +375,8 @@ impl VideoProcessor {
             task,
             clip_index,
             total_clips,
-        ).await
+        )
+        .await
     }
 
     /// Finalize video processing.
@@ -351,7 +390,10 @@ impl VideoProcessor {
 
         match video_repo.complete(&job.video_id, completed_clips).await {
             Ok(_) => {
-                info!("Successfully marked video {} as completed with {} clips", job.video_id, completed_clips);
+                info!(
+                    "Successfully marked video {} as completed with {} clips",
+                    job.video_id, completed_clips
+                );
             }
             Err(e) => {
                 tracing::error!("Failed to mark video {} as completed: {}", job.video_id, e);
@@ -365,8 +407,21 @@ impl VideoProcessor {
             .await
             .ok();
 
-        info!("Completed video job: {} ({} clips)", job.job_id, completed_clips);
+        info!(
+            "Completed video job: {} ({} clips)",
+            job.job_id, completed_clips
+        );
         Ok(())
+    }
+
+    /// Process a reprocess scenes job.
+    /// Delegates to the reprocessing module for the full implementation.
+    pub async fn reprocess_scenes_job(
+        &self,
+        ctx: &EnhancedProcessingContext,
+        job: &ReprocessScenesJob,
+    ) -> WorkerResult<()> {
+        crate::reprocessing::reprocess_scenes(ctx, job).await
     }
 }
 
@@ -378,26 +433,26 @@ struct TranscriptData {
     prompt: String,
 }
 
-pub(crate) struct AnalysisData {
-    video_file: PathBuf,
-    highlights: crate::gemini::HighlightsResponse,
+pub struct AnalysisData {
+    pub video_file: PathBuf,
+    pub highlights: crate::gemini::HighlightsResponse,
 }
 
 /// Job logger for structured logging.
-struct JobLogger {
+pub struct JobLogger {
     job_id: String,
     operation: String,
 }
 
 impl JobLogger {
-    fn new(job_id: &JobId, operation: &str) -> Self {
+    pub fn new(job_id: &JobId, operation: &str) -> Self {
         Self {
             job_id: job_id.to_string(),
             operation: operation.to_string(),
         }
     }
 
-    fn log_start(&self, message: &str) {
+    pub fn log_start(&self, message: &str) {
         tracing::info!(
             job_id = %self.job_id,
             operation = %self.operation,
@@ -405,7 +460,7 @@ impl JobLogger {
         );
     }
 
-    fn log_completion(&self, message: &str) {
+    pub fn log_completion(&self, message: &str) {
         tracing::info!(
             job_id = %self.job_id,
             operation = %self.operation,
@@ -413,4 +468,3 @@ impl JobLogger {
         );
     }
 }
-

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::Semaphore;
-use tracing::{error, info, warn, debug};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use vclip_queue::{JobQueue, QueueJob};
@@ -133,10 +133,7 @@ impl JobExecutor {
 
         // Wait for in-flight jobs to complete
         info!("Waiting for in-flight jobs to complete...");
-        let _ = tokio::time::timeout(
-            Duration::from_secs(60),
-            self.wait_for_jobs(),
-        ).await;
+        let _ = tokio::time::timeout(Duration::from_secs(60), self.wait_for_jobs()).await;
 
         info!("Job executor stopped");
         Ok(())
@@ -153,11 +150,14 @@ impl JobExecutor {
         }
 
         // Consume up to available slots
-        let jobs = self.queue.consume(
-            &self.consumer_name,
-            1000, // Block for 1 second
-            available.min(5), // Max 5 jobs at a time
-        ).await?;
+        let jobs = self
+            .queue
+            .consume(
+                &self.consumer_name,
+                1000,             // Block for 1 second
+                available.min(5), // Max 5 jobs at a time
+            )
+            .await?;
 
         if jobs.is_empty() {
             return Ok(());
@@ -169,7 +169,11 @@ impl JobExecutor {
             let ctx = Arc::clone(ctx);
             let queue = Arc::clone(&self.queue);
             let video_processor = self.video_processor.clone();
-            let permit = self.job_semaphore.clone().acquire_owned().await
+            let permit = self
+                .job_semaphore
+                .clone()
+                .acquire_owned()
+                .await
                 .map_err(|_| WorkerError::job_failed("Semaphore closed"))?;
 
             tokio::spawn(async move {
@@ -213,7 +217,10 @@ impl JobExecutor {
                 let max_retries = queue.max_retries();
 
                 if retry_count >= max_retries {
-                    warn!("Job {} exceeded max retries ({}), moving to DLQ", job_id, max_retries);
+                    warn!(
+                        "Job {} exceeded max retries ({}), moving to DLQ",
+                        job_id, max_retries
+                    );
                     if let Err(dlq_err) = queue.dlq(&message_id, &job, &e.to_string()).await {
                         error!("Failed to move job {} to DLQ: {}", job_id, dlq_err);
                     }
@@ -223,9 +230,18 @@ impl JobExecutor {
                     }
 
                     // Emit error to progress channel
-                    ctx.progress.error(job.job_id(), format!("Job failed after {} retries: {}", max_retries, e)).await.ok();
+                    ctx.progress
+                        .error(
+                            job.job_id(),
+                            format!("Job failed after {} retries: {}", max_retries, e),
+                        )
+                        .await
+                        .ok();
                 } else {
-                    info!("Job {} will be retried (attempt {}/{})", job_id, retry_count, max_retries);
+                    info!(
+                        "Job {} will be retried (attempt {}/{})",
+                        job_id, retry_count, max_retries
+                    );
                     // Job will be redelivered after visibility timeout
                 }
             }
@@ -249,23 +265,29 @@ impl JobExecutor {
     }
 
     /// Process a single job using the new VideoProcessor.
-    async fn process_job(ctx: Arc<EnhancedProcessingContext>, job: QueueJob, video_processor: VideoProcessor) -> WorkerResult<()> {
+    async fn process_job(
+        ctx: Arc<EnhancedProcessingContext>,
+        job: QueueJob,
+        video_processor: VideoProcessor,
+    ) -> WorkerResult<()> {
         match job {
-            QueueJob::ProcessVideo(j) => video_processor.process_video_job(&ctx, &j).await,
+            QueueJob::ProcessVideo(j) => {
+                // Validate video URL is not empty
+                if j.video_url.trim().is_empty() {
+                    return Err(WorkerError::job_failed(format!(
+                        "ProcessVideoJob {} has an empty video URL",
+                        j.job_id
+                    )));
+                }
+                video_processor.process_video_job(&ctx, &j).await
+            }
             QueueJob::ReprocessScenes(j) => {
-                // For now, convert to ProcessVideo job format
-                // TODO: Implement proper reprocess logic in VideoProcessor
-                let process_job = vclip_queue::ProcessVideoJob {
-                    job_id: j.job_id,
-                    user_id: j.user_id,
-                    video_id: j.video_id,
-                    video_url: "".to_string(), // Will be fetched from storage
-                    styles: j.styles,
-                    crop_mode: j.crop_mode,
-                    target_aspect: j.target_aspect,
-                    custom_prompt: None,
-                };
-                video_processor.process_video_job(&ctx, &process_job).await
+                // Use the dedicated reprocess_scenes_job method which:
+                // 1. Loads existing highlights from storage (no re-analysis)
+                // 2. Filters to only requested scene IDs
+                // 3. Downloads video from R2 or original URL
+                // 4. Only processes the selected scenes
+                video_processor.reprocess_scenes_job(&ctx, &j).await
             }
         }
     }
