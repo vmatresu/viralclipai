@@ -1,3 +1,7 @@
+import type { ComponentType } from "react";
+
+import { Activity, Gauge, ScanFace, Sparkles, Target } from "lucide-react";
+
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
@@ -19,36 +23,42 @@ const steps: {
   label: string;
   shortLabel: string;
   description: string;
+  icon: ComponentType<{ className?: string }>;
 }[] = [
   {
     value: "fast",
     label: "Fast",
     shortLabel: "Fast",
     description: "Static center crop. Fastest processing, no AI analysis.",
+    icon: Gauge,
   },
   {
     value: "face_aware",
     label: "Face-aware",
     shortLabel: "Face-aware",
     description: "Heuristic based framing. Detects faces but doesn't track movement.",
+    icon: ScanFace,
   },
   {
     value: "face_tracking",
     label: "Tracking",
     shortLabel: "Tracking",
     description: "Keeps speaker in frame. Smoothly follows active speaker.",
+    icon: Target,
   },
   {
     value: "motion_aware",
     label: "Motion",
     shortLabel: "Motion",
     description: "Follows movement & gestures. Dynamic camera work.",
+    icon: Activity,
   },
   {
     value: "premium",
     label: "Premium AI Detection",
     shortLabel: "Premium",
     description: "Full scene understanding. Best framing, timing & direction.",
+    icon: Sparkles,
   },
 ];
 
@@ -105,6 +115,7 @@ export function AiAssistanceSlider({ value, onChange }: AiAssistanceSliderProps)
             step={1}
             onValueChange={handleSliderChange}
             className="cursor-pointer"
+            aria-label="AI intelligence level"
           />
           {/* Tick marks positioned at exact slider stop percentages */}
           {steps.map((step, idx) => {
@@ -127,7 +138,7 @@ export function AiAssistanceSlider({ value, onChange }: AiAssistanceSliderProps)
                 />
                 <span
                   className={cn(
-                    "text-[10px] uppercase font-bold tracking-wider transition-colors duration-300 whitespace-nowrap",
+                    "hidden sm:inline text-[10px] uppercase font-bold tracking-wider transition-colors duration-300 whitespace-nowrap",
                     idx === safeIndex
                       ? "text-primary"
                       : "text-muted-foreground/50 group-hover:text-muted-foreground"
@@ -135,6 +146,31 @@ export function AiAssistanceSlider({ value, onChange }: AiAssistanceSliderProps)
                 >
                   {step.shortLabel}
                 </span>
+                <span className="sr-only">{step.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Mobile legend with icons to keep options legible */}
+        <div className="mt-6 grid grid-cols-2 gap-3 sm:hidden" aria-hidden="true">
+          {steps.map((step, idx) => {
+            const Icon = step.icon;
+            const isActive = idx === safeIndex;
+            return (
+              <button
+                key={step.value}
+                type="button"
+                onClick={() => onChange(step.value)}
+                className={cn(
+                  "flex items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
+                  isActive
+                    ? "border-primary/60 bg-primary/10 text-white"
+                    : "border-white/5 bg-white/5 text-muted-foreground hover:border-white/20 hover:text-white"
+                )}
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                <span className="text-xs font-semibold leading-tight">{step.label}</span>
               </button>
             );
           })}
