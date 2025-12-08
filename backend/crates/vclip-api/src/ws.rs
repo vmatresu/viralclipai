@@ -188,7 +188,7 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
         .with_target_aspect(target_aspect)
         .with_custom_prompt(request.prompt.clone());
     let job_id = job.job_id.clone();
-    let _video_id = job.video_id.clone();
+    let video_id = job.video_id.clone();
 
     // Enqueue job
     match state.queue.enqueue_process(job).await {
@@ -207,6 +207,7 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
     }
 
     // Subscribe to progress events with heartbeat
+    let mut done_sent = false;
     match state.progress.subscribe(&job_id).await {
         Ok(mut stream) => {
             let mut heartbeat = interval(WS_HEARTBEAT_INTERVAL);
@@ -231,6 +232,7 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
                                     WsMessage::SceneStarted { .. } => "scene_started",
                                     WsMessage::SceneCompleted { .. } => "scene_completed",
                                     WsMessage::Done { .. } => {
+                                        done_sent = true;
                                         // Increment usage counter when job completes successfully
                                         if clips_uploaded > 0 {
                                             if let Err(e) = state.user_service.increment_usage(&uid, clips_uploaded).await {
@@ -288,6 +290,29 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
             let error = WsMessage::error(format!("Failed to subscribe to progress: {}", e));
             let _ = tx.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
         }
+    }
+
+    // If no done message was emitted (e.g., reconnect after completion), check video status and emit Done if completed.
+    if let Err(e) = async {
+        if !done_sent {
+            let video_repo = VideoRepository::new((*state.firestore).clone(), &uid);
+            match video_repo.get(&video_id).await {
+                Ok(Some(video)) if video.status == VideoStatus::Completed => {
+                    let done = WsMessage::done(video_id.as_str());
+                    let _ = tx.send(Message::Text(serde_json::to_string(&done).unwrap())).await;
+                }
+                Ok(Some(video)) if video.status == VideoStatus::Failed => {
+                    let err = WsMessage::error("Video processing failed");
+                    let _ = tx.send(Message::Text(serde_json::to_string(&err).unwrap())).await;
+                }
+                _ => {}
+            }
+        }
+        Ok::<(), ()>(())
+    }
+    .await
+    {
+        let _ = e;
     }
 
     // Clean up
