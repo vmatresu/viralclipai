@@ -2745,6 +2745,7 @@ dependencies = [
  "sha1_smol",
  "socket2 0.5.10",
  "tokio",
+ "tokio-rustls 0.26.4",
  "tokio-util",
  "url",
 ]
