@@ -67,15 +67,33 @@ if id "$DEPLOY_USER" &>/dev/null; then
 else
     log_info "Creating deploy user: $DEPLOY_USER"
     useradd -m -s /bin/bash -G sudo "$DEPLOY_USER"
-    
-    # Copy SSH keys from root to deploy user
-    mkdir -p /home/$DEPLOY_USER/.ssh
-    if [[ -f /root/.ssh/authorized_keys ]]; then
-        cp /root/.ssh/authorized_keys /home/$DEPLOY_USER/.ssh/
-    fi
-    chown -R $DEPLOY_USER:$DEPLOY_USER /home/$DEPLOY_USER/.ssh
-    chmod 700 /home/$DEPLOY_USER/.ssh
-    chmod 600 /home/$DEPLOY_USER/.ssh/authorized_keys 2>/dev/null || true
+fi
+
+# Always set up SSH keys for deploy user (handles both new and existing users)
+log_info "Setting up SSH keys for $DEPLOY_USER..."
+mkdir -p /home/$DEPLOY_USER/.ssh
+
+# Check if root has authorized_keys to copy
+if [[ -f /root/.ssh/authorized_keys ]] && [[ -s /root/.ssh/authorized_keys ]]; then
+    cp /root/.ssh/authorized_keys /home/$DEPLOY_USER/.ssh/authorized_keys
+    log_info "Copied SSH keys from root to $DEPLOY_USER"
+else
+    log_error "No SSH keys found in /root/.ssh/authorized_keys!"
+    log_error "You will need to manually add SSH keys for $DEPLOY_USER"
+    log_error "Add your public key to: /home/$DEPLOY_USER/.ssh/authorized_keys"
+fi
+
+# Set correct ownership and permissions
+chown -R $DEPLOY_USER:$DEPLOY_USER /home/$DEPLOY_USER/.ssh
+chmod 700 /home/$DEPLOY_USER/.ssh
+chmod 600 /home/$DEPLOY_USER/.ssh/authorized_keys 2>/dev/null || true
+
+# Verify SSH key setup
+if [[ -f /home/$DEPLOY_USER/.ssh/authorized_keys ]] && [[ -s /home/$DEPLOY_USER/.ssh/authorized_keys ]]; then
+    KEY_COUNT=$(wc -l < /home/$DEPLOY_USER/.ssh/authorized_keys)
+    log_info "SSH setup complete: $KEY_COUNT key(s) configured for $DEPLOY_USER"
+else
+    log_warn "No SSH keys configured for $DEPLOY_USER - SSH login may fail!"
 fi
 
 # Allow deploy user passwordless sudo for docker commands
@@ -405,7 +423,7 @@ log_info "1. Open a NEW terminal and test SSH as $DEPLOY_USER:"
 log_info "   ssh -p $SSH_PORT $DEPLOY_USER@<server-ip>"
 log_info ""
 log_info "2. Once confirmed working, restart SSH:"
-log_info "   sudo systemctl restart sshd"
+log_info "   sudo systemctl restart ssh"
 log_info ""
 log_info "3. Configure SSL with certbot (after setting up nginx):"
 log_info "   sudo certbot --nginx -d yourdomain.com"
