@@ -9,14 +9,15 @@ import {
   Play,
   Sparkles,
 } from "lucide-react";
-import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { type Clip } from "@/components/ClipGrid";
 import { ProcessingStatus } from "@/components/HistoryDetail/ProcessingStatus";
 import { SceneCard, type Highlight } from "@/components/HistoryDetail/SceneCard";
 import { StyleSelector } from "@/components/HistoryDetail/StyleSelector";
+import { Results } from "@/components/ProcessingClient/Results";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -26,7 +27,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useReprocessing } from "@/hooks/useReprocessing";
-import { apiFetch, getVideoHighlights } from "@/lib/apiClient";
+import { apiFetch, getVideoDetails, getVideoHighlights } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 
 interface UserSettings {
@@ -50,12 +51,14 @@ export default function HistoryDetailPage() {
   const videoId = params.id as string;
   const { getIdToken, user, loading: authLoading } = useAuth();
   const [highlightsData, setHighlightsData] = useState<HighlightsData | null>(null);
+  const [clips, setClips] = useState<Clip[]>([]);
+  const [customPrompt, setCustomPrompt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedScenes, setSelectedScenes] = useState<Set<number>>(new Set());
   const [selectedStyles, setSelectedStyles] = useState<Set<string>>(new Set());
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true);
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
 
   const {
@@ -67,15 +70,14 @@ export default function HistoryDetailPage() {
     videoTitle: highlightsData?.video_title,
     onComplete: () => {
       setIsProcessing(false);
-      void loadHighlights();
-      router.push(`/?id=${encodeURIComponent(videoId)}`);
+      void loadData();
     },
     onError: () => {
       setIsProcessing(false);
     },
   });
 
-  const loadHighlights = useCallback(async () => {
+  const loadData = useCallback(async () => {
     if (authLoading || !user) {
       setLoading(false);
       return;
@@ -86,12 +88,38 @@ export default function HistoryDetailPage() {
       if (!token) {
         throw new Error("Failed to get authentication token");
       }
-      const data = await getVideoHighlights(videoId, token);
-      setHighlightsData(data);
+
+      // Load highlights and video details (including clips) in parallel
+      const [highlights, details] = await Promise.all([
+        getVideoHighlights(videoId, token).catch(() => null),
+        getVideoDetails(videoId, token).catch(() => null),
+      ]);
+
+      if (!highlights) {
+        throw new Error("Failed to load highlights");
+      }
+
+      setHighlightsData(highlights);
+      setClips(details?.clips ?? []);
+      setCustomPrompt(details?.custom_prompt ?? null);
+
+      // If highlights doesn't have title/url but details does, use details
+      if ((!highlights.video_title || !highlights.video_url) && details) {
+        setHighlightsData((prev) =>
+          prev
+            ? {
+                ...prev,
+                video_title: prev.video_title || details.video_title,
+                video_url: prev.video_url || details.video_url,
+              }
+            : null
+        );
+      }
+
       setError(null);
     } catch (err: unknown) {
       const errorMessage =
-        err instanceof Error ? err.message : "Failed to load highlights";
+        err instanceof Error ? err.message : "Failed to load video data";
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -116,9 +144,9 @@ export default function HistoryDetailPage() {
   }, [getIdToken, user, authLoading]);
 
   useEffect(() => {
-    void loadHighlights();
+    void loadData();
     void loadUserSettings();
-  }, [loadHighlights, loadUserSettings]);
+  }, [loadData, loadUserSettings]);
 
   // Check if video is processing with proper cleanup
   useEffect(() => {
@@ -142,6 +170,9 @@ export default function HistoryDetailPage() {
         if (cancelled) return;
 
         const video = data.videos.find((v) => (v.video_id ?? v.id) === videoId);
+        // Update video details if found
+        // if (video) setVideoDetails((prev) => ({ ...prev, ...video }));
+
         // Only set as processing if status is explicitly "processing"
         // AND we don't have highlights loaded yet (to handle stuck processing state)
         const statusIsProcessing = video?.status === "processing";
@@ -152,12 +183,10 @@ export default function HistoryDetailPage() {
         const isActuallyProcessing = statusIsProcessing && !hasHighlights;
         setIsProcessing(isActuallyProcessing);
 
-        // Debug logging to help identify stuck processing videos
-        if (statusIsProcessing && hasHighlights) {
-          // Video has status 'processing' but has highlights - treating as completed
-        } else if (isActuallyProcessing) {
-          // Video is processing according to API
-        }
+        // Also reload clips if processing just finished (transitioned from processing to completed)
+        // This is tricky without prev status, but we can poll clips if status is processing?
+        // Or just let the user refresh. Results component handles its own polling/updates via ProcessingClient logic usually?
+        // Here we are just viewing.
       } catch (err) {
         if (!cancelled) {
           console.error("Failed to check video status:", err);
@@ -277,6 +306,32 @@ export default function HistoryDetailPage() {
   const hasProOrStudioPlan = useMemo(() => {
     return userSettings?.plan === "pro" || userSettings?.plan === "studio";
   }, [userSettings?.plan]);
+
+  const log = useCallback((msg: string, type?: "info" | "error" | "success") => {
+    if (type === "error") {
+      toast.error(msg);
+    } else if (type === "success") {
+      toast.success(msg);
+    } else {
+      console.log(msg);
+    }
+  }, []);
+
+  const handleClipDeleted = useCallback(
+    async (clipName: string) => {
+      try {
+        const token = await getIdToken();
+        if (!token) return;
+        const details = await getVideoDetails(videoId, token);
+        setClips(details.clips ?? []);
+      } catch (err) {
+        console.error("Failed to reload clips:", err);
+        // Optimistic update
+        setClips((prev) => prev.filter((c) => c.name !== clipName));
+      }
+    },
+    [getIdToken, videoId]
+  );
 
   if (authLoading) {
     return (
@@ -437,20 +492,21 @@ export default function HistoryDetailPage() {
         </Card>
       )}
 
-      <Card className="glass">
-        <CardHeader>
-          <CardTitle>Actions</CardTitle>
-          <CardDescription>View existing clips or process a new video</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Button asChild variant="outline">
-            <Link href={`/?id=${encodeURIComponent(videoId)}`}>View All Clips</Link>
-          </Button>
-          <Button asChild variant="outline">
-            <Link href="/">Process Another Video</Link>
-          </Button>
-        </CardContent>
-      </Card>
+      <Results
+        videoId={videoId}
+        clips={clips}
+        customPromptUsed={customPrompt}
+        videoTitle={highlightsData.video_title ?? null}
+        videoUrl={highlightsData.video_url ?? null}
+        log={log}
+        onReset={() => router.push("/")}
+        onClipDeleted={handleClipDeleted}
+        onTitleUpdated={(newTitle) => {
+          setHighlightsData((prev) =>
+            prev ? { ...prev, video_title: newTitle } : null
+          );
+        }}
+      />
     </div>
   );
 }

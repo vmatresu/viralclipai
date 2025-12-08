@@ -57,6 +57,8 @@ pub struct SpeakerDetectorConfig {
     pub balance_threshold: f64,
     /// Motion differential threshold for fallback detection
     pub motion_threshold: f64,
+    /// Allow motion-based fallback when audio analysis fails.
+    pub allow_motion_fallback: bool,
 }
 
 impl Default for SpeakerDetectorConfig {
@@ -67,6 +69,7 @@ impl Default for SpeakerDetectorConfig {
             sample_rate: 15.0,          // Increased from 10.0 for finer granularity
             balance_threshold: 0.15,
             motion_threshold: 0.15,     // Reduced from 0.2 for more sensitive detection
+            allow_motion_fallback: false,
         }
     }
 }
@@ -89,6 +92,12 @@ impl SpeakerDetector {
         Self { config }
     }
 
+    /// Enable or disable motion-based fallback when stereo analysis fails.
+    pub fn with_motion_fallback(mut self, allow: bool) -> Self {
+        self.config.allow_motion_fallback = allow;
+        self
+    }
+
     /// Analyze a video segment to detect speaker activity.
     ///
     /// Returns a list of segments with the active speaker for each.
@@ -105,16 +114,41 @@ impl SpeakerDetector {
         // Try stereo audio analysis first
         let stereo_result = self.analyze_stereo_audio(video_path, duration).await;
 
-        if let Ok(segments) = stereo_result {
-            if !segments.is_empty() {
+        match stereo_result {
+            Ok(segments) if !segments.is_empty() => {
                 info!("Using stereo audio analysis: {} segments", segments.len());
                 return Ok(segments);
             }
+            Ok(_) => {
+                if !self.config.allow_motion_fallback {
+                    return Err(MediaError::detection_failed(
+                        "Stereo audio analysis produced no speaker segments",
+                    ));
+                }
+            }
+            Err(e) => {
+                if !self.config.allow_motion_fallback {
+                    return Err(MediaError::detection_failed(format!(
+                        "Stereo audio analysis failed: {}",
+                        e
+                    )));
+                } else {
+                    debug!("Stereo audio analysis failed, falling back to motion: {}", e);
+                }
+            }
         }
 
-        // Fallback to motion-based speaker detection
-        info!("Falling back to motion-based speaker detection");
-        self.analyze_motion_for_speakers(video_path, duration, width).await
+        // Motion-based fallback allowed
+        info!("Falling back to motion-based speaker detection (explicitly allowed)");
+        let motion_segments = self.analyze_motion_for_speakers(video_path, duration, width).await?;
+
+        if motion_segments.is_empty() {
+            return Err(MediaError::detection_failed(
+                "Motion-based speaker detection produced no segments",
+            ));
+        }
+
+        Ok(motion_segments)
     }
 
     /// Analyze stereo audio to detect left/right speaker activity.

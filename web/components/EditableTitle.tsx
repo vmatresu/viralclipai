@@ -69,6 +69,7 @@ export function EditableTitle({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    e.stopPropagation();
     if (e.key === "Enter") {
       e.preventDefault();
       void handleSave();
@@ -87,6 +88,7 @@ export function EditableTitle({
           value={editedTitle}
           onChange={(e) => setEditedTitle(e.target.value.slice(0, maxLength))}
           onKeyDown={handleKeyDown}
+          onClick={(e) => e.stopPropagation()}
           className="flex-1 px-2 py-1 text-sm font-semibold bg-background border border-primary rounded focus:outline-none focus:ring-2 focus:ring-primary min-w-[200px]"
           disabled={isSaving}
           maxLength={maxLength}
@@ -94,7 +96,10 @@ export function EditableTitle({
         <Button
           variant="ghost"
           size="icon"
-          onClick={handleSave}
+          onClick={(e) => {
+            e.stopPropagation();
+            void handleSave();
+          }}
           disabled={isSaving || !editedTitle.trim()}
           className="h-8 w-8"
         >
@@ -103,7 +108,10 @@ export function EditableTitle({
         <Button
           variant="ghost"
           size="icon"
-          onClick={handleCancel}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleCancel();
+          }}
           disabled={isSaving}
           className="h-8 w-8"
         >
@@ -123,7 +131,10 @@ export function EditableTitle({
       <Button
         variant="ghost"
         size="icon"
-        onClick={handleStartEdit}
+        onClick={(e) => {
+          e.stopPropagation();
+          handleStartEdit();
+        }}
         className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
         aria-label="Edit title"
       >

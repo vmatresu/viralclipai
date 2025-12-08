@@ -1,13 +1,13 @@
 //! Pipeline builder for tier-specific detection configurations.
 //!
 //! The `PipelineBuilder` creates detection pipelines appropriate for each
-//! `DetectionTier`, with automatic fallback when required components are
-//! unavailable.
+//! `DetectionTier`. Each tier is strict: if a required detector is unavailable
+//! or fails, the pipeline returns an error rather than degrading quality.
 
 use async_trait::async_trait;
 use std::path::Path;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 use vclip_models::DetectionTier;
 
 use super::pipeline::{ActiveSpeakerHint, DetectionPipeline, DetectionResult, FrameResult};
@@ -218,11 +218,7 @@ impl DetectionPipeline for AudioAwarePipeline {
         let speaker_segments = self
             .audio_provider
             .detect_speakers(video_path, duration, width)
-            .await
-            .unwrap_or_else(|e| {
-                warn!("Speaker detection failed, continuing without audio: {}", e);
-                vec![]
-            });
+            .await?;
 
         // Create speaker detector for segment lookup
         let speaker_detector = SpeakerDetector::new();
@@ -323,11 +319,7 @@ impl DetectionPipeline for SpeakerAwarePipeline {
         let speaker_segments = self
             .audio_provider
             .detect_speakers(video_path, duration, width)
-            .await
-            .unwrap_or_else(|e| {
-                warn!("Speaker detection failed, continuing without audio: {}", e);
-                vec![]
-            });
+            .await?;
 
         let speaker_detector = SpeakerDetector::new();
 

@@ -312,22 +312,28 @@ export function getVideoHighlights(
 }
 
 /**
- * Reprocess scenes from a video
+ * Get video details including clips
  */
-export function reprocessScenes(
+export function getVideoDetails(
   videoId: string,
-  sceneIds: number[],
-  styles: string[],
   token: string
 ): Promise<{
-  success: boolean;
-  video_id: string;
-  message: string;
-  job_id?: string;
+  clips: Array<{
+    name: string;
+    title: string;
+    description: string;
+    url: string;
+    direct_url?: string | null;
+    thumbnail?: string | null;
+    size: string;
+    style?: string;
+  }>;
+  custom_prompt?: string;
+  video_title?: string;
+  video_url?: string;
 }> {
-  return apiFetch(`/api/videos/${encodeURIComponent(videoId)}/reprocess`, {
-    method: "POST",
+  return apiFetch(`/api/videos/${encodeURIComponent(videoId)}`, {
+    method: "GET",
     token,
-    body: { scene_ids: sceneIds, styles },
   });
 }

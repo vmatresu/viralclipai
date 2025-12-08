@@ -12,7 +12,7 @@ use super::models::BoundingBox;
 use super::speaker_detector::{ActiveSpeaker, SpeakerDetector, SpeakerSegment};
 use crate::error::MediaResult;
 use std::path::Path;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Detected video layout type.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -302,21 +302,7 @@ impl HeuristicGenerator {
 
         // Detect speaker activity throughout the video
         let speaker_detector = SpeakerDetector::new();
-        let speaker_segments = speaker_detector
-            .detect_speakers(video_path, duration, width)
-            .await
-            .unwrap_or_else(|e| {
-                warn!(
-                    "Speaker detection failed: {}, defaulting to left speaker",
-                    e
-                );
-                vec![SpeakerSegment {
-                    start_time: 0.0,
-                    end_time: duration,
-                    speaker: ActiveSpeaker::Left,
-                    confidence: 0.5,
-                }]
-            });
+        let speaker_segments = speaker_detector.detect_speakers(video_path, duration, width).await?;
 
         info!(
             "Speaker detection: {} segments, duration: {:.2}s",

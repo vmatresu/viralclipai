@@ -102,22 +102,18 @@ impl TierAwareIntelligentCropper {
         // 3. Speaker detection (for AudioAware and SpeakerAware tiers)
         let speaker_segments = if self.tier.uses_audio() {
             info!("Step 2/4: Detecting speakers (tier: {:?})...", self.tier);
-            match self.speaker_detector.detect_speakers(input, duration, width).await {
-                Ok(segments) => {
-                    info!("  Found {} speaker segments", segments.len());
-                    for seg in &segments {
-                        info!(
-                            "    {:.2}s - {:.2}s: {:?} (confidence: {:.2})",
-                            seg.start_time, seg.end_time, seg.speaker, seg.confidence
-                        );
-                    }
-                    segments
-                }
-                Err(e) => {
-                    tracing::warn!("Speaker detection failed, falling back to basic: {}", e);
-                    Vec::new()
-                }
+            let segments = self
+                .speaker_detector
+                .detect_speakers(input, duration, width)
+                .await?;
+            info!("  Found {} speaker segments", segments.len());
+            for seg in &segments {
+                info!(
+                    "    {:.2}s - {:.2}s: {:?} (confidence: {:.2})",
+                    seg.start_time, seg.end_time, seg.speaker, seg.confidence
+                );
             }
+            segments
         } else {
             info!("Step 2/4: Skipping speaker detection (tier: {:?})", self.tier);
             Vec::new()

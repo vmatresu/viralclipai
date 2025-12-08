@@ -14,6 +14,7 @@ import {
   Zap,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -94,6 +95,7 @@ export default function HistoryList() {
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [planUsage, setPlanUsage] = useState<PlanUsage | null>(null);
   const [loadingUsage, setLoadingUsage] = useState(true);
+  const router = useRouter();
 
   const loadVideos = useCallback(async () => {
     if (authLoading || !user) {
@@ -639,7 +641,10 @@ export default function HistoryList() {
               return (
                 <TableRow
                   key={id}
-                  className={`group ${isSelected ? "bg-muted/50" : ""}`}
+                  className={`group cursor-pointer hover:bg-muted/50 transition-colors ${
+                    isSelected ? "bg-muted/50" : ""
+                  }`}
+                  onClick={() => router.push(`/history/${encodeURIComponent(id)}`)}
                 >
                   <TableCell>
                     <button
@@ -660,25 +665,20 @@ export default function HistoryList() {
                   </TableCell>
                   <TableCell>
                     <div className="space-y-1.5">
-                      <div
-                        onClick={(e) => {
-                          e.stopPropagation();
-                        }}
-                      >
-                        <EditableTitle
-                          title={v.video_title ?? "Untitled Video"}
-                          onSave={(newTitle) => handleTitleUpdate(id, newTitle)}
-                          renderTitle={(title) => (
-                            <Link
-                              href={`/history/${encodeURIComponent(id)}`}
-                              className="font-medium hover:underline block max-w-[300px] truncate"
-                              title={title}
-                            >
-                              {title}
-                            </Link>
-                          )}
-                        />
-                      </div>
+                      <EditableTitle
+                        title={v.video_title ?? "Untitled Video"}
+                        onSave={(newTitle) => handleTitleUpdate(id, newTitle)}
+                        renderTitle={(title) => (
+                          <Link
+                            href={`/history/${encodeURIComponent(id)}`}
+                            className="font-medium hover:underline block max-w-[300px] truncate"
+                            title={title}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {title}
+                          </Link>
+                        )}
+                      />
 
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <span className="font-mono bg-muted px-1.5 py-0.5 rounded">
@@ -733,7 +733,12 @@ export default function HistoryList() {
                   <TableCell className="text-right">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <MoreHorizontal className="h-4 w-4" />
                           <span className="sr-only">Actions</span>
                         </Button>
