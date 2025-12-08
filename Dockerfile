@@ -219,8 +219,13 @@ WORKDIR /app
 # Copy worker binary
 COPY --from=builder --chown=appuser:appgroup /app/target/release/vclip-worker /app/vclip-worker
 
-# Create temp directory for video processing
-RUN mkdir -p /tmp/videos && chown appuser:appgroup /tmp/videos
+# Create directories for video processing and yt-dlp cache
+# yt-dlp needs write access to .cache for challenge solver and other caches
+RUN mkdir -p /tmp/videos /app/.cache && chown -R appuser:appgroup /tmp/videos /app/.cache
+
+# Create placeholder for youtube-cookies.txt with correct ownership
+# The actual file will be mounted via docker-compose volume
+RUN touch /app/youtube-cookies.txt && chown appuser:appgroup /app/youtube-cookies.txt
 
 USER appuser
 
