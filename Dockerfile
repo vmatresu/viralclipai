@@ -128,9 +128,11 @@ RUN strip target/release/vclip-api target/release/vclip-worker
 RUN ls -lah target/release/vclip-api target/release/vclip-worker
 
 # -----------------------------------------------------------------------------
-# Stage 4: API Runtime - Minimal distroless image
+# Stage 4: API Runtime - Ubuntu 24.04 slim (matches builder glibc version)
 # -----------------------------------------------------------------------------
-FROM gcr.io/distroless/cc-debian12:nonroot AS api-runtime
+# Note: We use Ubuntu 24.04 instead of distroless because the binary is built
+# with Ubuntu 24.04's glibc 2.39, which is not available in Debian 12 distroless.
+FROM ubuntu:24.04 AS api-runtime
 
 # OCI labels
 LABEL org.opencontainers.image.title="ViralClip API" \
@@ -138,10 +140,17 @@ LABEL org.opencontainers.image.title="ViralClip API" \
       org.opencontainers.image.vendor="ViralClip AI" \
       org.opencontainers.image.source="https://github.com/viralclipai/viralclipai"
 
-WORKDIR /app
+# Install minimal runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
-# Copy SSL certificates
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+# Create non-root user
+RUN groupadd -g 65532 nonroot && \
+    useradd -u 65532 -g nonroot -d /app -s /usr/sbin/nologin nonroot
+
+WORKDIR /app
 
 # Copy API binary only
 COPY --from=builder --chown=nonroot:nonroot /app/target/release/vclip-api /app/vclip-api
