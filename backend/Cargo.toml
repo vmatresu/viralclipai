@@ -50,8 +50,8 @@ aws-types = "1.1"
 # GCP Auth (for Firestore)
 gcp_auth = "0.12"
 
-# Redis/Queue
-redis = { version = "0.29", features = ["tokio-comp", "streams"] }
+# Redis/Queue (tls-rustls required for Digital Ocean managed Valkey)
+redis = { version = "0.29", features = ["tokio-comp", "streams", "tls-rustls"] }
 apalis = { version = "0.7", features = ["retry", "timeout", "tracing"] }
 apalis-redis = "0.7"
 
