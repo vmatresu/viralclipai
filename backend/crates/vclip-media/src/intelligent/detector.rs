@@ -443,45 +443,6 @@ impl FaceDetector {
         detections
     }
 
-    /// Smart heuristic detection that analyzes video layout.
-    ///
-    /// Detects whether the video is:
-    /// - Single person (talking head) → center face
-    /// - Two people side by side (podcast) → track the currently speaking person
-    /// - Interview/panel → multiple faces
-    ///
-    /// For podcast format, this uses speaker detection to follow the active speaker
-    /// rather than statically focusing on one side.
-    async fn smart_heuristic_detection<P: AsRef<Path>>(
-        &self,
-        video_path: P,
-        width: u32,
-        height: u32,
-        num_samples: usize,
-    ) -> MediaResult<Vec<Vec<(BoundingBox, f64)>>> {
-        let video_path = video_path.as_ref();
-
-        // Analyze video layout using layout detector
-        let layout_detector = LayoutDetector::new();
-        let layout = layout_detector
-            .detect_layout(video_path, width, height)
-            .await?;
-
-        info!("Detected video layout: {:?}", layout);
-
-        match layout {
-            VideoLayout::SinglePerson => Ok(self
-                .heuristic_generator
-                .single_person_heuristic(width, height, num_samples)),
-            VideoLayout::TwoPeopleSideBySide => {
-                // For podcast-format videos, use speaker detection to follow
-                // whoever is currently speaking
-                self.heuristic_generator
-                    .speaker_aware_heuristic(video_path, width, height, num_samples)
-                    .await
-            }
-        }
-    }
 }
 
 impl FaceDetector {

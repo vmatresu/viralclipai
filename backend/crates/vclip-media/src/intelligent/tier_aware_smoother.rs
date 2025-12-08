@@ -497,58 +497,6 @@ impl TierAwareCameraSmoother {
             .collect()
     }
 
-    /// Enforce motion constraints on keyframes.
-    fn enforce_constraints(
-        &self,
-        keyframes: &[CameraKeyframe],
-        width: u32,
-        height: u32,
-    ) -> Vec<CameraKeyframe> {
-        if keyframes.len() < 2 {
-            return keyframes.to_vec();
-        }
-
-        let mut constrained = Vec::with_capacity(keyframes.len());
-        constrained.push(keyframes[0]);
-
-        for i in 1..keyframes.len() {
-            let prev = &constrained[i - 1];
-            let curr = &keyframes[i];
-
-            let dt = curr.time - prev.time;
-            if dt <= 0.0 {
-                constrained.push(*curr);
-                continue;
-            }
-
-            let dx = curr.cx - prev.cx;
-            let dy = curr.cy - prev.cy;
-            let speed = (dx * dx + dy * dy).sqrt() / dt;
-
-            let (new_cx, new_cy) = if speed > self.config.max_pan_speed {
-                let scale = self.config.max_pan_speed / speed;
-                (prev.cx + dx * scale, prev.cy + dy * scale)
-            } else {
-                (curr.cx, curr.cy)
-            };
-
-            let margin_x = curr.width / 2.0;
-            let margin_y = curr.height / 2.0;
-            let clamped_cx = new_cx.max(margin_x).min(width as f64 - margin_x);
-            let clamped_cy = new_cy.max(margin_y).min(height as f64 - margin_y);
-
-            constrained.push(CameraKeyframe::new(
-                curr.time,
-                clamped_cx,
-                clamped_cy,
-                curr.width,
-                curr.height,
-            ));
-        }
-
-        constrained
-    }
-
     /// Smooth keyframes with instant transitions at speaker change points.
     /// Uses minimal smoothing within speaker segments, but preserves raw positions at boundaries.
     fn smooth_with_instant_speaker_transitions(&self, keyframes: &[CameraKeyframe]) -> Vec<CameraKeyframe> {

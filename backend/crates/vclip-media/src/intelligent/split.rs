@@ -75,17 +75,29 @@ struct SplitAnalysis {
 pub struct IntelligentSplitProcessor {
     #[allow(dead_code)]
     config: IntelligentCropConfig,
+    tier: DetectionTier,
 }
 
 impl IntelligentSplitProcessor {
     /// Create a new processor with the given configuration.
     pub fn new(config: IntelligentCropConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            tier: DetectionTier::Basic,
+        }
     }
 
     /// Create with default configuration.
     pub fn default() -> Self {
         Self::new(IntelligentCropConfig::default())
+    }
+
+    /// Create with default config and explicit detection tier.
+    pub fn with_tier(tier: DetectionTier) -> Self {
+        Self {
+            config: IntelligentCropConfig::default(),
+            tier,
+        }
     }
 
     /// Process a video segment with intelligent split.
@@ -131,16 +143,16 @@ impl IntelligentSplitProcessor {
 
         if !should_split {
             info!(
-                "Single-face detected (tracks: {}, multi-face time: {:.2}s) → using full-frame intelligent crop",
-                analysis.distinct_tracks, analysis.multi_face_time
+                "Single-face detected (tracks: {}, multi-face time: {:.2}s) → using full-frame intelligent crop with tier {:?}",
+                analysis.distinct_tracks, analysis.multi_face_time, self.tier
             );
-            let cropper = TierAwareIntelligentCropper::new(
-                self.config.clone(),
-                DetectionTier::Basic,
-            );
+            // Keep the original tier (including Motion/Activity) so we don't silently downgrade
+            // the style. This preserves dynamic motion/activity behavior while outputting 9:16
+            // single-speaker framing instead of switching to a different analysis mode.
+            let cropper = TierAwareIntelligentCropper::new(self.config.clone(), self.tier);
             cropper.process(segment, output).await?;
             self.generate_thumbnail(output).await;
-            info!("Intelligent split (single-face fallback) complete: {:?}", output);
+            info!("Intelligent split (single-face path) complete: {:?}", output);
             return Ok(SplitLayout::FullFrame);
         }
 

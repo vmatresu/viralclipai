@@ -224,7 +224,7 @@ impl ClipRepository {
                 self.client
                     .update_document(&self.collection(), &clip.clip_id, fields, Some(update_mask))
                     .await?;
-                counter!("clip_metadata_upsert_total", "outcome" => "updated");
+                counter!("clip_metadata_upsert_total", "outcome" => "updated").increment(1);
                 info!("Updated existing clip record: {}", clip.clip_id);
                 Ok(())
             }

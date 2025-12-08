@@ -126,11 +126,13 @@ impl StyleProcessor for IntelligentSplitProcessor {
         );
 
         match self.tier {
-            DetectionTier::ActivityAware => {
-                crate::intelligent::create_activity_split_clip(
+            // Visual activity pipeline supports dynamic 9:16 ↔ 9:8+9:8 switching within a clip
+            DetectionTier::ActivityAware | DetectionTier::MotionAware => {
+                crate::intelligent::create_visual_activity_split_clip(
                     request.input_path.as_ref(),
                     request.output_path.as_ref(),
                     &request.task,
+                    self.tier,
                     &request.encoding,
                     |_progress| {},
                 )
