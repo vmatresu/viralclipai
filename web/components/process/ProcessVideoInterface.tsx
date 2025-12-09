@@ -1,19 +1,34 @@
 "use client";
 
 import { ArrowRight, Link2, Sparkles } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { analyticsEvents } from "@/lib/analytics";
+import { useAuth } from "@/lib/auth";
+import { frontendLogger } from "@/lib/logger";
+import { limitLength, sanitizeUrl } from "@/lib/security/validation";
 import { cn } from "@/lib/utils";
+import { createWebSocketConnection, getWebSocketUrl } from "@/lib/websocket-client";
+import { handleWSMessage, type MessageHandlerCallbacks } from "@/lib/websocket/messageHandler";
+import { type SceneProgress } from "@/types/processing";
 
+
+import { ClipProcessingStep } from "@/lib/websocket";
+import { DetailedProcessingStatus } from "../shared/DetailedProcessingStatus";
 import { AiAssistanceSlider, type AiLevel } from "./AiAssistanceSlider";
 import { LayoutSelector, type LayoutOption } from "./LayoutSelector";
 
 export function ProcessVideoInterface() {
+  const router = useRouter();
+  const { getIdToken } = useAuth();
+  
   const [url, setUrl] = useState("");
   const [layout, setLayout] = useState<LayoutOption>("split");
   const [aiLevel, setAiLevel] = useState<AiLevel>("face_aware");
@@ -22,6 +37,13 @@ export function ProcessVideoInterface() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [shouldAnimateInput, setShouldAnimateInput] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  
+  // Progress tracking state
+  const [logs, setLogs] = useState<string[]>([]);
+  const [progress, setProgress] = useState(0);
+  const [sceneProgress, setSceneProgress] = useState<Map<number, SceneProgress>>(
+    new Map()
+  );
 
   const predefinedPrompts = [
     {
@@ -50,7 +72,124 @@ export function ProcessVideoInterface() {
     setPrompt(promptText);
   };
 
-  const handleLaunch = () => {
+  // Helper function to add log messages
+  const log = (msg: string, type: "info" | "error" | "success" = "info", timestamp?: string) => {
+    let prefix = ">";
+    if (type === "error") {
+      prefix = "[ERROR]";
+    } else if (type === "success") {
+      prefix = "[OK]";
+    }
+
+    // Format timestamp if provided
+    let timestampStr = "";
+    if (timestamp) {
+      try {
+        const date = new Date(timestamp);
+        timestampStr = date.toLocaleTimeString("en-US", {
+          hour12: false,
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        });
+        timestampStr = `[${timestampStr}] `;
+      } catch {
+        // Ignore timestamp parsing errors
+      }
+    }
+
+    setLogs((prev) => [...prev, `${timestampStr}${prefix} ${msg}`]);
+  };
+
+  // Scene progress handlers
+  const handleSceneStarted = (
+    sceneId: number,
+    sceneTitle: string,
+    styleCount: number,
+    startSec: number,
+    durationSec: number
+  ) => {
+    setSceneProgress((prev) => {
+      const next = new Map(prev);
+      next.set(sceneId, {
+        sceneId,
+        sceneTitle,
+        styleCount,
+        startSec,
+        durationSec,
+        status: "processing",
+        clipsCompleted: 0,
+        clipsFailed: 0,
+        currentSteps: new Map(),
+      });
+      return next;
+    });
+  };
+
+  const handleSceneCompleted = (sceneId: number, clipsCompleted: number, clipsFailed: number) => {
+    setSceneProgress((prev) => {
+      const next = new Map(prev);
+      const scene = next.get(sceneId);
+      if (scene) {
+        next.set(sceneId, {
+          ...scene,
+          status: clipsFailed > 0 ? "failed" : "completed",
+          clipsCompleted,
+          clipsFailed,
+        });
+      }
+      return next;
+    });
+  };
+
+  const handleClipProgress = (
+    sceneId: number,
+    style: string,
+    step: ClipProcessingStep,
+    details?: string
+  ) => {
+    setSceneProgress((prev) => {
+      const next = new Map(prev);
+      const scene = next.get(sceneId);
+      if (scene) {
+        const newSteps = new Map(scene.currentSteps);
+        newSteps.set(style, { step: step as any, details });
+        next.set(sceneId, { ...scene, currentSteps: newSteps });
+      }
+      return next;
+    });
+  };
+
+  // Map UI selections to backend styles
+  const getStylesFromSelection = (layout: LayoutOption, aiLevel: AiLevel): string[] => {
+    // For "fast" level, use static or fast variants
+    if (aiLevel === "fast") {
+      return layout === "split" ? ["split_fast"] : ["split"];
+    }
+    
+    // For other AI levels, map to intelligent styles
+    const isSplit = layout === "split";
+    
+    switch (aiLevel) {
+      case "face_aware":
+        // Basic face detection
+        return isSplit ? ["intelligent_split"] : ["intelligent"];
+      case "face_tracking":
+        // Face tracking (use basic tier for now)
+        return isSplit ? ["intelligent_split"] : ["intelligent"];
+      case "motion_aware":
+        // Motion-aware detection
+        return isSplit ? ["intelligent_split_motion"] : ["intelligent_motion"];
+      case "premium":
+        // Full activity detection
+        return isSplit ? ["intelligent_split_activity"] : ["intelligent_activity"];
+      default:
+        // Fallback to basic intelligent
+        return isSplit ? ["intelligent_split"] : ["intelligent"];
+    }
+  };
+
+  const handleLaunch = async () => {
     if (!url) {
       // Validation: If no URL, focus input and trigger attention animation
       if (inputRef.current) {
@@ -62,10 +201,131 @@ export function ProcessVideoInterface() {
       return;
     }
 
-    // TODO: Connect to backend
     setIsProcessing(true);
-    setTimeout(() => setIsProcessing(false), 2000);
-    console.log("Launching job:", { url, layout, aiLevel, prompt, exportOriginal });
+    // Reset progress state
+    setLogs([]);
+    setProgress(0);
+    setSceneProgress(new Map());
+
+    try {
+      // Get auth token
+      const token = await getIdToken();
+      if (!token) {
+        toast.error("Please sign in with your Google account to use this app.");
+        setIsProcessing(false);
+        return;
+      }
+
+      // Validate and sanitize inputs
+      const sanitizedUrl = sanitizeUrl(url);
+      if (!sanitizedUrl) {
+        toast.error("Invalid video URL. Please provide a valid YouTube or TikTok URL.");
+        setIsProcessing(false);
+        return;
+      }
+
+      const sanitizedPrompt = limitLength(prompt.trim(), 5000);
+      const styles = getStylesFromSelection(layout, aiLevel);
+      const cropMode = exportOriginal ? "none" : "auto";
+
+      // Track processing start
+      void analyticsEvents.videoProcessingStarted({
+        style: styles.join(","),
+        hasCustomPrompt: sanitizedPrompt.length > 0,
+        videoUrl: sanitizedUrl,
+      });
+
+      // Create WebSocket connection
+      const wsUrl = getWebSocketUrl(process.env.NEXT_PUBLIC_API_BASE_URL);
+      const ws = createWebSocketConnection(
+        wsUrl,
+        // onOpen
+        () => {
+          frontendLogger.info("WebSocket connected, sending process request");
+          ws.send(
+            JSON.stringify({
+              url: sanitizedUrl,
+              styles,
+              token,
+              prompt: sanitizedPrompt || undefined,
+              crop_mode: cropMode,
+              target_aspect: "9:16",
+            })
+          );
+        },
+        // onMessage
+        (message: unknown) => {
+          const callbacks: MessageHandlerCallbacks = {
+            onLog: (logMessage) => {
+              // Backend already includes timestamp in message, don't add another
+              log(logMessage, "info");
+            },
+            onProgress: (progressValue) => {
+              setProgress(progressValue);
+            },
+            onError: (errorMessage, errorDetails) => {
+              ws.close();
+              toast.error(errorMessage);
+              setIsProcessing(false);
+              void analyticsEvents.videoProcessingFailed({
+                errorType: errorDetails ?? "unknown",
+                errorMessage,
+                style: styles.join(","),
+              });
+            },
+            onDone: (videoId) => {
+              ws.close();
+              setIsProcessing(false);
+              toast.success("Video processed successfully!");
+              
+              // Navigate to history page with video ID
+              router.push(`/history/${videoId}`);
+            },
+            onClipUploaded: (_videoId, clipCount, totalClips) => {
+              if (clipCount > 0 && totalClips > 0) {
+                log(`📦 Clip ${clipCount}/${totalClips} uploaded`, "success");
+              }
+            },
+            onSceneStarted: handleSceneStarted,
+            onSceneCompleted: handleSceneCompleted,
+            onClipProgress: handleClipProgress,
+          };
+
+          const handled = handleWSMessage(message, callbacks, null);
+          if (!handled) {
+            frontendLogger.error("Invalid WebSocket message format", { message });
+            ws.close();
+            toast.error("Invalid message format");
+            setIsProcessing(false);
+          }
+        },
+        // onError
+        () => {
+          frontendLogger.error("WebSocket error occurred");
+          toast.error("Connection error occurred");
+        },
+        // onClose
+        () => {
+          setIsProcessing(false);
+        }
+      );
+
+      // Register job in processing context for global tracking
+      // We don't have the videoId yet, but we'll track it when we get the Done message
+      // For now, just mark that processing has started
+      
+    } catch (err: unknown) {
+      frontendLogger.error("Failed to start processing", err);
+      const errorMessage = err instanceof Error ? err.message : "Failed to start processing";
+      toast.error(errorMessage);
+      setIsProcessing(false);
+
+      void analyticsEvents.videoProcessingFailed({
+        errorType: "initialization_error",
+        errorMessage,
+        style: getStylesFromSelection(layout, aiLevel).join(","),
+      });
+    }
   };
 
   return (
@@ -186,6 +446,17 @@ export function ProcessVideoInterface() {
           </div>
         </div>
       </div>
+
+      {/* Progress Display */}
+      {isProcessing && (
+        <div className="mt-8">
+          <DetailedProcessingStatus
+            progress={progress}
+            logs={logs}
+            sceneProgress={sceneProgress}
+          />
+        </div>
+      )}
 
       <hr className="border-white/5" />
 
