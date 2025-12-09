@@ -10,7 +10,7 @@ use std::path::Path;
 use std::process::Stdio;
 use tempfile::TempDir;
 use tokio::process::Command;
-use tracing::debug;
+use tracing::{debug, info};
 
 /// Renderer for intelligent cropped videos.
 pub struct IntelligentRenderer {
@@ -125,14 +125,18 @@ impl IntelligentRenderer {
         Ok(())
     }
 
-    /// Render with dynamic cropping (segment-based approach).
+    /// Render with dynamic cropping using continuous filter graph.
+    ///
+    /// **Key fix for PTS discontinuity (garbled flash)**: Uses a single-pass
+    /// filter graph with sendcmd to update crop parameters dynamically,
+    /// instead of rendering segments separately and concatenating.
     async fn render_dynamic_crop<P: AsRef<Path>>(
         &self,
         input: P,
         output: P,
         crop_windows: &[CropWindow],
         start_time: f64,
-        _duration: f64,
+        duration: f64,
     ) -> MediaResult<()> {
         let input = input.as_ref();
         let output = output.as_ref();
@@ -152,9 +156,245 @@ impl IntelligentRenderer {
                 .await;
         }
 
-        // Multiple segments - render each and concatenate
-        self.render_and_concat_segments(input, output, &segments, start_time)
+        info!(
+            "Continuous dynamic crop: {} segments over {:.2}s",
+            segments.len(),
+            duration
+        );
+
+        // Use continuous rendering to avoid PTS discontinuities
+        self.render_continuous_dynamic(input, output, crop_windows, &segments, start_time, duration)
             .await
+    }
+
+    /// Render using continuous filter graph (no segment concatenation).
+    ///
+    /// This method uses sendcmd to dynamically update crop parameters,
+    /// keeping timestamps continuous and avoiding decode errors.
+    async fn render_continuous_dynamic<P: AsRef<Path>>(
+        &self,
+        input: P,
+        output: P,
+        crop_windows: &[CropWindow],
+        segments: &[CropSegment],
+        start_time: f64,
+        duration: f64,
+    ) -> MediaResult<()> {
+        let input = input.as_ref();
+        let output = output.as_ref();
+
+        if segments.is_empty() || crop_windows.is_empty() {
+            return Err(MediaError::InvalidVideo("No crop segments provided".to_string()));
+        }
+
+        // Build sendcmd script for crop updates
+        let sendcmd_script = self.build_sendcmd_script(segments);
+        let initial = &segments[0].crop;
+
+        // Build filter graph with sendcmd for dynamic crop updates
+        // Key elements:
+        // 1. setsar=1 - Normalize pixel aspect ratio
+        // 2. setpts=PTS-STARTPTS - Reset timestamps to avoid discontinuities
+        // 3. sendcmd - Dynamically update crop parameters
+        // 4. format=yuv420p - Ensure compatible pixel format
+        let filter_complex = format!(
+            "[0:v]setsar=1,setpts=PTS-STARTPTS,format=yuv420p,\
+             sendcmd=f='{script}',\
+             crop@dyncrop=w={w}:h={h}:x={x}:y={y}:exact=1,\
+             scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1[vout]",
+            script = sendcmd_script,
+            w = initial.width,
+            h = initial.height,
+            x = initial.x,
+            y = initial.y,
+        );
+
+        debug!("Continuous crop filter:\n{}", filter_complex);
+
+        let mut cmd = Command::new("ffmpeg");
+        cmd.args([
+            "-y",
+            "-ss", &format!("{:.3}", start_time),
+            "-i", input.to_str().unwrap_or(""),
+            "-t", &format!("{:.3}", duration),
+            "-filter_complex", &filter_complex,
+            "-map", "[vout]",
+            "-map", "0:a?",
+            // Video encoding
+            "-c:v", "libx264",
+            "-preset", &self.config.render_preset,
+            "-crf", &self.config.render_crf.to_string(),
+            "-pix_fmt", "yuv420p",
+            // Constant frame rate to prevent timing issues
+            "-vsync", "cfr",
+            "-video_track_timescale", "90000",
+            // Audio with resample to handle any discontinuities
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-af", "aresample=async=1:first_pts=0",
+            // Output
+            "-movflags", "+faststart",
+            output.to_str().unwrap_or(""),
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+        let output_result = cmd.output().await.map_err(|e| {
+            MediaError::ffmpeg_failed(format!("Failed to run FFmpeg: {}", e), None, None)
+        })?;
+
+        if !output_result.status.success() {
+            let stderr = String::from_utf8_lossy(&output_result.stderr);
+            
+            // Fall back to legacy concat if sendcmd not supported
+            if stderr.contains("sendcmd") || stderr.contains("Unknown filter") {
+                debug!("sendcmd filter not available, falling back to segment concat");
+                return self.render_and_concat_segments_fixed(input, output, segments, start_time).await;
+            }
+            
+            return Err(MediaError::ffmpeg_failed(
+                "Continuous crop render failed",
+                Some(stderr.to_string()),
+                output_result.status.code(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Build sendcmd script for dynamic crop updates.
+    fn build_sendcmd_script(&self, segments: &[CropSegment]) -> String {
+        segments
+            .iter()
+            .map(|seg| {
+                format!(
+                    "{:.3} [enter] crop@dyncrop w {}, crop@dyncrop h {}, crop@dyncrop x {}, crop@dyncrop y {}",
+                    seg.start, seg.crop.width, seg.crop.height, seg.crop.x, seg.crop.y
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ")
+    }
+
+    /// Fallback: Render segments and concatenate with fixed timestamps.
+    ///
+    /// Uses setpts=PTS-STARTPTS on each segment to ensure clean concatenation.
+    async fn render_and_concat_segments_fixed<P: AsRef<Path>>(
+        &self,
+        input: P,
+        output: P,
+        segments: &[CropSegment],
+        base_start: f64,
+    ) -> MediaResult<()> {
+        let input = input.as_ref();
+        let output = output.as_ref();
+
+        let temp_dir = TempDir::new()?;
+        let mut segment_files = Vec::new();
+
+        // Render each segment with timestamp normalization
+        for (i, segment) in segments.iter().enumerate() {
+            let seg_path = temp_dir.path().join(format!("segment_{:04}.mp4", i));
+            self.render_single_segment_normalized(input, &seg_path, segment, base_start).await?;
+            segment_files.push(seg_path);
+        }
+
+        // Concatenate with stream copy (segments are now normalized)
+        let concat_list_path = temp_dir.path().join("concat.txt");
+        let concat_content: String = segment_files
+            .iter()
+            .map(|p| format!("file '{}'\n", p.display()))
+            .collect();
+
+        tokio::fs::write(&concat_list_path, &concat_content).await?;
+
+        let mut cmd = Command::new("ffmpeg");
+        cmd.args([
+            "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", concat_list_path.to_str().unwrap_or(""),
+            // Stream copy - segments are already encoded with normalized timestamps
+            "-c:v", "copy",
+            "-c:a", "copy",
+            "-movflags", "+faststart",
+            output.to_str().unwrap_or(""),
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+        let output_result = cmd.output().await.map_err(|e| {
+            MediaError::ffmpeg_failed(format!("FFmpeg concat failed: {}", e), None, None)
+        })?;
+
+        if !output_result.status.success() {
+            let stderr = String::from_utf8_lossy(&output_result.stderr);
+            return Err(MediaError::ffmpeg_failed(
+                "FFmpeg concat failed",
+                Some(stderr.to_string()),
+                output_result.status.code(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Render a segment with PTS normalization for clean concatenation.
+    async fn render_single_segment_normalized<P: AsRef<Path>>(
+        &self,
+        input: P,
+        output: P,
+        segment: &CropSegment,
+        base_start: f64,
+    ) -> MediaResult<()> {
+        let input = input.as_ref();
+        let output = output.as_ref();
+        let crop = &segment.crop;
+
+        let start = base_start + segment.start;
+        let duration = segment.end - segment.start;
+
+        // Key fix: setpts=PTS-STARTPTS normalizes timestamps
+        // setsar=1 ensures consistent sample aspect ratio
+        let vf = format!(
+            "crop={}:{}:{}:{},setpts=PTS-STARTPTS,setsar=1,scale=trunc(iw/2)*2:trunc(ih/2)*2",
+            crop.width, crop.height, crop.x, crop.y
+        );
+
+        let mut cmd = Command::new("ffmpeg");
+        cmd.args([
+            "-y",
+            "-ss", &format!("{:.3}", start),
+            "-i", input.to_str().unwrap_or(""),
+            "-t", &format!("{:.3}", duration),
+            "-vf", &vf,
+            // Audio timestamp normalization
+            "-af", "aresample=async=1:first_pts=0",
+            "-c:v", "libx264",
+            "-preset", &self.config.render_preset,
+            "-crf", &self.config.render_crf.to_string(),
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-pix_fmt", "yuv420p",
+            output.to_str().unwrap_or(""),
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+        let output_result = cmd.output().await.map_err(|e| {
+            MediaError::ffmpeg_failed(format!("Failed to render segment: {}", e), None, None)
+        })?;
+
+        if !output_result.status.success() {
+            let stderr = String::from_utf8_lossy(&output_result.stderr);
+            return Err(MediaError::ffmpeg_failed(
+                "Segment render failed",
+                Some(stderr.to_string()),
+                output_result.status.code(),
+            ));
+        }
+
+        Ok(())
     }
 
     /// Group crop windows into segments with similar crops.
@@ -255,76 +495,6 @@ impl IntelligentRenderer {
             let stderr = String::from_utf8_lossy(&output_result.stderr);
             return Err(MediaError::ffmpeg_failed(
                 "FFmpeg segment render failed",
-                Some(stderr.to_string()),
-                output_result.status.code(),
-            ));
-        }
-
-        Ok(())
-    }
-
-    /// Render segments and concatenate them.
-    async fn render_and_concat_segments<P: AsRef<Path>>(
-        &self,
-        input: P,
-        output: P,
-        segments: &[CropSegment],
-        base_start: f64,
-    ) -> MediaResult<()> {
-        let input = input.as_ref();
-        let output = output.as_ref();
-
-        // Create temp directory for segments
-        let temp_dir = TempDir::new()?;
-
-        let mut segment_files = Vec::new();
-
-        // Render each segment
-        for (i, segment) in segments.iter().enumerate() {
-            let seg_path = temp_dir.path().join(format!("segment_{:04}.mp4", i));
-
-            self.render_single_segment(input, &seg_path, segment, base_start)
-                .await?;
-
-            segment_files.push(seg_path);
-        }
-
-        // Create concat list file
-        let concat_list_path = temp_dir.path().join("concat.txt");
-        let concat_content: String = segment_files
-            .iter()
-            .map(|p| format!("file '{}'\n", p.display()))
-            .collect();
-
-        tokio::fs::write(&concat_list_path, &concat_content).await?;
-
-        // Concatenate segments
-        let mut cmd = Command::new("ffmpeg");
-        cmd.args([
-            "-y",
-            "-f",
-            "concat",
-            "-safe",
-            "0",
-            "-i",
-            concat_list_path.to_str().unwrap_or(""),
-            "-c",
-            "copy",
-            "-movflags",
-            "+faststart",
-            output.to_str().unwrap_or(""),
-        ])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-        let output_result = cmd.output().await.map_err(|e| {
-            MediaError::ffmpeg_failed(format!("Failed to run FFmpeg concat: {}", e), None, None)
-        })?;
-
-        if !output_result.status.success() {
-            let stderr = String::from_utf8_lossy(&output_result.stderr);
-            return Err(MediaError::ffmpeg_failed(
-                "FFmpeg concat failed",
                 Some(stderr.to_string()),
                 output_result.status.code(),
             ));

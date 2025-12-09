@@ -18,6 +18,7 @@ use super::camera_constraints::{
     compute_switch_threshold, smooth_segment_light, CameraConstraintEnforcer,
 };
 use super::config::{FallbackPolicy, IntelligentCropConfig};
+use super::enhanced_smoother::SmoothingPreset;
 use super::face_activity::FaceActivityConfig;
 use super::models::{BoundingBox, CameraKeyframe, CameraMode, Detection, FrameDetections};
 use super::segment_analysis::{flatten_short_segments, segment_boundaries};
@@ -346,8 +347,35 @@ impl TierAwareCameraSmoother {
             .collect()
     }
 
-    /// Smooth keyframes for tracking camera mode.
+    /// Smooth keyframes for tracking camera mode using enhanced Gaussian + deadband smoothing.
+    ///
+    /// This method uses the enhanced smoother with:
+    /// - **Gaussian kernel**: Weighted average with bidirectional lookahead (no jitter)
+    /// - **Deadband**: Camera locks until subject moves >5% of frame width (tripod-like stability)
+    /// - **Velocity limiting**: Enforces max_pan_speed for cinematic feel
     fn smooth_tracking(&self, keyframes: &[CameraKeyframe]) -> Vec<CameraKeyframe> {
+        if keyframes.len() < 3 {
+            return keyframes.to_vec();
+        }
+
+        // Determine frame width from keyframe positions (approximate)
+        let max_cx = keyframes.iter().map(|kf| kf.cx).fold(0.0f64, f64::max);
+        let frame_width = (max_cx * 2.0).max(1920.0) as u32;
+
+        // Select smoothing preset based on tier
+        let preset = match self.tier {
+            DetectionTier::SpeakerAware => SmoothingPreset::Podcast, // Balanced for speaker tracking
+            DetectionTier::MotionAware => SmoothingPreset::Cinematic, // Heavy smoothing, stable
+            _ => SmoothingPreset::Responsive, // Quick response for basic tracking
+        };
+
+        let enhanced_smoother = preset.create_smoother(self.config.clone(), self.fps);
+        enhanced_smoother.smooth(keyframes, frame_width)
+    }
+
+    /// Legacy smooth tracking using simple moving average (kept for comparison).
+    #[allow(dead_code)]
+    fn smooth_tracking_legacy(&self, keyframes: &[CameraKeyframe]) -> Vec<CameraKeyframe> {
         if keyframes.len() < 3 {
             return keyframes.to_vec();
         }

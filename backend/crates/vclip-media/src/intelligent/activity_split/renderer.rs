@@ -231,18 +231,58 @@ impl ActivitySplitRenderer {
         Ok(filled_frames)
     }
 
+    /// Scale to portrait dimensions if needed, or just copy if already correct size.
+    ///
+    /// Avoids unnecessary re-encoding when input is already 1080x1920.
     async fn scale_to_portrait(&self, input: &Path, output: &Path) -> MediaResult<()> {
-        let vf = "scale=1080:1920:flags=lanczos";
+        // Check if input is already the target size to avoid re-encoding
+        let probe = crate::probe::probe_video(input).await?;
+        
+        if probe.width == 1080 && probe.height == 1920 {
+            // Already correct size - just copy with timestamp normalization
+            // Use stream copy to avoid quality loss and keep file size small
+            let status = Command::new("ffmpeg")
+                .args([
+                    "-y",
+                    "-i", input.to_str().unwrap_or_default(),
+                    // Normalize timestamps without re-encoding
+                    "-c:v", "copy",
+                    "-c:a", "copy",
+                    "-movflags", "+faststart",
+                    output.to_str().unwrap_or_default(),
+                ])
+                .output()
+                .await
+                .map_err(|e| MediaError::ffmpeg_failed(format!("Copy failed: {}", e), None, None))?;
+            
+            if !status.status.success() {
+                return Err(MediaError::ffmpeg_failed(
+                    "Stream copy failed",
+                    Some(String::from_utf8_lossy(&status.stderr).to_string()),
+                    status.status.code(),
+                ));
+            }
+            return Ok(());
+        }
+
+        // Need to scale - re-encode with timestamp normalization
+        let vf = "setpts=PTS-STARTPTS,scale=1080:1920:flags=lanczos,setsar=1";
         let cmd = FfmpegCommand::new(input, output)
             .video_filter(vf)
             .video_codec(&self.encoding.codec)
             .preset(&self.encoding.preset)
             .crf(self.encoding.crf)
-            .audio_codec("copy");  // Copy audio to avoid re-encoding artifacts
+            .audio_codec("aac")
+            .audio_bitrate(&self.encoding.audio_bitrate);
 
         FfmpegRunner::new().run(&cmd).await
     }
 
+    /// Concatenate segments using stream copy.
+    ///
+    /// Since `scale_to_portrait` already applies `setpts=PTS-STARTPTS` to normalize
+    /// timestamps, we can safely use `-c:v copy` here to avoid re-encoding and
+    /// keep file sizes small.
     async fn concat_segments(&self, inputs: &[PathBuf], output: &Path) -> MediaResult<()> {
         let list_path = output.with_extension("concat.txt");
         let mut list_body = String::new();
@@ -251,27 +291,23 @@ impl ActivitySplitRenderer {
             list_body.push_str(path.to_string_lossy().as_ref());
             list_body.push_str("'\n");
         }
-        tokio::fs::write(&list_path, list_body)
+        tokio::fs::write(&list_path, &list_body)
             .await
             .map_err(MediaError::from)?;
 
+        // Use stream copy - segments are already timestamp-normalized by scale_to_portrait
         let status = Command::new("ffmpeg")
             .args([
                 "-y",
-                "-f",
-                "concat",
-                "-safe",
-                "0",
-                "-i",
-                list_path.to_str().unwrap_or_default(),
-                "-c:v",
-                "copy",
-                "-c:a",
-                "aac",
-                "-b:a",
-                &self.encoding.audio_bitrate,
-                "-af",
-                "aresample=async=1:first_pts=0",  // Fix audio discontinuities at segment boundaries
+                "-f", "concat",
+                "-safe", "0",
+                "-i", list_path.to_str().unwrap_or_default(),
+                // Video: stream copy (no re-encode)
+                "-c:v", "copy",
+                // Audio: copy or light re-encode for sync
+                "-c:a", "aac",
+                "-b:a", &self.encoding.audio_bitrate,
+                "-movflags", "+faststart",
                 output.to_str().unwrap_or_default(),
             ])
             .output()

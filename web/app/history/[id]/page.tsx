@@ -223,6 +223,7 @@ export default function HistoryDetailPage() {
           style: parsed.style,
           thumbnailUrl: clip.thumbnail ?? "",
           videoUrl: clip.direct_url ?? clip.url,
+          size: clip.size,
           clipName: clip.name,
           directUrl: clip.direct_url,
           title: clip.title,

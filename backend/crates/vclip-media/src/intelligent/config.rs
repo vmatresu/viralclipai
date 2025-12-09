@@ -156,9 +156,10 @@ impl Default for IntelligentCropConfig {
             // Fallback
             fallback_policy: FallbackPolicy::UpperCenter,
 
-            // Rendering
-            render_preset: "veryfast".to_string(),
-            render_crf: 20,
+            // Rendering - use CRF 24 to match EncodingConfig::for_split_view()
+            // and keep file sizes reasonable (~4-6MB for 30s clip)
+            render_preset: "fast".to_string(),
+            render_crf: 24,
 
             // Face Activity Detection
             enable_mouth_detection: true,

@@ -41,15 +41,18 @@ impl StackingConfig {
     /// Build the FFmpeg filter for normalizing and stacking two inputs.
     ///
     /// Each input is:
+    /// - Timestamps normalized with setpts=PTS-STARTPTS to avoid discontinuities
     /// - Scaled to fit within the panel dimensions (maintaining aspect ratio)
     /// - Padded to exactly the panel dimensions (centered)
     /// - Set to square pixels (SAR 1:1)
     /// - Converted to yuv420p pixel format
     fn build_vstack_filter(&self) -> String {
+        // Key fix: setpts=PTS-STARTPTS resets timestamps to prevent PTS discontinuities
+        // that cause the "garbled flash" artifact at layout transitions
         format!(
-            "[0:v]scale={w}:{h}:force_original_aspect_ratio=decrease,\
+            "[0:v]setpts=PTS-STARTPTS,scale={w}:{h}:force_original_aspect_ratio=decrease,\
              pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[top];\
-             [1:v]scale={w}:{h}:force_original_aspect_ratio=decrease,\
+             [1:v]setpts=PTS-STARTPTS,scale={w}:{h}:force_original_aspect_ratio=decrease,\
              pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[bottom];\
              [top][bottom]vstack=inputs=2[vout]",
             w = self.panel_width,

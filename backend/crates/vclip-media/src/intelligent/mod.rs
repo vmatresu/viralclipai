@@ -49,8 +49,10 @@
 pub mod activity_scorer;
 pub mod camera_constraints;
 pub mod config;
+pub mod continuous_renderer;
 pub mod crop_planner;
 pub mod detector;
+pub mod enhanced_smoother;
 pub mod face_activity;
 pub mod face_mesh;
 pub mod face_landmarks;
@@ -93,6 +95,8 @@ pub use tier_aware_split::{create_tier_aware_split_clip, TierAwareSplitProcessor
 pub use tracker::IoUTracker;
 pub use visual_activity_cropper::{create_visual_activity_clip, VisualActivityCropper};
 pub use visual_activity_split::{create_visual_activity_split_clip, VisualActivitySplitProcessor};
+pub use enhanced_smoother::{EnhancedCameraSmoother, SmoothingPreset};
+pub use continuous_renderer::{ContinuousRenderer, LayoutSpan, LayoutType};
 
 use crate::error::MediaResult;
 use crate::probe::probe_video;

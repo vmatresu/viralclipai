@@ -56,6 +56,7 @@ export type HistoryClip = {
   clipName?: string;
   directUrl?: string | null;
   title?: string;
+  size?: string;
 };
 
 export type SceneGroup = {
@@ -319,34 +320,34 @@ function HistorySceneItem({
         value={`scene-${scene.sceneId}`}
         className="rounded-lg border bg-muted/30 px-3"
       >
-        <AccordionTrigger className="py-3">
-          <div className="flex w-full items-start gap-4">
-            <div className="flex-1 space-y-2 text-left">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline">Scene {index + 1}</Badge>
-                <span className="text-sm text-muted-foreground">
-                  {formatRange(scene)}
-                </span>
-                <Badge variant="secondary">{styles.length} styles</Badge>
+        <div className="flex items-start gap-2 py-3">
+          <AccordionTrigger className="flex-1 py-0">
+            <div className="flex w-full items-start gap-4">
+              <div className="flex-1 space-y-2 text-left">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline">Scene {index + 1}</Badge>
+                  <span className="text-sm text-muted-foreground">
+                    {formatRange(scene)}
+                  </span>
+                  <Badge variant="secondary">{styles.length} styles</Badge>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-semibold text-base leading-tight flex-1">
+                    {scene.sceneTitle}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {tierSummaries.map((tier) => (
+                    <Badge
+                      key={tier.color}
+                      className={cn("border", getTierBadgeClasses(tier.color))}
+                      variant="outline"
+                    >
+                      {tier.label}
+                    </Badge>
+                  ))}
+                </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="font-semibold text-base leading-tight flex-1">
-                  {scene.sceneTitle}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {tierSummaries.map((tier) => (
-                  <Badge
-                    key={tier.color}
-                    className={cn("border", getTierBadgeClasses(tier.color))}
-                    variant="outline"
-                  >
-                    {tier.label}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-            <div className="flex items-start gap-2">
               {firstThumbnail ? (
                 <div className="hidden sm:block">
                   <img
@@ -356,21 +357,21 @@ function HistorySceneItem({
                   />
                 </div>
               ) : null}
-              {onDeleteScene ? (
-                <DialogTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-destructive hover:text-destructive"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </DialogTrigger>
-              ) : null}
             </div>
-          </div>
-        </AccordionTrigger>
+          </AccordionTrigger>
+          {onDeleteScene ? (
+            <DialogTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-destructive hover:text-destructive"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </DialogTrigger>
+          ) : null}
+        </div>
         <AccordionContent>
           <div className="rounded-lg border bg-background/60 p-4 shadow-sm">
             <Tabs value={activeStyle} onValueChange={setActiveStyle}>
@@ -429,6 +430,7 @@ function HistorySceneItem({
                             </span>
                             <span>• Scene {index + 1}</span>
                             <span>• {formatRange(scene)}</span>
+                            {clip.size ? <span>• {clip.size}</span> : null}
                           </div>
                           <div className="flex flex-wrap gap-2">
                             <ActionButton
