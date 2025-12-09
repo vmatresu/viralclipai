@@ -47,6 +47,7 @@
 //! ```
 
 pub mod activity_scorer;
+pub mod activity_split;
 pub mod camera_constraints;
 pub mod config;
 pub mod continuous_renderer;
@@ -65,8 +66,9 @@ pub mod segment_analysis;
 pub mod single_pass_renderer;
 pub mod smoother;
 pub mod smoothing_utils;
-pub mod stacking;
 pub mod split;
+pub mod split_evaluator;
+pub mod stacking;
 pub mod tier_aware_cropper;
 pub mod tier_aware_smoother;
 pub mod tier_aware_split;

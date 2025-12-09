@@ -32,6 +32,7 @@ pub async fn create_activity_split_clip<P, F>(
     input: P,
     output: P,
     task: &ClipTask,
+    tier: vclip_models::DetectionTier,
     encoding: &EncodingConfig,
     _progress_callback: F,
 ) -> MediaResult<()>
@@ -72,9 +73,27 @@ where
         0.125
     };
     let detector = FaceDetector::new(config.clone());
-    let mut detections = detector
-        .detect_in_video(&segment_path, 0.0, duration, width, height, fps)
-        .await?;
+    
+    // Tier-based detection dispatch
+    let mut detections = match tier {
+        vclip_models::DetectionTier::SpeakerAware => {
+            info!("Smart Split (Activity): Using SpeakerAware pipeline (face+mouth)");
+            let pipeline = crate::detection::pipeline_builder::PipelineBuilder::for_tier(
+                vclip_models::DetectionTier::SpeakerAware
+            ).build()?;
+            let res = pipeline.analyze(&segment_path, 0.0, duration).await?;
+            // Convert AnalysisFrame to pure Detections
+            res.frames.iter().map(|f| f.faces.clone()).collect()
+        }
+        vclip_models::DetectionTier::MotionAware => {
+            info!("Smart Split (Activity): Using MotionAware pipeline");
+            detector.detect_motion_tracks(&segment_path, 0.0, duration, width, height).await?
+        }
+        _ => {
+            info!("Smart Split (Activity): Using Basic pipeline (YuNet)");
+            detector.detect_in_video(&segment_path, 0.0, duration, width, height, fps).await?
+        }
+    };
 
     // Log face detection statistics for debugging
     let max_faces_per_frame = detections.iter().map(|f| f.len()).max().unwrap_or(0);
@@ -116,7 +135,7 @@ where
             }
             Ok(_) => {
                 info!("Smart Split (Activity): planner returned no spans; using motion fallback");
-                (detections, spans) = motion_fallback(
+                let (fallback_dets, fallback_spans) = motion_fallback(
                     &detector,
                     &segment_path,
                     duration,
@@ -124,13 +143,15 @@ where
                     height,
                 )
                 .await?;
+                detections = fallback_dets;
+                spans = fallback_spans;
             }
             Err(MediaError::DetectionFailed(msg)) => {
                 info!(
                     "Smart Split (Activity): planner could not determine layout ({}); using motion fallback",
                     msg
                 );
-                (detections, spans) = motion_fallback(
+                let (fallback_dets, fallback_spans) = motion_fallback(
                     &detector,
                     &segment_path,
                     duration,
@@ -138,11 +159,21 @@ where
                     height,
                 )
                 .await?;
+                detections = fallback_dets;
+                spans = fallback_spans;
             }
             Err(e) => return Err(e),
         }
     } else {
-        (detections, spans) = motion_fallback(&detector, &segment_path, duration, width, height).await?;
+        // Fallback for when timeline build fails but we have detections (e.g. strict checks didn't pass)
+        // or just no timeline logic could run.
+        let (fallback_dets, fallback_spans) = motion_fallback(&detector, &segment_path, duration, width, height).await?;
+        // If we already have detections from the main pass, we might prefer them involved in fallback logic,
+        // but motion_fallback computes fresh motion tracks. 
+        // If we are in SpeakerAware/Basic, we want to try to keep those detections if possible, but
+        // motion fallback implies explicit fallback to motion sensing.
+        detections = fallback_dets;
+        spans = fallback_spans;
     }
 
     let renderer = ActivitySplitRenderer::new(

@@ -21,6 +21,7 @@ use crate::clip::extract_segment;
 use crate::detection::pipeline_builder::PipelineBuilder;
 use crate::error::MediaResult;
 use crate::intelligent::Detection;
+use crate::intelligent::split_evaluator::SplitEvaluator;
 use crate::probe::probe_video;
 use crate::thumbnail::generate_thumbnail;
 
@@ -351,7 +352,8 @@ impl TierAwareSplitProcessor {
             ));
         }
         let frames: Vec<Vec<Detection>> = result.frames.iter().map(|f| f.faces.clone()).collect();
-        let split_eval = Self::evaluate_speaker_split(&frames, width, height, duration);
+
+        let split_eval = SplitEvaluator::evaluate_speaker_split(&frames, width, height, duration);
 
         if split_eval.is_none() {
             tracing::info!(
@@ -457,75 +459,6 @@ impl TierAwareSplitProcessor {
 
         info!("[SPEAKER_SPLIT] Single-pass encoding complete");
         Ok(())
-    }
-
-    /// Evaluate whether we should enter split mode and return per-side boxes.
-    fn evaluate_speaker_split(
-        frames: &[Vec<Detection>],
-        width: u32,
-        height: u32,
-        _duration: f64,
-    ) -> Option<(BoundingBox, BoundingBox)> {
-        const MARGIN: f64 = 0.25;
-
-        if frames.is_empty() {
-            return None;
-        }
-
-        let dual_frames = frames
-            .iter()
-            .filter(|f| f.iter().filter(|d| d.score > 0.45).count() >= 2)
-            .count();
-        if dual_frames < 3 || dual_frames * 2 < frames.len() {
-            tracing::info!(
-                dual_frames,
-                total_frames = frames.len(),
-                "Speaker-aware split: insufficient dual activity, keeping single view"
-            );
-            return None;
-        }
-
-        use std::collections::HashMap;
-        // Aggregate boxes per track, then deterministically map by center_x:
-        // leftmost -> top panel, rightmost -> bottom panel.
-        let mut track_boxes: HashMap<u32, Vec<BoundingBox>> = HashMap::new();
-        for frame in frames {
-            for det in frame {
-                track_boxes.entry(det.track_id).or_default().push(det.bbox);
-            }
-        }
-
-        if track_boxes.len() < 2 {
-            return None;
-        }
-
-        let mut tracks: Vec<(u32, BoundingBox)> = track_boxes
-            .iter()
-            .filter_map(|(id, boxes)| BoundingBox::union(boxes).map(|b| (*id, b)))
-            .collect();
-
-        if tracks.len() < 2 {
-            return None;
-        }
-
-        tracks.sort_by(|a, b| {
-            a.1
-                .cx()
-                .partial_cmp(&b.1.cx())
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        let left_union = tracks[0].1;
-        let right_union = tracks[1].1;
-
-        let expand = |b: BoundingBox| {
-            let pad = (b.width.max(b.height)) * MARGIN;
-            b.pad(pad)
-        };
-        let left_box = expand(left_union).clamp(width, height);
-        let right_box = expand(right_union).clamp(width, height);
-
-        Some((left_box, right_box))
     }
 
     /// Compute vertical bias from detected faces.
@@ -669,82 +602,4 @@ mod tests {
         assert!((bias - 0.15).abs() < 0.01, "Empty faces should use default bias");
     }
 
-    #[test]
-    fn test_evaluate_speaker_split_two_speakers_triggers_split() {
-        let width = 1920;
-        let height = 1080;
-        let frames = vec![vec![
-            Detection::with_mouth(
-                0.0,
-                BoundingBox::new(200.0, 200.0, 200.0, 200.0),
-                0.9,
-                1,
-                Some(0.8),
-            ),
-            Detection::with_mouth(
-                0.0,
-                BoundingBox::new(1400.0, 220.0, 200.0, 200.0),
-                0.9,
-                2,
-                Some(0.8),
-            ),
-        ]];
-
-        let res = TierAwareSplitProcessor::evaluate_speaker_split(&frames, width, height, 0.5);
-        assert!(res.is_some(), "Should split when both are talking");
-        let (left_box, right_box) = res.unwrap();
-        assert!(left_box.cx() < right_box.cx());
-    }
-
-    #[test]
-    fn test_speaker_split_left_top_right_bottom_invariant() {
-        let width = 1920;
-        let height = 1080;
-        let frames = vec![vec![
-            Detection::with_mouth(
-                0.0,
-                BoundingBox::new(100.0, 200.0, 150.0, 150.0),
-                0.9,
-                1,
-                Some(0.01),
-            ),
-            Detection::with_mouth(
-                0.0,
-                BoundingBox::new(1400.0, 220.0, 150.0, 150.0),
-                0.9,
-                2,
-                Some(0.2),
-            ),
-        ]];
-
-        let res = TierAwareSplitProcessor::evaluate_speaker_split(&frames, width, height, 0.5);
-        assert!(res.is_some(), "Should enter split mode with two faces");
-        let (left_box, right_box) = res.unwrap();
-        assert!(left_box.cx() < right_box.cx(), "Left face should map to top panel");
-    }
-
-    #[test]
-    fn test_evaluate_speaker_split_two_speakers_even_when_quiet() {
-        let width = 1920;
-        let height = 1080;
-        let frames = vec![vec![
-            Detection::with_mouth(
-                0.0,
-                BoundingBox::new(200.0, 200.0, 200.0, 200.0),
-                0.9,
-                1,
-                Some(0.1),
-            ),
-            Detection::with_mouth(
-                0.0,
-                BoundingBox::new(1400.0, 220.0, 200.0, 200.0),
-                0.9,
-                2,
-                Some(0.1),
-            ),
-        ]];
-
-        let res = TierAwareSplitProcessor::evaluate_speaker_split(&frames, width, height, 0.5);
-        assert!(res.is_some(), "Should still map two speakers visually");
-    }
 }

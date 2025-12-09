@@ -24,6 +24,7 @@ pub mod right_focus;
 pub mod center_focus;
 pub mod intelligent;
 pub mod intelligent_split;
+pub mod intelligent_split_activity;
 
 /// Factory for creating style processors.
 /// Implements dependency injection for testing and flexibility.
@@ -67,6 +68,11 @@ impl StyleProcessorFactoryTrait for StyleProcessorFactory {
             | Style::IntelligentSplitSpeaker
             | Style::IntelligentSplitMotion => Ok(Box::new(
                 intelligent_split::IntelligentSplitProcessor::with_tier(style.detection_tier()),
+            )),
+            
+            // Intelligent activity-based split
+            Style::IntelligentSplitActivity => Ok(Box::new(
+                intelligent_split_activity::IntelligentSplitActivityProcessor::new(style.detection_tier()),
             )),
         }
     }

@@ -61,7 +61,8 @@ pub fn build_video_filter(style: Style) -> Option<String> {
         | Style::IntelligentSpeaker
         | Style::IntelligentSplitSpeaker
         | Style::IntelligentMotion
-        | Style::IntelligentSplitMotion => None,
+        | Style::IntelligentSplitMotion
+        | Style::IntelligentSplitActivity => None,
     }
 }
 

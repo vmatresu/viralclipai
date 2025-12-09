@@ -53,7 +53,7 @@ pub struct LayoutPlannerConfig {
 impl Default for LayoutPlannerConfig {
     fn default() -> Self {
         Self {
-            min_secondary_ratio: 0.35,  // 35% of primary activity
+            min_secondary_ratio: 0.1,   // Relaxed: if 2nd speaker has 10% of primary's activity (and > absolute min), show split
             layout_hold: 0.6,           // 600ms hold time
             min_active_score: 0.05,
             secondary_switch_margin: 0.08,
@@ -161,7 +161,7 @@ impl LayoutPlanner {
 
             // Update tracker with raw scores
             for (track_id, raw) in &frame.raw_activity {
-                tracker.update_activity(*track_id, *raw, 0.0, frame.time);
+                tracker.update_activity(*track_id, *raw, frame.time);
             }
 
             smoothed_scores.clear();
@@ -233,7 +233,10 @@ impl LayoutPlanner {
             // Decide desired layout
             let desired_layout = match (primary, secondary) {
                 (Some(p), Some(s))
-                    if secondary_score >= best_score * self.config.min_secondary_ratio
+                    // Split if secondary is active (above min threshold) AND satisfies minimal ratio check
+                    // We prioritize "2+ active speakers" rule.
+                    if secondary_score >= self.config.min_active_score
+                        && secondary_score >= best_score * self.config.min_secondary_ratio
                         && frame.time - secondary_since >= self.config.layout_hold =>
                 {
                     debug!(primary = p, secondary = s, "Choosing Split layout");

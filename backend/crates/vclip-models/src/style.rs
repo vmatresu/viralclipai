@@ -40,6 +40,8 @@ pub enum Style {
     IntelligentMotion,
     /// Intelligent split - visual motion heuristic (no NN)
     IntelligentSplitMotion,
+    /// Intelligent split - dynamic activity-based split (2+ speakers = split)
+    IntelligentSplitActivity,
 }
 
 impl Style {
@@ -57,6 +59,7 @@ impl Style {
         Style::IntelligentSplitSpeaker,
         Style::IntelligentMotion,
         Style::IntelligentSplitMotion,
+        Style::IntelligentSplitActivity,
     ];
 
     /// Styles included when user requests "all".
@@ -112,6 +115,7 @@ impl Style {
             Style::IntelligentSplitSpeaker => "intelligent_split_speaker",
             Style::IntelligentMotion => "intelligent_motion",
             Style::IntelligentSplitMotion => "intelligent_split_motion",
+            Style::IntelligentSplitActivity => "intelligent_split_activity",
         }
     }
 
@@ -125,6 +129,7 @@ impl Style {
                 | Style::IntelligentSplitSpeaker
                 | Style::IntelligentMotion
                 | Style::IntelligentSplitMotion
+                | Style::IntelligentSplitActivity
         )
     }
 
@@ -140,6 +145,10 @@ impl Style {
             Style::Intelligent | Style::IntelligentSplit => DetectionTier::Basic,
             Style::IntelligentSpeaker | Style::IntelligentSplitSpeaker => DetectionTier::SpeakerAware,
             Style::IntelligentMotion | Style::IntelligentSplitMotion => DetectionTier::MotionAware,
+            // Activity split works across tiers but usually requires at least Basic or SpeakerAware signals. 
+            // The tier is typically injected or determined at runtime, but here we can default to SpeakerAware 
+            // as it relies on activity signals.
+            Style::IntelligentSplitActivity => DetectionTier::SpeakerAware,
         }
     }
 
@@ -159,6 +168,7 @@ impl Style {
                 | Style::IntelligentSplit
                 | Style::IntelligentSplitSpeaker
                 | Style::IntelligentSplitMotion
+                | Style::IntelligentSplitActivity
         )
     }
 
@@ -191,6 +201,7 @@ impl FromStr for Style {
             "intelligent_split_speaker" => Ok(Style::IntelligentSplitSpeaker),
             "intelligent_motion" => Ok(Style::IntelligentMotion),
             "intelligent_split_motion" => Ok(Style::IntelligentSplitMotion),
+            "intelligent_split_activity" => Ok(Style::IntelligentSplitActivity),
             _ => Err(StyleParseError(s.to_string())),
         }
     }

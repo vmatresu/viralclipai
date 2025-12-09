@@ -68,7 +68,8 @@ impl ActivityAnalyzer {
                     (0.0, 0.0)
                 };
 
-                let raw_score = self.combine_scores(motion_score, size_score);
+                let mouth_score = det.mouth_openness.unwrap_or(0.0);
+                let raw_score = self.combine_scores(motion_score, size_score, mouth_score);
                 scores.push((det.track_id, raw_score));
                 track_state.insert(det.track_id, (det.bbox, det.bbox.area()));
             }
@@ -111,16 +112,21 @@ impl ActivityAnalyzer {
         delta.clamp(0.0, 1.0)
     }
 
-    fn combine_scores(&self, motion: f64, size: f64) -> f64 {
+    fn combine_scores(&self, motion: f64, size: f64, mouth: f64) -> f64 {
         let weight_motion = self.config.activity_weight_motion.max(0.0);
         let weight_size = self.config.activity_weight_size_change.max(0.0);
+        
+        // Prioritize mouth movement (visual speech) when available.
+        // This ensures active speakers are correctly identified even with minimal head motion.
+        const MOUTH_ACTIVITY_WEIGHT: f64 = 2.0;
+        let weight_mouth = MOUTH_ACTIVITY_WEIGHT;
 
-        let total = weight_motion + weight_size;
+        let total = weight_motion + weight_size + weight_mouth;
         if total <= 0.0 {
             return 0.0;
         }
 
-        ((motion * weight_motion) + (size * weight_size)) / total
+        ((motion * weight_motion) + (size * weight_size) + (mouth * weight_mouth)) / total
     }
 }
 

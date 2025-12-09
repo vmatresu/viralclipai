@@ -10,12 +10,10 @@ use tempfile::TempDir;
 use tokio::process::Command;
 
 use super::layout_planner::{LayoutMode, LayoutSpan};
-use crate::command::{FfmpegCommand, FfmpegRunner};
 use crate::error::{MediaError, MediaResult};
 use crate::intelligent::config::IntelligentCropConfig;
 use crate::intelligent::crop_planner::CropPlanner;
 use crate::intelligent::models::{AspectRatio, CropWindow, Detection, FrameDetections};
-use crate::intelligent::renderer::IntelligentRenderer;
 use crate::intelligent::single_pass_renderer::SinglePassRenderer;
 use crate::intelligent::smoother::CameraSmoother;
 use tracing::info;
@@ -78,14 +76,22 @@ impl ActivitySplitRenderer {
             
             match span.layout {
                 LayoutMode::Full { primary } => {
-                    info!(primary = primary, "Rendering Full layout span");
+                    info!(primary = primary, "Rendering Full layout span with SINGLE-PASS");
                     let windows = self.track_windows(detections, primary, span, AspectRatio::PORTRAIT)?;
-                    let raw_out = temp_dir.path().join(format!("full_raw_{idx}.mp4"));
-                    let renderer = IntelligentRenderer::new(self.config.clone());
+                    
+                    // Use SinglePassRenderer to render directly to target size (1080x1920)
+                    // This combines crop, scale and PAD/SAR in one pass
+                    
+                    // Extract span source first (stream copy)
+                    let span_duration = span.end - span.start;
+                    let span_segment = temp_dir.path().join(format!("span_segment_full_{idx}.mp4"));
+                    
+                    self.extract_span_source(segment, &span_segment, span.start, span_duration).await?;
+                    
+                    let renderer = SinglePassRenderer::new(self.config.clone());
                     renderer
-                        .render(segment, &raw_out, &windows, span.start, span.end - span.start)
+                        .render_full(&span_segment, &target_path, &windows, &self.encoding)
                         .await?;
-                    self.scale_to_portrait(&raw_out, &target_path).await?;
                 }
                 LayoutMode::Split { primary, secondary } => {
                     info!(primary = primary, secondary = secondary, "Rendering Split layout span with SINGLE-PASS");
@@ -95,27 +101,7 @@ impl ActivitySplitRenderer {
                     let span_duration = span.end - span.start;
                     let span_segment = temp_dir.path().join(format!("span_segment_{idx}.mp4"));
                     
-                    // Extract just this span's time range
-                    let mut extract_cmd = Command::new("ffmpeg");
-                    extract_cmd.args([
-                        "-y",
-                        "-hide_banner",
-                        "-loglevel", "error",
-                        "-ss", &format!("{:.3}", span.start),
-                        "-i", segment.to_str().unwrap_or(""),
-                        "-t", &format!("{:.3}", span_duration),
-                        "-c", "copy",
-                        span_segment.to_str().unwrap_or(""),
-                    ]);
-                    
-                    let extract_result = extract_cmd.output().await?;
-                    if !extract_result.status.success() {
-                        return Err(MediaError::ffmpeg_failed(
-                            "Failed to extract span segment",
-                            Some(String::from_utf8_lossy(&extract_result.stderr).to_string()),
-                            extract_result.status.code(),
-                        ));
-                    }
+                    self.extract_span_source(segment, &span_segment, span.start, span_duration).await?;
                     
                     // Use SinglePassRenderer for split (SINGLE ENCODE instead of 3)
                     let renderer = SinglePassRenderer::new(self.config.clone());
@@ -246,51 +232,34 @@ impl ActivitySplitRenderer {
         Ok(filled_frames)
     }
 
-    /// Scale to portrait dimensions if needed, or just copy if already correct size.
-    ///
-    /// Avoids unnecessary re-encoding when input is already 1080x1920.
-    async fn scale_to_portrait(&self, input: &Path, output: &Path) -> MediaResult<()> {
-        // Check if input is already the target size to avoid re-encoding
-        let probe = crate::probe::probe_video(input).await?;
+    async fn extract_span_source(
+        &self,
+        full_source: &Path,
+        output: &Path,
+        start: f64,
+        duration: f64,
+    ) -> MediaResult<()> {
+        let mut extract_cmd = Command::new("ffmpeg");
+        extract_cmd.args([
+            "-y",
+            "-hide_banner",
+            "-loglevel", "error",
+            "-ss", &format!("{:.3}", start),
+            "-i", full_source.to_str().unwrap_or(""),
+            "-t", &format!("{:.3}", duration),
+            "-c", "copy",
+            output.to_str().unwrap_or(""),
+        ]);
         
-        if probe.width == 1080 && probe.height == 1920 {
-            // Already correct size - just copy with timestamp normalization
-            // Use stream copy to avoid quality loss and keep file size small
-            let status = Command::new("ffmpeg")
-                .args([
-                    "-y",
-                    "-i", input.to_str().unwrap_or_default(),
-                    // Normalize timestamps without re-encoding
-                    "-c:v", "copy",
-                    "-c:a", "copy",
-                    "-movflags", "+faststart",
-                    output.to_str().unwrap_or_default(),
-                ])
-                .output()
-                .await
-                .map_err(|e| MediaError::ffmpeg_failed(format!("Copy failed: {}", e), None, None))?;
-            
-            if !status.status.success() {
-                return Err(MediaError::ffmpeg_failed(
-                    "Stream copy failed",
-                    Some(String::from_utf8_lossy(&status.stderr).to_string()),
-                    status.status.code(),
-                ));
-            }
-            return Ok(());
+        let extract_result = extract_cmd.output().await?;
+        if !extract_result.status.success() {
+            return Err(MediaError::ffmpeg_failed(
+                "Failed to extract span segment",
+                Some(String::from_utf8_lossy(&extract_result.stderr).to_string()),
+                extract_result.status.code(),
+            ));
         }
-
-        // Need to scale - re-encode with timestamp normalization
-        let vf = "setpts=PTS-STARTPTS,scale=1080:1920:flags=lanczos,setsar=1";
-        let cmd = FfmpegCommand::new(input, output)
-            .video_filter(vf)
-            .video_codec(&self.encoding.codec)
-            .preset(&self.encoding.preset)
-            .crf(self.encoding.crf)
-            .audio_codec("aac")
-            .audio_bitrate(&self.encoding.audio_bitrate);
-
-        FfmpegRunner::new().run(&cmd).await
+        Ok(())
     }
 
     /// Concatenate segments using stream copy.
