@@ -112,15 +112,15 @@ export function OverwriteConfirmationDialog({
             Overwrite existing clips?
           </DialogTitle>
           <DialogDescription className="space-y-2">
-            <p>
+            <div>
               You selected styles that already have generated clips. Continuing will{" "}
               <span className="font-semibold text-destructive">overwrite</span> those
               files in storage. Metadata will also be refreshed.
-            </p>
-            <p className="text-muted-foreground">
+            </div>
+            <div className="text-muted-foreground">
               Review what will be overwritten and what will be created new before
               proceeding.
-            </p>
+            </div>
           </DialogDescription>
         </DialogHeader>
 
