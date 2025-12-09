@@ -53,6 +53,7 @@ pub mod config;
 pub mod crop_planner;
 pub mod detector;
 pub mod face_activity;
+pub mod face_mesh;
 pub mod face_landmarks;
 pub mod fast_split;
 pub mod layout_detector;

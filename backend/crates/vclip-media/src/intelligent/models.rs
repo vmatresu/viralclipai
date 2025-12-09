@@ -154,6 +154,8 @@ pub struct Detection {
     pub score: f64,
     /// Track ID for identity persistence
     pub track_id: u32,
+    /// Optional mouth openness score from face mesh (SpeakerAware tiers)
+    pub mouth_openness: Option<f64>,
 }
 
 impl Detection {
@@ -164,6 +166,24 @@ impl Detection {
             bbox,
             score,
             track_id,
+            mouth_openness: None,
+        }
+    }
+
+    /// Create with mouth openness.
+    pub fn with_mouth(
+        time: f64,
+        bbox: BoundingBox,
+        score: f64,
+        track_id: u32,
+        mouth_openness: Option<f64>,
+    ) -> Self {
+        Self {
+            time,
+            bbox,
+            score,
+            track_id,
+            mouth_openness,
         }
     }
 }

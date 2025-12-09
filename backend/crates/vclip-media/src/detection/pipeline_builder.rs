@@ -16,7 +16,11 @@ use super::providers::{
     VisualFaceActivityProvider, YuNetFaceProvider,
 };
 use crate::error::MediaResult;
-use crate::intelligent::SpeakerDetector;
+use crate::intelligent::{IntelligentCropConfig, IoUTracker, SpeakerDetector};
+use crate::intelligent::face_mesh::{FaceDetailAnalyzer, OrtFaceMeshAnalyzer};
+use crate::intelligent::models::Detection;
+use crate::intelligent::models::BoundingBox;
+use crate::intelligent::yunet::YuNetDetector;
 use crate::probe::probe_video;
 
 /// Builder for creating detection pipelines based on tier.
@@ -288,16 +292,21 @@ struct SpeakerAwarePipeline {
     face_provider: YuNetFaceProvider,
     audio_provider: StandardAudioProvider,
     face_activity_provider: Arc<std::sync::Mutex<VisualFaceActivityProvider>>,
+    face_analyzer: Option<Arc<dyn FaceDetailAnalyzer + Send + Sync>>,
 }
 
 impl SpeakerAwarePipeline {
     fn new() -> Self {
+        // Face mesh analyzer is optional; if model missing we still run.
+        let face_analyzer = OrtFaceMeshAnalyzer::new_default().ok().map(|a| Arc::new(a) as _);
+
         Self {
             face_provider: YuNetFaceProvider::new(),
             audio_provider: StandardAudioProvider::new(),
             face_activity_provider: Arc::new(std::sync::Mutex::new(
                 VisualFaceActivityProvider::new(),
             )),
+            face_analyzer,
         }
     }
 }
@@ -321,11 +330,14 @@ impl DetectionPipeline for SpeakerAwarePipeline {
             width, height, fps, duration
         );
 
-        // Detect faces
-        let face_detections = self
-            .face_provider
-            .detect_faces(video_path, start_time, end_time, width, height, fps)
-            .await?;
+        // Prefer YuNet + FaceMesh refinement when OpenCV is available.
+        let face_detections = if cfg!(feature = "opencv") {
+            self.detect_with_face_mesh(video_path, start_time, end_time, width, height)?
+        } else {
+            self.face_provider
+                .detect_faces(video_path, start_time, end_time, width, height, fps)
+                .await?
+        };
 
         // Detect speaker activity
         let speaker_segments = self
@@ -396,6 +408,118 @@ impl DetectionPipeline for SpeakerAwarePipeline {
     fn name(&self) -> &'static str {
         "speaker_aware"
     }
+}
+
+impl SpeakerAwarePipeline {
+    #[cfg(feature = "opencv")]
+    fn detect_with_face_mesh(
+        &self,
+        video_path: &Path,
+        start_time: f64,
+        end_time: f64,
+        width: u32,
+        height: u32,
+    ) -> MediaResult<Vec<Vec<Detection>>> {
+        use opencv::prelude::{MatTraitConst, VideoCaptureTrait, VideoCaptureTraitConst};
+        use opencv::videoio::{VideoCapture, CAP_ANY, CAP_PROP_POS_MSEC};
+
+        let config = IntelligentCropConfig::default();
+        let sample_interval = 1.0 / config.fps_sample;
+        let num_samples = ((end_time - start_time) / sample_interval).ceil() as usize;
+
+        let mut cap = VideoCapture::from_file(video_path.to_str().unwrap_or(""), CAP_ANY)
+            .map_err(|e| crate::error::MediaError::detection_failed(format!("Open video: {e}")))?;
+        if !cap.is_opened().unwrap_or(false) {
+            return Err(crate::error::MediaError::detection_failed(
+                "Failed to open video for face mesh analysis",
+            ));
+        }
+
+        let mut detector = YuNetDetector::new(width, height)?;
+        let mut tracker = IoUTracker::new(config.iou_threshold, config.max_track_gap);
+
+        let mut all = Vec::with_capacity(num_samples);
+        let mut current_time = start_time;
+
+        for _ in 0..num_samples {
+            cap.set(CAP_PROP_POS_MSEC, current_time * 1000.0)
+                .map_err(|e| crate::error::MediaError::detection_failed(format!("Seek: {e}")))?;
+
+            let mut frame = opencv::core::Mat::default();
+            if !cap.read(&mut frame).map_err(|e| crate::error::MediaError::detection_failed(format!("Read: {e}")))? {
+                all.push(Vec::new());
+                current_time += sample_interval;
+                continue;
+            }
+            if frame.empty() {
+                all.push(Vec::new());
+                current_time += sample_interval;
+                continue;
+            }
+
+            let dets = detector.detect_in_frame(&frame)?;
+            let tracker_input: Vec<(BoundingBox, f64)> = dets
+                .into_iter()
+                .filter(|(bbox, _)| {
+                    let area_ratio = bbox.area() / (width as f64 * height as f64);
+                    area_ratio >= config.min_face_size
+                })
+                .collect();
+
+            let tracked = tracker.update(&tracker_input);
+
+            let mut frame_dets = Vec::with_capacity(tracked.len());
+            for (track_id, bbox, score) in tracked {
+                let mouth = if let Some(analyzer) = &self.face_analyzer {
+                    if score >= config.min_detection_confidence {
+                        bbox_to_rect(&bbox, width, height)
+                            .ok()
+                            .and_then(|r| analyzer.analyze(&frame, &r).ok())
+                            .map(|res| res.mouth_openness as f64)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                frame_dets.push(Detection::with_mouth(
+                    current_time,
+                    bbox,
+                    score,
+                    track_id,
+                    mouth,
+                ));
+            }
+
+            all.push(frame_dets);
+            current_time += sample_interval;
+        }
+
+        Ok(all)
+    }
+
+    #[cfg(not(feature = "opencv"))]
+    fn detect_with_face_mesh(
+        &self,
+        _video_path: &Path,
+        _start_time: f64,
+        _end_time: f64,
+        _width: u32,
+        _height: u32,
+    ) -> MediaResult<Vec<Vec<Detection>>> {
+        Err(crate::error::MediaError::detection_failed(
+            "OpenCV not available for face mesh detection",
+        ))
+    }
+}
+
+#[cfg(feature = "opencv")]
+fn bbox_to_rect(b: &BoundingBox, frame_w: u32, frame_h: u32) -> MediaResult<opencv::core::Rect> {
+    let x = b.x.max(0.0).min(frame_w as f64 - 1.0) as i32;
+    let y = b.y.max(0.0).min(frame_h as f64 - 1.0) as i32;
+    let w = b.width.max(1.0).min(frame_w as f64 - b.x).round() as i32;
+    let h = b.height.max(1.0).min(frame_h as f64 - b.y).round() as i32;
+    Ok(opencv::core::Rect::new(x, y, w, h))
 }
 
 #[cfg(test)]

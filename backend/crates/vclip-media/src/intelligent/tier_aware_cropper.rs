@@ -17,6 +17,7 @@ use vclip_models::{ClipTask, DetectionTier, EncodingConfig};
 use super::config::IntelligentCropConfig;
 use super::crop_planner::CropPlanner;
 use super::detector::FaceDetector;
+use crate::detection::pipeline_builder::PipelineBuilder;
 use super::models::AspectRatio;
 use super::renderer::IntelligentRenderer;
 use super::speaker_detector::SpeakerDetector;
@@ -89,35 +90,50 @@ impl TierAwareIntelligentCropper {
         let start_time = 0.0;
         let end_time = duration;
 
-        // 2. Detect faces
+        // 2. Detect faces (SpeakerAware uses face mesh pipeline)
         info!("Step 1/4: Detecting faces...");
-        let detections = self
-            .detector
-            .detect_in_video(input, start_time, end_time, width, height, fps)
-            .await?;
+        let (detections, speaker_segments) = if self.tier == DetectionTier::SpeakerAware {
+            let pipeline = PipelineBuilder::for_tier(DetectionTier::SpeakerAware).build()?;
+            let res = pipeline
+                .analyze(input, start_time, end_time)
+                .await?;
+            let frames: Vec<_> = res.frames.iter().map(|f| f.faces.clone()).collect();
+            let segments = res.speaker_segments.unwrap_or_default();
+            (frames, segments)
+        } else {
+            let detections = self
+                .detector
+                .detect_in_video(input, start_time, end_time, width, height, fps)
+                .await?;
+
+            let total_detections: usize = detections.iter().map(|d| d.len()).sum();
+            info!("  Found {} face detections", total_detections);
+
+            // Speaker detection for AudioAware tiers only (SpeakerAware handled above)
+            let speaker_segments = if self.tier.uses_audio() {
+                info!("Step 2/4: Detecting speakers (tier: {:?})...", self.tier);
+                let segments = self
+                    .speaker_detector
+                    .detect_speakers(input, duration, width)
+                    .await?;
+                info!("  Found {} speaker segments", segments.len());
+                for seg in &segments {
+                    info!(
+                        "    {:.2}s - {:.2}s: {:?} (confidence: {:.2})",
+                        seg.start_time, seg.end_time, seg.speaker, seg.confidence
+                    );
+                }
+                segments
+            } else {
+                info!("Step 2/4: Skipping speaker detection (tier: {:?})", self.tier);
+                Vec::new()
+            };
+
+            (detections, speaker_segments)
+        };
 
         let total_detections: usize = detections.iter().map(|d| d.len()).sum();
         info!("  Found {} face detections", total_detections);
-
-        // 3. Speaker detection (for AudioAware and SpeakerAware tiers)
-        let speaker_segments = if self.tier.uses_audio() {
-            info!("Step 2/4: Detecting speakers (tier: {:?})...", self.tier);
-            let segments = self
-                .speaker_detector
-                .detect_speakers(input, duration, width)
-                .await?;
-            info!("  Found {} speaker segments", segments.len());
-            for seg in &segments {
-                info!(
-                    "    {:.2}s - {:.2}s: {:?} (confidence: {:.2})",
-                    seg.start_time, seg.end_time, seg.speaker, seg.confidence
-                );
-            }
-            segments
-        } else {
-            info!("Step 2/4: Skipping speaker detection (tier: {:?})", self.tier);
-            Vec::new()
-        };
 
         // 4. Compute camera plan with tier-aware smoother
         info!("Step 3/4: Computing tier-aware camera path...");

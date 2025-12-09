@@ -1,3 +1,17 @@
+## Face Detection and Face Mesh Models
+
+### YuNet face detector
+- Location (checked automatically): `backend/models/face_detection/yunet/face_detection_yunet_2023mar*.onnx`
+- If missing, run the existing YuNet download script or place the model under the path above.
+
+### MediaPipe Face Mesh (landmarks)
+- Expected path: `backend/models/face_mesh/face_landmark_with_attention.onnx`
+- The code resolves relative to `CARGO_MANIFEST_DIR`, so in Docker/runtime use `/app/backend/models/face_mesh/face_landmark_with_attention.onnx`.
+
+### Debug overlay for face activity
+- Set env var to enable debug renders of the face-mesh crop and lip landmarks:
+  - `DEBUG_RENDER_FACE_ACTIVITY=1`
+- Output: annotated frames are written to `/tmp/face_mesh_debug/` (crop box in blue, lip landmarks in green, mouth openness text). Useful for tuning thresholds without affecting production behavior.
 # Machine Learning Models Directory
 
 This directory contains pre-trained machine learning models used by ViralClip AI.

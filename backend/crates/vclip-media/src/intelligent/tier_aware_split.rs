@@ -17,6 +17,8 @@ use super::config::IntelligentCropConfig;
 use super::detector::FaceDetector;
 use super::models::BoundingBox;
 use super::speaker_detector::SpeakerDetector;
+use crate::detection::pipeline_builder::PipelineBuilder;
+use crate::intelligent::Detection;
 use crate::clip::extract_segment;
 use crate::command::{FfmpegCommand, FfmpegRunner};
 use crate::error::MediaResult;
@@ -80,7 +82,18 @@ impl TierAwareSplitProcessor {
             width, height, video_info.fps, duration
         );
 
-        // 2. Detect faces for positioning (AudioAware and SpeakerAware tiers)
+        // Speaker-aware split uses dedicated mouth-openness path.
+        if self.tier == DetectionTier::SpeakerAware {
+            if let Err(e) =
+                self.process_speaker_aware_split(segment, output, width, height, duration, encoding).await
+            {
+                tracing::warn!("Speaker-aware split failed, falling back to default split: {}", e);
+            } else {
+                return Ok(());
+            }
+        }
+
+        // 2. Detect faces for positioning (AudioAware tiers)
         let (left_vertical_bias, right_vertical_bias) = if self.tier.requires_yunet() {
             self.compute_face_aware_positioning(segment, width, height, duration).await
         } else {
@@ -172,6 +185,208 @@ impl TierAwareSplitProcessor {
                 (0.0, 0.15)
             }
         }
+    }
+
+    /// Speaker-aware split path with mouth-open activity and robust left/right mapping.
+    async fn process_speaker_aware_split(
+        &self,
+        segment: &Path,
+        output: &Path,
+        width: u32,
+        height: u32,
+        duration: f64,
+        encoding: &EncodingConfig,
+    ) -> MediaResult<()> {
+        let center_x = width as f64 / 2.0;
+        let pipeline = PipelineBuilder::for_tier(DetectionTier::SpeakerAware).build()?;
+        let result = pipeline.analyze(segment, 0.0, duration).await?;
+        if result.frames.is_empty() {
+            return Err(crate::error::MediaError::detection_failed(
+                "Speaker-aware pipeline returned no frames",
+            ));
+        }
+        let frames: Vec<Vec<Detection>> = result.frames.iter().map(|f| f.faces.clone()).collect();
+        let split_eval = Self::evaluate_speaker_split(&frames, width, height, duration);
+
+        if split_eval.is_none() {
+            tracing::info!(
+                "Speaker-aware split: not enough dual activity -> single view"
+            );
+            let cropper = super::tier_aware_cropper::TierAwareIntelligentCropper::new(
+                self.config.clone(),
+                DetectionTier::SpeakerAware,
+            );
+            return cropper.process(segment, output).await;
+        }
+
+        let (left_box, right_box) = split_eval.unwrap();
+
+        // Width tuned to keep single speaker per panel
+        let crop_width_left = left_box.width.min(width as f64 * 0.55).max(width as f64 * 0.25);
+        let crop_width_right = right_box.width.min(width as f64 * 0.55).max(width as f64 * 0.25);
+
+        let left_cx = left_box.cx();
+        let right_cx = right_box.cx();
+
+        let left_crop_x = (left_cx - crop_width_left / 2.0)
+            .max(0.0)
+            .min(center_x - crop_width_left * 0.1);
+        let right_crop_x = (right_cx - crop_width_right / 2.0)
+            .max(center_x)
+            .min(width as f64 - crop_width_right);
+
+        let tile_height_left = (crop_width_left * 8.0 / 9.0).min(height as f64);
+        let tile_height_right = (crop_width_right * 8.0 / 9.0).min(height as f64);
+
+        let vertical_margin_left = height as f64 - tile_height_left;
+        let vertical_margin_right = height as f64 - tile_height_right;
+
+        let left_bias = (left_box.cy() / height as f64 - 0.3).max(0.0).min(0.4);
+        let right_bias = (right_box.cy() / height as f64 - 0.3).max(0.0).min(0.4);
+
+        let left_crop_y = (vertical_margin_left * left_bias).round();
+        let right_crop_y = (vertical_margin_right * right_bias).round();
+
+        let temp_dir = tempfile::tempdir()?;
+        let left_half = temp_dir.path().join("left.mp4");
+        let right_half = temp_dir.path().join("right.mp4");
+
+        let left_filter = format!(
+            "crop={}:{}:{}:0,crop={}:{}:0:{},scale=1080:960:flags=lanczos",
+            crop_width_left.round(),
+            height,
+            left_crop_x.round(),
+            crop_width_left.round(),
+            tile_height_left.round(),
+            left_crop_y,
+        );
+
+        let cmd_left = FfmpegCommand::new(segment, &left_half)
+            .video_filter(&left_filter)
+            .video_codec(&encoding.codec)
+            .preset(&encoding.preset)
+            .crf(encoding.crf)
+            .audio_codec("aac")
+            .audio_bitrate(&encoding.audio_bitrate);
+        FfmpegRunner::new().run(&cmd_left).await?;
+
+        let right_filter = format!(
+            "crop={}:{}:{}:0,crop={}:{}:0:{},scale=1080:960:flags=lanczos",
+            crop_width_right.round(),
+            height,
+            right_crop_x.round(),
+            crop_width_right.round(),
+            tile_height_right.round(),
+            right_crop_y,
+        );
+
+        let cmd_right = FfmpegCommand::new(segment, &right_half)
+            .video_filter(&right_filter)
+            .video_codec(&encoding.codec)
+            .preset(&encoding.preset)
+            .crf(encoding.crf)
+            .audio_codec("aac")
+            .audio_bitrate(&encoding.audio_bitrate);
+        FfmpegRunner::new().run(&cmd_right).await?;
+
+        info!("  Stacking panels (left→top, right→bottom)...");
+        stack_halves(&left_half, &right_half, output, encoding).await
+    }
+
+    /// Evaluate whether we should enter split mode and return per-side boxes.
+    fn evaluate_speaker_split(
+        frames: &[Vec<Detection>],
+        width: u32,
+        height: u32,
+        duration: f64,
+    ) -> Option<(BoundingBox, BoundingBox)> {
+        // MAR thresholds tuned for normal speech (mouth height ≈ 10–20% of width)
+        const TALK_ON: f64 = 0.15;
+        const TALK_OFF: f64 = 0.05;
+        const MOUTH_ALPHA: f64 = 0.6;
+        const MIN_SPLIT_TIME: f64 = 0.3;
+        const MARGIN: f64 = 0.25;
+
+        if frames.is_empty() {
+            return None;
+        }
+
+        let sample_interval = if frames.len() > 1 {
+            duration / frames.len() as f64
+        } else {
+            1.0 / 8.0
+        };
+        let center_x = width as f64 / 2.0;
+
+        use std::collections::HashMap;
+        let mut mouth_ema: HashMap<u32, f64> = HashMap::new();
+        let mut track_side: HashMap<u32, bool> = HashMap::new(); // true=left
+        let mut talk_state: HashMap<u32, bool> = HashMap::new();
+
+        let mut left_boxes: Vec<BoundingBox> = Vec::new();
+        let mut right_boxes: Vec<BoundingBox> = Vec::new();
+        let mut split_active_time = 0.0;
+
+        for frame in frames {
+            for det in frame {
+                track_side
+                    .entry(det.track_id)
+                    .or_insert_with(|| det.bbox.cx() < center_x);
+                let m = det.mouth_openness.unwrap_or(0.0).clamp(0.0, 2.0);
+                let ema = mouth_ema.entry(det.track_id).or_insert(m);
+                *ema = MOUTH_ALPHA * m + (1.0 - MOUTH_ALPHA) * *ema;
+
+                let entry = talk_state.entry(det.track_id).or_insert(false);
+                *entry = apply_hysteresis(*entry, *ema, TALK_ON, TALK_OFF);
+
+                if *track_side.get(&det.track_id).unwrap_or(&true) {
+                    left_boxes.push(det.bbox);
+                } else {
+                    right_boxes.push(det.bbox);
+                }
+            }
+
+            let mut left_talking = false;
+            let mut right_talking = false;
+            for det in frame {
+                let side_left = *track_side.get(&det.track_id).unwrap_or(&true);
+                let talking = *talk_state.get(&det.track_id).unwrap_or(&false);
+                if talking {
+                    if side_left {
+                        left_talking = true;
+                    } else {
+                        right_talking = true;
+                    }
+                }
+            }
+
+            if left_talking && right_talking {
+                split_active_time += sample_interval;
+            } else if split_active_time > 0.0 {
+                split_active_time = (split_active_time - sample_interval * 0.5).max(0.0);
+            }
+        }
+
+        let has_two_tracks = frames.iter().any(|f| f.len() >= 2);
+        let should_split = has_two_tracks && split_active_time >= MIN_SPLIT_TIME;
+
+        if !should_split {
+            return None;
+        }
+
+        let left_union = BoundingBox::union(&left_boxes)
+            .unwrap_or_else(|| BoundingBox::new(0.0, 0.0, width as f64 / 2.0, height as f64 * 0.8));
+        let right_union = BoundingBox::union(&right_boxes)
+            .unwrap_or_else(|| BoundingBox::new(width as f64 / 2.0, 0.0, width as f64 / 2.0, height as f64 * 0.8));
+
+        let expand = |b: BoundingBox| {
+            let pad = (b.width.max(b.height)) * MARGIN;
+            b.pad(pad)
+        };
+        let left_box = expand(left_union).clamp(width, height);
+        let right_box = expand(right_union).clamp(width, height);
+
+        Some((left_box, right_box))
     }
 
     /// Compute vertical bias from detected faces.
@@ -329,6 +544,16 @@ where
     result
 }
 
+/// Hysteresis helper for talking state.
+#[inline]
+fn apply_hysteresis(current: bool, ema: f64, on: f64, off: f64) -> bool {
+    if current {
+        ema >= off
+    } else {
+        ema >= on
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -370,5 +595,81 @@ mod tests {
 
         let bias = processor.compute_vertical_bias(&[], 1080);
         assert!((bias - 0.15).abs() < 0.01, "Empty faces should use default bias");
+    }
+
+    #[test]
+    fn test_hysteresis_turns_on_and_off() {
+        // Off stays off below ON
+        assert!(!super::super::super::intelligent::tier_aware_split::apply_hysteresis(false, 0.04, 0.15, 0.05));
+        // Turns on when above ON
+        assert!(super::super::super::intelligent::tier_aware_split::apply_hysteresis(false, 0.16, 0.15, 0.05));
+        // Stays on while above OFF
+        assert!(super::super::super::intelligent::tier_aware_split::apply_hysteresis(true, 0.06, 0.15, 0.05));
+        // Turns off when below OFF
+        assert!(!super::super::super::intelligent::tier_aware_split::apply_hysteresis(true, 0.01, 0.15, 0.05));
+    }
+
+    #[test]
+    fn test_hysteresis_turns_on_and_off() {
+        // Off stays off below ON
+        assert!(!apply_hysteresis(false, 0.04, 0.15, 0.05));
+        // Turns on when above ON
+        assert!(apply_hysteresis(false, 0.16, 0.15, 0.05));
+        // Stays on while above OFF
+        assert!(apply_hysteresis(true, 0.06, 0.15, 0.05));
+        // Turns off when below OFF
+        assert!(!apply_hysteresis(true, 0.01, 0.15, 0.05));
+    }
+
+    #[test]
+    fn test_evaluate_speaker_split_two_speakers_triggers_split() {
+        let width = 1920;
+        let height = 1080;
+        let frames = vec![vec![
+            Detection::with_mouth(
+                0.0,
+                BoundingBox::new(200.0, 200.0, 200.0, 200.0),
+                0.9,
+                1,
+                Some(0.8),
+            ),
+            Detection::with_mouth(
+                0.0,
+                BoundingBox::new(1400.0, 220.0, 200.0, 200.0),
+                0.9,
+                2,
+                Some(0.8),
+            ),
+        ]];
+
+        let res = TierAwareSplitProcessor::evaluate_speaker_split(&frames, width, height, 0.5);
+        assert!(res.is_some(), "Should split when both are talking");
+        let (left_box, right_box) = res.unwrap();
+        assert!(left_box.cx() < right_box.cx());
+    }
+
+    #[test]
+    fn test_evaluate_speaker_split_not_enough_activity() {
+        let width = 1920;
+        let height = 1080;
+        let frames = vec![vec![
+            Detection::with_mouth(
+                0.0,
+                BoundingBox::new(200.0, 200.0, 200.0, 200.0),
+                0.9,
+                1,
+                Some(0.1),
+            ),
+            Detection::with_mouth(
+                0.0,
+                BoundingBox::new(1400.0, 220.0, 200.0, 200.0),
+                0.9,
+                2,
+                Some(0.1),
+            ),
+        ]];
+
+        let res = TierAwareSplitProcessor::evaluate_speaker_split(&frames, width, height, 0.5);
+        assert!(res.is_none(), "Should stay single when mouths are closed");
     }
 }

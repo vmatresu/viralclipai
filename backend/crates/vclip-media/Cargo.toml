@@ -24,9 +24,18 @@ metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 uuid = { version = "1.0", features = ["v4"] }
 async-trait = "0.1"
+ndarray = "0.15"
+image = "0.24"
+
+# ONNX Runtime for face mesh landmark refinement
+# - CUDA feature is optional; CPU-only still works when CUDA not present.
+# - download-binaries pulls the matching ORT runtime so linking succeeds without
+#   extra manual setup; disable if you manage ORT libs yourself.
+ort = { version = "2.0.0-rc.10", features = ["cuda", "half", "download-binaries"], default-features = false }
 
 # OpenCV for YuNet face detection (optional - falls back to FFmpeg if not available)
-opencv = { version = "0.93", default-features = false, features = ["objdetect", "imgproc", "videoio", "dnn"], optional = true }
+# Include imgcodecs so debug rendering can write overlays when enabled.
+opencv = { version = "0.93", default-features = false, features = ["objdetect", "imgproc", "videoio", "dnn", "imgcodecs"], optional = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }

@@ -347,10 +347,16 @@ impl TierAwareCameraSmoother {
                 _ => 0.0,
             };
 
+            // Mouth openness (if available) is the primary visual signal; fall back to detection score.
+            let visual_score = det
+                .mouth_openness
+                .map(|m| m.clamp(0.0, 2.0).min(1.5)) // guard excessive values
+                .unwrap_or(det.score);
+
             // Update activity tracker with visual + audio scores
             self.activity_tracker.update_activity(
                 det.track_id,
-                det.score, // Use detection confidence as visual activity proxy
+                visual_score,
                 audio_score,
                 time,
             );
