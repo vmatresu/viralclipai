@@ -111,15 +111,17 @@ export function OverwriteConfirmationDialog({
             <ShieldAlert className="h-5 w-5 text-primary" />
             Overwrite existing clips?
           </DialogTitle>
-          <DialogDescription className="space-y-2">
+          <DialogDescription asChild className="space-y-2">
             <div>
-              You selected styles that already have generated clips. Continuing will{" "}
-              <span className="font-semibold text-destructive">overwrite</span> those
-              files in storage. Metadata will also be refreshed.
-            </div>
-            <div className="text-muted-foreground">
-              Review what will be overwritten and what will be created new before
-              proceeding.
+              <p>
+                You selected styles that already have generated clips. Continuing will{" "}
+                <span className="font-semibold text-destructive">overwrite</span> those
+                files in storage. Metadata will also be refreshed.
+              </p>
+              <p className="text-muted-foreground">
+                Review what will be overwritten and what will be created new before
+                proceeding.
+              </p>
             </div>
           </DialogDescription>
         </DialogHeader>
