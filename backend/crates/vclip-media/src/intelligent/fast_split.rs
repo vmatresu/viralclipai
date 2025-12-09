@@ -4,23 +4,26 @@
 //! rely on AI face detection. It splits landscape videos into left/right
 //! halves and stacks them vertically using fixed geometric positioning.
 //!
-//! # Algorithm
+//! # Algorithm (SINGLE-PASS)
 //!
-//! 1. Take 45% from each side of the video (left person: 0-45%, right person: 55-100%)
-//! 2. Crop each half to 9:8 aspect ratio
-//! 3. Scale each half to 1080x960
-//! 4. Stack vertically to produce 1080x1920 output
+//! Uses ONE FFmpeg command with a combined filter graph:
+//! ```text
+//! [0:v] → split → [left][right]
+//! [left] → crop left 45% → scale 1080x960 → [top]
+//! [right] → crop right 45% → scale 1080x960 → [bottom]
+//! [top][bottom] → vstack → [out]
+//! ```
 //!
-//! This matches the Python implementation's approach for the simple split style.
+//! This avoids multiple encode passes for better quality and smaller files.
 
 use std::path::Path;
 use tracing::info;
 
-use crate::command::{FfmpegCommand, FfmpegRunner};
+use super::single_pass_renderer::SinglePassRenderer;
+use super::config::IntelligentCropConfig;
 use crate::error::MediaResult;
 use crate::probe::probe_video;
 use crate::thumbnail::generate_thumbnail;
-use crate::intelligent::stacking::stack_halves;
 use vclip_models::EncodingConfig;
 
 /// Configuration for the fast split engine.
@@ -88,8 +91,10 @@ impl FastSplitEngine {
     ) -> MediaResult<()> {
         let segment = segment.as_ref();
         let output = output.as_ref();
+        let start_time = std::time::Instant::now();
 
-        info!("Fast split processing: {:?}", segment);
+        info!("[FAST_SPLIT] ========================================");
+        info!("[FAST_SPLIT] START: {:?}", segment);
 
         // 1. Get video metadata
         let video_info = probe_video(segment).await?;
@@ -97,108 +102,47 @@ impl FastSplitEngine {
         let height = video_info.height;
 
         info!(
-            "Video: {}x{} @ {:.2}fps, duration: {:.2}s",
+            "[FAST_SPLIT] Source: {}x{} @ {:.2}fps, {:.2}s",
             width, height, video_info.fps, video_info.duration
         );
 
-        // 2. Process with fixed split algorithm
-        self.process_split_view(segment, output, width, height, encoding)
-            .await?;
+        // 2. Use SinglePassRenderer with fixed positioning (SINGLE ENCODE)
+        info!("[FAST_SPLIT] Processing with SINGLE-PASS encoding...");
+        info!("[FAST_SPLIT]   Encoding: {} preset={} crf={}", 
+            encoding.codec, encoding.preset, encoding.crf);
+        
+        let config = IntelligentCropConfig::default();
+        let renderer = SinglePassRenderer::new(config);
+        
+        renderer.render_split(
+            segment,
+            output,
+            width,
+            height,
+            self.config.top_vertical_bias,
+            self.config.bottom_vertical_bias,
+            encoding,
+        ).await?;
 
         // 3. Generate thumbnail
         let thumb_path = output.with_extension("jpg");
         if let Err(e) = generate_thumbnail(output, &thumb_path).await {
-            tracing::warn!("Failed to generate thumbnail: {}", e);
+            tracing::warn!("[FAST_SPLIT] Failed to generate thumbnail: {}", e);
         }
 
-        info!("Fast split complete: {:?}", output);
+        let file_size = tokio::fs::metadata(output)
+            .await
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        info!("[FAST_SPLIT] ========================================");
+        info!(
+            "[FAST_SPLIT] COMPLETE in {:.2}s - {:.2} MB",
+            start_time.elapsed().as_secs_f64(),
+            file_size as f64 / 1_000_000.0
+        );
+
         Ok(())
-    }
-
-    /// Process the video with fixed left/right split and vertical stack.
-    async fn process_split_view(
-        &self,
-        segment: &Path,
-        output: &Path,
-        width: u32,
-        height: u32,
-        encoding: &EncodingConfig,
-    ) -> MediaResult<()> {
-        // Create temp directory for intermediate files
-        let temp_dir = tempfile::tempdir()?;
-
-        // Calculate crop dimensions
-        // Take crop_fraction from each side to avoid overlap in the middle
-        let crop_width = (width as f64 * self.config.crop_fraction).round() as u32;
-        let right_start_x = width - crop_width;
-
-        // Calculate 9:8 tile dimensions for each half
-        let tile_height = ((crop_width as f64 * 8.0 / 9.0).round() as u32).min(height);
-        let vertical_margin = height.saturating_sub(tile_height);
-
-        // Top panel (left person): bias upward based on config
-        let top_crop_y = (vertical_margin as f64 * self.config.top_vertical_bias).round() as u32;
-        // Bottom panel (right person): center or bias based on config
-        let bottom_crop_y =
-            (vertical_margin as f64 * self.config.bottom_vertical_bias).round() as u32;
-
-        // Step 1: Extract left and right portions
-        let left_half = temp_dir.path().join("left.mp4");
-        let right_half = temp_dir.path().join("right.mp4");
-
-        info!(
-            "  Extracting left person (0 to {}px width)...",
-            crop_width
-        );
-
-        // Left person: start from x=0, crop to 9:8 and scale to 1080x960
-        let left_filter = format!(
-            "crop={}:{}:0:0,crop={}:{}:0:{},scale=1080:960:flags=lanczos",
-            crop_width,
-            height, // First: extract left portion
-            crop_width,
-            tile_height,
-            top_crop_y // Then: crop to 9:8 vertically
-        );
-
-        let cmd_left = FfmpegCommand::new(segment, &left_half)
-            .video_filter(&left_filter)
-            .video_codec(&encoding.codec)
-            .preset(&encoding.preset)
-            .crf(encoding.crf)
-            .audio_codec("aac")
-            .audio_bitrate(&encoding.audio_bitrate);
-
-        FfmpegRunner::new().run(&cmd_left).await?;
-
-        info!(
-            "  Extracting right person ({}px to {}px width)...",
-            right_start_x, width
-        );
-
-        // Right person: start from right_start_x, crop to 9:8 and scale
-        let right_filter = format!(
-            "crop={}:{}:{}:0,crop={}:{}:0:{},scale=1080:960:flags=lanczos",
-            crop_width,
-            height,
-            right_start_x, // First: extract right portion
-            crop_width,
-            tile_height,
-            bottom_crop_y // Then: crop to 9:8 vertically
-        );
-
-        let cmd_right = FfmpegCommand::new(segment, &right_half)
-            .video_filter(&right_filter)
-            .video_codec(&encoding.codec)
-            .preset(&encoding.preset)
-            .crf(encoding.crf)
-            .audio_codec("aac")
-            .audio_bitrate(&encoding.audio_bitrate);
-
-        FfmpegRunner::new().run(&cmd_right).await?;
-
-        info!("  Stacking panels...");
-        stack_halves(&left_half, &right_half, output, encoding).await
     }
 }
 

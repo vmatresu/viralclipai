@@ -16,8 +16,8 @@ use crate::intelligent::config::IntelligentCropConfig;
 use crate::intelligent::crop_planner::CropPlanner;
 use crate::intelligent::models::{AspectRatio, CropWindow, Detection, FrameDetections};
 use crate::intelligent::renderer::IntelligentRenderer;
+use crate::intelligent::single_pass_renderer::SinglePassRenderer;
 use crate::intelligent::smoother::CameraSmoother;
-use crate::intelligent::stacking::stack_halves;
 use tracing::info;
 use vclip_models::EncodingConfig;
 
@@ -88,31 +88,46 @@ impl ActivitySplitRenderer {
                     self.scale_to_portrait(&raw_out, &target_path).await?;
                 }
                 LayoutMode::Split { primary, secondary } => {
-                    info!(primary = primary, secondary = secondary, "Rendering Split layout span");
-                    let top_windows =
-                        self.track_windows(detections, primary, span, AspectRatio::new(9, 8))?;
-                    let bottom_windows =
-                        self.track_windows(detections, secondary, span, AspectRatio::new(9, 8))?;
-
-                    let top_raw = temp_dir.path().join(format!("top_{idx}.mp4"));
-                    let bottom_raw = temp_dir.path().join(format!("bottom_{idx}.mp4"));
-                    let renderer = IntelligentRenderer::new(self.config.clone());
-                    renderer
-                        .render(segment, &top_raw, &top_windows, span.start, span.end - span.start)
-                        .await?;
-                    renderer
-                        .render(
-                            segment,
-                            &bottom_raw,
-                            &bottom_windows,
-                            span.start,
-                            span.end - span.start,
-                        )
-                        .await?;
-
-                    let stacked = temp_dir.path().join(format!("stacked_{idx}.mp4"));
-                    stack_halves(&top_raw, &bottom_raw, &stacked, &self.encoding).await?;
-                    self.scale_to_portrait(&stacked, &target_path).await?;
+                    info!(primary = primary, secondary = secondary, "Rendering Split layout span with SINGLE-PASS");
+                    
+                    // For split spans, we need to render a split view for this time range
+                    // We'll use a simplified approach: extract this span's time range, then use SinglePassRenderer
+                    let span_duration = span.end - span.start;
+                    let span_segment = temp_dir.path().join(format!("span_segment_{idx}.mp4"));
+                    
+                    // Extract just this span's time range
+                    let mut extract_cmd = Command::new("ffmpeg");
+                    extract_cmd.args([
+                        "-y",
+                        "-hide_banner",
+                        "-loglevel", "error",
+                        "-ss", &format!("{:.3}", span.start),
+                        "-i", segment.to_str().unwrap_or(""),
+                        "-t", &format!("{:.3}", span_duration),
+                        "-c", "copy",
+                        span_segment.to_str().unwrap_or(""),
+                    ]);
+                    
+                    let extract_result = extract_cmd.output().await?;
+                    if !extract_result.status.success() {
+                        return Err(MediaError::ffmpeg_failed(
+                            "Failed to extract span segment",
+                            Some(String::from_utf8_lossy(&extract_result.stderr).to_string()),
+                            extract_result.status.code(),
+                        ));
+                    }
+                    
+                    // Use SinglePassRenderer for split (SINGLE ENCODE instead of 3)
+                    let renderer = SinglePassRenderer::new(self.config.clone());
+                    renderer.render_split(
+                        &span_segment,
+                        &target_path,
+                        self.frame_width,
+                        self.frame_height,
+                        0.0,  // left vertical bias
+                        0.15, // right vertical bias
+                        &self.encoding,
+                    ).await?;
                 }
             }
             span_outputs.push(target_path);

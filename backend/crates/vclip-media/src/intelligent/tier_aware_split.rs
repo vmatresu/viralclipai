@@ -16,14 +16,13 @@ use super::config::IntelligentCropConfig;
 use super::detector::FaceDetector;
 use super::motion::MotionDetector;
 use super::models::BoundingBox;
-use crate::detection::pipeline_builder::PipelineBuilder;
-use crate::intelligent::Detection;
+use super::single_pass_renderer::SinglePassRenderer;
 use crate::clip::extract_segment;
-use crate::command::{FfmpegCommand, FfmpegRunner};
+use crate::detection::pipeline_builder::PipelineBuilder;
 use crate::error::MediaResult;
+use crate::intelligent::Detection;
 use crate::probe::probe_video;
 use crate::thumbnail::generate_thumbnail;
-use crate::intelligent::stacking::stack_halves;
 
 /// Tier-aware split processor.
 pub struct TierAwareSplitProcessor {
@@ -52,7 +51,10 @@ impl TierAwareSplitProcessor {
         self.tier
     }
 
-    /// Process a video segment with tier-aware split.
+    /// Process a video segment with tier-aware split using SINGLE-PASS encoding.
+    ///
+    /// This uses SinglePassRenderer to apply all transforms (crop, scale, vstack)
+    /// in ONE FFmpeg command, avoiding multiple encode passes.
     pub async fn process<P: AsRef<Path>>(
         &self,
         segment: P,
@@ -61,55 +63,71 @@ impl TierAwareSplitProcessor {
     ) -> MediaResult<()> {
         let segment = segment.as_ref();
         let output = output.as_ref();
+        let pipeline_start = std::time::Instant::now();
 
-        info!(
-            "Tier-aware split processing (tier: {:?}): {:?}",
-            self.tier, segment
-        );
+        info!("[INTELLIGENT_SPLIT] ========================================");
+        info!("[INTELLIGENT_SPLIT] START: {:?}", segment);
+        info!("[INTELLIGENT_SPLIT] Tier: {:?}", self.tier);
 
-        // 1. Get video metadata
+        // Step 1: Get video metadata
+        let step_start = std::time::Instant::now();
+        info!("[INTELLIGENT_SPLIT] Step 1/3: Probing video metadata...");
+        
         let video_info = probe_video(segment).await?;
         let width = video_info.width;
         let height = video_info.height;
         let duration = video_info.duration;
 
         info!(
-            "Video: {}x{} @ {:.2}fps, duration: {:.2}s",
+            "[INTELLIGENT_SPLIT] Step 1/3 DONE in {:.2}s - {}x{} @ {:.2}fps, {:.2}s",
+            step_start.elapsed().as_secs_f64(),
             width, height, video_info.fps, duration
         );
 
         // Speaker-aware split uses dedicated mouth-openness path.
         if self.tier == DetectionTier::SpeakerAware {
+            info!("[INTELLIGENT_SPLIT] Using SpeakerAware processing path");
             if let Err(e) =
                 self.process_speaker_aware_split(segment, output, width, height, duration, encoding).await
             {
-                tracing::warn!("Speaker-aware split failed, falling back to default split: {}", e);
+                tracing::warn!("[INTELLIGENT_SPLIT] SpeakerAware failed, falling back: {}", e);
             } else {
                 return Ok(());
             }
         }
 
-        // 2. Positioning per tier
+        // Step 2: Compute vertical positioning per tier
+        let step_start = std::time::Instant::now();
+        info!("[INTELLIGENT_SPLIT] Step 2/3: Computing vertical positioning...");
+        
         let (left_vertical_bias, right_vertical_bias) = match self.tier {
             DetectionTier::MotionAware => {
+                info!("[INTELLIGENT_SPLIT]   Using motion-aware positioning");
                 self.compute_motion_positioning(segment, width, height, duration)?
             }
             tier if tier.requires_yunet() => {
+                info!("[INTELLIGENT_SPLIT]   Using face-aware positioning");
                 self.compute_face_aware_positioning(segment, width, height, duration).await
             }
             _ => {
-                // Basic/None tier: use fixed positioning
+                info!("[INTELLIGENT_SPLIT]   Using fixed positioning (Basic tier)");
                 (0.0, 0.15)
             }
         };
 
         info!(
-            "Vertical positioning: left={:.2}, right={:.2}",
+            "[INTELLIGENT_SPLIT] Step 2/3 DONE in {:.2}s - left={:.2}, right={:.2}",
+            step_start.elapsed().as_secs_f64(),
             left_vertical_bias, right_vertical_bias
         );
 
-        // 3. Process with computed positioning
-        self.process_split_view(
+        // Step 3: Single-pass render (THE ONLY ENCODE)
+        info!("[INTELLIGENT_SPLIT] Step 3/3: Single-pass encoding...");
+        info!("[INTELLIGENT_SPLIT]   Encoding: {} preset={} crf={}", 
+            encoding.codec, encoding.preset, encoding.crf);
+        
+        let renderer = SinglePassRenderer::new(self.config.clone());
+        renderer.render_split(
             segment,
             output,
             width,
@@ -120,13 +138,24 @@ impl TierAwareSplitProcessor {
         )
         .await?;
 
-        // 4. Generate thumbnail
+        // Generate thumbnail
         let thumb_path = output.with_extension("jpg");
         if let Err(e) = generate_thumbnail(output, &thumb_path).await {
-            tracing::warn!("Failed to generate thumbnail: {}", e);
+            tracing::warn!("[INTELLIGENT_SPLIT] Failed to generate thumbnail: {}", e);
         }
 
-        info!("Tier-aware split complete: {:?}", output);
+        let file_size = tokio::fs::metadata(output)
+            .await
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        info!("[INTELLIGENT_SPLIT] ========================================");
+        info!(
+            "[INTELLIGENT_SPLIT] COMPLETE in {:.2}s - {:.2} MB",
+            pipeline_start.elapsed().as_secs_f64(),
+            file_size as f64 / 1_000_000.0
+        );
+
         Ok(())
     }
 
@@ -332,7 +361,7 @@ impl TierAwareSplitProcessor {
                 self.config.clone(),
                 DetectionTier::SpeakerAware,
             );
-            return cropper.process(segment, output).await;
+            return cropper.process(segment, output, encoding).await;
         }
 
         let (left_box, right_box) = split_eval.unwrap();
@@ -363,50 +392,71 @@ impl TierAwareSplitProcessor {
         let left_crop_y = (vertical_margin_left * left_bias).round();
         let right_crop_y = (vertical_margin_right * right_bias).round();
 
-        let temp_dir = tempfile::tempdir()?;
-        let left_half = temp_dir.path().join("left.mp4");
-        let right_half = temp_dir.path().join("right.mp4");
+        info!("[SPEAKER_SPLIT] Using SINGLE-PASS encoding with custom speaker crops...");
+        info!("[SPEAKER_SPLIT]   Left: crop {}x{} at ({}, {})", 
+            crop_width_left.round(), tile_height_left.round(), left_crop_x.round(), left_crop_y);
+        info!("[SPEAKER_SPLIT]   Right: crop {}x{} at ({}, {})",
+            crop_width_right.round(), tile_height_right.round(), right_crop_x.round(), right_crop_y);
 
-        let left_filter = format!(
-            "crop={}:{}:{}:0,crop={}:{}:0:{},scale=1080:960:flags=lanczos",
-            crop_width_left.round(),
-            height,
-            left_crop_x.round(),
-            crop_width_left.round(),
-            tile_height_left.round(),
-            left_crop_y,
+        // Build combined filter graph for SINGLE-PASS encoding
+        // This is more complex than the standard split because each side has different crop dimensions
+        let filter_complex = format!(
+            "[0:v]split=2[left_in][right_in];\
+             [left_in]crop={lw}:{lh}:{lx}:0,crop={lw}:{lth}:0:{ly},scale=1080:960:flags=lanczos,setsar=1,format=yuv420p[top];\
+             [right_in]crop={rw}:{rh}:{rx}:0,crop={rw}:{rth}:0:{ry},scale=1080:960:flags=lanczos,setsar=1,format=yuv420p[bottom];\
+             [top][bottom]vstack=inputs=2[vout]",
+            lw = crop_width_left.round(),
+            lh = height,
+            lx = left_crop_x.round(),
+            lth = tile_height_left.round(),
+            ly = left_crop_y,
+            rw = crop_width_right.round(),
+            rh = height,
+            rx = right_crop_x.round(),
+            rth = tile_height_right.round(),
+            ry = right_crop_y,
         );
 
-        let cmd_left = FfmpegCommand::new(segment, &left_half)
-            .video_filter(&left_filter)
-            .video_codec(&encoding.codec)
-            .preset(&encoding.preset)
-            .crf(encoding.crf)
-            .audio_codec("aac")
-            .audio_bitrate(&encoding.audio_bitrate);
-        FfmpegRunner::new().run(&cmd_left).await?;
+        use std::process::Stdio;
+        use tokio::process::Command;
 
-        let right_filter = format!(
-            "crop={}:{}:{}:0,crop={}:{}:0:{},scale=1080:960:flags=lanczos",
-            crop_width_right.round(),
-            height,
-            right_crop_x.round(),
-            crop_width_right.round(),
-            tile_height_right.round(),
-            right_crop_y,
-        );
+        let mut cmd = Command::new("ffmpeg");
+        cmd.args([
+            "-y",
+            "-hide_banner",
+            "-loglevel", "error",
+            "-i", segment.to_str().unwrap_or(""),
+            "-filter_complex", &filter_complex,
+            "-map", "[vout]",
+            "-map", "0:a?",
+            // SINGLE ENCODE using API config
+            "-c:v", &encoding.codec,
+            "-preset", &encoding.preset,
+            "-crf", &encoding.crf.to_string(),
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", &encoding.audio_bitrate,
+            "-movflags", "+faststart",
+            output.to_str().unwrap_or(""),
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
-        let cmd_right = FfmpegCommand::new(segment, &right_half)
-            .video_filter(&right_filter)
-            .video_codec(&encoding.codec)
-            .preset(&encoding.preset)
-            .crf(encoding.crf)
-            .audio_codec("aac")
-            .audio_bitrate(&encoding.audio_bitrate);
-        FfmpegRunner::new().run(&cmd_right).await?;
+        let result = cmd.output().await.map_err(|e| {
+            crate::error::MediaError::ffmpeg_failed(format!("Failed to run FFmpeg: {}", e), None, None)
+        })?;
 
-        info!("  Stacking panels (left→top, right→bottom)...");
-        stack_halves(&left_half, &right_half, output, encoding).await
+        if !result.status.success() {
+            let stderr = String::from_utf8_lossy(&result.stderr);
+            return Err(crate::error::MediaError::ffmpeg_failed(
+                "Speaker-aware split render failed",
+                Some(stderr.to_string()),
+                result.status.code(),
+            ));
+        }
+
+        info!("[SPEAKER_SPLIT] Single-pass encoding complete");
+        Ok(())
     }
 
     /// Evaluate whether we should enter split mode and return per-side boxes.
@@ -504,85 +554,14 @@ impl TierAwareSplitProcessor {
         bias
     }
 
-    /// Process the video with split view using computed positioning.
-    async fn process_split_view(
-        &self,
-        segment: &Path,
-        output: &Path,
-        width: u32,
-        height: u32,
-        left_vertical_bias: f64,
-        right_vertical_bias: f64,
-        encoding: &EncodingConfig,
-    ) -> MediaResult<()> {
-        let temp_dir = tempfile::tempdir()?;
-
-        // Calculate crop dimensions (45% from each side)
-        let crop_fraction = 0.45;
-        let crop_width = (width as f64 * crop_fraction).round() as u32;
-        let right_start_x = width - crop_width;
-
-        // Calculate 9:8 tile dimensions
-        let tile_height = ((crop_width as f64 * 8.0 / 9.0).round() as u32).min(height);
-        let vertical_margin = height.saturating_sub(tile_height);
-
-        // Apply computed vertical biases
-        let left_crop_y = (vertical_margin as f64 * left_vertical_bias).round() as u32;
-        let right_crop_y = (vertical_margin as f64 * right_vertical_bias).round() as u32;
-
-        // Step 1: Extract left and right portions
-        let left_half = temp_dir.path().join("left.mp4");
-        let right_half = temp_dir.path().join("right.mp4");
-
-        info!(
-            "  Extracting left person (0 to {}px, y_offset={})",
-            crop_width, left_crop_y
-        );
-
-        let left_filter = format!(
-            "crop={}:{}:0:0,crop={}:{}:0:{},scale=1080:960:flags=lanczos",
-            crop_width, height,
-            crop_width, tile_height, left_crop_y
-        );
-
-        let cmd_left = FfmpegCommand::new(segment, &left_half)
-            .video_filter(&left_filter)
-            .video_codec(&encoding.codec)
-            .preset(&encoding.preset)
-            .crf(encoding.crf)
-            .audio_codec("aac")
-            .audio_bitrate(&encoding.audio_bitrate);
-
-        FfmpegRunner::new().run(&cmd_left).await?;
-
-        info!(
-            "  Extracting right person ({}px to {}px, y_offset={})",
-            right_start_x, width, right_crop_y
-        );
-
-        let right_filter = format!(
-            "crop={}:{}:{}:0,crop={}:{}:0:{},scale=1080:960:flags=lanczos",
-            crop_width, height, right_start_x,
-            crop_width, tile_height, right_crop_y
-        );
-
-        let cmd_right = FfmpegCommand::new(segment, &right_half)
-            .video_filter(&right_filter)
-            .video_codec(&encoding.codec)
-            .preset(&encoding.preset)
-            .crf(encoding.crf)
-            .audio_codec("aac")
-            .audio_bitrate(&encoding.audio_bitrate);
-
-        FfmpegRunner::new().run(&cmd_right).await?;
-
-        // Step 2: Stack the halves vertically
-        info!("  Stacking panels...");
-        stack_halves(&left_half, &right_half, output, encoding).await
-    }
 }
 
 /// Create a tier-aware intelligent split clip from a video file.
+///
+/// # Pipeline (SINGLE ENCODE)
+/// 1. `extract_segment()` - Stream copy from source (NO encode)
+/// 2. Compute vertical positioning per tier
+/// 3. `SinglePassRenderer::render_split()` - ONE encode with split filter graph
 pub async fn create_tier_aware_split_clip<P, F>(
     input: P,
     output: P,
@@ -597,38 +576,55 @@ where
 {
     let input = input.as_ref();
     let output = output.as_ref();
+    let total_start = std::time::Instant::now();
+
+    info!("========================================================");
+    info!("[PIPELINE] INTELLIGENT SPLIT - START");
+    info!("[PIPELINE] Source: {:?}", input);
+    info!("[PIPELINE] Output: {:?}", output);
+    info!("[PIPELINE] Tier: {:?}", tier);
+    info!("[PIPELINE] Encoding: {} crf={}", encoding.codec, encoding.crf);
 
     // Parse timestamps and apply padding
     let start_secs = (super::parse_timestamp(&task.start)? - task.pad_before).max(0.0);
     let end_secs = super::parse_timestamp(&task.end)? + task.pad_after;
     let duration = end_secs - start_secs;
 
-    // Step 1: Extract segment
+    info!("[PIPELINE] Time: {:.2}s to {:.2}s ({:.2}s duration)", start_secs, end_secs, duration);
+
+    // Step 1: Extract segment using STREAM COPY (no encode)
     let segment_path = output.with_extension("segment.mp4");
-    info!(
-        "Extracting segment for tier-aware split: {:.2}s - {:.2}s (tier: {:?})",
-        start_secs, end_secs, tier
-    );
+    info!("[PIPELINE] Step 1/2: Extract segment (STREAM COPY - no encode)...");
 
     extract_segment(input, &segment_path, start_secs, duration).await?;
 
-    // Step 2: Process with tier-aware split
+    // Step 2: Process with single-pass render (THE ONLY ENCODE)
+    info!("[PIPELINE] Step 2/2: Process segment (SINGLE ENCODE)...");
+    
     let config = IntelligentCropConfig::default();
     let processor = TierAwareSplitProcessor::new(config, tier);
     let result = processor.process(segment_path.as_path(), output, encoding).await;
 
-    // Step 3: Cleanup
+    // Cleanup
     if segment_path.exists() {
         if let Err(e) = tokio::fs::remove_file(&segment_path).await {
-            tracing::warn!(
-                "Failed to delete temporary segment file {}: {}",
-                segment_path.display(),
-                e
-            );
+            tracing::warn!("[PIPELINE] Failed to delete temp segment: {}", e);
         } else {
-            info!("Deleted temporary segment: {}", segment_path.display());
+            info!("[PIPELINE] Cleaned up temp segment");
         }
     }
+
+    let file_size = tokio::fs::metadata(output)
+        .await
+        .map(|m| m.len())
+        .unwrap_or(0);
+
+    info!("========================================================");
+    info!(
+        "[PIPELINE] INTELLIGENT SPLIT - COMPLETE in {:.2}s - {:.2} MB",
+        total_start.elapsed().as_secs_f64(),
+        file_size as f64 / 1_000_000.0
+    );
 
     result
 }

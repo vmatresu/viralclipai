@@ -317,7 +317,7 @@ function HistorySceneItem({
         value={`scene-${scene.sceneId}`}
         className="rounded-lg border bg-muted/30 px-3"
       >
-        <AccordionPrimitive.Header>
+        <AccordionPrimitive.Header className="flex items-center gap-3 sm:gap-4">
           <AccordionPrimitive.Trigger className="group flex w-full items-center gap-3 py-3 text-left">
             <div className="flex w-full items-center gap-3 sm:gap-4">
               <div className="flex-1 space-y-2 text-left">
@@ -347,22 +347,6 @@ function HistorySceneItem({
               </div>
 
               <div className="flex items-center gap-3 sm:gap-4">
-                {onDeleteScene ? (
-                  <DialogTrigger asChild>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      className="whitespace-nowrap text-white shadow-none"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSceneDeleteOpen(true);
-                      }}
-                      disabled={deletingScene}
-                    >
-                      Delete
-                    </Button>
-                  </DialogTrigger>
-                ) : null}
                 {firstThumbnail ? (
                   <div className="hidden sm:block">
                     <img
@@ -376,6 +360,22 @@ function HistorySceneItem({
             </div>
             <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
           </AccordionPrimitive.Trigger>
+          {onDeleteScene ? (
+            <DialogTrigger asChild>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="whitespace-nowrap text-white shadow-none"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSceneDeleteOpen(true);
+                }}
+                disabled={deletingScene}
+              >
+                Delete
+              </Button>
+            </DialogTrigger>
+          ) : null}
         </AccordionPrimitive.Header>
         <AccordionContent>
           <div className="rounded-lg border bg-background/60 p-4 shadow-sm">

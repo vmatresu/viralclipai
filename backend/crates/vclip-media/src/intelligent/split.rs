@@ -150,7 +150,7 @@ impl IntelligentSplitProcessor {
             // the style. This preserves dynamic motion/activity behavior while outputting 9:16
             // single-speaker framing instead of switching to a different analysis mode.
             let cropper = TierAwareIntelligentCropper::new(self.config.clone(), self.tier);
-            cropper.process(segment, output).await?;
+            cropper.process(segment, output, encoding).await?;
             self.generate_thumbnail(output).await;
             info!("Intelligent split (single-face path) complete: {:?}", output);
             return Ok(SplitLayout::FullFrame);

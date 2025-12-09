@@ -62,6 +62,7 @@ pub mod layout_detector;
 pub mod models;
 pub mod renderer;
 pub mod segment_analysis;
+pub mod single_pass_renderer;
 pub mod smoother;
 pub mod smoothing_utils;
 pub mod stacking;

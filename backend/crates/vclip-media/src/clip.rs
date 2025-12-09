@@ -36,24 +36,24 @@ use crate::filters::build_video_filter;
 use crate::progress::FfmpegProgress;
 use crate::thumbnail::generate_thumbnail;
 
-/// Extract a segment from a video file with accurate seeking.
+/// Extract a segment from a video file using STREAM COPY (no re-encoding).
 ///
 /// This is used to cut out a specific time range before applying
-/// intelligent cropping, which significantly improves performance.
+/// intelligent cropping. Uses stream copy for:
+/// - **Speed**: No encoding overhead
+/// - **Quality**: No generation loss
+/// - **Size**: Same bitrate as source
 ///
 /// # Seeking Strategy
-/// Uses a combination of input seeking (fast) and output seeking (accurate)
-/// to avoid audio/video desync issues that occur with pure input seeking
-/// and codec copy. We re-encode the segment to ensure proper sync.
+/// Uses input seeking with keyframe alignment. The output may start
+/// slightly before the requested time (at nearest keyframe), but this
+/// is acceptable since we're feeding into another processing step.
 ///
 /// # Arguments
-/// * `input` - Path to the input video file
-/// * `output` - Path for the extracted segment
+/// * `input` - Path to the input video file (can be 1-2h source)
+/// * `output` - Path for the extracted segment (~30s-1min)
 /// * `start_secs` - Start time in seconds
 /// * `duration` - Duration in seconds
-///
-/// # Returns
-/// Path to the extracted segment file
 pub async fn extract_segment<P: AsRef<Path>>(
     input: P,
     output: P,
@@ -63,42 +63,37 @@ pub async fn extract_segment<P: AsRef<Path>>(
     let input = input.as_ref();
     let output = output.as_ref();
 
+    let start_time = std::time::Instant::now();
+
     info!(
-        "Extracting segment: {} -> {} (start: {:.2}s, duration: {:.2}s)",
+        "[SEGMENT_EXTRACT] START: {} -> {}",
         input.display(),
-        output.display(),
+        output.display()
+    );
+    info!(
+        "[SEGMENT_EXTRACT] Time range: {:.2}s to {:.2}s (duration: {:.2}s)",
         start_secs,
+        start_secs + duration,
         duration
     );
 
-    // Strategy: Use input seeking to get close to the start (fast), then use
-    // output seeking to get exact frame-accurate start. This avoids A/V desync
-    // that happens with pure input seeking + codec copy.
-    //
-    // We seek 2 seconds before the target to ensure we capture the keyframe,
-    // then use output seeking to trim to the exact start point.
-    let seek_buffer = 2.0;
-    let input_seek = (start_secs - seek_buffer).max(0.0);
-    let output_seek = if start_secs > seek_buffer { seek_buffer } else { start_secs };
-
-    // Build FFmpeg command with two-pass seeking for accuracy
-    // Input seek (-ss before -i): fast, seeks to nearest keyframe
-    // Output seek (-ss after -i): accurate, trims to exact frame
+    // Use stream copy - NO re-encoding!
+    // -ss before -i: input seeking (fast, seeks to keyframe)
+    // -c copy: stream copy (no decode/encode)
+    // -avoid_negative_ts make_zero: fix any timestamp issues
     let args = vec![
         "-y".to_string(),
-        "-v".to_string(), "error".to_string(),
-        // Input seeking - fast, approximate
-        "-ss".to_string(), format!("{:.3}", input_seek),
+        "-hide_banner".to_string(),
+        "-loglevel".to_string(), "error".to_string(),
+        // Input seeking - fast, approximate to keyframe
+        "-ss".to_string(), format!("{:.3}", start_secs),
         "-i".to_string(), input.to_string_lossy().to_string(),
-        // Output seeking - accurate, frame-precise  
-        "-ss".to_string(), format!("{:.3}", output_seek),
+        // Duration
         "-t".to_string(), format!("{:.3}", duration),
-        // Re-encode to ensure proper A/V sync
-        "-c:v".to_string(), "libx264".to_string(),
-        "-preset".to_string(), "fast".to_string(),
-        "-crf".to_string(), "18".to_string(),
-        "-c:a".to_string(), "aac".to_string(),
-        "-b:a".to_string(), "128k".to_string(),
+        // STREAM COPY - no re-encoding!
+        "-c".to_string(), "copy".to_string(),
+        // Fix timestamp issues that can occur with stream copy
+        "-avoid_negative_ts".to_string(), "make_zero".to_string(),
         "-movflags".to_string(), "+faststart".to_string(),
         output.to_string_lossy().to_string(),
     ];
@@ -117,7 +112,19 @@ pub async fn extract_segment<P: AsRef<Path>>(
         ));
     }
 
-    info!("Segment extracted: {}", output.display());
+    let elapsed = start_time.elapsed();
+    let file_size = tokio::fs::metadata(output)
+        .await
+        .map(|m| m.len())
+        .unwrap_or(0);
+
+    info!(
+        "[SEGMENT_EXTRACT] DONE in {:.2}s - output: {} ({:.2} MB)",
+        elapsed.as_secs_f64(),
+        output.display(),
+        file_size as f64 / 1_000_000.0
+    );
+
     Ok(())
 }
 
