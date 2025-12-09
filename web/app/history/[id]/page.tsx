@@ -19,9 +19,14 @@ import {
   type OverwriteTarget,
 } from "@/components/HistoryDetail/OverwriteConfirmationDialog";
 import { SceneCard, type Highlight } from "@/components/HistoryDetail/SceneCard";
-import { Results } from "@/components/ProcessingClient/Results";
+import {
+  HistorySceneExplorer,
+  groupClipsByScene,
+  type HistoryClip,
+} from "@/components/HistoryDetail/SceneExplorer";
 import { DetailedProcessingStatus } from "@/components/shared/DetailedProcessingStatus";
 import { StyleQualitySelector } from "@/components/style-quality/StyleQualitySelector";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -88,6 +93,30 @@ function parseClipIdentifier(clip: Clip): { sceneId: number; style: string } | n
   return null;
 }
 
+function timeToSeconds(timeStr?: string): number {
+  if (!timeStr) return 0;
+  const parts = timeStr.split(":").map((p) => parseFloat(p) || 0);
+  if (parts.length === 3) {
+    const [h, m, s] = parts;
+    return h * 3600 + m * 60 + s;
+  }
+  if (parts.length === 2) {
+    const [m, s] = parts;
+    return m * 60 + s;
+  }
+  const numeric = parseFloat(timeStr);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function Stat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-lg border bg-muted/30 px-3 py-2">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-lg font-semibold text-foreground">{value}</p>
+    </div>
+  );
+}
+
 export default function HistoryDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -95,7 +124,6 @@ export default function HistoryDetailPage() {
   const { getIdToken, user, loading: authLoading } = useAuth();
   const [highlightsData, setHighlightsData] = useState<HighlightsData | null>(null);
   const [clips, setClips] = useState<Clip[]>([]);
-  const [customPrompt, setCustomPrompt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedScenes, setSelectedScenes] = useState<Set<number>>(new Set());
@@ -151,6 +179,45 @@ export default function HistoryDetailPage() {
     });
     return map;
   }, [highlightsData?.highlights, sceneStylesData]);
+
+  const highlightTimingById = useMemo(() => {
+    const map = new Map<number, { start: number; end: number }>();
+    highlightsData?.highlights.forEach((h) => {
+      map.set(h.id, { start: timeToSeconds(h.start), end: timeToSeconds(h.end) });
+    });
+    return map;
+  }, [highlightsData?.highlights]);
+
+  const historyClips = useMemo<HistoryClip[]>(() => {
+    if (!clips || clips.length === 0) return [];
+    return clips.flatMap((clip) => {
+      const parsed = parseClipIdentifier(clip);
+      if (!parsed) return [];
+      const timing = highlightTimingById.get(parsed.sceneId);
+      return [
+        {
+          id: clip.name ?? `${parsed.sceneId}-${parsed.style}`,
+          sceneId: parsed.sceneId,
+          sceneTitle: sceneTitleById.get(parsed.sceneId),
+          startSec: timing?.start ?? 0,
+          endSec: timing?.end ?? 0,
+          style: parsed.style,
+          thumbnailUrl: clip.thumbnail ?? "",
+          videoUrl: clip.direct_url ?? clip.url,
+          directUrl: clip.direct_url,
+          title: clip.title,
+        },
+      ];
+    });
+  }, [clips, highlightTimingById, sceneTitleById]);
+
+  const sceneGroups = useMemo(() => groupClipsByScene(historyClips), [historyClips]);
+
+  const uniqueStyleCount = useMemo(() => {
+    const styles = new Set<string>();
+    historyClips.forEach((clip) => styles.add(clip.style));
+    return styles.size;
+  }, [historyClips]);
 
   const existingClipIndex = useMemo(() => {
     const map = new Map<number, Set<string>>();
@@ -250,7 +317,6 @@ export default function HistoryDetailPage() {
 
       setHighlightsData(highlights);
       setClips(details?.clips ?? []);
-      setCustomPrompt(details?.custom_prompt ?? null);
       setSceneStylesData(sceneStyles?.scene_styles ?? null);
 
       // If highlights doesn't have title/url but details does, use details
@@ -503,32 +569,6 @@ export default function HistoryDetailPage() {
     return userSettings?.plan === "pro" || userSettings?.plan === "studio";
   }, [userSettings?.plan]);
 
-  const log = useCallback((msg: string, type?: "info" | "error" | "success") => {
-    if (type === "error") {
-      toast.error(msg);
-    } else if (type === "success") {
-      toast.success(msg);
-    } else {
-      toast(msg);
-    }
-  }, []);
-
-  const handleClipDeleted = useCallback(
-    async (clipName: string) => {
-      try {
-        const token = await getIdToken();
-        if (!token) return;
-        const details = await getVideoDetails(videoId, token);
-        setClips(details.clips ?? []);
-      } catch (err) {
-        console.error("Failed to reload clips:", err);
-        // Optimistic update
-        setClips((prev) => prev.filter((c) => c.name !== clipName));
-      }
-    },
-    [getIdToken, videoId]
-  );
-
   if (authLoading) {
     return (
       <div className="flex flex-col items-center justify-center py-24 space-y-4">
@@ -585,27 +625,44 @@ export default function HistoryDetailPage() {
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1">
+          <p className="text-sm text-muted-foreground">History · {videoId}</p>
           <h1 className="text-3xl font-bold tracking-tight">
             {highlightsData.video_title ?? "Video Highlights"}
           </h1>
+        </div>
+      </div>
+
+      <Card className="shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-xl">
+            <Sparkles className="h-5 w-5 text-primary" />
+            Scene-centric explorer
+          </CardTitle>
+          <CardDescription>
+            Browse generated clips by scene, switch between styles, and play them inline.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
           {highlightsData.video_url && (
-            <div className="flex items-center gap-2 mt-1">
-              <p className="text-sm text-muted-foreground truncate flex-1">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <Badge variant="outline">Source</Badge>
+              <p className="truncate text-muted-foreground flex-1 min-w-0">
                 {highlightsData.video_url}
               </p>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 flex-shrink-0"
-                onClick={handleCopyUrl}
-                title="Copy URL"
-              >
+              <Button variant="outline" size="sm" className="gap-2" onClick={handleCopyUrl}>
                 <Copy className="h-4 w-4" />
+                Copy link
               </Button>
             </div>
           )}
-        </div>
-      </div>
+          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
+            <Stat label="Scenes" value={sceneGroups.length || highlightsData.highlights.length} />
+            <Stat label="Total clips" value={historyClips.length} />
+            <Stat label="Unique styles" value={uniqueStyleCount} />
+            <Stat label="Processing status" value={isProcessing || isReprocessing ? "Processing" : "Idle"} />
+          </div>
+        </CardContent>
+      </Card>
 
       {(isProcessing || isReprocessing) && (
         <DetailedProcessingStatus
@@ -688,21 +745,7 @@ export default function HistoryDetailPage() {
         </Card>
       )}
 
-      <Results
-        videoId={videoId}
-        clips={clips}
-        customPromptUsed={customPrompt}
-        videoTitle={highlightsData.video_title ?? null}
-        videoUrl={highlightsData.video_url ?? null}
-        log={log}
-        onReset={() => router.push("/")}
-        onClipDeleted={handleClipDeleted}
-        onTitleUpdated={(newTitle) => {
-          setHighlightsData((prev) =>
-            prev ? { ...prev, video_title: newTitle } : null
-          );
-        }}
-      />
+      <HistorySceneExplorer scenes={sceneGroups} />
 
       <OverwriteConfirmationDialog
         open={overwriteDialogOpen}
