@@ -33,8 +33,8 @@ function MobileNav() {
     setOpen(false);
   };
 
-  const handleSignOut = () => {
-    signOut();
+  const handleSignOut = async () => {
+    await signOut();
     setOpen(false);
   };
 

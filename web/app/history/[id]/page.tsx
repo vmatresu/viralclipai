@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Copy,
   Play,
+  Trash2,
   Sparkles,
 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
@@ -35,9 +36,23 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { useReprocessing } from "@/hooks/useReprocessing";
 import {
   apiFetch,
+  bulkDeleteClips,
+  deleteAllClips,
+  deleteClip as deleteClipApi,
   getVideoDetails,
   getVideoHighlights,
   getVideoSceneStyles,
@@ -131,6 +146,10 @@ export default function HistoryDetailPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
+  const [customPrompt, setCustomPrompt] = useState<string>("");
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [deleteAllDialogOpen, setDeleteAllDialogOpen] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
   const [overwriteDialogOpen, setOverwriteDialogOpen] = useState(false);
   const [pendingPlan, setPendingPlan] = useState<ReprocessPlan | null>(null);
   const [sceneStylesData, setSceneStylesData] = useState<SceneStyleEntryDto[] | null>(
@@ -204,6 +223,7 @@ export default function HistoryDetailPage() {
           style: parsed.style,
           thumbnailUrl: clip.thumbnail ?? "",
           videoUrl: clip.direct_url ?? clip.url,
+          clipName: clip.name,
           directUrl: clip.direct_url,
           title: clip.title,
         },
@@ -318,6 +338,7 @@ export default function HistoryDetailPage() {
       setHighlightsData(highlights);
       setClips(details?.clips ?? []);
       setSceneStylesData(sceneStyles?.scene_styles ?? null);
+      setCustomPrompt(details?.custom_prompt ?? "");
 
       // If highlights doesn't have title/url but details does, use details
       if ((!highlights.video_title || !highlights.video_url) && details) {
@@ -507,6 +528,100 @@ export default function HistoryDetailPage() {
     }
   }, [highlightsData?.video_url]);
 
+  const handleCopyPrompt = useCallback(async () => {
+    if (!customPrompt) {
+      toast.info("No custom prompt available for this video.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(customPrompt);
+      toast.success("Custom prompt copied");
+    } catch (_err) {
+      toast.error("Failed to copy prompt");
+    }
+  }, [customPrompt]);
+
+  const handleDeleteClip = useCallback(
+    async (clip: HistoryClip) => {
+      const clipName = clip.clipName ?? clip.id;
+      if (!clipName) {
+        toast.error("Missing clip identifier.");
+        return;
+      }
+
+      try {
+        const token = await getIdToken();
+        if (!token) {
+          toast.error("Please sign in to delete clips.");
+          return;
+        }
+        await deleteClipApi(videoId, clipName, token);
+        setClips((prev) => prev.filter((c) => c.name !== clipName));
+        toast.success("Clip deleted");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to delete clip";
+        toast.error(message);
+      }
+    },
+    [getIdToken, videoId]
+  );
+
+  const handleDeleteScene = useCallback(
+    async (sceneId: number) => {
+      const clipNames = clips
+        .filter((clip) => parseClipIdentifier(clip)?.sceneId === sceneId)
+        .map((clip) => clip.name)
+        .filter(Boolean);
+
+      if (clipNames.length === 0) {
+        toast.error("No clips found for this scene.");
+        return;
+      }
+
+      try {
+        const token = await getIdToken();
+        if (!token) {
+          toast.error("Please sign in to delete scenes.");
+          return;
+        }
+        await bulkDeleteClips(videoId, clipNames, token);
+        setClips((prev) => prev.filter((clip) => !clipNames.includes(clip.name)));
+        setSelectedScenes((prev) => {
+          const next = new Set(prev);
+          next.delete(sceneId);
+          return next;
+        });
+        toast.success("Scene deleted");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to delete scene";
+        toast.error(message);
+      }
+    },
+    [clips, getIdToken, videoId]
+  );
+
+  const handleDeleteAllScenes = useCallback(async () => {
+    try {
+      setDeletingAll(true);
+      const token = await getIdToken();
+      if (!token) {
+        toast.error("Please sign in to delete scenes.");
+        setDeletingAll(false);
+        return;
+      }
+      await deleteAllClips(videoId, token);
+      setClips([]);
+      setSelectedScenes(new Set());
+      toast.success("All scenes deleted");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to delete scenes";
+      toast.error(message);
+    } finally {
+      setDeletingAll(false);
+      setDeleteAllDialogOpen(false);
+    }
+  }, [getIdToken, videoId]);
+
   const handleReprocess = useCallback(async () => {
     if (selectedScenes.size === 0 || selectedStyles.length === 0) {
       toast.error("Please select at least one scene and one style");
@@ -633,17 +748,57 @@ export default function HistoryDetailPage() {
       </div>
 
       <Card className="shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-xl">
-            <Sparkles className="h-5 w-5 text-primary" />
-            Scene-centric explorer
-          </CardTitle>
-          <CardDescription>
-            Browse generated clips by scene, switch between styles, and play them
-            inline.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
+        <CardHeader className="pb-4 space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="flex-1 space-y-1">
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <Sparkles className="h-5 w-5 text-primary" />
+                Scene-centric explorer
+              </CardTitle>
+              <CardDescription>
+                Browse generated clips by scene, switch between styles, and curate or
+                delete them.
+              </CardDescription>
+              <p className="text-xs text-muted-foreground">Video ID · {videoId}</p>
+            </div>
+            <Dialog open={deleteAllDialogOpen} onOpenChange={setDeleteAllDialogOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={sceneGroups.length === 0}
+                  className="shrink-0"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete all scenes
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Delete all scenes?</DialogTitle>
+                  <DialogDescription>
+                    This will permanently delete all scenes and clips for this video.
+                    This cannot be undone.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter className="gap-2 sm:justify-end">
+                  <DialogClose asChild>
+                    <Button variant="outline" disabled={deletingAll}>
+                      Cancel
+                    </Button>
+                  </DialogClose>
+                  <Button
+                    variant="destructive"
+                    onClick={handleDeleteAllScenes}
+                    disabled={deletingAll}
+                  >
+                    {deletingAll ? "Deleting..." : "Delete all"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+
           {highlightsData.video_url && (
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <Badge variant="outline">Source</Badge>
@@ -661,6 +816,8 @@ export default function HistoryDetailPage() {
               </Button>
             </div>
           )}
+        </CardHeader>
+        <CardContent className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
             <Stat
               label="Scenes"
@@ -684,6 +841,47 @@ export default function HistoryDetailPage() {
           isResuming={!isReprocessing && isProcessing}
         />
       )}
+
+      <div className="rounded-lg border bg-card shadow-sm">
+        <button
+          type="button"
+          onClick={() => setPromptOpen((prev) => !prev)}
+          className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-muted/50"
+        >
+          <div className="space-y-1">
+            <p className="text-sm font-semibold">Custom prompt used for this video</p>
+            <p className="text-xs text-muted-foreground line-clamp-1">
+              {customPrompt ? customPrompt : "No custom prompt was provided."}
+            </p>
+          </div>
+          {promptOpen ? (
+            <ChevronDown className="h-4 w-4" />
+          ) : (
+            <ChevronRight className="h-4 w-4" />
+          )}
+        </button>
+        {promptOpen && (
+          <div className="border-t">
+            <ScrollArea className="max-h-48 px-4 py-3">
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                {customPrompt || "No custom prompt was provided for this video."}
+              </p>
+            </ScrollArea>
+            <div className="flex justify-end gap-2 border-t bg-muted/40 px-4 py-3">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={handleCopyPrompt}
+                disabled={!customPrompt}
+              >
+                <Copy className="h-4 w-4" />
+                Copy prompt
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {hasProOrStudioPlan && (
         <Card className="glass">
@@ -757,7 +955,25 @@ export default function HistoryDetailPage() {
         </Card>
       )}
 
-      <HistorySceneExplorer scenes={sceneGroups} />
+      <Card className="shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-primary" />
+            Scenes & styles
+          </CardTitle>
+          <CardDescription>
+            Clips are grouped by scene. Switch styles, play inline, or delete clips and
+            scenes.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="px-4 py-4">
+          <HistorySceneExplorer
+            scenes={sceneGroups}
+            onDeleteClip={handleDeleteClip}
+            onDeleteScene={handleDeleteScene}
+          />
+        </CardContent>
+      </Card>
 
       <OverwriteConfirmationDialog
         open={overwriteDialogOpen}
