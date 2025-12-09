@@ -127,6 +127,7 @@ impl ActivityAnalyzer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::intelligent::models::Detection;
 
     #[test]
     fn errors_when_no_detections() {

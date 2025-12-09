@@ -76,6 +76,23 @@ where
         .detect_in_video(&segment_path, 0.0, duration, width, height, fps)
         .await?;
 
+    // Log face detection statistics for debugging
+    let max_faces_per_frame = detections.iter().map(|f| f.len()).max().unwrap_or(0);
+    let total_detections: usize = detections.iter().map(|f| f.len()).sum();
+    let unique_tracks: std::collections::HashSet<u32> = detections
+        .iter()
+        .flatten()
+        .map(|d| d.track_id)
+        .collect();
+    info!(
+        max_faces_per_frame = max_faces_per_frame,
+        total_detections = total_detections,
+        unique_tracks = unique_tracks.len(),
+        frames = detections.len(),
+        duration = format!("{:.2}s", duration),
+        "Smart Split (Activity) face detection complete"
+    );
+
     let analyzer = ActivityAnalyzer::new(config.clone(), width, height);
     let planner = LayoutPlanner::new(config.clone());
 
@@ -158,16 +175,40 @@ async fn motion_fallback(
     width: u32,
     height: u32,
 ) -> MediaResult<(Vec<FrameDetections>, Vec<LayoutSpan>)> {
-    info!("Smart Split (Activity): no reliable faces found, selecting motion-based framing");
+    info!(
+        duration = format!("{:.2}s", duration),
+        width = width,
+        height = height,
+        "Smart Split (Activity): using motion-based framing fallback"
+    );
 
     let detections = detector
         .detect_motion_tracks(segment_path, 0.0, duration, width, height)
         .await?;
 
+    // Log motion detection results
+    let detection_count: usize = detections.iter().map(|f| f.len()).sum();
+    let unique_tracks: std::collections::HashSet<u32> = detections
+        .iter()
+        .flatten()
+        .map(|d| d.track_id)
+        .collect();
+    info!(
+        frames = detections.len(),
+        total_detections = detection_count,
+        unique_tracks = unique_tracks.len(),
+        "Motion fallback detection complete"
+    );
+
     let primary_track = detections
         .iter()
         .find_map(|frame| frame.first().map(|d| d.track_id))
         .unwrap_or(0);
+
+    info!(
+        primary_track = primary_track,
+        "Motion fallback using Full layout"
+    );
 
     let spans = vec![LayoutSpan {
         start: 0.0,

@@ -18,6 +18,7 @@ use crate::intelligent::models::{AspectRatio, CropWindow, Detection, FrameDetect
 use crate::intelligent::renderer::IntelligentRenderer;
 use crate::intelligent::smoother::CameraSmoother;
 use crate::intelligent::stacking::stack_halves;
+use tracing::info;
 use vclip_models::EncodingConfig;
 
 pub(crate) struct ActivitySplitRenderer {
@@ -64,8 +65,20 @@ impl ActivitySplitRenderer {
 
         for (idx, span) in spans.iter().enumerate() {
             let target_path = temp_dir.path().join(format!("span_{idx}.mp4"));
+            
+            // Log span being rendered
+            info!(
+                span_idx = idx,
+                start = format!("{:.2}s", span.start),
+                end = format!("{:.2}s", span.end),
+                duration = format!("{:.2}s", span.end - span.start),
+                layout = ?span.layout,
+                "Rendering span"
+            );
+            
             match span.layout {
                 LayoutMode::Full { primary } => {
+                    info!(primary = primary, "Rendering Full layout span");
                     let windows = self.track_windows(detections, primary, span, AspectRatio::PORTRAIT)?;
                     let raw_out = temp_dir.path().join(format!("full_raw_{idx}.mp4"));
                     let renderer = IntelligentRenderer::new(self.config.clone());
@@ -75,6 +88,7 @@ impl ActivitySplitRenderer {
                     self.scale_to_portrait(&raw_out, &target_path).await?;
                 }
                 LayoutMode::Split { primary, secondary } => {
+                    info!(primary = primary, secondary = secondary, "Rendering Split layout span");
                     let top_windows =
                         self.track_windows(detections, primary, span, AspectRatio::new(9, 8))?;
                     let bottom_windows =
@@ -224,8 +238,7 @@ impl ActivitySplitRenderer {
             .video_codec(&self.encoding.codec)
             .preset(&self.encoding.preset)
             .crf(self.encoding.crf)
-            .audio_codec("aac")
-            .audio_bitrate(&self.encoding.audio_bitrate);
+            .audio_codec("copy");  // Copy audio to avoid re-encoding artifacts
 
         FfmpegRunner::new().run(&cmd).await
     }
@@ -251,8 +264,14 @@ impl ActivitySplitRenderer {
                 "0",
                 "-i",
                 list_path.to_str().unwrap_or_default(),
-                "-c",
+                "-c:v",
                 "copy",
+                "-c:a",
+                "aac",
+                "-b:a",
+                &self.encoding.audio_bitrate,
+                "-af",
+                "aresample=async=1:first_pts=0",  // Fix audio discontinuities at segment boundaries
                 output.to_str().unwrap_or_default(),
             ])
             .output()

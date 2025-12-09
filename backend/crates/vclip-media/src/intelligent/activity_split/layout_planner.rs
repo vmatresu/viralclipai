@@ -3,12 +3,15 @@
 //! Decides when to show a single full-frame primary speaker versus a
 //! two-panel vertical split with primary/secondary assignments.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::TimelineFrame;
 use crate::error::{MediaError, MediaResult};
 use crate::intelligent::config::IntelligentCropConfig;
 use crate::intelligent::activity_scorer::TemporalActivityTracker;
+use tracing::{debug, info};
+
+// === Layout Types ===
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayoutMode {
@@ -23,23 +26,108 @@ pub struct LayoutSpan {
     pub layout: LayoutMode,
 }
 
+// === Configuration ===
+
+/// Configuration for layout planning thresholds.
+/// 
+/// These values control when Split vs Full layouts are triggered.
+#[derive(Debug, Clone)]
+pub struct LayoutPlannerConfig {
+    /// Minimum ratio of secondary activity to primary for Split (0.0-1.0).
+    /// Lower values make Split layouts more likely.
+    pub min_secondary_ratio: f64,
+    
+    /// Minimum time (seconds) secondary must hold before triggering Split.
+    pub layout_hold: f64,
+    
+    /// Minimum activity score threshold to consider a track active.
+    pub min_active_score: f64,
+    
+    /// Activity margin required to switch secondary track.
+    pub secondary_switch_margin: f64,
+    
+    /// Minimum detections for a track to be considered "significant" in fallback.
+    pub min_significant_detections: usize,
+}
+
+impl Default for LayoutPlannerConfig {
+    fn default() -> Self {
+        Self {
+            min_secondary_ratio: 0.35,  // 35% of primary activity
+            layout_hold: 0.6,           // 600ms hold time
+            min_active_score: 0.05,
+            secondary_switch_margin: 0.08,
+            min_significant_detections: 3,
+        }
+    }
+}
+
+// === Detection Statistics ===
+
+/// Statistics about detected faces/tracks in a frame sequence.
+#[derive(Debug)]
+pub struct DetectionStats {
+    pub max_faces_per_frame: usize,
+    pub total_detections: usize,
+    pub unique_tracks: HashSet<u32>,
+    pub frame_count: usize,
+}
+
+impl DetectionStats {
+    /// Compute detection statistics from timeline frames.
+    pub fn from_frames(frames: &[TimelineFrame]) -> Self {
+        let max_faces_per_frame = frames.iter().map(|f| f.detections.len()).max().unwrap_or(0);
+        let total_detections: usize = frames.iter().map(|f| f.detections.len()).sum();
+        let unique_tracks: HashSet<u32> = frames
+            .iter()
+            .flat_map(|f| f.detections.iter().map(|d| d.track_id))
+            .collect();
+        
+        Self {
+            max_faces_per_frame,
+            total_detections,
+            unique_tracks,
+            frame_count: frames.len(),
+        }
+    }
+    
+    /// Average faces per frame.
+    pub fn avg_faces(&self) -> f64 {
+        self.total_detections as f64 / self.frame_count.max(1) as f64
+    }
+    
+    /// Log statistics at info level.
+    pub fn log(&self, context: &str, duration: f64) {
+        info!(
+            max_faces = self.max_faces_per_frame,
+            avg_faces = format!("{:.2}", self.avg_faces()),
+            unique_tracks = self.unique_tracks.len(),
+            num_frames = self.frame_count,
+            duration = format!("{:.2}s", duration),
+            "{}", context
+        );
+    }
+}
+
+// === Layout Planner ===
+
 pub(crate) struct LayoutPlanner {
-    config: IntelligentCropConfig,
-    min_secondary_ratio: f64,
-    layout_hold: f64,
-    min_active_score: f64,
-    secondary_switch_margin: f64,
+    crop_config: IntelligentCropConfig,
+    config: LayoutPlannerConfig,
 }
 
 impl LayoutPlanner {
-    pub fn new(config: IntelligentCropConfig) -> Self {
+    pub fn new(crop_config: IntelligentCropConfig) -> Self {
         Self {
-            config,
-            min_secondary_ratio: 0.45,
-            layout_hold: 0.6,
-            min_active_score: 0.05,
-            secondary_switch_margin: 0.08,
+            crop_config,
+            config: LayoutPlannerConfig::default(),
         }
+    }
+    
+    /// Create with custom layout planning configuration.
+    #[allow(dead_code)]
+    pub fn with_config(crop_config: IntelligentCropConfig, config: LayoutPlannerConfig) -> Self {
+        Self { crop_config, config }
     }
 
     pub fn plan(&self, frames: &[TimelineFrame], duration: f64) -> MediaResult<Vec<LayoutSpan>> {
@@ -48,6 +136,10 @@ impl LayoutPlanner {
                 "Smart Split (Activity) requires at least one analyzed frame".to_string(),
             ));
         }
+
+        // Compute and log detection statistics
+        let stats = DetectionStats::from_frames(frames);
+        stats.log("Smart Split (Activity) layout planning started", duration);
 
         let mut tracker = TemporalActivityTracker::new(self.config_to_activity_cfg());
         let mut smoothed_scores: HashMap<u32, f64> = HashMap::new();
@@ -79,7 +171,7 @@ impl LayoutPlanner {
             }
 
             let (best_track, best_score) = best_track(&smoothed_scores);
-            if best_score < self.min_active_score {
+            if best_score < self.config.min_active_score {
                 continue;
             }
 
@@ -87,8 +179,8 @@ impl LayoutPlanner {
             if let Some(current_primary) = primary {
                 let current_score = *smoothed_scores.get(&current_primary).unwrap_or(&0.0);
                 let should_switch = best_track != current_primary
-                    && best_score > current_score + self.config.switch_margin
-                    && frame.time - primary_since >= self.config.min_switch_duration;
+                    && best_score > current_score + self.crop_config.switch_margin
+                    && frame.time - primary_since >= self.crop_config.min_switch_duration;
 
                 if should_switch || !smoothed_scores.contains_key(&current_primary) {
                     primary = Some(best_track);
@@ -110,7 +202,7 @@ impl LayoutPlanner {
                         let current_score = *smoothed_scores.get(&current_sec).unwrap_or(&0.0);
                         (sec_id != current_sec
                             && secondary_score_candidate
-                                > current_score + self.secondary_switch_margin)
+                                > current_score + self.config.secondary_switch_margin)
                             || !smoothed_scores.contains_key(&current_sec)
                     }
                 };
@@ -125,15 +217,32 @@ impl LayoutPlanner {
                 .and_then(|sec| smoothed_scores.get(&sec).copied())
                 .unwrap_or(0.0);
 
+            // Log decision factors at debug level
+            debug!(
+                time = format!("{:.2}s", frame.time),
+                primary = ?primary,
+                secondary = ?secondary,
+                best_score = format!("{:.3}", best_score),
+                secondary_score = format!("{:.3}", secondary_score),
+                split_threshold = format!("{:.3}", best_score * self.config.min_secondary_ratio),
+                secondary_hold_time = format!("{:.2}s", frame.time - secondary_since),
+                required_hold = format!("{:.2}s", self.config.layout_hold),
+                "Layout decision factors"
+            );
+
             // Decide desired layout
             let desired_layout = match (primary, secondary) {
                 (Some(p), Some(s))
-                    if secondary_score >= best_score * self.min_secondary_ratio
-                        && frame.time - secondary_since >= self.layout_hold =>
+                    if secondary_score >= best_score * self.config.min_secondary_ratio
+                        && frame.time - secondary_since >= self.config.layout_hold =>
                 {
+                    debug!(primary = p, secondary = s, "Choosing Split layout");
                     LayoutMode::Split { primary: p, secondary: s }
                 }
-                (Some(p), _) => LayoutMode::Full { primary: p },
+                (Some(p), _) => {
+                    debug!(primary = p, "Choosing Full layout");
+                    LayoutMode::Full { primary: p }
+                }
                 _ => continue,
             };
 
@@ -147,7 +256,7 @@ impl LayoutPlanner {
                 }
                 Some(_) => {
                     if let Some((pending, started)) = pending_layout {
-                        if pending == desired_layout && frame.time - started >= self.layout_hold {
+                        if pending == desired_layout && frame.time - started >= self.config.layout_hold {
                             spans.push(LayoutSpan {
                                 start: layout_since,
                                 end: frame.time,
@@ -180,18 +289,28 @@ impl LayoutPlanner {
 
         spans.push(LayoutSpan { start: span_start, end: duration, layout: final_layout });
 
+        // Log final plan summary
+        let split_count = spans.iter().filter(|s| matches!(s.layout, LayoutMode::Split { .. })).count();
+        let full_count = spans.iter().filter(|s| matches!(s.layout, LayoutMode::Full { .. })).count();
+        info!(
+            total_spans = spans.len(),
+            split_spans = split_count,
+            full_spans = full_count,
+            "Smart Split (Activity) layout plan complete"
+        );
+
         Ok(spans)
     }
 
     fn config_to_activity_cfg(&self) -> crate::intelligent::face_activity::FaceActivityConfig {
         crate::intelligent::face_activity::FaceActivityConfig {
-            activity_window: self.config.face_activity_window,
-            min_switch_duration: self.config.min_switch_duration,
-            switch_margin: self.config.switch_margin,
+            activity_window: self.crop_config.face_activity_window,
+            min_switch_duration: self.crop_config.min_switch_duration,
+            switch_margin: self.crop_config.switch_margin,
             weight_mouth: 0.0, // mouth is not computed in visual-only path
-            weight_motion: self.config.activity_weight_motion,
-            weight_size: self.config.activity_weight_size_change,
-            smoothing_alpha: self.config.activity_smoothing_window,
+            weight_motion: self.crop_config.activity_weight_motion,
+            weight_size: self.crop_config.activity_weight_size_change,
+            smoothing_alpha: self.crop_config.activity_smoothing_window,
             enable_mouth_detection: false,
         }
     }
@@ -215,9 +334,36 @@ impl LayoutPlanner {
             }
         }
 
+        info!(
+            track_counts = ?counts,
+            simultaneous_pair = ?simultaneous_pair,
+            "Fallback layout evaluation"
+        );
+
         let Some((&primary, _)) = counts.iter().max_by_key(|(_, count)| *count) else {
+            info!("No tracks found for fallback layout");
             return None;
         };
+
+        // If we have 2+ distinct tracks that appeared multiple times, prefer split
+        let min_detections = self.config.min_significant_detections;
+        let significant_tracks: Vec<_> = counts
+            .iter()
+            .filter(|(_, &count)| count >= min_detections)
+            .collect();
+
+        if significant_tracks.len() >= 2 {
+            let mut sorted: Vec<_> = significant_tracks.clone();
+            sorted.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
+            let primary = *sorted[0].0;
+            let secondary = *sorted[1].0;
+            info!(
+                primary = primary,
+                secondary = secondary,
+                "Fallback: forcing Split layout due to 2+ significant tracks"
+            );
+            return Some(LayoutMode::Split { primary, secondary });
+        }
 
         let secondary = counts
             .iter()
@@ -228,10 +374,17 @@ impl LayoutPlanner {
         match (simultaneous_pair, secondary) {
             // Prefer a pair that appeared together on screen
             (Some((p, s)), _) if counts.contains_key(&p) && counts.contains_key(&s) => {
+                info!(primary = p, secondary = s, "Fallback: Split from simultaneous pair");
                 Some(LayoutMode::Split { primary: p, secondary: s })
             }
-            (_, Some(sec)) => Some(LayoutMode::Split { primary, secondary: sec }),
-            _ => Some(LayoutMode::Full { primary }),
+            (_, Some(sec)) => {
+                info!(primary = primary, secondary = sec, "Fallback: Split from top 2 tracks");
+                Some(LayoutMode::Split { primary, secondary: sec })
+            }
+            _ => {
+                info!(primary = primary, "Fallback: Full layout (single track)");
+                Some(LayoutMode::Full { primary })
+            }
         }
     }
 }
