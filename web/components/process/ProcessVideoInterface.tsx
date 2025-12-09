@@ -37,6 +37,7 @@ export function ProcessVideoInterface() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [shouldAnimateInput, setShouldAnimateInput] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [staticCropSide, setStaticCropSide] = useState<"left" | "right">("left");
   
   // Progress tracking state
   const [logs, setLogs] = useState<string[]>([]);
@@ -161,12 +162,16 @@ export function ProcessVideoInterface() {
   };
 
   // Map UI selections to backend styles
-  const getStylesFromSelection = (layout: LayoutOption, aiTier: AiLevel): string[] => {
+  const getStylesFromSelection = (
+    layout: LayoutOption,
+    aiTier: AiLevel,
+    cropSide: "left" | "right" = "left"
+  ): string[] => {
     const isSplit = layout === "split";
 
     switch (aiTier) {
       case "static":
-        return isSplit ? ["split_fast"] : ["left_focus"];
+        return isSplit ? ["split_fast"] : [cropSide === "right" ? "right_focus" : "left_focus"];
       case "motion":
         return isSplit ? ["intelligent_split_motion"] : ["intelligent_motion"];
       case "basic_face":
@@ -214,7 +219,7 @@ export function ProcessVideoInterface() {
       }
 
       const sanitizedPrompt = limitLength(prompt.trim(), 5000);
-      const styles = getStylesFromSelection(layout, aiLevel);
+      const styles = getStylesFromSelection(layout, aiLevel, staticCropSide);
       const cropMode = exportOriginal ? "none" : "auto";
 
       // Track processing start
@@ -312,7 +317,7 @@ export function ProcessVideoInterface() {
       void analyticsEvents.videoProcessingFailed({
         errorType: "initialization_error",
         errorMessage,
-        style: getStylesFromSelection(layout, aiLevel).join(","),
+        style: getStylesFromSelection(layout, aiLevel, staticCropSide).join(","),
       });
     }
   };
@@ -432,6 +437,33 @@ export function ProcessVideoInterface() {
           </div>
           <div className="pl-11">
             <AiAssistanceSlider value={aiLevel} onChange={setAiLevel} />
+            {layout === "full" && aiLevel === "static" && (
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                  Static focus
+                </Label>
+                <div className="inline-flex rounded-full border border-white/10 bg-white/5 p-1 shadow-sm">
+                  {["left", "right"].map((side) => {
+                    const isActive = staticCropSide === side;
+                    return (
+                      <button
+                        key={side}
+                        type="button"
+                        onClick={() => setStaticCropSide(side as "left" | "right")}
+                        className={cn(
+                          "px-3 py-1.5 text-xs font-semibold rounded-full transition-colors",
+                          isActive
+                            ? "bg-primary text-white"
+                            : "text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        {side === "left" ? "Left" : "Right"}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

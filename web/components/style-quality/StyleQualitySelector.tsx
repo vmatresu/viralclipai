@@ -1,7 +1,6 @@
 "use client";
 
 import * as Slider from "@radix-ui/react-slider";
-import Image from "next/image";
 import { Activity, ScanFace, Sparkles, Zap } from "lucide-react";
 import { type ComponentType, type KeyboardEvent, type MouseEvent, useMemo } from "react";
 
@@ -69,6 +68,12 @@ const FULL_LEVELS: QualityLevel[] = [
     value: "left_focus",
     label: "Static – Focus Left",
     helper: "No AI, fixed left crop",
+    icon: Zap,
+  },
+  {
+    value: "right_focus",
+    label: "Static – Focus Right",
+    helper: "No AI, fixed right crop",
     icon: Zap,
   },
   {
@@ -241,7 +246,6 @@ function QualitySlider({
 
 function LayoutCard({
   title,
-  imageSrc,
   enabled,
   onToggle,
   levelValue,
@@ -249,7 +253,6 @@ function LayoutCard({
   onLevelChange,
 }: {
   title: string;
-  imageSrc: string;
   enabled: boolean;
   onToggle: (next: boolean) => void;
   levelValue: string;
@@ -310,16 +313,16 @@ function LayoutCard({
         </label>
       </div>
 
-      <div className="relative overflow-hidden rounded-xl border border-white/10 bg-gradient-to-b from-indigo-900/40 to-slate-950/60 shadow-inner">
-        <div className="relative aspect-[9/16] w-full">
-          <Image
-            src={imageSrc}
-            alt={`${title} preview`}
-            fill
-            priority
-            sizes="(max-width: 768px) 100vw, 50vw"
-            className="object-cover"
-          />
+      <div className="relative overflow-hidden rounded-xl border border-white/10 bg-gradient-to-b from-indigo-900/40 to-slate-950/60 shadow-inner flex items-center justify-center px-6 py-8">
+        <div className="grid h-full w-full max-w-[180px] grid-cols-1 gap-2">
+          {title.toLowerCase().includes("split") ? (
+            <>
+              <div className="h-20 rounded-lg bg-indigo-500/25 border border-white/10" />
+              <div className="h-20 rounded-lg bg-emerald-500/20 border border-white/10" />
+            </>
+          ) : (
+            <div className="h-40 rounded-xl bg-indigo-500/20 border border-white/10" />
+          )}
         </div>
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/5 via-transparent to-slate-950/40" />
       </div>
@@ -378,7 +381,6 @@ export function StyleQualitySelector({
         <div className="grid gap-4 lg:grid-cols-2">
           <LayoutCard
             title="Split View (9×16)"
-            imageSrc="/images/viralclipio-split.webp"
             enabled={selection.splitEnabled}
             onToggle={(next) => updateSelection({ splitEnabled: next })}
             levelValue={selection.splitStyle}
@@ -390,7 +392,6 @@ export function StyleQualitySelector({
 
           <LayoutCard
             title="Full View (9×16)"
-            imageSrc="/images/viralclipio-full.webp"
             enabled={selection.fullEnabled}
             onToggle={(next) => updateSelection({ fullEnabled: next })}
             levelValue={selection.fullStyle}
