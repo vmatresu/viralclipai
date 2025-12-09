@@ -6,8 +6,8 @@
 //!
 //! Intelligent styles are instantiated with their appropriate `DetectionTier`:
 //! - `Basic`: YuNet face detection only
-//! - `AudioAware`: YuNet + speaker detection
 //! - `SpeakerAware`: YuNet + audio + face activity
+//! - `Motion/Activity`: Visual motion + activity
 
 use std::path::Path;
 
@@ -53,14 +53,9 @@ impl StyleProcessorFactoryTrait for StyleProcessorFactory {
             Style::LeftFocus => Ok(Box::new(left_focus::LeftFocusProcessor::new())),
             Style::RightFocus => Ok(Box::new(right_focus::RightFocusProcessor::new())),
 
-            // Intelligent single-view styles (tier-aware, audio-based)
+            // Intelligent single-view styles (tier-aware, audio + activity)
             Style::Intelligent | Style::IntelligentBasic => {
                 Ok(Box::new(intelligent::IntelligentProcessor::new()))
-            }
-            Style::IntelligentAudio => {
-                Ok(Box::new(intelligent::IntelligentProcessor::with_tier(
-                    vclip_models::DetectionTier::AudioAware,
-                )))
             }
             Style::IntelligentSpeaker => {
                 Ok(Box::new(intelligent::IntelligentProcessor::with_tier(
@@ -80,14 +75,9 @@ impl StyleProcessorFactoryTrait for StyleProcessorFactory {
                 )))
             }
 
-            // Intelligent split-view styles (tier-aware, audio-based)
+            // Intelligent split-view styles (tier-aware, audio + activity)
             Style::IntelligentSplit | Style::IntelligentSplitBasic => {
                 Ok(Box::new(intelligent_split::IntelligentSplitProcessor::new()))
-            }
-            Style::IntelligentSplitAudio => {
-                Ok(Box::new(intelligent_split::IntelligentSplitProcessor::with_tier(
-                    vclip_models::DetectionTier::AudioAware,
-                )))
             }
             Style::IntelligentSplitSpeaker => {
                 Ok(Box::new(intelligent_split::IntelligentSplitProcessor::with_tier(

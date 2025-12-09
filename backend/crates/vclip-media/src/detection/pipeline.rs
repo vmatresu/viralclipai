@@ -16,7 +16,7 @@ pub struct DetectionResult {
     /// Per-frame detection results.
     pub frames: Vec<FrameResult>,
 
-    /// Speaker activity segments (for AudioAware+ tiers).
+    /// Speaker activity segments (for SpeakerAware tier).
     pub speaker_segments: Option<Vec<SpeakerSegment>>,
 
     /// The detection tier that was actually used (may differ from requested
@@ -47,7 +47,7 @@ pub struct FrameResult {
     /// Maps track_id -> activity_score.
     pub activity_scores: Option<Vec<(u32, f64)>>,
 
-    /// Active speaker at this time (for AudioAware+ tiers).
+    /// Active speaker at this time (for SpeakerAware tier).
     pub active_speaker: Option<ActiveSpeakerHint>,
 }
 

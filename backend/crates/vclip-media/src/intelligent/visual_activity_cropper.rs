@@ -4,7 +4,7 @@
 //! - `IntelligentMotion` - uses frame differencing to detect active faces
 //! - `IntelligentActivity` - full visual activity (motion + size + temporal smoothing)
 //!
-//! Unlike the audio-based styles (AudioAware, SpeakerAware), these work with any audio format.
+//! Unlike the audio-based SpeakerAware style, these work with any audio format.
 //!
 //! # Pipeline
 //!
@@ -224,7 +224,6 @@ mod tests {
     fn test_tier_uses_visual_activity() {
         assert!(DetectionTier::MotionAware.uses_visual_activity());
         assert!(DetectionTier::ActivityAware.uses_visual_activity());
-        assert!(!DetectionTier::AudioAware.uses_visual_activity());
         assert!(!DetectionTier::SpeakerAware.uses_visual_activity());
     }
 

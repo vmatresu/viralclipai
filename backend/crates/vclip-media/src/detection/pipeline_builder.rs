@@ -50,10 +50,6 @@ impl PipelineBuilder {
                 info!("Building Basic tier pipeline (YuNet face detection)");
                 Ok(Box::new(BasicPipeline::new()))
             }
-            DetectionTier::AudioAware => {
-                info!("Building AudioAware tier pipeline (YuNet + speaker detection)");
-                Ok(Box::new(AudioAwarePipeline::new()))
-            }
             DetectionTier::SpeakerAware => {
                 info!("Building SpeakerAware tier pipeline (YuNet + audio + face activity)");
                 Ok(Box::new(SpeakerAwarePipeline::new()))
@@ -186,104 +182,6 @@ impl DetectionPipeline for BasicPipeline {
     }
 }
 
-// ============================================================================
-// AudioAware Tier Pipeline
-// ============================================================================
-
-/// Pipeline for `DetectionTier::AudioAware` - YuNet + speaker detection.
-struct AudioAwarePipeline {
-    face_provider: YuNetFaceProvider,
-    audio_provider: StandardAudioProvider,
-}
-
-impl AudioAwarePipeline {
-    fn new() -> Self {
-        Self {
-            face_provider: YuNetFaceProvider::new(),
-            audio_provider: StandardAudioProvider::new(),
-        }
-    }
-}
-
-#[async_trait]
-impl DetectionPipeline for AudioAwarePipeline {
-    async fn analyze(
-        &self,
-        video_path: &Path,
-        start_time: f64,
-        end_time: f64,
-    ) -> MediaResult<DetectionResult> {
-        let video_info = probe_video(video_path).await?;
-        let width = video_info.width;
-        let height = video_info.height;
-        let fps = video_info.fps;
-        let duration = end_time - start_time;
-
-        debug!(
-            "AudioAware pipeline analyzing {}x{} @ {:.2}fps, {:.2}s",
-            width, height, fps, duration
-        );
-
-        // Detect faces
-        let face_detections = self
-            .face_provider
-            .detect_faces(video_path, start_time, end_time, width, height, fps)
-            .await?;
-
-        // Detect speaker activity
-        let speaker_segments = self
-            .audio_provider
-            .detect_speakers(video_path, duration, width)
-            .await?;
-
-        // Create speaker detector for segment lookup
-        let speaker_detector = SpeakerDetector::new();
-
-        // Convert to FrameResults with speaker hints
-        let sample_interval = 1.0 / 2.0;
-        let frames: Vec<FrameResult> = face_detections
-            .into_iter()
-            .enumerate()
-            .map(|(i, faces)| {
-                let time = start_time + (i as f64 * sample_interval);
-                let active_speaker = if !speaker_segments.is_empty() {
-                    Some(ActiveSpeakerHint::from(
-                        speaker_detector.speaker_at_time(&speaker_segments, time),
-                    ))
-                } else {
-                    None
-                };
-
-                FrameResult {
-                    time,
-                    faces,
-                    activity_scores: None,
-                    active_speaker,
-                }
-            })
-            .collect();
-
-        Ok(DetectionResult {
-            frames,
-            speaker_segments: Some(speaker_segments),
-            tier_used: DetectionTier::AudioAware,
-            width,
-            height,
-            fps,
-            duration: video_info.duration,
-        })
-    }
-
-    fn tier(&self) -> DetectionTier {
-        DetectionTier::AudioAware
-    }
-
-    fn name(&self) -> &'static str {
-        "audio_aware"
-    }
-}
-
-// ============================================================================
 // SpeakerAware Tier Pipeline
 // ============================================================================
 
@@ -542,15 +440,6 @@ mod tests {
             .unwrap();
         assert_eq!(pipeline.tier(), DetectionTier::Basic);
         assert_eq!(pipeline.name(), "basic");
-    }
-
-    #[test]
-    fn test_pipeline_builder_audio_aware() {
-        let pipeline = PipelineBuilder::for_tier(DetectionTier::AudioAware)
-            .build()
-            .unwrap();
-        assert_eq!(pipeline.tier(), DetectionTier::AudioAware);
-        assert_eq!(pipeline.name(), "audio_aware");
     }
 
     #[test]

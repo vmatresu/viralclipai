@@ -47,9 +47,9 @@ mod tier_aware_smoother_tests {
     }
 
     #[test]
-    fn test_audio_aware_tier_follows_speaker() {
+    fn test_speaker_aware_tier_follows_speaker() {
         let config = test_config();
-        let mut smoother = TierAwareCameraSmoother::new(config, DetectionTier::AudioAware, 30.0);
+        let mut smoother = TierAwareCameraSmoother::new(config, DetectionTier::SpeakerAware, 30.0);
 
         // Set up speaker segments - right speaker active
         smoother = smoother.with_speaker_segments(vec![SpeakerSegment {
@@ -70,8 +70,8 @@ mod tier_aware_smoother_tests {
         let keyframes = smoother.compute_camera_plan(&frame_dets, 1920, 1080, 0.0, 1.0);
 
         assert!(!keyframes.is_empty());
-        // AudioAware should focus on right face (active speaker) despite being smaller
-        assert!(keyframes[0].cx > 960.0, "AudioAware tier should focus on active speaker (right): got {}", keyframes[0].cx);
+        // SpeakerAware should focus on right face (active speaker) despite being smaller
+        assert!(keyframes[0].cx > 960.0, "SpeakerAware tier should focus on active speaker (right): got {}", keyframes[0].cx);
     }
 
     #[test]
@@ -107,7 +107,7 @@ mod tier_aware_smoother_tests {
     #[test]
     fn test_fallback_when_no_speaker_segments() {
         let config = test_config();
-        let mut smoother = TierAwareCameraSmoother::new(config, DetectionTier::AudioAware, 30.0);
+        let mut smoother = TierAwareCameraSmoother::new(config, DetectionTier::SpeakerAware, 30.0);
         // No speaker segments set
 
         let detections = vec![
@@ -151,9 +151,6 @@ mod tier_aware_cropper_tests {
         let cropper = TierAwareIntelligentCropper::with_tier(DetectionTier::Basic);
         assert_eq!(cropper.tier(), DetectionTier::Basic);
 
-        let cropper = TierAwareIntelligentCropper::with_tier(DetectionTier::AudioAware);
-        assert_eq!(cropper.tier(), DetectionTier::AudioAware);
-
         let cropper = TierAwareIntelligentCropper::with_tier(DetectionTier::SpeakerAware);
         assert_eq!(cropper.tier(), DetectionTier::SpeakerAware);
     }
@@ -162,7 +159,6 @@ mod tier_aware_cropper_tests {
     fn test_tier_uses_audio_check() {
         assert!(!DetectionTier::None.uses_audio());
         assert!(!DetectionTier::Basic.uses_audio());
-        assert!(DetectionTier::AudioAware.uses_audio());
         assert!(DetectionTier::SpeakerAware.uses_audio());
     }
 
@@ -170,7 +166,6 @@ mod tier_aware_cropper_tests {
     fn test_tier_requires_yunet_check() {
         assert!(!DetectionTier::None.requires_yunet());
         assert!(DetectionTier::Basic.requires_yunet());
-        assert!(DetectionTier::AudioAware.requires_yunet());
         assert!(DetectionTier::SpeakerAware.requires_yunet());
     }
 }
@@ -184,16 +179,12 @@ mod tier_aware_split_tests {
     fn test_split_processor_tier_assignment() {
         let processor = TierAwareSplitProcessor::with_tier(DetectionTier::Basic);
         assert_eq!(processor.tier(), DetectionTier::Basic);
-
-        let processor = TierAwareSplitProcessor::with_tier(DetectionTier::AudioAware);
-        assert_eq!(processor.tier(), DetectionTier::AudioAware);
     }
 
     #[test]
     fn test_split_processor_tier_requires_yunet() {
         // Basic and above require YuNet
         assert!(DetectionTier::Basic.requires_yunet());
-        assert!(DetectionTier::AudioAware.requires_yunet());
         assert!(DetectionTier::SpeakerAware.requires_yunet());
         
         // None does not require YuNet

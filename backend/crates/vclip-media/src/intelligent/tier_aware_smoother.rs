@@ -2,12 +2,12 @@
 //!
 //! This module extends the base camera smoother with tier-specific behavior:
 //! - **Basic**: Follow the most prominent face (largest × confidence)
-//! - **AudioAware**: Prioritize faces on the active speaker side
 //! - **SpeakerAware**: Use full activity tracking with hysteresis
+//! - **Motion/Activity Aware**: Favor moving / active faces, ignore audio
 //!
-//! The key difference from the base smoother is that AudioAware and SpeakerAware
-//! tiers use speaker/activity information to decide which face to follow,
-//! rather than just using size and confidence.
+//! The key difference from the base smoother is that SpeakerAware tiers use
+//! speaker/activity information to decide which face to follow, rather than
+//! just using size and confidence.
 
 use std::collections::HashMap;
 use tracing::{debug, info};
@@ -30,7 +30,7 @@ pub struct TierAwareCameraSmoother {
     tier: DetectionTier,
     #[allow(dead_code)]
     fps: f64,
-    /// Speaker segments for AudioAware/SpeakerAware tiers
+    /// Speaker segments for SpeakerAware tier
     speaker_segments: Vec<SpeakerSegment>,
     /// Activity tracker for SpeakerAware tier
     activity_tracker: TemporalActivityTracker,
@@ -130,7 +130,7 @@ impl TierAwareCameraSmoother {
         // For speaker-aware and activity-aware tiers with tracking, use instant transitions at speaker boundaries
         let smoothed = match (mode, self.tier) {
             // Speaker-aware tiers: snap between speakers with minimal drift
-            (CameraMode::Tracking | CameraMode::Zoom, DetectionTier::AudioAware | DetectionTier::SpeakerAware) => {
+            (CameraMode::Tracking | CameraMode::Zoom, DetectionTier::SpeakerAware) => {
                 self.smooth_with_instant_speaker_transitions(&raw_keyframes)
             }
             // Visual activity tiers: snap transitions and suppress short-lived motion
@@ -145,7 +145,7 @@ impl TierAwareCameraSmoother {
         // Enforce motion constraints using the extracted constraint enforcer
         let enforcer = CameraConstraintEnforcer::new(self.config.clone());
         match self.tier {
-            DetectionTier::AudioAware | DetectionTier::SpeakerAware => {
+            DetectionTier::SpeakerAware => {
                 enforcer.enforce_constraints_relaxed(&smoothed, width, height)
             }
             DetectionTier::MotionAware | DetectionTier::ActivityAware => {
@@ -213,9 +213,6 @@ impl TierAwareCameraSmoother {
                     DetectionTier::Basic => {
                         self.compute_focus_basic(frame_dets, width, height)
                     }
-                    DetectionTier::AudioAware => {
-                        self.compute_focus_audio_aware(frame_dets, current_time, width, height)
-                    }
                     DetectionTier::SpeakerAware => {
                         self.compute_focus_speaker_aware(frame_dets, current_time, width, height)
                     }
@@ -258,58 +255,6 @@ impl TierAwareCameraSmoother {
 
         // Find the most prominent face
         let primary = detections
-            .iter()
-            .max_by(|a, b| {
-                let score_a = a.bbox.area() * a.score;
-                let score_b = b.bbox.area() * b.score;
-                score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .unwrap();
-
-        let focus_box = primary.bbox.pad(primary.bbox.width * self.config.subject_padding);
-        focus_box.clamp(width, height)
-    }
-
-    /// AudioAware tier: Prioritize faces on the active speaker side.
-    fn compute_focus_audio_aware(
-        &self,
-        detections: &[Detection],
-        time: f64,
-        width: u32,
-        height: u32,
-    ) -> BoundingBox {
-        if detections.is_empty() {
-            return self.create_fallback_box(width, height);
-        }
-
-        // Get active speaker at this time
-        let active_speaker = self.get_speaker_at_time(time);
-
-        // Filter detections by speaker side
-        let speaker_side_dets: Vec<&Detection> = match active_speaker {
-            ActiveSpeaker::Left => {
-                detections.iter()
-                    .filter(|d| self.track_sides.get(&d.track_id).copied().unwrap_or(true))
-                    .collect()
-            }
-            ActiveSpeaker::Right => {
-                detections.iter()
-                    .filter(|d| !self.track_sides.get(&d.track_id).copied().unwrap_or(true))
-                    .collect()
-            }
-            ActiveSpeaker::Both | ActiveSpeaker::None => {
-                // Fall back to basic behavior
-                return self.compute_focus_basic(detections, width, height);
-            }
-        };
-
-        if speaker_side_dets.is_empty() {
-            // No detection on speaker side, fall back to basic
-            return self.compute_focus_basic(detections, width, height);
-        }
-
-        // Select the most prominent face on the speaker side
-        let primary = speaker_side_dets
             .iter()
             .max_by(|a, b| {
                 let score_a = a.bbox.area() * a.score;
@@ -647,9 +592,9 @@ mod tests {
     }
 
     #[test]
-    fn test_audio_aware_follows_speaker() {
+    fn test_speaker_aware_follows_speaker_side() {
         let config = test_config();
-        let mut smoother = TierAwareCameraSmoother::new(config, DetectionTier::AudioAware, 30.0);
+        let mut smoother = TierAwareCameraSmoother::new(config, DetectionTier::SpeakerAware, 30.0);
 
         // Set up speaker segments - left speaker active
         smoother.speaker_segments = vec![SpeakerSegment {
@@ -668,7 +613,7 @@ mod tests {
             Detection::new(0.0, BoundingBox::new(1500.0, 100.0, 100.0, 100.0), 0.9, 2), // Right, larger
         ];
 
-        let focus = smoother.compute_focus_audio_aware(&detections, 0.5, 1920, 1080);
+        let focus = smoother.compute_focus_speaker_aware(&detections, 0.5, 1920, 1080);
 
         // Should select left face (track 1) because left speaker is active
         assert!(focus.cx() < 500.0, "Should focus on left face (active speaker)");

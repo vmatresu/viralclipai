@@ -6,8 +6,9 @@
 //! |------|----------------|----------------|---------------|
 //! | `None` | — | — | — |
 //! | `Basic` | YuNet | — | — |
-//! | `AudioAware` | YuNet | SpeakerDetector | — |
 //! | `SpeakerAware` | YuNet | SpeakerDetector | FaceActivityAnalyzer |
+//! | `MotionAware` | YuNet | — | — |
+//! | `ActivityAware` | YuNet | — | FaceActivityAnalyzer |
 //!
 //! Use `PipelineBuilder` to create pipelines with automatic fallback handling.
 

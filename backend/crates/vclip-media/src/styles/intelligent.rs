@@ -5,16 +5,17 @@
 //!
 //! Detection behavior is controlled by the `DetectionTier`:
 //! - `Basic`: YuNet face detection only - follows most prominent face
-//! - `AudioAware`: YuNet + speaker detection - prioritizes active speaker
 //! - `SpeakerAware`: YuNet + audio + face activity - robust speaker tracking with hysteresis
+//! - `MotionAware`: Visual motion + face detection - favors active movers
+//! - `ActivityAware`: Full visual activity + face detection - high quality motion tracking
 //!
 //! # Tier Differences
 //!
 //! - **Basic**: Camera follows the largest/most confident face. Good for single-speaker content.
-//! - **AudioAware**: Camera prioritizes faces on the active speaker side (left/right).
-//!   Fast re-centering (0.2-0.5s) when speaker changes.
 //! - **SpeakerAware**: Full activity tracking with hysteresis. Minimum dwell time (1.0s)
 //!   before switching, requires 20% improvement margin. Best for multi-speaker podcasts.
+//! - **MotionAware**: Uses visual motion to follow active faces. Works with mono audio.
+//! - **ActivityAware**: Combines motion + size change analysis for stable tracking.
 
 use async_trait::async_trait;
 use tracing::info;
@@ -72,7 +73,6 @@ impl StyleProcessor for IntelligentProcessor {
         match self.tier {
             DetectionTier::None => "intelligent_heuristic",
             DetectionTier::Basic => "intelligent",
-            DetectionTier::AudioAware => "intelligent_audio",
             DetectionTier::SpeakerAware => "intelligent_speaker",
             DetectionTier::MotionAware => "intelligent_motion",
             DetectionTier::ActivityAware => "intelligent_activity",
@@ -84,7 +84,6 @@ impl StyleProcessor for IntelligentProcessor {
             style,
             Style::Intelligent
                 | Style::IntelligentBasic
-                | Style::IntelligentAudio
                 | Style::IntelligentSpeaker
                 | Style::IntelligentMotion
                 | Style::IntelligentActivity
@@ -126,7 +125,6 @@ impl StyleProcessor for IntelligentProcessor {
 
         // Use tier-aware intelligent cropper for tier-specific behavior
         // - Basic: Follows most prominent face (largest × confidence)
-        // - AudioAware: Prioritizes faces on active speaker side
         // - SpeakerAware: Full activity tracking with hysteresis
         let _result = crate::intelligent::create_tier_aware_intelligent_clip(
             request.input_path.as_ref(),
@@ -183,8 +181,7 @@ impl StyleProcessor for IntelligentProcessor {
         let multiplier = match self.tier {
             DetectionTier::None => 0.5,
             DetectionTier::Basic => 1.0,
-            DetectionTier::AudioAware => 1.3,
-            DetectionTier::MotionAware => 1.4,
+            DetectionTier::MotionAware => 1.3,
             DetectionTier::SpeakerAware => 1.6,
             DetectionTier::ActivityAware => 1.7,
         };
@@ -210,13 +207,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_intelligent_processor_with_tier() {
-        let processor = IntelligentProcessor::with_tier(DetectionTier::AudioAware);
-        assert_eq!(processor.name(), "intelligent_audio");
-        assert_eq!(processor.detection_tier(), DetectionTier::AudioAware);
-
         let processor = IntelligentProcessor::with_tier(DetectionTier::SpeakerAware);
         assert_eq!(processor.name(), "intelligent_speaker");
         assert_eq!(processor.detection_tier(), DetectionTier::SpeakerAware);
+
+        let processor = IntelligentProcessor::with_tier(DetectionTier::MotionAware);
+        assert_eq!(processor.name(), "intelligent_motion");
+        assert_eq!(processor.detection_tier(), DetectionTier::MotionAware);
     }
 
     #[test]
@@ -224,7 +221,6 @@ mod tests {
         let processor = IntelligentProcessor::new();
         assert!(processor.can_handle(Style::Intelligent));
         assert!(processor.can_handle(Style::IntelligentBasic));
-        assert!(processor.can_handle(Style::IntelligentAudio));
         assert!(processor.can_handle(Style::IntelligentSpeaker));
 
         assert!(!processor.can_handle(Style::IntelligentSplit));

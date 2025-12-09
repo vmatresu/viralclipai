@@ -23,13 +23,11 @@ fn encoding_for_style(style: Style) -> EncodingConfig {
     match style {
         Style::Intelligent
         | Style::IntelligentBasic
-        | Style::IntelligentAudio
         | Style::IntelligentSpeaker
         | Style::IntelligentMotion
         | Style::IntelligentActivity
         | Style::IntelligentSplit
         | Style::IntelligentSplitBasic
-        | Style::IntelligentSplitAudio
         | Style::IntelligentSplitSpeaker
         | Style::IntelligentSplitMotion
         | Style::IntelligentSplitActivity => EncodingConfig::for_intelligent_crop(),

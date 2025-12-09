@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the architecture for tier-specific behavior in ViralClipAI's intelligent video processing pipeline. The implementation makes `intelligent`, `intelligent_audio`, and `intelligent_speaker` styles produce meaningfully different outputs based on their detection tier.
+This document describes the architecture for tier-specific behavior in ViralClipAI's intelligent video processing pipeline. The implementation makes `intelligent` and `intelligent_speaker` styles produce meaningfully different outputs based on their detection tier. The former AudioAware tier has been removed because stereo audio inputs were unreliable (duplicated/mono).
 
 ## Tier Definitions
 
@@ -17,13 +17,6 @@ This document describes the architecture for tier-specific behavior in ViralClip
 - **Detection**: YuNet face detection
 - **Camera behavior**: Follow the most prominent face (largest × confidence)
 - **Use case**: Single-speaker content, general face tracking
-
-### DetectionTier::AudioAware (IntelligentAudio, IntelligentSplitAudio)
-
-- **Detection**: YuNet + audio activity detection
-- **Camera behavior**: Prioritize faces on the active speaker side
-- **Switching speed**: Fast (0.2-0.3s transition)
-- **Use case**: Podcast-style content with clear speaker turns
 
 ### DetectionTier::SpeakerAware (IntelligentSpeaker, IntelligentSplitSpeaker)
 
@@ -41,7 +34,6 @@ This document describes the architecture for tier-specific behavior in ViralClip
 Camera smoother that uses speaker and activity information:
 
 - **Basic**: `compute_focus_basic()` - largest face × confidence
-- **AudioAware**: `compute_focus_audio_aware()` - prioritize speaker side
 - **SpeakerAware**: `compute_focus_speaker_aware()` - full activity tracking
 
 #### TierAwareIntelligentCropper (`tier_aware_cropper.rs`)
@@ -49,7 +41,7 @@ Camera smoother that uses speaker and activity information:
 Orchestrates the full pipeline with tier-specific behavior:
 
 1. Face detection
-2. Speaker detection (AudioAware/SpeakerAware only)
+2. Speaker detection (SpeakerAware only)
 3. Tier-aware camera smoothing
 4. Crop planning and rendering
 
@@ -58,7 +50,7 @@ Orchestrates the full pipeline with tier-specific behavior:
 Split view processing with tier-specific vertical positioning:
 
 - **Basic**: Fixed positioning (0% left, 15% right)
-- **AudioAware/SpeakerAware**: Face-aware positioning per panel
+- **SpeakerAware**: Face-aware positioning per panel
 
 ### Integration Points
 
@@ -79,19 +71,12 @@ Uses `create_tier_aware_split_clip()` with the processor's tier.
 - **Max pan speed**: 600 px/s
 - **No speaker awareness**
 
-### AudioAware Tier
-
-- **Target selection**: Face on active speaker side (left/right)
-- **Speaker detection**: Stereo audio balance or motion analysis
-- **Switching speed**: Fast (0.2-0.3s transition)
-- **Fallback**: If no clear speaker, use Basic behavior
-
 ### SpeakerAware Tier
 
 - **Target selection**: Face with highest activity score
 - **Activity components**: Visual activity + audio activity
 - **Hysteresis**: Minimum dwell time 1.0s, switch margin 20%
-- **Fallback**: If activity unclear, use AudioAware behavior
+- **Fallback**: If activity unclear, use Basic behavior
 
 ## File Changes Summary
 

@@ -49,8 +49,6 @@ pub fn build_video_filter(style: Style) -> Option<String> {
         | Style::IntelligentSplit
         | Style::IntelligentBasic
         | Style::IntelligentSplitBasic
-        | Style::IntelligentAudio
-        | Style::IntelligentSplitAudio
         | Style::IntelligentSpeaker
         | Style::IntelligentSplitSpeaker
         | Style::IntelligentMotion

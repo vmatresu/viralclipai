@@ -67,8 +67,8 @@ function buildDownloadUrl(clip: Clip): string {
 }
 
 // Style name mapping for display
-// Note: Audio-based styles (intelligent_audio, intelligent_speaker, etc.) are not available in frontend
-// due to compatibility issues with duplicated audio channels (e.g., podcasts)
+// Note: Audio-only tiers were removed because some inputs are mono/duplicated;
+// we keep only Basic/Motion/Activity/Speaker tiers in the UI.
 const STYLE_LABELS: Record<string, string> = {
   split: "Split View",
   split_fast: "Split View (Fast)",

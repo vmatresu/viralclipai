@@ -2,7 +2,6 @@
 //!
 //! This module extends the split view processing with tier-specific behavior:
 //! - **Basic**: Fixed vertical positioning (current behavior)
-//! - **AudioAware**: Speaker-aware panel highlighting (future)
 //! - **SpeakerAware**: Dynamic per-panel positioning based on face detection
 //!
 //! For split view styles, the tier primarily affects:
@@ -93,7 +92,7 @@ impl TierAwareSplitProcessor {
             }
         }
 
-        // 2. Detect faces for positioning (AudioAware tiers)
+        // 2. Detect faces for positioning (SpeakerAware tiers)
         let (left_vertical_bias, right_vertical_bias) = if self.tier.requires_yunet() {
             self.compute_face_aware_positioning(segment, width, height, duration).await
         } else {
@@ -562,9 +561,6 @@ mod tests {
     fn test_processor_creation() {
         let processor = TierAwareSplitProcessor::with_tier(DetectionTier::Basic);
         assert_eq!(processor.tier(), DetectionTier::Basic);
-
-        let processor = TierAwareSplitProcessor::with_tier(DetectionTier::AudioAware);
-        assert_eq!(processor.tier(), DetectionTier::AudioAware);
     }
 
     #[test]

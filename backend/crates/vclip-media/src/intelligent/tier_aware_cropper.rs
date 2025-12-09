@@ -7,7 +7,6 @@
 //! # Tier Behavior
 //!
 //! - **Basic**: Face detection → Camera smoothing → Crop planning
-//! - **AudioAware**: Face detection + Speaker detection → Audio-aware smoothing
 //! - **SpeakerAware**: Face detection + Speaker + Activity → Activity-aware smoothing
 
 use std::path::Path;
@@ -109,7 +108,7 @@ impl TierAwareIntelligentCropper {
             let total_detections: usize = detections.iter().map(|d| d.len()).sum();
             info!("  Found {} face detections", total_detections);
 
-            // Speaker detection for AudioAware tiers only (SpeakerAware handled above)
+            // Speaker detection for SpeakerAware tiers handled above; others skip audio
             let speaker_segments = if self.tier.uses_audio() {
                 info!("Step 2/4: Detecting speakers (tier: {:?})...", self.tier);
                 let segments = self
@@ -245,9 +244,6 @@ mod tests {
         let cropper = TierAwareIntelligentCropper::with_tier(DetectionTier::Basic);
         assert_eq!(cropper.tier(), DetectionTier::Basic);
 
-        let cropper = TierAwareIntelligentCropper::with_tier(DetectionTier::AudioAware);
-        assert_eq!(cropper.tier(), DetectionTier::AudioAware);
-
         let cropper = TierAwareIntelligentCropper::with_tier(DetectionTier::SpeakerAware);
         assert_eq!(cropper.tier(), DetectionTier::SpeakerAware);
     }
@@ -256,7 +252,6 @@ mod tests {
     fn test_tier_uses_audio() {
         assert!(!DetectionTier::None.uses_audio());
         assert!(!DetectionTier::Basic.uses_audio());
-        assert!(DetectionTier::AudioAware.uses_audio());
         assert!(DetectionTier::SpeakerAware.uses_audio());
     }
 }

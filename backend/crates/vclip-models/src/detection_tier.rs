@@ -5,7 +5,6 @@
 //!
 //! - `None`: Heuristic positioning only (fastest)
 //! - `Basic`: YuNet face detection
-//! - `AudioAware`: YuNet + stereo audio activity detection (requires stereo audio)
 //! - `SpeakerAware`: YuNet + stereo audio + face activity analysis (requires stereo audio)
 //! - `MotionAware`: YuNet + visual motion detection (works with any audio)
 //! - `ActivityAware`: YuNet + full visual activity analysis (works with any audio)
@@ -21,7 +20,7 @@ use thiserror::Error;
 /// Controls which detection providers are used during processing.
 /// Higher tiers provide better quality but require more processing time.
 ///
-/// Audio-based tiers (AudioAware, SpeakerAware) require stereo audio with speaker panning.
+/// Audio-based tiers (SpeakerAware) require stereo audio with speaker panning.
 /// Motion-based tiers (MotionAware, ActivityAware) work with any audio format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, Default)]
 #[serde(rename_all = "snake_case")]
@@ -34,11 +33,6 @@ pub enum DetectionTier {
     /// YuNet face detection only.
     /// Good balance of speed and quality.
     Basic,
-
-    /// YuNet face detection + stereo audio activity detection.
-    /// Uses audio channel separation to identify active speakers.
-    /// Requires stereo audio with speaker panning (left/right).
-    AudioAware,
 
     /// Full detection stack: YuNet + stereo audio + face activity.
     /// Best quality for stereo audio sources.
@@ -61,7 +55,6 @@ impl DetectionTier {
     pub const ALL: &'static [DetectionTier] = &[
         DetectionTier::None,
         DetectionTier::Basic,
-        DetectionTier::AudioAware,
         DetectionTier::SpeakerAware,
         DetectionTier::MotionAware,
         DetectionTier::ActivityAware,
@@ -72,7 +65,6 @@ impl DetectionTier {
         match self {
             DetectionTier::None => "none",
             DetectionTier::Basic => "basic",
-            DetectionTier::AudioAware => "audio_aware",
             DetectionTier::SpeakerAware => "speaker_aware",
             DetectionTier::MotionAware => "motion_aware",
             DetectionTier::ActivityAware => "activity_aware",
@@ -84,7 +76,6 @@ impl DetectionTier {
         match self {
             DetectionTier::None => "Heuristic positioning only (fastest)",
             DetectionTier::Basic => "YuNet face detection",
-            DetectionTier::AudioAware => "Face detection + stereo audio activity",
             DetectionTier::SpeakerAware => "Full detection with speaker analysis",
             DetectionTier::MotionAware => "Face detection + visual motion",
             DetectionTier::ActivityAware => "Full visual activity tracking",
@@ -96,10 +87,9 @@ impl DetectionTier {
         match self {
             DetectionTier::None => 1,
             DetectionTier::Basic => 2,
-            DetectionTier::AudioAware => 3,
-            DetectionTier::MotionAware => 4,
-            DetectionTier::SpeakerAware => 5,
-            DetectionTier::ActivityAware => 6,
+            DetectionTier::MotionAware => 3,
+            DetectionTier::SpeakerAware => 4,
+            DetectionTier::ActivityAware => 5,
         }
     }
 
@@ -111,7 +101,7 @@ impl DetectionTier {
     /// Returns true if this tier uses stereo audio analysis.
     /// These tiers require stereo audio with speaker panning to work correctly.
     pub fn uses_audio(&self) -> bool {
-        matches!(self, DetectionTier::AudioAware | DetectionTier::SpeakerAware)
+        matches!(self, DetectionTier::SpeakerAware)
     }
 
     /// Returns true if this tier uses visual motion/activity analysis.
@@ -139,7 +129,6 @@ impl FromStr for DetectionTier {
         match s.to_lowercase().as_str() {
             "none" => Ok(DetectionTier::None),
             "basic" => Ok(DetectionTier::Basic),
-            "audio_aware" | "audio" => Ok(DetectionTier::AudioAware),
             "speaker_aware" | "speaker" => Ok(DetectionTier::SpeakerAware),
             "motion_aware" | "motion" => Ok(DetectionTier::MotionAware),
             "activity_aware" | "activity" => Ok(DetectionTier::ActivityAware),
@@ -160,8 +149,6 @@ mod tests {
     fn test_tier_parse() {
         assert_eq!("none".parse::<DetectionTier>().unwrap(), DetectionTier::None);
         assert_eq!("basic".parse::<DetectionTier>().unwrap(), DetectionTier::Basic);
-        assert_eq!("audio_aware".parse::<DetectionTier>().unwrap(), DetectionTier::AudioAware);
-        assert_eq!("audio".parse::<DetectionTier>().unwrap(), DetectionTier::AudioAware);
         assert_eq!("speaker_aware".parse::<DetectionTier>().unwrap(), DetectionTier::SpeakerAware);
         assert_eq!("motion_aware".parse::<DetectionTier>().unwrap(), DetectionTier::MotionAware);
         assert_eq!("motion".parse::<DetectionTier>().unwrap(), DetectionTier::MotionAware);
@@ -182,24 +169,20 @@ mod tests {
     fn test_tier_requirements() {
         assert!(!DetectionTier::None.requires_yunet());
         assert!(DetectionTier::Basic.requires_yunet());
-        assert!(DetectionTier::AudioAware.requires_yunet());
         assert!(DetectionTier::MotionAware.requires_yunet());
 
         // Audio-based tiers
         assert!(!DetectionTier::Basic.uses_audio());
-        assert!(DetectionTier::AudioAware.uses_audio());
         assert!(DetectionTier::SpeakerAware.uses_audio());
         assert!(!DetectionTier::MotionAware.uses_audio());
         assert!(!DetectionTier::ActivityAware.uses_audio());
 
         // Visual-based tiers
         assert!(!DetectionTier::Basic.uses_visual_activity());
-        assert!(!DetectionTier::AudioAware.uses_visual_activity());
         assert!(DetectionTier::MotionAware.uses_visual_activity());
         assert!(DetectionTier::ActivityAware.uses_visual_activity());
 
         // Face activity (temporal tracking)
-        assert!(!DetectionTier::AudioAware.uses_face_activity());
         assert!(DetectionTier::SpeakerAware.uses_face_activity());
         assert!(!DetectionTier::MotionAware.uses_face_activity());
         assert!(DetectionTier::ActivityAware.uses_face_activity());
@@ -208,8 +191,7 @@ mod tests {
     #[test]
     fn test_speed_ranking() {
         assert!(DetectionTier::None.speed_rank() < DetectionTier::Basic.speed_rank());
-        assert!(DetectionTier::Basic.speed_rank() < DetectionTier::AudioAware.speed_rank());
-        assert!(DetectionTier::AudioAware.speed_rank() < DetectionTier::MotionAware.speed_rank());
+        assert!(DetectionTier::Basic.speed_rank() < DetectionTier::MotionAware.speed_rank());
         assert!(DetectionTier::MotionAware.speed_rank() < DetectionTier::SpeakerAware.speed_rank());
         assert!(DetectionTier::SpeakerAware.speed_rank() < DetectionTier::ActivityAware.speed_rank());
     }
