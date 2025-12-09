@@ -79,7 +79,7 @@ export default function PricingPage() {
               <span
                 className={cn(
                   "absolute -top-3 right-4 inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wide",
-                  plan.tone === "primary" || plan.tone === "dark"
+                  plan.tone === "primary"
                     ? "bg-brand-100 text-brand-800 border border-brand-200"
                     : "bg-slate-100 text-slate-700 border border-slate-200",
                   plan.tone === "custom" && "bg-brand-100 text-brand-800 border border-brand-200 dark:bg-white/10 dark:text-white dark:border-white/15"
