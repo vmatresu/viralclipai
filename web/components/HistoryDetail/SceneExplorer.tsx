@@ -1,10 +1,15 @@
 "use client";
 
 import { AlertCircle, Download, ExternalLink, Link2, Play } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -106,8 +111,9 @@ export function HistorySceneExplorer({ scenes }: HistorySceneExplorerProps) {
 
   const resolvePlaybackUrl = useCallback(
     async (clip: HistoryClip): Promise<string> => {
-      if (blobUrls.current[clip.id]) {
-        return blobUrls.current[clip.id];
+      const cached = blobUrls.current[clip.id];
+      if (cached !== undefined) {
+        return cached;
       }
 
       const rawUrl = clip.directUrl ?? clip.videoUrl;
@@ -119,8 +125,12 @@ export function HistorySceneExplorer({ scenes }: HistorySceneExplorerProps) {
       }
 
       const token = await getIdToken();
-      const baseUrl = API_BASE_URL.endsWith("/") ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-      const fullUrl = rawUrl.startsWith("/") ? `${baseUrl}${rawUrl}` : `${baseUrl}/${rawUrl}`;
+      const baseUrl = API_BASE_URL.endsWith("/")
+        ? API_BASE_URL.slice(0, -1)
+        : API_BASE_URL;
+      const fullUrl = rawUrl.startsWith("/")
+        ? `${baseUrl}${rawUrl}`
+        : `${baseUrl}/${rawUrl}`;
 
       try {
         const response = await fetch(fullUrl, {
@@ -213,11 +223,13 @@ function HistorySceneItem({ scene, index, resolvePlaybackUrl }: HistorySceneItem
     });
   }, [clipsByStyle]);
 
-  const [activeStyle, setActiveStyle] = useState(styles[0] ?? "");
+  const [activeStyle, setActiveStyle] = useState<string>(styles[0] ?? "");
 
   useEffect(() => {
     if (styles.length > 0) {
-      setActiveStyle(styles[0]);
+      setActiveStyle(styles[0] ?? "");
+    } else {
+      setActiveStyle("");
     }
   }, [styles]);
 
@@ -235,13 +247,18 @@ function HistorySceneItem({ scene, index, resolvePlaybackUrl }: HistorySceneItem
   const firstThumbnail = scene.clips.find((c) => c.thumbnailUrl)?.thumbnailUrl;
 
   return (
-    <AccordionItem value={`scene-${scene.sceneId}`} className="rounded-lg border bg-muted/30 px-3">
+    <AccordionItem
+      value={`scene-${scene.sceneId}`}
+      className="rounded-lg border bg-muted/30 px-3"
+    >
       <AccordionTrigger className="py-3">
         <div className="flex w-full items-center gap-4">
           <div className="flex-1 space-y-2 text-left">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline">Scene {index + 1}</Badge>
-              <span className="text-sm text-muted-foreground">{formatRange(scene)}</span>
+              <span className="text-sm text-muted-foreground">
+                {formatRange(scene)}
+              </span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <p className="font-semibold text-base leading-tight flex-1">
@@ -288,7 +305,10 @@ function HistorySceneItem({ scene, index, resolvePlaybackUrl }: HistorySceneItem
                     )}
                   >
                     <Badge
-                      className={cn("border", getTierBadgeClasses(meta?.color ?? "legacy"))}
+                      className={cn(
+                        "border",
+                        getTierBadgeClasses(meta?.color ?? "legacy")
+                      )}
                       variant="outline"
                     >
                       {meta?.label ?? "Legacy"}
@@ -308,10 +328,16 @@ function HistorySceneItem({ scene, index, resolvePlaybackUrl }: HistorySceneItem
                   <div className="grid gap-4 md:grid-cols-[2fr_1.2fr]">
                     <Card className="overflow-hidden">
                       <CardContent className="space-y-3 p-3 md:p-4">
-                        <SceneClipPlayer clip={clip} resolvePlaybackUrl={resolvePlaybackUrl} />
+                        <SceneClipPlayer
+                          clip={clip}
+                          resolvePlaybackUrl={resolvePlaybackUrl}
+                        />
                         <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                           <Badge
-                            className={cn("border", getTierBadgeClasses(meta?.color ?? "legacy"))}
+                            className={cn(
+                              "border",
+                              getTierBadgeClasses(meta?.color ?? "legacy")
+                            )}
                             variant="outline"
                           >
                             {meta?.label ?? "Legacy"}
@@ -393,7 +419,9 @@ function HistorySceneItem({ scene, index, resolvePlaybackUrl }: HistorySceneItem
                                   />
                                 ) : (
                                   <div className="flex h-28 w-full items-center justify-center bg-muted">
-                                    <span className="text-xs text-muted-foreground">No thumbnail</span>
+                                    <span className="text-xs text-muted-foreground">
+                                      No thumbnail
+                                    </span>
                                   </div>
                                 )}
                                 <div className="absolute left-2 top-2">
@@ -510,4 +538,3 @@ function ActionButton({ icon, label, onClick }: ActionButtonProps) {
     </Button>
   );
 }
-

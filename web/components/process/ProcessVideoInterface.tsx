@@ -15,13 +15,16 @@ import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
 import { limitLength, sanitizeUrl } from "@/lib/security/validation";
 import { cn } from "@/lib/utils";
+import { type ClipProcessingStep } from "@/lib/websocket";
+import {
+  handleWSMessage,
+  type MessageHandlerCallbacks,
+} from "@/lib/websocket/messageHandler";
 import { createWebSocketConnection, getWebSocketUrl } from "@/lib/websocket-client";
-import { handleWSMessage, type MessageHandlerCallbacks } from "@/lib/websocket/messageHandler";
 import { type SceneProgress } from "@/types/processing";
 
-
-import { ClipProcessingStep } from "@/lib/websocket";
 import { DetailedProcessingStatus } from "../shared/DetailedProcessingStatus";
+
 import { AiAssistanceSlider, type AiLevel } from "./AiAssistanceSlider";
 import { LayoutSelector, type LayoutOption } from "./LayoutSelector";
 
@@ -30,7 +33,7 @@ type StaticFocusOption = "left" | "center" | "right";
 export function ProcessVideoInterface() {
   const router = useRouter();
   const { getIdToken } = useAuth();
-  
+
   const [url, setUrl] = useState("");
   const [layout, setLayout] = useState<LayoutOption>("split");
   const [aiLevel, setAiLevel] = useState<AiLevel>("basic_face");
@@ -40,7 +43,7 @@ export function ProcessVideoInterface() {
   const [shouldAnimateInput, setShouldAnimateInput] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const [staticCropSide, setStaticCropSide] = useState<StaticFocusOption>("center");
-  
+
   // Progress tracking state
   const [logs, setLogs] = useState<string[]>([]);
   const [progress, setProgress] = useState(0);
@@ -51,23 +54,28 @@ export function ProcessVideoInterface() {
   const predefinedPrompts = [
     {
       label: "Emotional moments",
-      prompt: "Find the most emotional and vulnerable moments in this video that would resonate strongly on TikTok"
+      prompt:
+        "Find the most emotional and vulnerable moments in this video that would resonate strongly on TikTok",
     },
     {
       label: "Best viral clips",
-      prompt: "Find the best high-retention viral clip candidates for short-form social media (TikTok, Shorts, Reels)"
+      prompt:
+        "Find the best high-retention viral clip candidates for short-form social media (TikTok, Shorts, Reels)",
     },
     {
       label: "High energy discussion",
-      prompt: "Find segments with intense discussion about the main subject, where there is strong opinion or debate"
+      prompt:
+        "Find segments with intense discussion about the main subject, where there is strong opinion or debate",
     },
     {
       label: "Funny references",
-      prompt: "Find funny references, jokes, or humorous moments that would work well for comedy content"
+      prompt:
+        "Find funny references, jokes, or humorous moments that would work well for comedy content",
     },
     {
       label: "Sound-focused clips",
-      prompt: "Find moments with interesting sounds or reactions that would work well in sound-on social media clips"
+      prompt:
+        "Find moments with interesting sounds or reactions that would work well in sound-on social media clips",
     },
   ];
 
@@ -76,7 +84,11 @@ export function ProcessVideoInterface() {
   };
 
   // Helper function to add log messages
-  const log = (msg: string, type: "info" | "error" | "success" = "info", timestamp?: string) => {
+  const log = (
+    msg: string,
+    type: "info" | "error" | "success" = "info",
+    timestamp?: string
+  ) => {
     let prefix = ">";
     if (type === "error") {
       prefix = "[ERROR]";
@@ -129,7 +141,11 @@ export function ProcessVideoInterface() {
     });
   };
 
-  const handleSceneCompleted = (sceneId: number, clipsCompleted: number, clipsFailed: number) => {
+  const handleSceneCompleted = (
+    sceneId: number,
+    clipsCompleted: number,
+    clipsFailed: number
+  ) => {
     setSceneProgress((prev) => {
       const next = new Map(prev);
       const scene = next.get(sceneId);
@@ -281,7 +297,7 @@ export function ProcessVideoInterface() {
               ws.close();
               setIsProcessing(false);
               toast.success("Video processed successfully!");
-              
+
               // Navigate to history page with video ID
               router.push(`/history/${videoId}`);
             },
@@ -317,10 +333,10 @@ export function ProcessVideoInterface() {
       // Register job in processing context for global tracking
       // We don't have the videoId yet, but we'll track it when we get the Done message
       // For now, just mark that processing has started
-      
     } catch (err: unknown) {
       frontendLogger.error("Failed to start processing", err);
-      const errorMessage = err instanceof Error ? err.message : "Failed to start processing";
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to start processing";
       toast.error(errorMessage);
       setIsProcessing(false);
 
@@ -365,7 +381,9 @@ export function ProcessVideoInterface() {
             placeholder="Paste YouTube URL here..."
             className={cn(
               "relative h-14 pl-12 text-lg shadow-sm transition-all duration-300 border border-brand-100/80 bg-white text-foreground placeholder:text-muted-foreground/70 focus:ring-2 focus:ring-brand-500/25 focus:border-brand-300 dark:bg-black/40 dark:border-white/10 dark:placeholder:text-white/60",
-              shouldAnimateInput ? "ring-2 ring-primary border-primary animate-shake" : undefined
+              shouldAnimateInput
+                ? "ring-2 ring-primary border-primary animate-shake"
+                : undefined
             )}
             value={url}
             onChange={(e) => {
@@ -467,7 +485,11 @@ export function ProcessVideoInterface() {
                             : "text-muted-foreground hover:text-foreground"
                         )}
                       >
-                        {side === "left" ? "Left" : side === "right" ? "Right" : "Center"}
+                        {side === "left"
+                          ? "Left"
+                          : side === "right"
+                            ? "Right"
+                            : "Center"}
                       </button>
                     );
                   })}

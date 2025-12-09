@@ -1,14 +1,19 @@
-import type { ComponentType } from "react";
-
 import { Activity, Gauge, ScanFace, Sparkles } from "lucide-react";
 
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 
+import type { ComponentType } from "react";
+
 export type AiLevel = "static" | "motion" | "basic_face" | "active_face";
 
-type LegacyAiLevel = "fast" | "face_aware" | "face_tracking" | "motion_aware" | "premium";
+type LegacyAiLevel =
+  | "fast"
+  | "face_aware"
+  | "face_tracking"
+  | "motion_aware"
+  | "premium";
 
 const LEGACY_TO_CURRENT: Record<LegacyAiLevel, AiLevel> = {
   fast: "static",
@@ -97,9 +102,7 @@ export function AiAssistanceSlider({ value, onChange }: AiAssistanceSliderProps)
             {currentStep.label}
           </span>
         </div>
-        <h4 className="text-xl font-medium text-white mb-1">
-          {currentStep.label}
-        </h4>
+        <h4 className="text-xl font-medium text-white mb-1">{currentStep.label}</h4>
         <p className="text-sm text-muted-foreground leading-relaxed opacity-90">
           {currentStep.description}
         </p>
@@ -170,7 +173,9 @@ export function AiAssistanceSlider({ value, onChange }: AiAssistanceSliderProps)
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" />
-                <span className="text-xs font-semibold leading-tight">{step.label}</span>
+                <span className="text-xs font-semibold leading-tight">
+                  {step.label}
+                </span>
               </button>
             );
           })}

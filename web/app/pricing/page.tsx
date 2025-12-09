@@ -1,6 +1,5 @@
-import Link from "next/link";
-
 import { Check } from "lucide-react";
+import Link from "next/link";
 
 import { cn } from "@/lib/utils";
 
@@ -59,8 +58,8 @@ export default function PricingPage() {
       <section className="space-y-3 text-center md:text-left">
         <h1 className="text-4xl font-extrabold text-foreground">Pricing</h1>
         <p className="text-muted-foreground max-w-2xl">
-          Start free, then upgrade when you are ready to produce clips at scale. Plans are
-          per-user and can be changed at any time.
+          Start free, then upgrade when you are ready to produce clips at scale. Plans
+          are per-user and can be changed at any time.
         </p>
       </section>
 
@@ -82,7 +81,8 @@ export default function PricingPage() {
                   plan.tone === "primary"
                     ? "bg-brand-100 text-brand-800 border border-brand-200"
                     : "bg-slate-100 text-slate-700 border border-slate-200",
-                  plan.tone === "custom" && "bg-brand-100 text-brand-800 border border-brand-200 dark:bg-white/10 dark:text-white dark:border-white/15"
+                  plan.tone === "custom" &&
+                    "bg-brand-100 text-brand-800 border border-brand-200 dark:bg-white/10 dark:text-white dark:border-white/15"
                 )}
               >
                 {plan.badge}
@@ -93,7 +93,9 @@ export default function PricingPage() {
               <h2
                 className={cn(
                   "text-xl font-bold",
-                  plan.tone === "custom" ? "text-foreground dark:text-white" : "text-foreground"
+                  plan.tone === "custom"
+                    ? "text-foreground dark:text-white"
+                    : "text-foreground"
                 )}
               >
                 {plan.name}
@@ -101,7 +103,9 @@ export default function PricingPage() {
               <p
                 className={cn(
                   "text-3xl font-extrabold",
-                  plan.tone === "custom" ? "text-foreground dark:text-white" : "text-foreground"
+                  plan.tone === "custom"
+                    ? "text-foreground dark:text-white"
+                    : "text-foreground"
                 )}
               >
                 {plan.price}

@@ -639,7 +639,8 @@ export default function HistoryDetailPage() {
             Scene-centric explorer
           </CardTitle>
           <CardDescription>
-            Browse generated clips by scene, switch between styles, and play them inline.
+            Browse generated clips by scene, switch between styles, and play them
+            inline.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -649,17 +650,28 @@ export default function HistoryDetailPage() {
               <p className="truncate text-muted-foreground flex-1 min-w-0">
                 {highlightsData.video_url}
               </p>
-              <Button variant="outline" size="sm" className="gap-2" onClick={handleCopyUrl}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={handleCopyUrl}
+              >
                 <Copy className="h-4 w-4" />
                 Copy link
               </Button>
             </div>
           )}
           <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
-            <Stat label="Scenes" value={sceneGroups.length || highlightsData.highlights.length} />
+            <Stat
+              label="Scenes"
+              value={sceneGroups.length || highlightsData.highlights.length}
+            />
             <Stat label="Total clips" value={historyClips.length} />
             <Stat label="Unique styles" value={uniqueStyleCount} />
-            <Stat label="Processing status" value={isProcessing || isReprocessing ? "Processing" : "Idle"} />
+            <Stat
+              label="Processing status"
+              value={isProcessing || isReprocessing ? "Processing" : "Idle"}
+            />
           </div>
         </CardContent>
       </Card>

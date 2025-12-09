@@ -28,7 +28,10 @@ export const STYLE_TIER_LABELS: Record<string, StyleMeta> = {
 
   // Legacy fallbacks (history only)
   intelligent_activity: { label: "Active Speaker (Legacy)", color: "legacy" },
-  intelligent_split_activity: { label: "Active Speaker (Legacy Split)", color: "legacy" },
+  intelligent_split_activity: {
+    label: "Active Speaker (Legacy Split)",
+    color: "legacy",
+  },
   intelligent_basic: { label: "Smart Face (Legacy)", color: "legacy" },
   intelligent_split_basic: { label: "Smart Face (Legacy Split)", color: "legacy" },
 };
@@ -60,11 +63,16 @@ const STYLE_ALIASES: Record<string, string> = {
 };
 
 export const TIER_BADGE_CLASSES: Record<TierColor, string> = {
-  static: "bg-slate-100 text-slate-800 border-slate-200 dark:bg-slate-900/70 dark:text-slate-100 dark:border-slate-700",
-  motion: "bg-sky-100 text-sky-800 border-sky-200 dark:bg-sky-900/40 dark:text-sky-100 dark:border-sky-700",
-  basic: "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-100 dark:border-emerald-700",
-  premium: "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/40 dark:text-amber-100 dark:border-amber-700",
-  legacy: "bg-slate-200 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600",
+  static:
+    "bg-slate-100 text-slate-800 border-slate-200 dark:bg-slate-900/70 dark:text-slate-100 dark:border-slate-700",
+  motion:
+    "bg-sky-100 text-sky-800 border-sky-200 dark:bg-sky-900/40 dark:text-sky-100 dark:border-sky-700",
+  basic:
+    "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-100 dark:border-emerald-700",
+  premium:
+    "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/40 dark:text-amber-100 dark:border-amber-700",
+  legacy:
+    "bg-slate-200 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600",
 };
 
 export function normalizeStyleForSelection(style?: string): string | undefined {
@@ -76,7 +84,9 @@ export function normalizeStyleForSelection(style?: string): string | undefined {
 export function getStyleTier(style?: string): StyleMeta | undefined {
   if (!style) return undefined;
   const normalized = style.toLowerCase();
-  return STYLE_TIER_LABELS[normalized] ?? STYLE_TIER_LABELS[STYLE_ALIASES[normalized] ?? ""];
+  return (
+    STYLE_TIER_LABELS[normalized] ?? STYLE_TIER_LABELS[STYLE_ALIASES[normalized] ?? ""]
+  );
 }
 
 export function getStyleLabel(style?: string): string | undefined {
@@ -92,4 +102,3 @@ export function getStyleLabel(style?: string): string | undefined {
 export function getTierBadgeClasses(color: TierColor = "legacy"): string {
   return TIER_BADGE_CLASSES[color] ?? TIER_BADGE_CLASSES.legacy;
 }
-

@@ -35,7 +35,9 @@ export function VideoStatusBadge({
   const effectiveStatus = job?.status ?? status;
   const progress = job?.progress ?? 0;
   const styleLabel = getStyleLabel(style);
-  const styleBadgeClasses = style ? getTierBadgeClasses(getStyleTier(style)?.color) : "";
+  const styleBadgeClasses = style
+    ? getTierBadgeClasses(getStyleTier(style)?.color)
+    : "";
 
   if (effectiveStatus === "completed") {
     return (

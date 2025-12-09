@@ -2,7 +2,12 @@
 
 import * as Slider from "@radix-ui/react-slider";
 import { Activity, ScanFace, Sparkles, Zap } from "lucide-react";
-import { type ComponentType, type KeyboardEvent, type MouseEvent, useMemo } from "react";
+import {
+  type ComponentType,
+  type KeyboardEvent,
+  type MouseEvent,
+  useMemo,
+} from "react";
 
 import {
   Card,
@@ -58,7 +63,7 @@ const SPLIT_LEVELS: QualityLevel[] = [
   {
     value: "intelligent_split_speaker",
     label: "Active Speaker",
-    helper: "Premium face mesh AI, left=top/right=bottom",
+    helper: "Premium face mesh AI",
     icon: Sparkles,
   },
 ];
@@ -144,7 +149,9 @@ export function stylesToSelection(
 ): LayoutQualitySelection {
   const normalized = (styles ?? []).map((s) => {
     const lowered = s.toLowerCase();
-    return STYLE_SELECTION_ALIASES[lowered] ?? normalizeStyleForSelection(lowered) ?? lowered;
+    return (
+      STYLE_SELECTION_ALIASES[lowered] ?? normalizeStyleForSelection(lowered) ?? lowered
+    );
   });
 
   const splitStyle =
@@ -179,7 +186,11 @@ function QualitySlider({
     0
   );
   const columnsClass =
-    levels.length >= 6 ? "grid-cols-6" : levels.length >= 5 ? "grid-cols-5" : "grid-cols-4";
+    levels.length >= 6
+      ? "grid-cols-6"
+      : levels.length >= 5
+        ? "grid-cols-5"
+        : "grid-cols-4";
 
   return (
     <div className={cn("space-y-3", disabled && "opacity-50 pointer-events-none")}>

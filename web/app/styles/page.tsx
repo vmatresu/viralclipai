@@ -74,12 +74,14 @@ export default function StylesPage() {
                 <Gauge className="h-6 w-6 text-primary" />
                 <CardTitle>Static Styles (Tier 0)</CardTitle>
               </div>
-              <CardDescription>Fastest, deterministic. No AI detection.</CardDescription>
+              <CardDescription>
+                Fastest, deterministic. No AI detection.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-muted-foreground">
-                Choose a fixed framing without any AI involvement. Ideal when you already
-                know exactly which part of the frame you want to highlight.
+                Choose a fixed framing without any AI involvement. Ideal when you
+                already know exactly which part of the frame you want to highlight.
               </p>
               <div className="grid sm:grid-cols-2 gap-2 text-sm text-muted-foreground">
                 <div className="space-y-1">
@@ -275,12 +277,14 @@ export default function StylesPage() {
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Choose Static Split/Left/Center/Right if...</CardTitle>
+              <CardTitle className="text-lg">
+                Choose Static Split/Left/Center/Right if...
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-muted-foreground">
-                You prefer deterministic framing, fastest processing, or already know the
-                exact subject placement.
+                You prefer deterministic framing, fastest processing, or already know
+                the exact subject placement.
               </p>
             </CardContent>
           </Card>

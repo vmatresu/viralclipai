@@ -173,7 +173,9 @@ export default function SettingsPage() {
         {(() => {
           if (loading && !data) {
             return (
-              <div className="text-sm text-muted-foreground">Loading plan information...</div>
+              <div className="text-sm text-muted-foreground">
+                Loading plan information...
+              </div>
             );
           }
           if (data) {
@@ -252,7 +254,9 @@ export default function SettingsPage() {
 
       {data?.role === "superadmin" && (
         <section className="glass rounded-2xl p-6 space-y-4">
-          <h2 className="text-xl font-semibold text-foreground">Admin: Global Prompt</h2>
+          <h2 className="text-xl font-semibold text-foreground">
+            Admin: Global Prompt
+          </h2>
           <p className="text-sm text-muted-foreground">
             Manage the global base prompt used for video analysis. This prompt is used
             when users don't provide a custom prompt. The prompt is stored in Firestore
