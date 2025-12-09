@@ -93,8 +93,6 @@ pub use tier_aware_cropper::{create_tier_aware_intelligent_clip, TierAwareIntell
 pub use tier_aware_smoother::TierAwareCameraSmoother;
 pub use tier_aware_split::{create_tier_aware_split_clip, TierAwareSplitProcessor};
 pub use tracker::IoUTracker;
-pub use visual_activity_cropper::{create_visual_activity_clip, VisualActivityCropper};
-pub use visual_activity_split::{create_visual_activity_split_clip, VisualActivitySplitProcessor};
 pub use enhanced_smoother::{EnhancedCameraSmoother, SmoothingPreset};
 pub use continuous_renderer::{ContinuousRenderer, LayoutSpan, LayoutType};
 

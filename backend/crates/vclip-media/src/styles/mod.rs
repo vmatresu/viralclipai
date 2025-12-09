@@ -6,8 +6,8 @@
 //!
 //! Intelligent styles are instantiated with their appropriate `DetectionTier`:
 //! - `Basic`: YuNet face detection only
-//! - `SpeakerAware`: YuNet + audio + face activity
-//! - `Motion/Activity`: Visual motion + activity
+//! - `SpeakerAware`: YuNet + FaceMesh mouth activity (visual-only, no audio)
+//! - `MotionAware`: Visual motion heuristics (NN-free, no audio)
 
 use std::path::Path;
 

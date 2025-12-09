@@ -213,10 +213,15 @@ mod tests {
     #[test]
     fn test_can_handle_all_intelligent_styles() {
         let processor = IntelligentProcessor::new();
+        // All single-view intelligent styles should be handled
         assert!(processor.can_handle(Style::Intelligent));
         assert!(processor.can_handle(Style::IntelligentSpeaker));
+        assert!(processor.can_handle(Style::IntelligentMotion));
 
+        // Split and static styles should NOT be handled
         assert!(!processor.can_handle(Style::IntelligentSplit));
+        assert!(!processor.can_handle(Style::IntelligentSplitSpeaker));
+        assert!(!processor.can_handle(Style::IntelligentSplitMotion));
         assert!(!processor.can_handle(Style::Split));
     }
 }
