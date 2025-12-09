@@ -202,7 +202,7 @@ export function ProcessVideoInterface() {
             htmlFor="export-orig"
             className="cursor-pointer text-muted-foreground hover:text-foreground transition-colors text-base"
           >
-            Also export original video (no cropping)
+            Also export clipped segments in original landscape format (no cropping)
           </Label>
         </div>
 
