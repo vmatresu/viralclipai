@@ -24,15 +24,30 @@ export function ProcessVideoInterface() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const predefinedPrompts = [
-    "Emotional moments",
-    "Best viral clips",
-    "Funny references",
-    "High energy discussion",
+    {
+      label: "Emotional moments",
+      prompt: "Find the most emotional and vulnerable moments in this video that would resonate strongly on TikTok"
+    },
+    {
+      label: "Best viral clips",
+      prompt: "Find the best high-retention viral clip candidates for short-form social media (TikTok, Shorts, Reels)"
+    },
+    {
+      label: "High energy discussion",
+      prompt: "Find segments with intense discussion about the main subject, where there is strong opinion or debate"
+    },
+    {
+      label: "Funny references",
+      prompt: "Find funny references, jokes, or humorous moments that would work well for comedy content"
+    },
+    {
+      label: "Sound-focused clips",
+      prompt: "Find moments with interesting sounds or reactions that would work well in sound-on social media clips"
+    },
   ];
 
-  const handlePromptClick = (p: string) => {
-    if (prompt.includes(p)) return;
-    setPrompt((prev) => (prev ? `${prev}, ${p}` : p));
+  const handlePromptClick = (promptText: string) => {
+    setPrompt(promptText);
   };
 
   const handleLaunch = () => {
@@ -127,11 +142,11 @@ export function ProcessVideoInterface() {
             <div className="flex flex-wrap gap-2">
               {predefinedPrompts.map((p) => (
                 <button
-                  key={p}
-                  onClick={() => handlePromptClick(p)}
+                  key={p.label}
+                  onClick={() => handlePromptClick(p.prompt)}
                   className="text-xs px-3 py-1.5 rounded-full border transition-all font-medium bg-brand-50 text-brand-700 border-brand-100 hover:border-brand-200 hover:bg-brand-100/60 dark:bg-secondary/50 dark:text-secondary-foreground dark:border-white/5 dark:hover:border-white/20"
                 >
-                  + {p}
+                  + {p.label}
                 </button>
               ))}
             </div>
