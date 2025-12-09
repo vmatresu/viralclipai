@@ -25,6 +25,8 @@ import { DetailedProcessingStatus } from "../shared/DetailedProcessingStatus";
 import { AiAssistanceSlider, type AiLevel } from "./AiAssistanceSlider";
 import { LayoutSelector, type LayoutOption } from "./LayoutSelector";
 
+type StaticFocusOption = "left" | "center" | "right";
+
 export function ProcessVideoInterface() {
   const router = useRouter();
   const { getIdToken } = useAuth();
@@ -37,7 +39,7 @@ export function ProcessVideoInterface() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [shouldAnimateInput, setShouldAnimateInput] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [staticCropSide, setStaticCropSide] = useState<"left" | "right">("left");
+  const [staticCropSide, setStaticCropSide] = useState<StaticFocusOption>("center");
   
   // Progress tracking state
   const [logs, setLogs] = useState<string[]>([]);
@@ -165,13 +167,21 @@ export function ProcessVideoInterface() {
   const getStylesFromSelection = (
     layout: LayoutOption,
     aiTier: AiLevel,
-    cropSide: "left" | "right" = "left"
+    cropSide: StaticFocusOption = "center"
   ): string[] => {
     const isSplit = layout === "split";
 
     switch (aiTier) {
       case "static":
-        return isSplit ? ["split_fast"] : [cropSide === "right" ? "right_focus" : "left_focus"];
+        if (isSplit) return ["split_fast"];
+        switch (cropSide) {
+          case "right":
+            return ["right_focus"];
+          case "center":
+            return ["center_focus"];
+          default:
+            return ["left_focus"];
+        }
       case "motion":
         return isSplit ? ["intelligent_split_motion"] : ["intelligent_motion"];
       case "basic_face":
@@ -443,13 +453,13 @@ export function ProcessVideoInterface() {
                   Static focus
                 </Label>
                 <div className="inline-flex rounded-full border border-white/10 bg-white/5 p-1 shadow-sm">
-                  {["left", "right"].map((side) => {
+                  {(["left", "center", "right"] as StaticFocusOption[]).map((side) => {
                     const isActive = staticCropSide === side;
                     return (
                       <button
                         key={side}
                         type="button"
-                        onClick={() => setStaticCropSide(side as "left" | "right")}
+                        onClick={() => setStaticCropSide(side)}
                         className={cn(
                           "px-3 py-1.5 text-xs font-semibold rounded-full transition-colors",
                           isActive
@@ -457,7 +467,7 @@ export function ProcessVideoInterface() {
                             : "text-muted-foreground hover:text-foreground"
                         )}
                       >
-                        {side === "left" ? "Left" : "Right"}
+                        {side === "left" ? "Left" : side === "right" ? "Right" : "Center"}
                       </button>
                     );
                   })}

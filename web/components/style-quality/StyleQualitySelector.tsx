@@ -71,6 +71,12 @@ const FULL_LEVELS: QualityLevel[] = [
     icon: Zap,
   },
   {
+    value: "center_focus",
+    label: "Static – Focus Center",
+    helper: "No AI, fixed center crop",
+    icon: Zap,
+  },
+  {
     value: "right_focus",
     label: "Static – Focus Right",
     helper: "No AI, fixed right crop",
@@ -172,7 +178,8 @@ function QualitySlider({
     levels.findIndex((level) => level.value === value),
     0
   );
-  const columnsClass = levels.length >= 5 ? "grid-cols-5" : "grid-cols-4";
+  const columnsClass =
+    levels.length >= 6 ? "grid-cols-6" : levels.length >= 5 ? "grid-cols-5" : "grid-cols-4";
 
   return (
     <div className={cn("space-y-3", disabled && "opacity-50 pointer-events-none")}>

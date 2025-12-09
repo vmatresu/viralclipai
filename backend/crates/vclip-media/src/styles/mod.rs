@@ -21,6 +21,7 @@ pub mod split;
 pub mod split_fast;
 pub mod left_focus;
 pub mod right_focus;
+pub mod center_focus;
 pub mod intelligent;
 pub mod intelligent_split;
 
@@ -52,6 +53,7 @@ impl StyleProcessorFactoryTrait for StyleProcessorFactory {
             Style::SplitFast => Ok(Box::new(split_fast::SplitFastProcessor::new())),
             Style::LeftFocus => Ok(Box::new(left_focus::LeftFocusProcessor::new())),
             Style::RightFocus => Ok(Box::new(right_focus::RightFocusProcessor::new())),
+            Style::CenterFocus => Ok(Box::new(center_focus::CenterFocusProcessor::new())),
 
             // Intelligent single-view styles (tier-aware)
             Style::Intelligent | Style::IntelligentSpeaker | Style::IntelligentMotion => Ok(

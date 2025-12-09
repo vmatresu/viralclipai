@@ -21,7 +21,7 @@ The video processing system uses two independent concepts:
 
 ---
 
-## All Available Styles (11 Total)
+## All Available Styles (12 Total)
 
 ### Static/Fast Styles (No AI)
 
@@ -45,6 +45,13 @@ The video processing system uses two independent concepts:
 - **Output**: 1080x1920 portrait
 - **Description**: Crops left portion of landscape video
 - **Use case**: Main subject on left side
+
+#### `center_focus`
+
+- **Detection Tier**: None
+- **Output**: 1080x1920 portrait
+- **Description**: Crops the centered 9:16 slice of a landscape video
+- **Use case**: Main subject near the middle; deterministic framing
 
 #### `right_focus`
 
@@ -117,7 +124,7 @@ The video processing system uses two independent concepts:
 #### `all`
 
 - **Description**: Generates multiple styles at once
-- **Expands to**: split, split_fast, left_focus, right_focus, intelligent, intelligent_split
+- **Expands to**: split, split_fast, left_focus, center_focus, right_focus, intelligent, intelligent_split
 
 ### Deleted / Legacy
 
@@ -144,6 +151,7 @@ The UI displays styles in a 4-column grid with speed indicators:
 | `split`                     | `Style::Split`                   | None           |
 | `split_fast`                | `Style::SplitFast`               | None           |
 | `left_focus`                | `Style::LeftFocus`               | None           |
+| `center_focus`              | `Style::CenterFocus`             | None           |
 | `right_focus`               | `Style::RightFocus`              | None           |
 | `original`                  | `Style::Original`                | None           |
 | `intelligent`               | `Style::Intelligent`             | Basic          |

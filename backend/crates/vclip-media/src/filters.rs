@@ -32,6 +32,16 @@ pub const FILTER_RIGHT_FOCUS: &str = concat!(
     "pad=1080:1920:(ow-iw)/2:0"
 );
 
+/// Center focus filter (center vertical slice expanded to portrait).
+/// Uses a 9:16 crop anchored at the horizontal center, clamped to avoid negative offsets.
+pub const FILTER_CENTER_FOCUS: &str = concat!(
+    "scale=1920:-2,",
+    "crop=ih*9/16:ih:max((iw-ih*9/16)/2\\,0):0,",
+    "scale=1080:1920:force_original_aspect_ratio=decrease,",
+    // Anchor video to the top; pad only below
+    "pad=1080:1920:(ow-iw)/2:0"
+);
+
 /// Default portrait crop filter.
 pub const FILTER_DEFAULT_PORTRAIT: &str = "scale=-2:1920,crop=1080:1920";
 
@@ -41,6 +51,7 @@ pub fn build_video_filter(style: Style) -> Option<String> {
         Style::Split => Some(FILTER_SPLIT.to_string()),
         Style::LeftFocus => Some(FILTER_LEFT_FOCUS.to_string()),
         Style::RightFocus => Some(FILTER_RIGHT_FOCUS.to_string()),
+        Style::CenterFocus => Some(FILTER_CENTER_FOCUS.to_string()),
         Style::Original => None, // No filter for original
         // SplitFast uses FastSplitEngine - no filter here
         Style::SplitFast => None,
@@ -88,6 +99,7 @@ mod tests {
     fn test_build_video_filter() {
         assert!(build_video_filter(Style::Split).is_some());
         assert!(build_video_filter(Style::Original).is_none());
+        assert!(build_video_filter(Style::CenterFocus).is_some());
     }
 
     #[test]

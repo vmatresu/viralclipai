@@ -10,6 +10,7 @@ export const STYLE_TIER_LABELS: Record<string, StyleMeta> = {
   split: { label: "Static", color: "static" },
   split_fast: { label: "Static", color: "static" },
   left_focus: { label: "Static", color: "static" },
+  center_focus: { label: "Static", color: "static" },
   right_focus: { label: "Static", color: "static" },
   original: { label: "Static", color: "static" },
 
@@ -36,6 +37,7 @@ export const STYLE_DISPLAY_LABELS: Record<string, string> = {
   split: "Static – Split",
   split_fast: "Static – Fast",
   left_focus: "Static – Focus Left",
+  center_focus: "Static – Focus Center",
   right_focus: "Static – Focus Right",
   original: "Original",
   intelligent_motion: "Motion",

@@ -10,7 +10,7 @@ use thiserror::Error;
 /// Available clip styles.
 ///
 /// Styles are organized into categories:
-/// - **Static styles**: `Split`, `LeftFocus`, `RightFocus`, `Original` - fixed crops
+/// - **Static styles**: `Split`, `LeftFocus`, `CenterFocus`, `RightFocus`, `Original` - fixed crops
 /// - **Fast styles**: `SplitFast` - heuristic positioning without AI
 /// - **Intelligent styles**: Use AI detection with varying tiers
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
@@ -24,6 +24,8 @@ pub enum Style {
     LeftFocus,
     /// Focus on right half (static crop)
     RightFocus,
+    /// Focus on center vertical slice (static crop)
+    CenterFocus,
     /// Fast split view - heuristic positioning only, no AI detection
     SplitFast,
     /// Intelligent crop with face tracking (single view, basic tier)
@@ -47,6 +49,7 @@ impl Style {
         Style::Split,
         Style::LeftFocus,
         Style::RightFocus,
+        Style::CenterFocus,
         Style::SplitFast,
         Style::Intelligent,
         Style::IntelligentSplit,
@@ -62,6 +65,7 @@ impl Style {
         Style::Split,
         Style::LeftFocus,
         Style::RightFocus,
+        Style::CenterFocus,
         Style::SplitFast,
         Style::Intelligent,
         Style::IntelligentSplit,
@@ -100,6 +104,7 @@ impl Style {
             Style::Split => "split",
             Style::LeftFocus => "left_focus",
             Style::RightFocus => "right_focus",
+            Style::CenterFocus => "center_focus",
             Style::SplitFast => "split_fast",
             Style::Intelligent => "intelligent",
             Style::IntelligentSplit => "intelligent_split",
@@ -130,6 +135,7 @@ impl Style {
             | Style::Split
             | Style::LeftFocus
             | Style::RightFocus
+            | Style::CenterFocus
             | Style::SplitFast => DetectionTier::None,
             Style::Intelligent | Style::IntelligentSplit => DetectionTier::Basic,
             Style::IntelligentSpeaker | Style::IntelligentSplitSpeaker => DetectionTier::SpeakerAware,
@@ -177,6 +183,7 @@ impl FromStr for Style {
             "split" => Ok(Style::Split),
             "left_focus" => Ok(Style::LeftFocus),
             "right_focus" => Ok(Style::RightFocus),
+            "center_focus" => Ok(Style::CenterFocus),
             "split_fast" => Ok(Style::SplitFast),
             "intelligent" => Ok(Style::Intelligent),
             "intelligent_split" => Ok(Style::IntelligentSplit),
@@ -350,6 +357,10 @@ mod tests {
             "intelligent_split".parse::<Style>().unwrap(),
             Style::IntelligentSplit
         );
+        assert_eq!(
+            "center_focus".parse::<Style>().unwrap(),
+            Style::CenterFocus
+        );
         assert!("unknown".parse::<Style>().is_err());
     }
 
@@ -374,11 +385,12 @@ mod tests {
     #[test]
     fn test_expand_styles_all() {
         let styles = Style::expand_styles(&["all".to_string()]);
-        assert_eq!(styles.len(), 6); // Now includes SplitFast
+        assert_eq!(styles.len(), 7); // Includes center focus
         assert!(styles.contains(&Style::Split));
         assert!(styles.contains(&Style::SplitFast));
         assert!(styles.contains(&Style::LeftFocus));
         assert!(styles.contains(&Style::RightFocus));
+        assert!(styles.contains(&Style::CenterFocus));
         assert!(styles.contains(&Style::Intelligent));
         assert!(styles.contains(&Style::IntelligentSplit));
         // "all" should not include Original or advanced tiers
@@ -406,7 +418,7 @@ mod tests {
             "split".to_string(),
         ]);
         // Should deduplicate: split appears once, all expands but split already seen
-        assert_eq!(styles.len(), 6);
+        assert_eq!(styles.len(), 7);
     }
 
     #[test]
@@ -439,6 +451,9 @@ mod tests {
         // Fast styles -> None tier
         assert_eq!(Style::Original.detection_tier(), DetectionTier::None);
         assert_eq!(Style::Split.detection_tier(), DetectionTier::None);
+        assert_eq!(Style::LeftFocus.detection_tier(), DetectionTier::None);
+        assert_eq!(Style::RightFocus.detection_tier(), DetectionTier::None);
+        assert_eq!(Style::CenterFocus.detection_tier(), DetectionTier::None);
         assert_eq!(Style::SplitFast.detection_tier(), DetectionTier::None);
         
         // Basic tier styles
@@ -466,6 +481,7 @@ mod tests {
         assert!(!Style::Original.is_split_view());
         assert!(!Style::Intelligent.is_split_view());
         assert!(!Style::IntelligentSpeaker.is_split_view());
+        assert!(!Style::CenterFocus.is_split_view());
     }
 
     #[test]
@@ -475,6 +491,8 @@ mod tests {
         assert!(Style::Split.is_fast());
         assert!(Style::SplitFast.is_fast());
         assert!(Style::LeftFocus.is_fast());
+        assert!(Style::RightFocus.is_fast());
+        assert!(Style::CenterFocus.is_fast());
         
         // Non-fast styles (use AI detection)
         assert!(!Style::Intelligent.is_fast());
@@ -486,6 +504,7 @@ mod tests {
         assert_eq!("split_fast".parse::<Style>().unwrap(), Style::SplitFast);
         assert_eq!("intelligent_speaker".parse::<Style>().unwrap(), Style::IntelligentSpeaker);
         assert_eq!("intelligent_split_speaker".parse::<Style>().unwrap(), Style::IntelligentSplitSpeaker);
+        assert_eq!("center_focus".parse::<Style>().unwrap(), Style::CenterFocus);
     }
 }
 

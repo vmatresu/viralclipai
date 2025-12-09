@@ -86,7 +86,7 @@ export default function StylesPage() {
                   <div className="font-semibold text-foreground">Layouts</div>
                   <ul className="list-disc list-inside">
                     <li>split / split_fast</li>
-                    <li>left_focus / right_focus</li>
+                    <li>left_focus / center_focus / right_focus</li>
                     <li>original</li>
                   </ul>
                 </div>
@@ -275,7 +275,7 @@ export default function StylesPage() {
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Choose Static Split/Left/Right if...</CardTitle>
+              <CardTitle className="text-lg">Choose Static Split/Left/Center/Right if...</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-muted-foreground">

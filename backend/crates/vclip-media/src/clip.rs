@@ -5,7 +5,7 @@
 //! This module provides the main entry point for traditional clip creation:
 //!
 //! ## `create_clip()` - Traditional Styles
-//! Handles: `Original`, `Split`, `LeftFocus`, `RightFocus`
+//! Handles: `Original`, `Split`, `LeftFocus`, `CenterFocus`, `RightFocus`
 //! - Uses FFmpeg video filters for transformations
 //! - Single-pass processing
 //! - Fast and efficient
@@ -127,6 +127,7 @@ pub async fn extract_segment<P: AsRef<Path>>(
 /// - `Original`: Preserves original aspect ratio
 /// - `Split`: Left and right halves stacked (single-pass FFmpeg filter)
 /// - `LeftFocus`: Left half expanded to portrait
+/// - `CenterFocus`: Center vertical slice expanded to portrait
 /// - `RightFocus`: Right half expanded to portrait
 ///
 /// # Not Supported
@@ -194,7 +195,7 @@ where
             ));
         }
 
-        // Traditional styles (Split, LeftFocus, RightFocus)
+        // Traditional styles (Split, LeftFocus, CenterFocus, RightFocus)
         _ => {
             let filter = build_video_filter(task.style);
             create_basic_clip(input, output, start_secs, duration, filter.as_deref(), encoding, progress_callback).await?;
