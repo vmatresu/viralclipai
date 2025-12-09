@@ -1,7 +1,9 @@
 "use client";
 
+import * as AccordionPrimitive from "@radix-ui/react-accordion";
 import {
   AlertCircle,
+  ChevronDown,
   Download,
   ExternalLink,
   Link2,
@@ -12,12 +14,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+import { Accordion, AccordionContent, AccordionItem } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -320,9 +317,9 @@ function HistorySceneItem({
         value={`scene-${scene.sceneId}`}
         className="rounded-lg border bg-muted/30 px-3"
       >
-        <div className="flex items-start gap-2 py-3">
-          <AccordionTrigger className="flex-1 py-0">
-            <div className="flex w-full items-start gap-4">
+        <AccordionPrimitive.Header>
+          <AccordionPrimitive.Trigger className="group flex w-full items-center gap-3 py-3 text-left">
+            <div className="flex w-full items-center gap-3 sm:gap-4">
               <div className="flex-1 space-y-2 text-left">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant="outline">Scene {index + 1}</Badge>
@@ -348,30 +345,38 @@ function HistorySceneItem({
                   ))}
                 </div>
               </div>
-              {firstThumbnail ? (
-                <div className="hidden sm:block">
-                  <img
-                    src={firstThumbnail}
-                    alt={`Scene ${scene.sceneId} thumbnail`}
-                    className="h-16 w-28 rounded-md object-cover shadow-sm ring-1 ring-border"
-                  />
-                </div>
-              ) : null}
+
+              <div className="flex items-center gap-3 sm:gap-4">
+                {onDeleteScene ? (
+                  <DialogTrigger asChild>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="whitespace-nowrap text-white shadow-none"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSceneDeleteOpen(true);
+                      }}
+                      disabled={deletingScene}
+                    >
+                      Delete
+                    </Button>
+                  </DialogTrigger>
+                ) : null}
+                {firstThumbnail ? (
+                  <div className="hidden sm:block">
+                    <img
+                      src={firstThumbnail}
+                      alt={`Scene ${scene.sceneId} thumbnail`}
+                      className="h-16 w-28 rounded-md object-cover shadow-sm ring-1 ring-border"
+                    />
+                  </div>
+                ) : null}
+              </div>
             </div>
-          </AccordionTrigger>
-          {onDeleteScene ? (
-            <DialogTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-destructive hover:text-destructive"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </DialogTrigger>
-          ) : null}
-        </div>
+            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+          </AccordionPrimitive.Trigger>
+        </AccordionPrimitive.Header>
         <AccordionContent>
           <div className="rounded-lg border bg-background/60 p-4 shadow-sm">
             <Tabs value={activeStyle} onValueChange={setActiveStyle}>
