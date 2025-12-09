@@ -63,14 +63,14 @@ struct ResponsePart {
 }
 
 /// Highlight data from AI analysis.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct HighlightsResponse {
     pub video_url: Option<String>,
     pub video_title: Option<String>,
     pub highlights: Vec<Highlight>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Highlight {
     pub id: u32,
     pub title: String,

@@ -33,6 +33,10 @@ pub struct FaceDetector {
 }
 
 impl FaceDetector {
+    const MAX_SAMPLED_FRAMES: usize = 360; // hard cap to avoid runaway detection on long clips
+    const MAX_TOTAL_DETECTIONS: usize = 300;
+    const DETECTION_HEARTBEAT: usize = 40;
+
     /// Create a new face detector.
     pub fn new(config: IntelligentCropConfig) -> Self {
         Self {
@@ -104,17 +108,19 @@ impl FaceDetector {
         // Calculate sample interval
         let sample_interval = 1.0 / self.config.fps_sample;
         let num_samples = (duration / sample_interval).ceil() as usize;
+        let capped_samples = num_samples.min(Self::MAX_SAMPLED_FRAMES);
 
         info!(
             "Analyzing {} frames at {:.1} fps over {:.2}s",
-            num_samples, self.config.fps_sample, duration
+            capped_samples, self.config.fps_sample, duration
         );
 
         // Create tracker
         let mut tracker = IoUTracker::new(self.config.iou_threshold, self.config.max_track_gap);
 
         // Extract and analyze frames
-        let mut all_detections = Vec::with_capacity(num_samples);
+        let mut all_detections = Vec::with_capacity(capped_samples);
+        let mut total_detections = 0usize;
 
         // Use FFmpeg to extract face regions
         // We'll use FFmpeg's metadata extraction to detect faces
@@ -126,7 +132,10 @@ impl FaceDetector {
         let mut current_time = start_time;
         let mut frame_idx = 0;
 
-        while current_time < end_time && frame_idx < face_detections.len() {
+        while current_time < end_time
+            && frame_idx < face_detections.len()
+            && frame_idx < Self::MAX_SAMPLED_FRAMES
+        {
             let raw_dets = &face_detections[frame_idx];
 
             // Convert to tracker format
@@ -153,20 +162,38 @@ impl FaceDetector {
                 .collect();
 
             all_detections.push(frame_dets);
+            total_detections += all_detections.last().map(|f| f.len()).unwrap_or(0);
+
+            if frame_idx % Self::DETECTION_HEARTBEAT == 0 {
+                info!(
+                    frame = frame_idx,
+                    total_frames = capped_samples,
+                    total_detections = total_detections,
+                    "Face detection progress"
+                );
+            }
+
+            if total_detections >= Self::MAX_TOTAL_DETECTIONS {
+                warn!(
+                    total = total_detections,
+                    "Stopping detection early: hit max detections cap"
+                );
+                break;
+            }
 
             current_time += sample_interval;
             frame_idx += 1;
         }
 
         // Fill remaining frames if needed
-        while all_detections.len() < num_samples {
+        while all_detections.len() < capped_samples {
             all_detections.push(Vec::new());
         }
 
         let total_dets: usize = all_detections.iter().map(|d| d.len()).sum();
         debug!(
             "Detection complete: {} total detections across {} frames",
-            total_dets, num_samples
+            total_dets, capped_samples
         );
 
         Ok(all_detections)
@@ -240,6 +267,7 @@ impl FaceDetector {
         let duration = end_time - start_time;
         let sample_interval = 1.0 / self.config.fps_sample;
         let num_samples = (duration / sample_interval).ceil() as usize;
+        let capped_samples = num_samples.min(Self::MAX_SAMPLED_FRAMES);
 
         // Try YuNet first if available
         #[cfg(feature = "opencv")]
@@ -306,13 +334,13 @@ impl FaceDetector {
                     info!("Using single-person heuristic detections");
                     Ok(self
                         .heuristic_generator
-                        .single_person_heuristic(width, height, num_samples))
+                        .single_person_heuristic(width, height, capped_samples))
                 }
             }
             VideoLayout::TwoPeopleSideBySide => {
                 info!("Using speaker-aware heuristic detections for podcast layout");
                 self.heuristic_generator
-                    .speaker_aware_heuristic(video_path, width, height, num_samples)
+                    .speaker_aware_heuristic(video_path, width, height, capped_samples)
                     .await
             }
         }

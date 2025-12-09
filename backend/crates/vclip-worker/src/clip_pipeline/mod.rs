@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use tracing::info;
-use vclip_firestore::ClipRepository;
+use vclip_firestore::{ClipRepository, VideoRepository};
 use vclip_models::ClipStatus;
 use vclip_models::ClipTask;
 use vclip_queue::ProcessVideoJob;
@@ -37,6 +37,18 @@ pub async fn process_clips(
         &job.target_aspect,
     );
     let total_clips = clip_tasks.len();
+    let video_repo = VideoRepository::new(ctx.firestore.clone(), &job.user_id);
+    if let Err(e) = video_repo
+        .set_expected_clips(&job.video_id, total_clips as u32)
+        .await
+    {
+        tracing::warn!(
+            video_id = %job.video_id,
+            total_clips,
+            error = %e,
+            "Failed to set expected clips; progress tracking may be inaccurate"
+        );
+    }
 
     ctx.progress
         .log(
@@ -104,6 +116,17 @@ pub async fn process_clips(
 
         processed_count += scene_results.processed;
         completed_clips += scene_results.completed;
+
+        if let Err(e) = video_repo
+            .update_clips_count(&job.video_id, completed_clips)
+            .await
+        {
+            tracing::warn!(
+                video_id = %job.video_id,
+                error = %e,
+                "Failed to update clips_count after scene"
+            );
+        }
 
         let progress = 40 + (processed_count * 55 / total_clips) as u32;
         ctx.progress.progress(&job.job_id, progress as u8).await.ok();

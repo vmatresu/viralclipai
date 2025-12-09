@@ -1,3 +1,4 @@
+#![deny(unreachable_patterns)]
 //! FFmpeg CLI wrapper for video processing.
 //!
 //! This crate provides:

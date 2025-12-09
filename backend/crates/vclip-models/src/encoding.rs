@@ -102,7 +102,8 @@ impl EncodingConfig {
     /// Create configuration for split view (higher CRF to reduce file size).
     pub fn for_split_view() -> Self {
         Self {
-            crf: DEFAULT_CRF + 4, // Higher CRF for split view
+            // Use CRF 24 for predictable size on large clips (approx h264 24-quality)
+            crf: 24,
             preset: "medium".to_string(),
             ..Default::default()
         }

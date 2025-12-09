@@ -226,18 +226,46 @@ impl VideoProcessor {
             .ok();
 
         let video_file = work_dir.join("source.mp4");
+        let plan_path = work_dir.join("clip_plan.json");
 
-        let (download_result, analysis_result) = tokio::join!(
-            download_video(&job.video_url, &video_file),
-            self.gemini_client.analyze_transcript(
-                &transcript.prompt,
-                &job.video_url,
-                &transcript.content
-            )
-        );
+        // Attempt to reuse a previously persisted plan to avoid non-determinism on retries.
+        let cached_plan = tokio::fs::read(&plan_path)
+            .await
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<crate::gemini::HighlightsResponse>(&bytes).ok());
 
-        download_result?;
-        let ai_response = analysis_result?;
+        let cached_present = cached_plan.is_some();
+        let ai_response = if let Some(plan) = cached_plan {
+            download_video(&job.video_url, &video_file).await?;
+            plan
+        } else {
+            let (download_result, analysis_result) = tokio::join!(
+                download_video(&job.video_url, &video_file),
+                self.gemini_client.analyze_transcript(
+                    &transcript.prompt,
+                    &job.video_url,
+                    &transcript.content
+                )
+            );
+            download_result?;
+            analysis_result?
+        };
+
+        // Persist the plan for deterministic retries.
+        if !cached_present {
+            match serde_json::to_vec_pretty(&ai_response) {
+                Ok(bytes) => {
+                    if let Err(e) = tokio::fs::write(&plan_path, bytes).await {
+                        tracing::warn!(
+                            path = ?plan_path,
+                            error = %e,
+                            "Failed to persist clip plan for retry determinism"
+                        );
+                    }
+                }
+                Err(e) => tracing::warn!("Failed to serialize clip plan: {}", e),
+            }
+        }
 
         Ok(AnalysisData {
             video_file,
@@ -355,12 +383,26 @@ impl VideoProcessor {
         completed_clips: u32,
     ) -> WorkerResult<()> {
         let video_repo = vclip_firestore::VideoRepository::new(ctx.firestore.clone(), &job.user_id);
+        let clip_repo = vclip_firestore::ClipRepository::new(ctx.firestore.clone(), &job.user_id, job.video_id.clone());
 
-        match video_repo.complete(&job.video_id, completed_clips).await {
+        // Reconcile actual completed clips from Firestore to avoid marking completed with zero.
+        let actual_completed = clip_repo
+            .list(Some(vclip_models::ClipStatus::Completed))
+            .await
+            .map(|clips| clips.len() as u32)
+            .unwrap_or(completed_clips);
+
+        if actual_completed == 0 {
+            return Err(WorkerError::job_failed(
+                "No completed clips found; refusing to mark video completed",
+            ));
+        }
+
+        match video_repo.complete(&job.video_id, actual_completed).await {
             Ok(_) => {
                 info!(
-                    "Successfully marked video {} as completed with {} clips",
-                    job.video_id, completed_clips
+                    "Successfully marked video {} as completed with {} clips (actual={})",
+                    job.video_id, actual_completed, actual_completed
                 );
             }
             Err(e) => {

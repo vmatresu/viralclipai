@@ -10,6 +10,10 @@ description = "Video processing worker"
 name = "vclip-worker"
 path = "src/main.rs"
 
+[[bin]]
+name = "worker-selfcheck"
+path = "src/bin/worker_selfcheck.rs"
+
 [dependencies]
 vclip-models = { workspace = true }
 vclip-media = { workspace = true }
@@ -35,6 +39,7 @@ metrics-exporter-prometheus = { workspace = true }
 rustls = { workspace = true }
 reqwest = { workspace = true }
 regex = "1.11"
+anyhow = "1.0"
 
 [dev-dependencies]
 tokio-test = { workspace = true }

@@ -26,7 +26,7 @@ fn encoding_for_style(style: Style) -> EncodingConfig {
         | Style::IntelligentMotion
         | Style::IntelligentSplit
         | Style::IntelligentSplitSpeaker
-        | Style::IntelligentSplitMotion => EncodingConfig::for_intelligent_crop(),
+        | Style::IntelligentSplitMotion => EncodingConfig::for_intelligent_crop().with_crf(24),
         // Static Split/Focus styles use higher CRF to shrink output size.
         Style::Split => EncodingConfig::for_split_view().with_crf(24),
         Style::SplitFast => EncodingConfig::for_split_view().with_crf(24),
@@ -208,6 +208,17 @@ pub async fn process_single_clip(
 
     // Upload thumbnail if available (truly non-critical - continue on failure)
     let thumb_key = if let Some(thumb_path) = &result.thumbnail_path {
+        if let Ok(file) = tokio::fs::File::open(thumb_path).await {
+            if let Err(e) = file.sync_all().await {
+                tracing::warn!(
+                    scene_id = scene_id,
+                    style = %style_name,
+                    path = ?thumb_path,
+                    error = %e,
+                    "Failed to fsync thumbnail before upload"
+                );
+            }
+        }
         let thumb_filename = filename.replace(".mp4", ".jpg");
         match ctx
             .storage
@@ -284,17 +295,16 @@ pub async fn process_single_clip(
     // Persist clip metadata to Firestore (repository pattern)
     let clip_repo = ClipRepository::new(ctx.firestore.clone(), user_id, video_id.clone());
 
-    if let Err(e) = clip_repo.create(&clip_meta).await {
+    clip_repo.create(&clip_meta).await.map_err(|e| {
         tracing::error!(
             scene_id = scene_id,
             style = %style_name,
             clip_id = %clip_meta.clip_id,
             error = %e,
-            "Failed to save clip metadata to Firestore (non-critical)"
+            "Failed to save clip metadata to Firestore"
         );
-        // Note: We don't fail the job if metadata save fails
-        // The clip is already uploaded and usable
-    }
+        WorkerError::Firestore(e)
+    })?;
 
     // Structured success log
     info!(

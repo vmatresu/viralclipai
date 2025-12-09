@@ -1,3 +1,4 @@
+#![deny(unreachable_patterns)]
 //! Video processing worker.
 //!
 //! This crate provides:

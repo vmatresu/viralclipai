@@ -587,6 +587,7 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
     frame_height: u32,
     sample_fps: f64,
 ) -> MediaResult<Vec<Vec<(BoundingBox, f64)>>> {
+    use std::time::{Duration, Instant};
     use opencv::videoio::{VideoCapture, CAP_PROP_POS_MSEC, CAP_PROP_FRAME_WIDTH, CAP_PROP_FRAME_HEIGHT};
     use opencv::core::Mat;
     use opencv::prelude::{VideoCaptureTraitConst, VideoCaptureTrait, MatTraitConst};
@@ -614,6 +615,10 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
     let duration = end_time - start_time;
     let sample_interval = 1.0 / sample_fps;
     let num_samples = (duration / sample_interval).ceil() as usize;
+    let max_samples = num_samples.min(360);
+    let max_total_detections: usize = 300;
+    let max_detections_per_frame: usize = 5;
+    let heartbeat_every = 40usize;
 
     // Open video with OpenCV
     let mut cap = VideoCapture::from_file(
@@ -641,14 +646,27 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
     let mut detector = YuNetDetector::new(actual_width, actual_height)?;
     let mut using_fallback_model = false;
 
-    let mut all_detections = Vec::with_capacity(num_samples);
+    let mut all_detections = Vec::with_capacity(max_samples);
     let mut current_time = start_time;
     let mut consecutive_failures = 0;
     const MAX_CONSECUTIVE_FAILURES: usize = 3;
+    let started_at = Instant::now();
+    let max_wall = Duration::from_secs_f64(duration.min(120.0).max(30.0)); // bound wall time even on long clips
 
-    info!("Detecting faces with YuNet: {} frames at {:.1} fps", num_samples, sample_fps);
+    info!(
+        "Detecting faces with YuNet: {} frames at {:.1} fps (cap {})",
+        num_samples, sample_fps, max_samples
+    );
 
-    for frame_idx in 0..num_samples {
+    for frame_idx in 0..max_samples {
+        if started_at.elapsed() > max_wall {
+            warn!(
+                elapsed = ?started_at.elapsed(),
+                "Stopping YuNet early due to wall-clock budget"
+            );
+            break;
+        }
+
         // Seek to current time
         if let Err(e) = cap.set(CAP_PROP_POS_MSEC, current_time * 1000.0) {
             warn!("Failed to seek to {:.2}s: {}", current_time, e);
@@ -681,6 +699,12 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
         match detector.detect_in_frame(&frame) {
             Ok(detections) => {
                 consecutive_failures = 0;
+                let mut detections = detections;
+                // Keep highest-confidence faces and cap per-frame count
+                detections.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                if detections.len() > max_detections_per_frame {
+                    detections.truncate(max_detections_per_frame);
+                }
                 all_detections.push(detections);
             }
             Err(e) => {
@@ -756,6 +780,24 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
         }
 
         current_time += sample_interval;
+
+        let total: usize = all_detections.iter().map(|d| d.len()).sum();
+        if total >= max_total_detections {
+            warn!(
+                total,
+                "Stopping YuNet early: hit total detection cap"
+            );
+            break;
+        }
+
+        if frame_idx % heartbeat_every == 0 {
+            info!(
+                frame = frame_idx,
+                total_frames = max_samples,
+                total_detections = total,
+                "YuNet detection progress"
+            );
+        }
     }
 
     let total_detections: usize = all_detections.iter().map(|d| d.len()).sum();

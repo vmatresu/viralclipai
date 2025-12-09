@@ -422,6 +422,19 @@ impl TierAwareSplitProcessor {
             return None;
         }
 
+        let dual_frames = frames
+            .iter()
+            .filter(|f| f.iter().filter(|d| d.score > 0.45).count() >= 2)
+            .count();
+        if dual_frames < 3 || dual_frames * 2 < frames.len() {
+            tracing::info!(
+                dual_frames,
+                total_frames = frames.len(),
+                "Speaker-aware split: insufficient dual activity, keeping single view"
+            );
+            return None;
+        }
+
         use std::collections::HashMap;
         // Aggregate boxes per track, then deterministically map by center_x:
         // leftmost -> top panel, rightmost -> bottom panel.
