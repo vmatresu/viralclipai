@@ -15,6 +15,7 @@ pub mod detection;
 pub mod download;
 pub mod error;
 pub mod filters;
+pub mod fs_utils;
 pub mod intelligent;
 pub mod probe;
 pub mod progress;

@@ -16,8 +16,8 @@ use vclip_media::{
     download_video,
     styles::StyleProcessorFactory as MediaStyleProcessorFactory,
 };
-use vclip_models::{JobId, VideoMetadata};
-use vclip_queue::{ProcessVideoJob, ProgressChannel, ReprocessScenesJob};
+use vclip_models::{ClipTask, JobId, VideoMetadata};
+use vclip_queue::{ProcessVideoJob, ProgressChannel, RenderSceneStyleJob, ReprocessScenesJob};
 use vclip_storage::R2Client;
 
 use crate::clip_pipeline::{self, ClipProcessingResults};
@@ -383,6 +383,136 @@ impl VideoProcessor {
     ) -> WorkerResult<()> {
         crate::reprocessing::reprocess_scenes(ctx, job).await
     }
+
+    /// Process a single render job (fine-grained: one scene, one style).
+    ///
+    /// This is the atomic unit of work for the new job model. Each job
+    /// produces exactly one clip, enabling fine-grained parallelization.
+    pub async fn process_render_job(
+        &self,
+        ctx: &EnhancedProcessingContext,
+        job: &RenderSceneStyleJob,
+    ) -> WorkerResult<()> {
+        let logger = JobLogger::new(&job.job_id, "render_scene_style");
+        logger.log_start(&format!(
+            "Rendering scene {} with style {} for video {}",
+            job.scene_id, job.style, job.video_id
+        ));
+
+        // Create work directory for this video (shared across render jobs)
+        let work_dir = PathBuf::from(&ctx.config.work_dir).join(job.video_id.as_str());
+        let clips_dir = work_dir.join("clips");
+        tokio::fs::create_dir_all(&clips_dir).await?;
+
+        // Download video from R2 (should already be cached from orchestration job)
+        let video_file = self.download_video_for_render(ctx, job, &work_dir).await?;
+
+        // Build ClipTask from job fields
+        let task = ClipTask {
+            scene_id: job.scene_id,
+            scene_title: job.scene_title.clone(),
+            scene_description: None, // Not needed for rendering
+            start: job.start.clone(),
+            end: job.end.clone(),
+            style: job.style,
+            crop_mode: job.crop_mode,
+            target_aspect: job.target_aspect,
+            priority: job.scene_id,
+            pad_before: job.pad_before_seconds.unwrap_or(1.0),
+            pad_after: job.pad_after_seconds.unwrap_or(1.0),
+        };
+
+        // Process the single clip
+        clip_pipeline::process_single_clip(
+            ctx,
+            &job.job_id,
+            &job.video_id,
+            &job.user_id,
+            &video_file,
+            &clips_dir,
+            &task,
+            0, // index not relevant for single-clip
+            1, // total clips for this job
+        )
+        .await?;
+
+        // Increment completed clips count in Firestore atomically
+        let video_repo = vclip_firestore::VideoRepository::new(
+            ctx.firestore.clone(),
+            &job.user_id,
+        );
+        if let Err(e) = video_repo.increment_completed_clips(&job.video_id).await {
+            tracing::warn!(
+                "Failed to increment completed clips for video {}: {}",
+                job.video_id, e
+            );
+        }
+
+        logger.log_completion("Render complete");
+        Ok(())
+    }
+
+    /// Download video from R2 storage for rendering.
+    ///
+    /// The video should already be uploaded to R2 by the orchestration job.
+    async fn download_video_for_render(
+        &self,
+        ctx: &EnhancedProcessingContext,
+        job: &RenderSceneStyleJob,
+        work_dir: &Path,
+    ) -> WorkerResult<PathBuf> {
+        let video_file = work_dir.join("source.mp4");
+
+        // If video already exists locally, reuse it
+        if video_file.exists() {
+            return Ok(video_file);
+        }
+
+        // Try to download from R2
+        let video_key = format!("{}/{}/source.mp4", job.user_id, job.video_id);
+        match ctx.storage.download_file(&video_key, &video_file).await {
+            Ok(_) => {
+                info!(
+                    "Downloaded video from R2 for render job: {}",
+                    job.video_id
+                );
+                Ok(video_file)
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to download video from R2, attempting fallback: {}",
+                    e
+                );
+                // Fallback: try to get video URL from highlights and download
+                self.download_video_fallback(ctx, job, &video_file).await?;
+                Ok(video_file)
+            }
+        }
+    }
+
+    /// Fallback method to download video from original URL.
+    async fn download_video_fallback(
+        &self,
+        ctx: &EnhancedProcessingContext,
+        job: &RenderSceneStyleJob,
+        video_file: &Path,
+    ) -> WorkerResult<()> {
+        // Load highlights to get original video URL
+        let highlights = ctx
+            .storage
+            .load_highlights(&job.user_id, job.video_id.as_str())
+            .await
+            .map_err(|e| WorkerError::job_failed(format!(
+                "Failed to load highlights for fallback download: {}", e
+            )))?;
+
+        let video_url = highlights.video_url.ok_or_else(|| {
+            WorkerError::job_failed("No video URL in highlights for fallback download")
+        })?;
+
+        download_video(&video_url, video_file).await?;
+        Ok(())
+    }
 }
 
 /// Data structures for processing pipeline.
@@ -398,33 +528,6 @@ pub struct AnalysisData {
     pub highlights: crate::gemini::HighlightsResponse,
 }
 
-/// Job logger for structured logging.
-pub struct JobLogger {
-    job_id: String,
-    operation: String,
-}
+// Re-export JobLogger from logging module for backward compatibility
+pub use crate::logging::JobLogger;
 
-impl JobLogger {
-    pub fn new(job_id: &JobId, operation: &str) -> Self {
-        Self {
-            job_id: job_id.to_string(),
-            operation: operation.to_string(),
-        }
-    }
-
-    pub fn log_start(&self, message: &str) {
-        tracing::info!(
-            job_id = %self.job_id,
-            operation = %self.operation,
-            "Job started: {}", message
-        );
-    }
-
-    pub fn log_completion(&self, message: &str) {
-        tracing::info!(
-            job_id = %self.job_id,
-            operation = %self.operation,
-            "Job completed: {}", message
-        );
-    }
-}

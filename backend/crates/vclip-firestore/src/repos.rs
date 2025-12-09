@@ -120,6 +120,136 @@ impl VideoRepository {
         Ok(())
     }
 
+    /// Set the expected number of clips for orchestration tracking.
+    ///
+    /// Called by orchestration jobs when fanning out render jobs.
+    pub async fn set_expected_clips(&self, video_id: &VideoId, expected_clips: u32) -> FirestoreResult<()> {
+        let mut fields = HashMap::new();
+        fields.insert("expected_clips".to_string(), expected_clips.to_firestore_value());
+        fields.insert("completed_clips".to_string(), 0u32.to_firestore_value());
+        fields.insert("updated_at".to_string(), Utc::now().to_firestore_value());
+
+        self.client
+            .update_document(
+                &self.collection(),
+                video_id.as_str(),
+                fields,
+                Some(vec![
+                    "expected_clips".to_string(),
+                    "completed_clips".to_string(),
+                    "updated_at".to_string(),
+                ]),
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Add to the expected clips count (for reprocessing additional scenes).
+    pub async fn add_expected_clips(&self, video_id: &VideoId, additional_clips: u32) -> FirestoreResult<()> {
+        // Get current expected_clips value from document
+        let doc = self.client.get_document(&self.collection(), video_id.as_str()).await?;
+        let current_expected = if let Some(ref d) = doc {
+            d.fields.as_ref()
+                .and_then(|f| f.get("expected_clips"))
+                .and_then(|v| u32::from_firestore_value(v))
+                .unwrap_or(0)
+        } else {
+            0
+        };
+
+        let mut fields = HashMap::new();
+        fields.insert(
+            "expected_clips".to_string(),
+            (current_expected + additional_clips).to_firestore_value(),
+        );
+        fields.insert("updated_at".to_string(), Utc::now().to_firestore_value());
+
+        self.client
+            .update_document(
+                &self.collection(),
+                video_id.as_str(),
+                fields,
+                Some(vec!["expected_clips".to_string(), "updated_at".to_string()]),
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Increment the completed clips count by 1.
+    ///
+    /// Called by each render job upon successful completion.
+    /// Returns the new completed count.
+    ///
+    /// Note: This is not truly atomic; for high concurrency, consider
+    /// using Firestore transactions or Cloud Functions.
+    pub async fn increment_completed_clips(&self, video_id: &VideoId) -> FirestoreResult<u32> {
+        // Get current completed_clips value
+        let doc = self.client.get_document(&self.collection(), video_id.as_str()).await?;
+        let current = if let Some(ref d) = doc {
+            d.fields.as_ref()
+                .and_then(|f| f.get("completed_clips"))
+                .and_then(|v| u32::from_firestore_value(v))
+                .unwrap_or(0)
+        } else {
+            0
+        };
+
+        let new_count = current + 1;
+
+        let mut fields = HashMap::new();
+        fields.insert("completed_clips".to_string(), new_count.to_firestore_value());
+        fields.insert("updated_at".to_string(), Utc::now().to_firestore_value());
+
+        self.client
+            .update_document(
+                &self.collection(),
+                video_id.as_str(),
+                fields,
+                Some(vec!["completed_clips".to_string(), "updated_at".to_string()]),
+            )
+            .await?;
+
+        // Also update clips_count for backward compatibility
+        self.update_clips_count(video_id, new_count).await.ok();
+
+        Ok(new_count)
+    }
+
+    /// Check if video is complete and mark it as such.
+    ///
+    /// Called after incrementing completed_clips to check if all expected
+    /// clips have been processed.
+    pub async fn check_and_complete_if_ready(&self, video_id: &VideoId) -> FirestoreResult<bool> {
+        let doc = self.client.get_document(&self.collection(), video_id.as_str()).await?;
+        
+        let (expected, completed) = if let Some(ref d) = doc {
+            let fields = d.fields.as_ref();
+            let expected = fields
+                .and_then(|f| f.get("expected_clips"))
+                .and_then(|v| u32::from_firestore_value(v))
+                .unwrap_or(0);
+            let completed = fields
+                .and_then(|f| f.get("completed_clips"))
+                .and_then(|v| u32::from_firestore_value(v))
+                .unwrap_or(0);
+            (expected, completed)
+        } else {
+            return Ok(false);
+        };
+
+        if expected > 0 && completed >= expected {
+            // All clips are done, mark video as completed
+            self.complete(video_id, completed).await?;
+            info!(
+                "Video {} automatically completed: {}/{} clips",
+                video_id, completed, expected
+            );
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
     /// Mark video as failed.
     pub async fn fail(&self, video_id: &VideoId, error: &str) -> FirestoreResult<()> {
         let mut fields = HashMap::new();

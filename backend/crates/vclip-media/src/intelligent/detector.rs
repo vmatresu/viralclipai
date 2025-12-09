@@ -211,7 +211,7 @@ impl FaceDetector {
 
             frames = (0..expected_frames)
                 .map(|i| {
-                    let mut det =
+                    let det =
                         Detection::new(start_time + i as f64 * sample_interval, bbox, score, 0);
                     vec![det]
                 })

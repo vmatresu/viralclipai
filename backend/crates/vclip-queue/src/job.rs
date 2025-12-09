@@ -135,12 +135,126 @@ impl ReprocessScenesJob {
     }
 }
 
+/// Job to render a single clip (one scene with one style).
+///
+/// This is the atomic unit of work for parallel processing. Each job
+/// produces exactly one clip, enabling fine-grained parallelization
+/// and better failure isolation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenderSceneStyleJob {
+    /// Unique job ID
+    pub job_id: JobId,
+    /// User ID
+    pub user_id: String,
+    /// Video ID
+    pub video_id: VideoId,
+    /// Scene/highlight ID
+    pub scene_id: u32,
+    /// Scene title (for logging/progress)
+    pub scene_title: String,
+    /// Single style to render
+    pub style: Style,
+    /// Crop mode
+    pub crop_mode: CropMode,
+    /// Target aspect ratio
+    pub target_aspect: AspectRatio,
+    /// Highlight start timestamp (format: "MM:SS" or "HH:MM:SS")
+    pub start: String,
+    /// Highlight end timestamp
+    pub end: String,
+    /// Optional padding before highlight start
+    pub pad_before_seconds: Option<f64>,
+    /// Optional padding after highlight end
+    pub pad_after_seconds: Option<f64>,
+    /// Parent job ID for tracking (orchestration job that created this)
+    pub parent_job_id: Option<JobId>,
+}
+
+impl RenderSceneStyleJob {
+    /// Create a new render job.
+    pub fn new(
+        user_id: impl Into<String>,
+        video_id: VideoId,
+        scene_id: u32,
+        scene_title: impl Into<String>,
+        style: Style,
+        start: impl Into<String>,
+        end: impl Into<String>,
+    ) -> Self {
+        Self {
+            job_id: JobId::new(),
+            user_id: user_id.into(),
+            video_id,
+            scene_id,
+            scene_title: scene_title.into(),
+            style,
+            crop_mode: CropMode::default(),
+            target_aspect: AspectRatio::default(),
+            start: start.into(),
+            end: end.into(),
+            pad_before_seconds: None,
+            pad_after_seconds: None,
+            parent_job_id: None,
+        }
+    }
+
+    /// Set crop mode.
+    pub fn with_crop_mode(mut self, crop_mode: CropMode) -> Self {
+        self.crop_mode = crop_mode;
+        self
+    }
+
+    /// Set target aspect ratio.
+    pub fn with_target_aspect(mut self, aspect: AspectRatio) -> Self {
+        self.target_aspect = aspect;
+        self
+    }
+
+    /// Set padding before.
+    pub fn with_pad_before(mut self, seconds: Option<f64>) -> Self {
+        self.pad_before_seconds = seconds;
+        self
+    }
+
+    /// Set padding after.
+    pub fn with_pad_after(mut self, seconds: Option<f64>) -> Self {
+        self.pad_after_seconds = seconds;
+        self
+    }
+
+    /// Set parent job ID.
+    pub fn with_parent_job(mut self, parent_id: JobId) -> Self {
+        self.parent_job_id = Some(parent_id);
+        self
+    }
+
+    /// Generate idempotency key for deduplication.
+    ///
+    /// The key uniquely identifies a specific (video, scene, style, settings)
+    /// combination to prevent duplicate processing.
+    pub fn idempotency_key(&self) -> String {
+        format!(
+            "render:{}:{}:{}:{}:{}:{}",
+            self.user_id,
+            self.video_id,
+            self.scene_id,
+            self.style,
+            self.crop_mode,
+            self.target_aspect
+        )
+    }
+}
+
 /// Generic job wrapper for queue storage.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum QueueJob {
+    /// Orchestration job: analyze video and fan out render jobs
     ProcessVideo(ProcessVideoJob),
+    /// Orchestration job: load highlights and fan out render jobs for selected scenes
     ReprocessScenes(ReprocessScenesJob),
+    /// Fine-grained job: render a single (scene, style) clip
+    RenderSceneStyle(RenderSceneStyleJob),
 }
 
 impl QueueJob {
@@ -148,6 +262,7 @@ impl QueueJob {
         match self {
             QueueJob::ProcessVideo(j) => &j.job_id,
             QueueJob::ReprocessScenes(j) => &j.job_id,
+            QueueJob::RenderSceneStyle(j) => &j.job_id,
         }
     }
 
@@ -155,6 +270,7 @@ impl QueueJob {
         match self {
             QueueJob::ProcessVideo(j) => &j.user_id,
             QueueJob::ReprocessScenes(j) => &j.user_id,
+            QueueJob::RenderSceneStyle(j) => &j.user_id,
         }
     }
 
@@ -162,6 +278,7 @@ impl QueueJob {
         match self {
             QueueJob::ProcessVideo(j) => &j.video_id,
             QueueJob::ReprocessScenes(j) => &j.video_id,
+            QueueJob::RenderSceneStyle(j) => &j.video_id,
         }
     }
 
@@ -169,6 +286,17 @@ impl QueueJob {
         match self {
             QueueJob::ProcessVideo(j) => j.idempotency_key(),
             QueueJob::ReprocessScenes(j) => j.idempotency_key(),
+            QueueJob::RenderSceneStyle(j) => j.idempotency_key(),
         }
+    }
+
+    /// Returns true if this is an orchestration job (ProcessVideo or ReprocessScenes).
+    pub fn is_orchestration(&self) -> bool {
+        matches!(self, QueueJob::ProcessVideo(_) | QueueJob::ReprocessScenes(_))
+    }
+
+    /// Returns true if this is a fine-grained render job.
+    pub fn is_render(&self) -> bool {
+        matches!(self, QueueJob::RenderSceneStyle(_))
     }
 }

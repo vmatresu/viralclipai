@@ -105,9 +105,7 @@ impl ActivitySplitRenderer {
         }
 
         if span_outputs.len() == 1 {
-            tokio::fs::rename(&span_outputs[0], output)
-                .await
-                .map_err(MediaError::from)?;
+            crate::fs_utils::move_file(&span_outputs[0], output).await?;
             return Ok(());
         }
 

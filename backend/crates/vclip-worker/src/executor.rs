@@ -232,17 +232,37 @@ impl JobExecutor {
         let hb_consumer = consumer_name.clone();
         let hb_interval = ctx.config.job_heartbeat_interval.max(Duration::from_secs(1));
         let heartbeat_task = tokio::spawn(async move {
+            use crate::retry::{retry_async, RetryConfig, FailureTracker};
+            
             let mut ticker = tokio::time::interval(hb_interval);
+            let mut failure_tracker = FailureTracker::new(5);
+            let retry_config = RetryConfig::new("heartbeat")
+                .with_max_retries(3)
+                .with_base_delay(Duration::from_millis(100));
+            
             loop {
                 ticker.tick().await;
-                if let Err(e) = hb_queue
-                    .refresh_visibility(&hb_consumer, &hb_message_id)
-                    .await
-                {
-                    warn!(
-                        "Failed to heartbeat job {} (message {}): {}",
-                        hb_message_id, hb_consumer, e
-                    );
+                
+                let queue_ref = &hb_queue;
+                let consumer_ref = &hb_consumer;
+                let message_ref = &hb_message_id;
+                
+                let result = retry_async(&retry_config, || async {
+                    queue_ref.refresh_visibility(consumer_ref, message_ref).await
+                }).await;
+                
+                match result {
+                    crate::retry::RetryResult::Success(()) => {
+                        failure_tracker.record_success();
+                    }
+                    crate::retry::RetryResult::Failed { error, attempts } => {
+                        if failure_tracker.record_failure() {
+                            warn!(
+                                "Failed to heartbeat job {} after {} attempts: {}",
+                                message_ref, attempts, error
+                            );
+                        }
+                    }
                 }
             }
         });
@@ -286,6 +306,7 @@ impl JobExecutor {
                     let (user_id, video_id) = match &job {
                         QueueJob::ProcessVideo(j) => (j.user_id.clone(), j.video_id.clone()),
                         QueueJob::ReprocessScenes(j) => (j.user_id.clone(), j.video_id.clone()),
+                        QueueJob::RenderSceneStyle(j) => (j.user_id.clone(), j.video_id.clone()),
                     };
                     let video_repo = vclip_firestore::VideoRepository::new(
                         ctx.firestore.clone(),
@@ -362,6 +383,10 @@ impl JobExecutor {
                 // 3. Downloads video from R2 or original URL
                 // 4. Only processes the selected scenes
                 video_processor.reprocess_scenes_job(&ctx, &j).await
+            }
+            QueueJob::RenderSceneStyle(j) => {
+                // Fine-grained job: render a single (scene, style) clip
+                video_processor.process_render_job(&ctx, &j).await
             }
         }
     }

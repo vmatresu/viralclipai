@@ -6,7 +6,7 @@ use redis::AsyncCommands;
 use tracing::{debug, info, warn};
 
 use crate::error::{QueueError, QueueResult};
-use crate::job::{ProcessVideoJob, QueueJob, ReprocessScenesJob};
+use crate::job::{ProcessVideoJob, QueueJob, RenderSceneStyleJob, ReprocessScenesJob};
 
 /// Queue configuration.
 #[derive(Debug, Clone)]
@@ -115,6 +115,30 @@ impl JobQueue {
     /// Enqueue a reprocess scenes job.
     pub async fn enqueue_reprocess(&self, job: ReprocessScenesJob) -> QueueResult<String> {
         self.enqueue(QueueJob::ReprocessScenes(job)).await
+    }
+
+    /// Enqueue a single render scene/style job.
+    pub async fn enqueue_render(&self, job: RenderSceneStyleJob) -> QueueResult<String> {
+        self.enqueue(QueueJob::RenderSceneStyle(job)).await
+    }
+
+    /// Enqueue multiple render jobs efficiently.
+    ///
+    /// Returns the message IDs of all successfully enqueued jobs.
+    /// If any job fails to enqueue (e.g., duplicate), it is skipped.
+    pub async fn enqueue_render_batch(&self, jobs: Vec<RenderSceneStyleJob>) -> QueueResult<Vec<String>> {
+        let mut message_ids = Vec::with_capacity(jobs.len());
+        for job in jobs {
+            match self.enqueue_render(job).await {
+                Ok(id) => message_ids.push(id),
+                Err(QueueError::EnqueueFailed { .. }) => {
+                    // Skip duplicates but continue with others
+                    continue;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(message_ids)
     }
 
     /// Enqueue a job.
