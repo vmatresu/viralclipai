@@ -97,11 +97,11 @@ function timeToSeconds(timeStr?: string): number {
   if (!timeStr) return 0;
   const parts = timeStr.split(":").map((p) => parseFloat(p) || 0);
   if (parts.length === 3) {
-    const [h, m, s] = parts;
+    const [h = 0, m = 0, s = 0] = parts;
     return h * 3600 + m * 60 + s;
   }
   if (parts.length === 2) {
-    const [m, s] = parts;
+    const [m = 0, s = 0] = parts;
     return m * 60 + s;
   }
   const numeric = parseFloat(timeStr);
