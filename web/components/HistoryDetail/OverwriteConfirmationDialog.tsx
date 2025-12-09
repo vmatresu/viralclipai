@@ -13,6 +13,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { getStyleLabel, getStyleTier, getTierBadgeClasses } from "@/lib/styleTiers";
+import { cn } from "@/lib/utils";
 
 export interface OverwriteTarget {
   sceneId: number;
@@ -28,24 +30,6 @@ interface OverwriteConfirmationDialogProps {
   onConfirm: () => void;
   promptEnabled: boolean;
   onTogglePrompt: (value: boolean) => void;
-}
-
-const STYLE_LABELS: Record<string, string> = {
-  split: "Split View",
-  split_fast: "Split View (Fast)",
-  left_focus: "Left Focus",
-  right_focus: "Right Focus",
-  intelligent: "Intelligent Crop",
-  intelligent_motion: "Intelligent (Motion)",
-  intelligent_activity: "Intelligent (Activity)",
-  intelligent_split: "Smart Split",
-  intelligent_split_motion: "Smart Split (Motion)",
-  intelligent_split_activity: "Smart Split (Activity)",
-  original: "Original",
-};
-
-function getStyleLabel(style: string): string {
-  return STYLE_LABELS[style] ?? style;
 }
 
 function TargetList({
@@ -81,8 +65,14 @@ function TargetList({
               </div>
               <div className="text-xs text-muted-foreground">ID: {item.sceneId}</div>
             </div>
-            <Badge variant={tone === "warning" ? "destructive" : "secondary"}>
-              {getStyleLabel(item.style)}
+            <Badge
+              variant="secondary"
+              className={cn(
+                "text-xs font-semibold",
+                getTierBadgeClasses(getStyleTier(item.style)?.color)
+              )}
+            >
+              {getStyleLabel(item.style) ?? item.style}
             </Badge>
           </div>
         ))}

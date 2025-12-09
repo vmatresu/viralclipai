@@ -10,21 +10,18 @@ The video processing system uses two independent concepts:
 
 ---
 
-## Detection Tiers
+## Detection Tiers (Clean 4)
 
-Intelligent styles use progressive detection tiers that control quality vs speed:
-
-| Tier            | Providers                | Speed       | Description                                 |
-| --------------- | ------------------------ | ----------- | ------------------------------------------- |
-| `None`          | —                        | ⚡ Fastest  | Heuristic positioning only                  |
-| `Basic`         | YuNet faces              | 🧠 Standard | Face detection for subject tracking         |
-| `SpeakerAware`  | YuNet + Audio + Activity | 🎯 Premium  | Full detection with mouth movement analysis |
-| `MotionAware`   | YuNet + Visual Motion    | 🏃 Active   | Face detection plus motion cues             |
-| `ActivityAware` | YuNet + Visual Activity  | 🏆 Highest  | Full visual activity tracking               |
+| Tier           | Providers                         | Speed       | Description                                             |
+| -------------- | --------------------------------- | ----------- | ------------------------------------------------------- |
+| `None`         | —                                 | ⚡ Fastest  | Static/heuristic only                                   |
+| `MotionAware`  | Heuristic motion (frame diff)     | 🏃 Active   | NN-free center-of-motion heuristic, no faces, no audio |
+| `Basic`        | YuNet faces                       | 🧠 Standard | Face detection for subject tracking                     |
+| `SpeakerAware` | YuNet + FaceMesh (visual-only)    | 🎯 Premium  | Mouth-open activity (MAR) based speaker following       |
 
 ---
 
-## All Available Styles (10 Total)
+## All Available Styles (11 Total)
 
 ### Static/Fast Styles (No AI)
 
@@ -67,37 +64,51 @@ Intelligent styles use progressive detection tiers that control quality vs speed
 
 ### Intelligent Single-View Styles
 
-#### `intelligent` / `intelligent_basic`
+#### `intelligent`
 
 - **Detection Tier**: Basic (YuNet)
 - **Output**: 9:16 portrait
 - **Description**: AI face tracking with dynamic crop window
 - **Use case**: Videos with moving subjects
 
+#### `intelligent_motion`
+
+- **Detection Tier**: MotionAware (heuristic motion)
+- **Output**: 9:16 portrait
+- **Description**: NN-free motion-following using frame differencing
+- **Use case**: High-motion clips, gaming/sports
+
 #### `intelligent_speaker`
 
-- **Detection Tier**: SpeakerAware (Full stack)
+- **Detection Tier**: SpeakerAware (visual-only)
 - **Output**: 9:16 portrait
-- **Description**: Face + audio + mouth movement analysis
-- **Use case**: Highest quality speaker tracking
+- **Description**: YuNet + FaceMesh mouth activity (no audio)
+- **Use case**: Premium speaker tracking for podcasts/interviews
 
 ---
 
 ### Intelligent Split-View Styles
 
-#### `intelligent_split` / `intelligent_split_basic`
+#### `intelligent_split`
 
 - **Detection Tier**: Basic (YuNet)
 - **Output**: 1080x1920 portrait (stacked halves)
 - **Description**: Split view with face-centered crop on each half
 - **Use case**: Podcast-style dual subjects
 
+#### `intelligent_split_motion`
+
+- **Detection Tier**: MotionAware (heuristic motion)
+- **Output**: 1080x1920 portrait
+- **Description**: Split view steered by motion centers (NN-free)
+- **Use case**: High-motion, dual-subject clips
+
 #### `intelligent_split_speaker`
 
-- **Detection Tier**: SpeakerAware
+- **Detection Tier**: SpeakerAware (visual-only)
 - **Output**: 1080x1920 portrait
-- **Description**: Split view with full speaker detection
-- **Use case**: Premium dual-subject videos
+- **Description**: Split view with FaceMesh mouth activity; left=top, right=bottom invariant
+- **Use case**: Premium dual-subject podcasts
 
 ---
 
@@ -107,6 +118,10 @@ Intelligent styles use progressive detection tiers that control quality vs speed
 
 - **Description**: Generates multiple styles at once
 - **Expands to**: split, split_fast, left_focus, right_focus, intelligent, intelligent_split
+
+### Deleted / Legacy
+
+- `intelligent_basic`, `intelligent_split_basic`, `intelligent_activity`, `intelligent_split_activity` are removed in Clean 4.
 
 ---
 
@@ -132,28 +147,32 @@ The UI displays styles in a 4-column grid with speed indicators:
 | `right_focus`               | `Style::RightFocus`              | None           |
 | `original`                  | `Style::Original`                | None           |
 | `intelligent`               | `Style::Intelligent`             | Basic          |
+| `intelligent_motion`        | `Style::IntelligentMotion`       | MotionAware    |
 | `intelligent_speaker`       | `Style::IntelligentSpeaker`      | SpeakerAware   |
 | `intelligent_split`         | `Style::IntelligentSplit`        | Basic          |
+| `intelligent_split_motion`  | `Style::IntelligentSplitMotion`  | MotionAware    |
 | `intelligent_split_speaker` | `Style::IntelligentSplitSpeaker` | SpeakerAware   |
 
 ---
 
 ## Implementation Status
 
-| Feature                                | Status                             |
-| -------------------------------------- | ---------------------------------- |
-| Static styles                          | ✅ Implemented                     |
-| `SplitFast` with `FastSplitEngine`     | ✅ Implemented                     |
-| Intelligent styles (Basic tier)        | ✅ Implemented                     |
-| Intelligent styles (SpeakerAware tier) | ✅ Wired to `FaceActivityAnalyzer` |
-| Detection pipeline module              | ✅ Implemented                     |
-| Tier-aware `StyleProcessorFactory`     | ✅ Implemented                     |
+| Feature                                | Status                                       |
+| -------------------------------------- | -------------------------------------------- |
+| Static styles                          | ✅ Implemented                               |
+| `SplitFast` with `FastSplitEngine`     | ✅ Implemented                               |
+| Intelligent styles (Basic tier)        | ✅ Implemented                               |
+| Intelligent styles (Motion tier)       | ✅ NN-free motion heuristic wired            |
+| Intelligent styles (SpeakerAware tier) | ✅ Visual-only FaceMesh mouth activity       |
+| Detection pipeline module              | ✅ Implemented                               |
+| Tier-aware `StyleProcessorFactory`     | ✅ Implemented (Clean 4 tiers)               |
 
 ---
 
 ## Recommendations
 
 1. **For speed**: Use `split_fast` for quickest processing
-2. **For quality**: Use `intelligent_speaker` for best speaker tracking
-3. **For podcasts**: Use `intelligent_split` for speed or `intelligent_split_speaker` for quality
-4. **For all variations**: Use `all` keyword
+2. **For motion-heavy**: Use `intelligent_motion` or `intelligent_split_motion`
+3. **For quality**: Use `intelligent_speaker` / `intelligent_split_speaker` (visual-only)
+4. **For podcasts**: `intelligent_split` for speed, `intelligent_split_speaker` for quality
+5. **For all variations**: Use `all` keyword

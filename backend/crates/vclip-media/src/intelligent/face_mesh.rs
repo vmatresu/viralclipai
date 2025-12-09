@@ -177,6 +177,7 @@ pub fn calculate_mouth_openness(landmarks: &[FaceLandmark]) -> f32 {
     const BOT: usize = 14;
     const LEFT: usize = 78;
     const RIGHT: usize = 308;
+    const EPS: f32 = 1e-6;
 
     let valid = |idx: usize| idx < landmarks.len();
     if !(valid(TOP) && valid(BOT) && valid(LEFT) && valid(RIGHT)) {
@@ -189,8 +190,11 @@ pub fn calculate_mouth_openness(landmarks: &[FaceLandmark]) -> f32 {
     let p_right = landmarks[RIGHT];
 
     let v = ((p_top.x - p_bot.x).powi(2) + (p_top.y - p_bot.y).powi(2)).sqrt();
-    let h = ((p_left.x - p_right.x).powi(2) + (p_left.y - p_right.y).powi(2)).sqrt().max(1e-3);
-    (v / h).clamp(0.0, 2.0)
+    let h = ((p_left.x - p_right.x).powi(2) + (p_left.y - p_right.y).powi(2)).sqrt();
+    if h <= EPS {
+        return 0.0;
+    }
+    v / h
 }
 
 /// Expand ROI, square it, and clamp.

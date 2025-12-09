@@ -2,8 +2,8 @@
 //!
 //! This module extends the base camera smoother with tier-specific behavior:
 //! - **Basic**: Follow the most prominent face (largest × confidence)
-//! - **SpeakerAware**: Use full activity tracking with hysteresis
-//! - **Motion/Activity Aware**: Favor moving / active faces, ignore audio
+//! - **SpeakerAware**: Use mouth activity with hysteresis (visual-only)
+//! - **Motion Aware**: Favor moving / active faces, ignore audio
 //!
 //! The key difference from the base smoother is that SpeakerAware tiers use
 //! speaker/activity information to decide which face to follow, rather than
@@ -22,7 +22,6 @@ use super::face_activity::FaceActivityConfig;
 use super::models::{BoundingBox, CameraKeyframe, CameraMode, Detection, FrameDetections};
 use super::segment_analysis::{flatten_short_segments, segment_boundaries};
 use super::smoothing_utils::{mean, median, moving_average, std_deviation};
-use super::speaker_detector::{ActiveSpeaker, SpeakerSegment};
 
 /// Tier-aware camera smoother that uses speaker and activity information.
 pub struct TierAwareCameraSmoother {
@@ -30,8 +29,6 @@ pub struct TierAwareCameraSmoother {
     tier: DetectionTier,
     #[allow(dead_code)]
     fps: f64,
-    /// Speaker segments for SpeakerAware tier
-    speaker_segments: Vec<SpeakerSegment>,
     /// Activity tracker for SpeakerAware tier
     activity_tracker: TemporalActivityTracker,
     /// Track ID to side mapping (left=true, right=false)
@@ -54,47 +51,30 @@ impl TierAwareCameraSmoother {
 
         // Tighten hysteresis for motion-based tiers to prevent micro-switching
         // and keep the camera from drifting when someone just shifts slightly.
-        match tier {
-            DetectionTier::MotionAware => {
-                activity_config.min_switch_duration =
-                    activity_config.min_switch_duration.max(2.0);
-                activity_config.switch_margin =
-                    activity_config.switch_margin.max(0.25);
-            }
-            DetectionTier::ActivityAware => {
-                activity_config.min_switch_duration =
-                    activity_config.min_switch_duration.max(1.5);
-            }
-            _ => {}
+        if matches!(tier, DetectionTier::MotionAware) {
+            activity_config.min_switch_duration =
+                activity_config.min_switch_duration.max(2.0);
+            activity_config.switch_margin =
+                activity_config.switch_margin.max(0.25);
         }
 
         Self {
             config,
             tier,
             fps,
-            speaker_segments: Vec::new(),
             activity_tracker: TemporalActivityTracker::new(activity_config),
             track_sides: HashMap::new(),
         }
     }
 
-    /// Set speaker segments for audio-aware processing.
-    pub fn with_speaker_segments(mut self, segments: Vec<SpeakerSegment>) -> Self {
-        self.speaker_segments = segments;
-        self
-    }
-
-    /// Update activity for a detection (used by SpeakerAware tier).
-    pub fn update_activity(&mut self, detection: &Detection, audio_score: f64) {
-        // For SpeakerAware, we track visual activity + audio
-        // Visual activity is approximated from detection confidence changes
-        let visual_score = detection.score;
-        self.activity_tracker.update_activity(
-            detection.track_id,
-            visual_score,
-            audio_score,
-            detection.time,
-        );
+    /// Update activity for a detection (SpeakerAware visual-only).
+    pub fn update_activity(&mut self, detection: &Detection) {
+        let visual_score = detection
+            .mouth_openness
+            .unwrap_or(0.0)
+            .clamp(0.0, 2.0);
+        self.activity_tracker
+            .update_activity(detection.track_id, visual_score, detection.time);
     }
 
     /// Compute a smooth camera plan from detections using tier-specific logic.
@@ -127,14 +107,14 @@ impl TierAwareCameraSmoother {
         debug!("Camera mode: {:?}", mode);
 
         // Apply smoothing based on mode AND tier
-        // For speaker-aware and activity-aware tiers with tracking, use instant transitions at speaker boundaries
+            // For speaker-aware tiers with tracking, use instant transitions at speaker boundaries
         let smoothed = match (mode, self.tier) {
             // Speaker-aware tiers: snap between speakers with minimal drift
             (CameraMode::Tracking | CameraMode::Zoom, DetectionTier::SpeakerAware) => {
                 self.smooth_with_instant_speaker_transitions(&raw_keyframes)
             }
-            // Visual activity tiers: snap transitions and suppress short-lived motion
-            (CameraMode::Tracking | CameraMode::Zoom, DetectionTier::MotionAware | DetectionTier::ActivityAware) => {
+                // Motion tiers: snap transitions and suppress short-lived motion
+                (CameraMode::Tracking | CameraMode::Zoom, DetectionTier::MotionAware) => {
                 let min_segment = self.min_segment_duration_for_tier();
                 self.smooth_with_instant_switches(&raw_keyframes, min_segment)
             }
@@ -148,7 +128,7 @@ impl TierAwareCameraSmoother {
             DetectionTier::SpeakerAware => {
                 enforcer.enforce_constraints_relaxed(&smoothed, width, height)
             }
-            DetectionTier::MotionAware | DetectionTier::ActivityAware => {
+            DetectionTier::MotionAware => {
                 enforcer.enforce_constraints_with_snaps(&smoothed, width, height)
             }
             _ => enforcer.enforce_constraints(&smoothed, width, height)
@@ -216,12 +196,8 @@ impl TierAwareCameraSmoother {
                     DetectionTier::SpeakerAware => {
                         self.compute_focus_speaker_aware(frame_dets, current_time, width, height)
                     }
-                    // Visual activity tiers use basic focus (visual activity is handled in smoother)
                     DetectionTier::MotionAware => {
                         self.compute_focus_basic(frame_dets, width, height)
-                    }
-                    DetectionTier::ActivityAware => {
-                        self.compute_focus_speaker_aware(frame_dets, current_time, width, height)
                     }
                 };
 
@@ -279,32 +255,8 @@ impl TierAwareCameraSmoother {
             return self.create_fallback_box(width, height);
         }
 
-        // Get audio score for each detection based on speaker side
-        let active_speaker = self.get_speaker_at_time(time);
-
         for det in detections {
-            let is_left = self.track_sides.get(&det.track_id).copied().unwrap_or(true);
-            let audio_score = match active_speaker {
-                ActiveSpeaker::Left if is_left => 1.0,
-                ActiveSpeaker::Right if !is_left => 1.0,
-                ActiveSpeaker::Both => 0.5,
-                ActiveSpeaker::None => 0.0,
-                _ => 0.0,
-            };
-
-            // Mouth openness (if available) is the primary visual signal; fall back to detection score.
-            let visual_score = det
-                .mouth_openness
-                .map(|m| m.clamp(0.0, 2.0).min(1.5)) // guard excessive values
-                .unwrap_or(det.score);
-
-            // Update activity tracker with visual + audio scores
-            self.activity_tracker.update_activity(
-                det.track_id,
-                visual_score,
-                audio_score,
-                time,
-            );
+            self.update_activity(det);
         }
 
         // Select active face using hysteresis
@@ -324,16 +276,6 @@ impl TierAwareCameraSmoother {
 
         // Fallback to basic
         self.compute_focus_basic(detections, width, height)
-    }
-
-    /// Get the active speaker at a specific time.
-    fn get_speaker_at_time(&self, time: f64) -> ActiveSpeaker {
-        for segment in &self.speaker_segments {
-            if time >= segment.start_time && time < segment.end_time {
-                return segment.speaker;
-            }
-        }
-        ActiveSpeaker::None
     }
 
     /// Create fallback keyframe based on policy.
@@ -558,7 +500,6 @@ impl TierAwareCameraSmoother {
     fn min_segment_duration_for_tier(&self) -> f64 {
         match self.tier {
             DetectionTier::MotionAware => 2.0,
-            DetectionTier::ActivityAware => self.config.min_switch_duration.max(1.0),
             _ => self.config.min_switch_duration,
         }
     }
@@ -596,14 +537,6 @@ mod tests {
         let config = test_config();
         let mut smoother = TierAwareCameraSmoother::new(config, DetectionTier::SpeakerAware, 30.0);
 
-        // Set up speaker segments - left speaker active
-        smoother.speaker_segments = vec![SpeakerSegment {
-            start_time: 0.0,
-            end_time: 10.0,
-            speaker: ActiveSpeaker::Left,
-            confidence: 0.9,
-        }];
-
         // Set up track sides
         smoother.track_sides.insert(1, true);  // Track 1 is on left
         smoother.track_sides.insert(2, false); // Track 2 is on right
@@ -615,8 +548,8 @@ mod tests {
 
         let focus = smoother.compute_focus_speaker_aware(&detections, 0.5, 1920, 1080);
 
-        // Should select left face (track 1) because left speaker is active
-        assert!(focus.cx() < 500.0, "Should focus on left face (active speaker)");
+        // Should select left face (track 1) because it has higher mouth openness
+        assert!(focus.cx() < 500.0, "Should focus on left face (visually active)");
     }
 
     #[test]

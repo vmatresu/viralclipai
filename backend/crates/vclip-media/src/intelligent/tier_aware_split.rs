@@ -14,8 +14,8 @@ use vclip_models::{ClipTask, DetectionTier, EncodingConfig};
 
 use super::config::IntelligentCropConfig;
 use super::detector::FaceDetector;
+use super::motion::MotionDetector;
 use super::models::BoundingBox;
-use super::speaker_detector::SpeakerDetector;
 use crate::detection::pipeline_builder::PipelineBuilder;
 use crate::intelligent::Detection;
 use crate::clip::extract_segment;
@@ -30,8 +30,6 @@ pub struct TierAwareSplitProcessor {
     config: IntelligentCropConfig,
     tier: DetectionTier,
     detector: FaceDetector,
-    #[allow(dead_code)]
-    speaker_detector: SpeakerDetector,
 }
 
 impl TierAwareSplitProcessor {
@@ -39,7 +37,6 @@ impl TierAwareSplitProcessor {
     pub fn new(config: IntelligentCropConfig, tier: DetectionTier) -> Self {
         Self {
             detector: FaceDetector::new(config.clone()),
-            speaker_detector: SpeakerDetector::new(),
             config,
             tier,
         }
@@ -92,12 +89,18 @@ impl TierAwareSplitProcessor {
             }
         }
 
-        // 2. Detect faces for positioning (SpeakerAware tiers)
-        let (left_vertical_bias, right_vertical_bias) = if self.tier.requires_yunet() {
-            self.compute_face_aware_positioning(segment, width, height, duration).await
-        } else {
-            // Basic/None tier: use fixed positioning
-            (0.0, 0.15)
+        // 2. Positioning per tier
+        let (left_vertical_bias, right_vertical_bias) = match self.tier {
+            DetectionTier::MotionAware => {
+                self.compute_motion_positioning(segment, width, height, duration)?
+            }
+            tier if tier.requires_yunet() => {
+                self.compute_face_aware_positioning(segment, width, height, duration).await
+            }
+            _ => {
+                // Basic/None tier: use fixed positioning
+                (0.0, 0.15)
+            }
         };
 
         info!(
@@ -125,6 +128,120 @@ impl TierAwareSplitProcessor {
 
         info!("Tier-aware split complete: {:?}", output);
         Ok(())
+    }
+
+    /// Compute motion-aware vertical positioning for each panel (NN-free).
+    ///
+    /// Uses dual MotionDetector instances on left/right halves and returns
+    /// (top_bias, bottom_bias) where 0.0 = top, 1.0 = bottom.
+    fn compute_motion_positioning<P: AsRef<Path>>(
+        &self,
+        segment: P,
+        width: u32,
+        height: u32,
+        duration: f64,
+    ) -> MediaResult<(f64, f64)> {
+        use opencv::prelude::{MatTraitConst, VideoCaptureTrait, VideoCaptureTraitConst};
+        use opencv::videoio::{VideoCapture, CAP_ANY, CAP_PROP_POS_MSEC};
+
+        let segment = segment.as_ref();
+        let half_width = (width / 2) as i32;
+        let height_i = height as i32;
+
+        let mut cap = VideoCapture::from_file(segment.to_str().unwrap_or(""), CAP_ANY)
+            .map_err(|e| crate::error::MediaError::detection_failed(format!("Open video: {e}")))?;
+        if !cap.is_opened().unwrap_or(false) {
+            return Err(crate::error::MediaError::detection_failed(
+                "Failed to open video for motion analysis",
+            ));
+        }
+
+        let mut left_motion = MotionDetector::new(half_width, height_i);
+        let mut right_motion = MotionDetector::new(half_width, height_i);
+
+        let sample_interval = 1.0 / self.config.fps_sample.max(1e-3);
+        let mut current_time = 0.0;
+        let mut left_biases = Vec::new();
+        let mut right_biases = Vec::new();
+
+        // Coasting: hold last valid motion target briefly to reduce jitter.
+        const DECAY_SECONDS: f64 = 2.0;
+        let mut last_left: Option<(f64, f64)> = None; // (time, bias)
+        let mut last_right: Option<(f64, f64)> = None;
+
+        while current_time < duration {
+            cap.set(CAP_PROP_POS_MSEC, current_time * 1000.0)
+                .map_err(|e| crate::error::MediaError::detection_failed(format!("Seek: {e}")))?;
+
+            let mut frame = opencv::core::Mat::default();
+            if !cap
+                .read(&mut frame)
+                .map_err(|e| crate::error::MediaError::detection_failed(format!("Read: {e}")))? || frame.empty()
+            {
+                current_time += sample_interval;
+                continue;
+            }
+
+            // Split frame into left/right halves
+            let left_roi = opencv::core::Rect::new(0, 0, half_width, height_i);
+            let right_roi = opencv::core::Rect::new(half_width, 0, half_width, height_i);
+
+            let mut left_bias_opt = None;
+            if let Ok(roi) = opencv::core::Mat::roi(&frame, left_roi) {
+                let mut roi_mat = opencv::core::Mat::default();
+                if roi.copy_to(&mut roi_mat).is_ok() {
+                    if let Ok(center_opt) = left_motion.detect_center(&roi_mat) {
+                        if let Some(center) = center_opt {
+                            left_bias_opt = Some((center.y as f64 / height as f64).clamp(0.0, 1.0));
+                        }
+                    }
+                }
+            }
+
+            let mut right_bias_opt = None;
+            if let Ok(roi) = opencv::core::Mat::roi(&frame, right_roi) {
+                let mut roi_mat = opencv::core::Mat::default();
+                if roi.copy_to(&mut roi_mat).is_ok() {
+                    if let Ok(center_opt) = right_motion.detect_center(&roi_mat) {
+                        if let Some(center) = center_opt {
+                            right_bias_opt = Some((center.y as f64 / height as f64).clamp(0.0, 1.0));
+                        }
+                    }
+                }
+            }
+
+            // Coasting logic
+            let now = current_time;
+            if let Some(b) = left_bias_opt {
+                last_left = Some((now, b));
+                left_biases.push(b);
+            } else if let Some((t, b)) = last_left {
+                if now - t <= DECAY_SECONDS {
+                    left_biases.push(b);
+                }
+            }
+
+            if let Some(b) = right_bias_opt {
+                last_right = Some((now, b));
+                right_biases.push(b);
+            } else if let Some((t, b)) = last_right {
+                if now - t <= DECAY_SECONDS {
+                    right_biases.push(b);
+                }
+            }
+
+            current_time += sample_interval;
+        }
+
+        let avg = |vals: &[f64]| -> f64 {
+            if vals.is_empty() {
+                0.15
+            } else {
+                (vals.iter().sum::<f64>() / vals.len() as f64).clamp(0.0, 1.0)
+            }
+        };
+
+        Ok((avg(&left_biases), avg(&right_biases)))
     }
 
     /// Compute face-aware vertical positioning for each panel.
@@ -297,86 +414,46 @@ impl TierAwareSplitProcessor {
         frames: &[Vec<Detection>],
         width: u32,
         height: u32,
-        duration: f64,
+        _duration: f64,
     ) -> Option<(BoundingBox, BoundingBox)> {
-        // MAR thresholds tuned for normal speech (mouth height ≈ 10–20% of width)
-        const TALK_ON: f64 = 0.15;
-        const TALK_OFF: f64 = 0.05;
-        const MOUTH_ALPHA: f64 = 0.6;
-        const MIN_SPLIT_TIME: f64 = 0.3;
         const MARGIN: f64 = 0.25;
 
         if frames.is_empty() {
             return None;
         }
 
-        let sample_interval = if frames.len() > 1 {
-            duration / frames.len() as f64
-        } else {
-            1.0 / 8.0
-        };
-        let center_x = width as f64 / 2.0;
-
         use std::collections::HashMap;
-        let mut mouth_ema: HashMap<u32, f64> = HashMap::new();
-        let mut track_side: HashMap<u32, bool> = HashMap::new(); // true=left
-        let mut talk_state: HashMap<u32, bool> = HashMap::new();
-
-        let mut left_boxes: Vec<BoundingBox> = Vec::new();
-        let mut right_boxes: Vec<BoundingBox> = Vec::new();
-        let mut split_active_time = 0.0;
-
+        // Aggregate boxes per track, then deterministically map by center_x:
+        // leftmost -> top panel, rightmost -> bottom panel.
+        let mut track_boxes: HashMap<u32, Vec<BoundingBox>> = HashMap::new();
         for frame in frames {
             for det in frame {
-                track_side
-                    .entry(det.track_id)
-                    .or_insert_with(|| det.bbox.cx() < center_x);
-                let m = det.mouth_openness.unwrap_or(0.0).clamp(0.0, 2.0);
-                let ema = mouth_ema.entry(det.track_id).or_insert(m);
-                *ema = MOUTH_ALPHA * m + (1.0 - MOUTH_ALPHA) * *ema;
-
-                let entry = talk_state.entry(det.track_id).or_insert(false);
-                *entry = apply_hysteresis(*entry, *ema, TALK_ON, TALK_OFF);
-
-                if *track_side.get(&det.track_id).unwrap_or(&true) {
-                    left_boxes.push(det.bbox);
-                } else {
-                    right_boxes.push(det.bbox);
-                }
-            }
-
-            let mut left_talking = false;
-            let mut right_talking = false;
-            for det in frame {
-                let side_left = *track_side.get(&det.track_id).unwrap_or(&true);
-                let talking = *talk_state.get(&det.track_id).unwrap_or(&false);
-                if talking {
-                    if side_left {
-                        left_talking = true;
-                    } else {
-                        right_talking = true;
-                    }
-                }
-            }
-
-            if left_talking && right_talking {
-                split_active_time += sample_interval;
-            } else if split_active_time > 0.0 {
-                split_active_time = (split_active_time - sample_interval * 0.5).max(0.0);
+                track_boxes.entry(det.track_id).or_default().push(det.bbox);
             }
         }
 
-        let has_two_tracks = frames.iter().any(|f| f.len() >= 2);
-        let should_split = has_two_tracks && split_active_time >= MIN_SPLIT_TIME;
-
-        if !should_split {
+        if track_boxes.len() < 2 {
             return None;
         }
 
-        let left_union = BoundingBox::union(&left_boxes)
-            .unwrap_or_else(|| BoundingBox::new(0.0, 0.0, width as f64 / 2.0, height as f64 * 0.8));
-        let right_union = BoundingBox::union(&right_boxes)
-            .unwrap_or_else(|| BoundingBox::new(width as f64 / 2.0, 0.0, width as f64 / 2.0, height as f64 * 0.8));
+        let mut tracks: Vec<(u32, BoundingBox)> = track_boxes
+            .iter()
+            .filter_map(|(id, boxes)| BoundingBox::union(boxes).map(|b| (*id, b)))
+            .collect();
+
+        if tracks.len() < 2 {
+            return None;
+        }
+
+        tracks.sort_by(|a, b| {
+            a.1
+                .cx()
+                .partial_cmp(&b.1.cx())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let left_union = tracks[0].1;
+        let right_union = tracks[1].1;
 
         let expand = |b: BoundingBox| {
             let pad = (b.width.max(b.height)) * MARGIN;
@@ -543,16 +620,6 @@ where
     result
 }
 
-/// Hysteresis helper for talking state.
-#[inline]
-fn apply_hysteresis(current: bool, ema: f64, on: f64, off: f64) -> bool {
-    if current {
-        ema >= off
-    } else {
-        ema >= on
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -594,30 +661,6 @@ mod tests {
     }
 
     #[test]
-    fn test_hysteresis_turns_on_and_off() {
-        // Off stays off below ON
-        assert!(!super::super::super::intelligent::tier_aware_split::apply_hysteresis(false, 0.04, 0.15, 0.05));
-        // Turns on when above ON
-        assert!(super::super::super::intelligent::tier_aware_split::apply_hysteresis(false, 0.16, 0.15, 0.05));
-        // Stays on while above OFF
-        assert!(super::super::super::intelligent::tier_aware_split::apply_hysteresis(true, 0.06, 0.15, 0.05));
-        // Turns off when below OFF
-        assert!(!super::super::super::intelligent::tier_aware_split::apply_hysteresis(true, 0.01, 0.15, 0.05));
-    }
-
-    #[test]
-    fn test_hysteresis_turns_on_and_off() {
-        // Off stays off below ON
-        assert!(!apply_hysteresis(false, 0.04, 0.15, 0.05));
-        // Turns on when above ON
-        assert!(apply_hysteresis(false, 0.16, 0.15, 0.05));
-        // Stays on while above OFF
-        assert!(apply_hysteresis(true, 0.06, 0.15, 0.05));
-        // Turns off when below OFF
-        assert!(!apply_hysteresis(true, 0.01, 0.15, 0.05));
-    }
-
-    #[test]
     fn test_evaluate_speaker_split_two_speakers_triggers_split() {
         let width = 1920;
         let height = 1080;
@@ -645,7 +688,34 @@ mod tests {
     }
 
     #[test]
-    fn test_evaluate_speaker_split_not_enough_activity() {
+    fn test_speaker_split_left_top_right_bottom_invariant() {
+        let width = 1920;
+        let height = 1080;
+        let frames = vec![vec![
+            Detection::with_mouth(
+                0.0,
+                BoundingBox::new(100.0, 200.0, 150.0, 150.0),
+                0.9,
+                1,
+                Some(0.01),
+            ),
+            Detection::with_mouth(
+                0.0,
+                BoundingBox::new(1400.0, 220.0, 150.0, 150.0),
+                0.9,
+                2,
+                Some(0.2),
+            ),
+        ]];
+
+        let res = TierAwareSplitProcessor::evaluate_speaker_split(&frames, width, height, 0.5);
+        assert!(res.is_some(), "Should enter split mode with two faces");
+        let (left_box, right_box) = res.unwrap();
+        assert!(left_box.cx() < right_box.cx(), "Left face should map to top panel");
+    }
+
+    #[test]
+    fn test_evaluate_speaker_split_two_speakers_even_when_quiet() {
         let width = 1920;
         let height = 1080;
         let frames = vec![vec![
@@ -666,6 +736,6 @@ mod tests {
         ]];
 
         let res = TierAwareSplitProcessor::evaluate_speaker_split(&frames, width, height, 0.5);
-        assert!(res.is_none(), "Should stay single when mouths are closed");
+        assert!(res.is_some(), "Should still map two speakers visually");
     }
 }

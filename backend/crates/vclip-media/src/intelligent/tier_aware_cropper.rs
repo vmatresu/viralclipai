@@ -16,10 +16,10 @@ use vclip_models::{ClipTask, DetectionTier, EncodingConfig};
 use super::config::IntelligentCropConfig;
 use super::crop_planner::CropPlanner;
 use super::detector::FaceDetector;
+use super::motion::MotionDetector;
 use crate::detection::pipeline_builder::PipelineBuilder;
 use super::models::AspectRatio;
 use super::renderer::IntelligentRenderer;
-use super::speaker_detector::SpeakerDetector;
 use super::tier_aware_smoother::TierAwareCameraSmoother;
 use crate::clip::extract_segment;
 use crate::error::MediaResult;
@@ -33,7 +33,6 @@ pub struct TierAwareIntelligentCropper {
     config: IntelligentCropConfig,
     tier: DetectionTier,
     detector: FaceDetector,
-    speaker_detector: SpeakerDetector,
 }
 
 impl TierAwareIntelligentCropper {
@@ -41,7 +40,6 @@ impl TierAwareIntelligentCropper {
     pub fn new(config: IntelligentCropConfig, tier: DetectionTier) -> Self {
         Self {
             detector: FaceDetector::new(config.clone()),
-            speaker_detector: SpeakerDetector::new(),
             config,
             tier,
         }
@@ -89,46 +87,39 @@ impl TierAwareIntelligentCropper {
         let start_time = 0.0;
         let end_time = duration;
 
-        // 2. Detect faces (SpeakerAware uses face mesh pipeline)
+        // 2. Detect faces (SpeakerAware uses face mesh pipeline, MotionAware uses motion heuristic)
         info!("Step 1/4: Detecting faces...");
-        let (detections, speaker_segments) = if self.tier == DetectionTier::SpeakerAware {
-            let pipeline = PipelineBuilder::for_tier(DetectionTier::SpeakerAware).build()?;
-            let res = pipeline
-                .analyze(input, start_time, end_time)
-                .await?;
-            let frames: Vec<_> = res.frames.iter().map(|f| f.faces.clone()).collect();
-            let segments = res.speaker_segments.unwrap_or_default();
-            (frames, segments)
-        } else {
-            let detections = self
-                .detector
-                .detect_in_video(input, start_time, end_time, width, height, fps)
-                .await?;
-
-            let total_detections: usize = detections.iter().map(|d| d.len()).sum();
-            info!("  Found {} face detections", total_detections);
-
-            // Speaker detection for SpeakerAware tiers handled above; others skip audio
-            let speaker_segments = if self.tier.uses_audio() {
-                info!("Step 2/4: Detecting speakers (tier: {:?})...", self.tier);
-                let segments = self
-                    .speaker_detector
-                    .detect_speakers(input, duration, width)
+        let (detections, _speaker_segments) = match self.tier {
+            DetectionTier::SpeakerAware => {
+                let pipeline = PipelineBuilder::for_tier(DetectionTier::SpeakerAware).build()?;
+                let res = pipeline.analyze(input, start_time, end_time).await?;
+                let frames: Vec<_> = res.frames.iter().map(|f| f.faces.clone()).collect();
+                let segments = res.speaker_segments.unwrap_or_default();
+                (frames, segments)
+            }
+            DetectionTier::MotionAware => {
+                let motion_frames = Self::detect_motion_tracks(
+                    input,
+                    start_time,
+                    end_time,
+                    width,
+                    height,
+                    fps,
+                    self.config.fps_sample,
+                )?;
+                (motion_frames, Vec::new())
+            }
+            _ => {
+                let detections = self
+                    .detector
+                    .detect_in_video(input, start_time, end_time, width, height, fps)
                     .await?;
-                info!("  Found {} speaker segments", segments.len());
-                for seg in &segments {
-                    info!(
-                        "    {:.2}s - {:.2}s: {:?} (confidence: {:.2})",
-                        seg.start_time, seg.end_time, seg.speaker, seg.confidence
-                    );
-                }
-                segments
-            } else {
-                info!("Step 2/4: Skipping speaker detection (tier: {:?})", self.tier);
-                Vec::new()
-            };
 
-            (detections, speaker_segments)
+                let total_detections: usize = detections.iter().map(|d| d.len()).sum();
+                info!("  Found {} face detections", total_detections);
+
+                (detections, Vec::new())
+            }
         };
 
         let total_detections: usize = detections.iter().map(|d| d.len()).sum();
@@ -136,8 +127,7 @@ impl TierAwareIntelligentCropper {
 
         // 4. Compute camera plan with tier-aware smoother
         info!("Step 3/4: Computing tier-aware camera path...");
-        let mut smoother = TierAwareCameraSmoother::new(self.config.clone(), self.tier, fps)
-            .with_speaker_segments(speaker_segments);
+        let mut smoother = TierAwareCameraSmoother::new(self.config.clone(), self.tier, fps);
 
         let camera_keyframes = smoother.compute_camera_plan(
             &detections,
@@ -171,6 +161,91 @@ impl TierAwareIntelligentCropper {
         }
 
         Ok(())
+    }
+
+    /// Detect motion centers for MotionAware tier, producing synthetic detections.
+    fn detect_motion_tracks(
+        segment: &Path,
+        start_time: f64,
+        end_time: f64,
+        width: u32,
+        height: u32,
+        _fps: f64,
+        sample_rate: f64,
+    ) -> MediaResult<Vec<Vec<super::models::Detection>>> {
+        use opencv::prelude::{MatTraitConst, VideoCaptureTrait, VideoCaptureTraitConst};
+        use opencv::videoio::{VideoCapture, CAP_ANY, CAP_PROP_POS_MSEC};
+
+        let mut cap = VideoCapture::from_file(segment.to_str().unwrap_or(""), CAP_ANY)
+            .map_err(|e| crate::error::MediaError::detection_failed(format!("Open video: {e}")))?;
+        if !cap.is_opened().unwrap_or(false) {
+            return Err(crate::error::MediaError::detection_failed(
+                "Failed to open video for motion analysis",
+            ));
+        }
+
+        let mut detector = MotionDetector::new(width as i32, height as i32);
+        let sample_interval = 1.0 / sample_rate.max(1e-3);
+        let mut frames = Vec::new();
+        let mut current_time = start_time;
+        let mut last_detection: Option<super::models::Detection> = None;
+        let mut last_seen_time: Option<f64> = None;
+        const DECAY_SECONDS: f64 = 2.0;
+
+        while current_time < end_time {
+            cap.set(CAP_PROP_POS_MSEC, current_time * 1000.0)
+                .map_err(|e| crate::error::MediaError::detection_failed(format!("Seek: {e}")))?;
+
+            let mut frame = opencv::core::Mat::default();
+            if !cap
+                .read(&mut frame)
+                .map_err(|e| crate::error::MediaError::detection_failed(format!("Read: {e}")))? || frame.empty() {
+                frames.push(Vec::new());
+                current_time += sample_interval;
+                continue;
+            }
+
+            let detection = detector
+                .detect_center(&frame)?
+                .map(|center| {
+                    // Use a moderate box size around the motion center.
+                    let size = (width.min(height) as f64 * 0.35).max(64.0);
+                    let bbox = super::models::BoundingBox::new(
+                        center.x as f64 - size / 2.0,
+                        center.y as f64 - size / 2.0,
+                        size,
+                        size,
+                    )
+                    .clamp(width, height);
+
+                    // Single synthetic track id
+                    super::models::Detection::new(current_time, bbox, 1.0, 1)
+                });
+
+            // Coasting: hold last valid motion target for a decay window.
+            let frame_dets = if let Some(det) = detection {
+                last_seen_time = Some(current_time);
+                last_detection = Some(det.clone());
+                vec![det]
+            } else if let (Some(last_det), Some(last_time)) = (&last_detection, last_seen_time) {
+                if current_time - last_time <= DECAY_SECONDS {
+                    let mut held = last_det.clone();
+                    held.time = current_time;
+                    vec![held]
+                } else {
+                    last_detection = None;
+                    last_seen_time = None;
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            };
+
+            frames.push(frame_dets);
+            current_time += sample_interval;
+        }
+
+        Ok(frames)
     }
 }
 
@@ -252,6 +327,6 @@ mod tests {
     fn test_tier_uses_audio() {
         assert!(!DetectionTier::None.uses_audio());
         assert!(!DetectionTier::Basic.uses_audio());
-        assert!(DetectionTier::SpeakerAware.uses_audio());
+        assert!(!DetectionTier::SpeakerAware.uses_audio());
     }
 }

@@ -31,7 +31,7 @@ export function ProcessVideoInterface() {
   
   const [url, setUrl] = useState("");
   const [layout, setLayout] = useState<LayoutOption>("split");
-  const [aiLevel, setAiLevel] = useState<AiLevel>("face_aware");
+  const [aiLevel, setAiLevel] = useState<AiLevel>("basic_face");
   const [prompt, setPrompt] = useState("");
   const [exportOriginal, setExportOriginal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -161,30 +161,19 @@ export function ProcessVideoInterface() {
   };
 
   // Map UI selections to backend styles
-  const getStylesFromSelection = (layout: LayoutOption, aiLevel: AiLevel): string[] => {
-    // For "fast" level, use static or fast variants
-    if (aiLevel === "fast") {
-      return layout === "split" ? ["split_fast"] : ["split"];
-    }
-    
-    // For other AI levels, map to intelligent styles
+  const getStylesFromSelection = (layout: LayoutOption, aiTier: AiLevel): string[] => {
     const isSplit = layout === "split";
-    
-    switch (aiLevel) {
-      case "face_aware":
-        // Basic face detection
-        return isSplit ? ["intelligent_split"] : ["intelligent"];
-      case "face_tracking":
-        // Face tracking (use basic tier for now)
-        return isSplit ? ["intelligent_split"] : ["intelligent"];
-      case "motion_aware":
-        // Motion-aware detection
+
+    switch (aiTier) {
+      case "static":
+        return isSplit ? ["split_fast"] : ["left_focus"];
+      case "motion":
         return isSplit ? ["intelligent_split_motion"] : ["intelligent_motion"];
-      case "premium":
-        // Full activity detection
-        return isSplit ? ["intelligent_split_activity"] : ["intelligent_activity"];
+      case "basic_face":
+        return isSplit ? ["intelligent_split"] : ["intelligent"];
+      case "active_face":
+        return isSplit ? ["intelligent_split_speaker"] : ["intelligent_speaker"];
       default:
-        // Fallback to basic intelligent
         return isSplit ? ["intelligent_split"] : ["intelligent"];
     }
   };
@@ -438,7 +427,7 @@ export function ProcessVideoInterface() {
               2
             </span>
             <h3 className="text-xl font-semibold tracking-tight">
-              Select intelligence level
+              Select detection tier
             </h3>
           </div>
           <div className="pl-11">

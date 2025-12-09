@@ -2,7 +2,8 @@
 
 import * as Slider from "@radix-ui/react-slider";
 import Image from "next/image";
-import { type KeyboardEvent, type MouseEvent, useMemo } from "react";
+import { Activity, ScanFace, Sparkles, Zap } from "lucide-react";
+import { type ComponentType, type KeyboardEvent, type MouseEvent, useMemo } from "react";
 
 import {
   Card,
@@ -12,13 +13,14 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { normalizeStyleForSelection } from "@/lib/styleTiers";
 import { cn } from "@/lib/utils";
 
 type QualityLevel = {
   value: string;
   label: string;
   helper?: string;
-  icon?: string;
+  icon?: ComponentType<{ className?: string }>;
 };
 
 export type LayoutQualitySelection = {
@@ -30,42 +32,62 @@ export type LayoutQualitySelection = {
 };
 
 const SPLIT_LEVELS: QualityLevel[] = [
-  { value: "split_fast", label: "Fast", helper: "Heuristic split", icon: "⚡" },
-  { value: "split", label: "Balanced", helper: "Static split", icon: "⚡" },
   {
-    value: "intelligent_split",
-    label: "Smart",
-    helper: "Face tracking",
-    icon: "🧠",
+    value: "split_fast",
+    label: "Static – Fast",
+    helper: "Heuristic split, no AI",
+    icon: Zap,
+  },
+  {
+    value: "split",
+    label: "Static – Balanced",
+    helper: "Fixed split layout",
+    icon: Zap,
   },
   {
     value: "intelligent_split_motion",
     label: "Motion",
-    helper: "Motion aware",
-    icon: "🎯",
+    helper: "High-speed motion-aware split (no neural nets)",
+    icon: Activity,
   },
   {
-    value: "intelligent_split_activity",
-    label: "Full Activity",
-    helper: "Premium AI",
-    icon: "✨",
+    value: "intelligent_split",
+    label: "Smart Face",
+    helper: "AI face framing for both panels",
+    icon: ScanFace,
+  },
+  {
+    value: "intelligent_split_speaker",
+    label: "Active Speaker",
+    helper: "Premium face mesh AI, left=top/right=bottom",
+    icon: Sparkles,
   },
 ];
 
 const FULL_LEVELS: QualityLevel[] = [
-  { value: "left_focus", label: "Fast", helper: "Static crop", icon: "⚡" },
-  { value: "intelligent", label: "Balanced", helper: "Face tracking", icon: "🧠" },
+  {
+    value: "left_focus",
+    label: "Static – Focus Left",
+    helper: "No AI, fixed left crop",
+    icon: Zap,
+  },
   {
     value: "intelligent_motion",
     label: "Motion",
-    helper: "Face + motion",
-    icon: "🎯",
+    helper: "Heuristic motion-aware crop (no neural nets)",
+    icon: Activity,
   },
   {
-    value: "intelligent_activity",
-    label: "Full Activity",
-    helper: "Premium AI",
-    icon: "✨",
+    value: "intelligent",
+    label: "Smart Face",
+    helper: "AI face framing for main subject",
+    icon: ScanFace,
+  },
+  {
+    value: "intelligent_speaker",
+    label: "Active Speaker",
+    helper: "Premium face mesh AI for the active speaker",
+    icon: Sparkles,
   },
 ];
 
@@ -74,10 +96,17 @@ const fullValues = FULL_LEVELS.map((lvl) => lvl.value);
 
 export const DEFAULT_SELECTION: LayoutQualitySelection = {
   splitEnabled: true,
-  splitStyle: SPLIT_LEVELS[1]?.value ?? "split",
+  splitStyle: "intelligent_split",
   fullEnabled: false,
-  fullStyle: FULL_LEVELS[1]?.value ?? "intelligent",
+  fullStyle: "intelligent",
   includeOriginal: false,
+};
+
+const STYLE_SELECTION_ALIASES: Record<string, string> = {
+  intelligent_split_activity: "intelligent_split_speaker",
+  intelligent_activity: "intelligent_speaker",
+  intelligent_split_basic: "intelligent_split",
+  intelligent_basic: "intelligent",
 };
 
 export function selectionToStyles(selection: LayoutQualitySelection): string[] {
@@ -102,7 +131,10 @@ export function stylesToSelection(
   styles: string[],
   fallback: LayoutQualitySelection = DEFAULT_SELECTION
 ): LayoutQualitySelection {
-  const normalized = (styles ?? []).map((s) => s.toLowerCase());
+  const normalized = (styles ?? []).map((s) => {
+    const lowered = s.toLowerCase();
+    return STYLE_SELECTION_ALIASES[lowered] ?? normalizeStyleForSelection(lowered) ?? lowered;
+  });
 
   const splitStyle =
     splitValues.find((val) => normalized.includes(val)) ?? fallback.splitStyle;
@@ -176,6 +208,7 @@ function QualitySlider({
       >
         {levels.map((level, idx) => {
           const isActive = idx === activeIndex;
+          const Icon = level.icon;
           return (
             <button
               key={level.value}
@@ -189,7 +222,10 @@ function QualitySlider({
               )}
               data-interactive="true"
             >
-              <div>{level.icon ? `${level.icon} ${level.label}` : level.label}</div>
+              <div className="flex items-center justify-center gap-1">
+                {Icon && <Icon className="h-3 w-3" />}
+                <span>{level.label}</span>
+              </div>
               {level.helper && (
                 <div className="text-[11px] text-muted-foreground leading-tight">
                   {level.helper}

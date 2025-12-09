@@ -89,13 +89,13 @@ pub struct IntelligentCropConfig {
     /// Activity score margin required to switch faces (default: 0.2 = 20%)
     pub switch_margin: f64,
 
-    /// Weight for mouth activity in combined score (default: 0.6)
+    /// Weight for mouth activity in combined score (default: 1.0, visual-only)
     pub activity_weight_mouth: f64,
 
-    /// Weight for motion activity in combined score (default: 0.3)
+    /// Weight for motion activity in combined score (default: 0.0, disabled)
     pub activity_weight_motion: f64,
 
-    /// Weight for size changes in combined score (default: 0.1)
+    /// Weight for size changes in combined score (default: 0.0, disabled)
     pub activity_weight_size_change: f64,
 
     /// EMA smoothing parameter for activity scores (default: 0.3)
@@ -165,9 +165,9 @@ impl Default for IntelligentCropConfig {
             face_activity_window: 0.5,
             min_switch_duration: 1.0,
             switch_margin: 0.2,
-            activity_weight_mouth: 0.6,
-            activity_weight_motion: 0.3,
-            activity_weight_size_change: 0.1,
+            activity_weight_mouth: 1.0,
+            activity_weight_motion: 0.0,
+            activity_weight_size_change: 0.0,
             activity_smoothing_window: 0.3,
         }
     }

@@ -36,6 +36,8 @@ import { apiFetch, bulkDeleteClips, deleteAllClips, deleteClip } from "@/lib/api
 import { useAuth } from "@/lib/auth";
 import { invalidateClipsCache } from "@/lib/cache";
 import { frontendLogger } from "@/lib/logger";
+import { getStyleLabel, getStyleTier, getTierBadgeClasses } from "@/lib/styleTiers";
+import { cn } from "@/lib/utils";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -64,28 +66,6 @@ function buildDownloadUrl(clip: Clip): string {
     const sep = raw.includes("?") ? "&" : "?";
     return `${raw}${sep}t=${encodeURIComponent(token)}`;
   }
-}
-
-// Style name mapping for display
-// Note: Audio-only tiers were removed because some inputs are mono/duplicated;
-// we keep only Basic/Motion/Activity/Speaker tiers in the UI.
-const STYLE_LABELS: Record<string, string> = {
-  split: "Split View",
-  split_fast: "Split View (Fast)",
-  left_focus: "Left Focus",
-  right_focus: "Right Focus",
-  intelligent: "Intelligent Crop",
-  intelligent_motion: "Intelligent (Motion)",
-  intelligent_activity: "Intelligent (Activity)",
-  intelligent_split: "Smart Split",
-  intelligent_split_motion: "Smart Split (Motion)",
-  intelligent_split_activity: "Smart Split (Activity)",
-  original: "Original",
-};
-
-function getStyleLabel(style?: string): string | null {
-  if (!style) return null;
-  return STYLE_LABELS[style] || style;
 }
 
 interface VideoPlayerProps {
@@ -708,11 +688,14 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
                         </h4>
                         {/* Style Tag */}
                         {clip.style && (
-                          <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 bg-primary/10 text-primary border border-primary/20 rounded-md">
+                          <div
+                            className={cn(
+                              "mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 border rounded-md text-xs font-medium",
+                              getTierBadgeClasses(getStyleTier(clip.style)?.color)
+                            )}
+                          >
                             <Film className="h-3 w-3" />
-                            <span className="text-xs font-medium">
-                              {getStyleLabel(clip.style) ?? clip.style}
-                            </span>
+                            <span>{getStyleLabel(clip.style) ?? clip.style}</span>
                           </div>
                         )}
                       </div>

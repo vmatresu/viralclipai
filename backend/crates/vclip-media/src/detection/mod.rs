@@ -6,9 +6,8 @@
 //! |------|----------------|----------------|---------------|
 //! | `None` | — | — | — |
 //! | `Basic` | YuNet | — | — |
-//! | `SpeakerAware` | YuNet | SpeakerDetector | FaceActivityAnalyzer |
-//! | `MotionAware` | YuNet | — | — |
-//! | `ActivityAware` | YuNet | — | FaceActivityAnalyzer |
+//! | `SpeakerAware` | YuNet + FaceMesh | — | FaceActivityAnalyzer (visual) |
+//! | `MotionAware` | — (heuristic motion) | — | — |
 //!
 //! Use `PipelineBuilder` to create pipelines with automatic fallback handling.
 
@@ -18,4 +17,4 @@ pub mod providers;
 
 pub use pipeline::{DetectionPipeline, DetectionResult, FrameResult};
 pub use pipeline_builder::PipelineBuilder;
-pub use providers::{AudioProvider, FaceActivityProvider, FaceProvider};
+pub use providers::{FaceActivityProvider, FaceProvider};

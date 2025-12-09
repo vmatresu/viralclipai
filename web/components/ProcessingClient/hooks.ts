@@ -21,7 +21,7 @@ export function useVideoProcessing() {
   const { getIdToken, loading: authLoading, user } = useAuth();
 
   const [url, setUrl] = useState("");
-  const [styles, setStyles] = useState<string[]>(["split"]);
+  const [styles, setStyles] = useState<string[]>(["intelligent_split"]);
   const [logs, setLogs] = useState<string[]>([]);
   const [progress, setProgress] = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -39,7 +39,7 @@ export function useVideoProcessing() {
   );
   const processingStartTime = useRef<number | null>(null);
   // Store processing parameters at start time for accurate analytics tracking
-  const processingStyles = useRef<string[]>(["split"]);
+  const processingStyles = useRef<string[]>(["intelligent_split"]);
   const processingCustomPrompt = useRef<string>("");
 
   // Scene progress handlers

@@ -49,11 +49,6 @@ impl VisualActivitySplitProcessor {
         Self::new(IntelligentCropConfig::default(), DetectionTier::MotionAware)
     }
 
-    /// Create with default configuration for ActivityAware tier.
-    pub fn activity_aware() -> Self {
-        Self::new(IntelligentCropConfig::default(), DetectionTier::ActivityAware)
-    }
-
     /// Get the detection tier.
     pub fn tier(&self) -> DetectionTier {
         self.tier
@@ -105,7 +100,7 @@ impl VisualActivitySplitProcessor {
 /// * `input` - Path to the input video file (full source video)
 /// * `output` - Path for the output file
 /// * `task` - Clip task with timing and style information
-/// * `tier` - Detection tier (MotionAware or ActivityAware)
+/// * `tier` - Detection tier (MotionAware)
 /// * `encoding` - Encoding configuration
 /// * `progress_callback` - Callback for progress updates
 pub async fn create_visual_activity_split_clip<P, F>(
@@ -120,17 +115,6 @@ where
     P: AsRef<Path>,
     F: Fn(crate::progress::FfmpegProgress) + Send + 'static,
 {
-    if matches!(tier, DetectionTier::ActivityAware) {
-        return crate::intelligent::create_activity_split_clip(
-            input.as_ref(),
-            output.as_ref(),
-            task,
-            encoding,
-            _progress_callback,
-        )
-        .await;
-    }
-
     let input = input.as_ref();
     let output = output.as_ref();
 
@@ -184,8 +168,5 @@ mod tests {
     fn test_processor_creation() {
         let processor = VisualActivitySplitProcessor::motion_aware();
         assert_eq!(processor.tier(), DetectionTier::MotionAware);
-
-        let processor = VisualActivitySplitProcessor::activity_aware();
-        assert_eq!(processor.tier(), DetectionTier::ActivityAware);
     }
 }

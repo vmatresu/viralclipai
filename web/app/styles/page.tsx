@@ -1,6 +1,6 @@
 "use client";
 
-import { Eye, Film, Sparkles, Target, Video } from "lucide-react";
+import { Activity, Gauge, ScanFace, Sparkles, Video } from "lucide-react";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,8 @@ export default function StylesPage() {
         <p className="text-muted-foreground max-w-3xl text-lg">
           Transform your landscape videos into perfect portrait clips optimized for
           TikTok, Instagram Reels, and YouTube Shorts. Choose the style that best fits
-          your content.
+          your content across four tiers: Static, Motion, Smart Face, and Active Speaker
+          (Premium).
         </p>
         <div className="flex gap-3">
           <Button asChild>
@@ -70,85 +71,104 @@ export default function StylesPage() {
           <Card className="glass">
             <CardHeader>
               <div className="flex items-center gap-3">
-                <Film className="h-6 w-6 text-primary" />
-                <CardTitle>Split View</CardTitle>
+                <Gauge className="h-6 w-6 text-primary" />
+                <CardTitle>Static Styles (Tier 0)</CardTitle>
               </div>
-              <CardDescription>Perfect for two-person conversations</CardDescription>
+              <CardDescription>Fastest, deterministic. No AI detection.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-muted-foreground">
-                Takes your wide video and splits it into two halves, then stacks them on
-                top of each other. Great for interviews, conversations, or videos where
-                both sides of the screen are important.
+                Choose a fixed framing without any AI involvement. Ideal when you already
+                know exactly which part of the frame you want to highlight.
               </p>
-              <div>
-                <span className="font-semibold">Best for:</span>
-                <ul className="list-disc list-inside text-muted-foreground ml-2 mt-1">
-                  <li>Videos with two people talking</li>
-                  <li>Interviews or panel discussions</li>
-                  <li>When both sides of the screen matter</li>
-                </ul>
+              <div className="grid sm:grid-cols-2 gap-2 text-sm text-muted-foreground">
+                <div className="space-y-1">
+                  <div className="font-semibold text-foreground">Layouts</div>
+                  <ul className="list-disc list-inside">
+                    <li>split / split_fast</li>
+                    <li>left_focus / right_focus</li>
+                    <li>original</li>
+                  </ul>
+                </div>
+                <div className="space-y-1">
+                  <div className="font-semibold text-foreground">Best for</div>
+                  <ul className="list-disc list-inside">
+                    <li>Guaranteed framing & speed</li>
+                    <li>Simple tutorials with fixed subjects</li>
+                    <li>When you need zero AI variability</li>
+                  </ul>
+                </div>
               </div>
-              <p className="text-sm text-muted-foreground">
-                <span className="font-semibold">Output:</span> Portrait format
-                (1080x1920)
-              </p>
             </CardContent>
           </Card>
 
           <Card className="glass">
             <CardHeader>
               <div className="flex items-center gap-3">
-                <Eye className="h-6 w-6 text-primary" />
-                <CardTitle>Left Focus</CardTitle>
+                <Activity className="h-6 w-6 text-primary" />
+                <CardTitle>Motion Mode (Tier 1)</CardTitle>
               </div>
-              <CardDescription>Focus on the left side of your video</CardDescription>
+              <CardDescription>
+                Follows movement & gestures using fast heuristics (no neural nets).
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-muted-foreground">
-                Crops and focuses on the left side of your video, making it full-height
-                portrait. Perfect when your main subject is positioned on the left.
+                Great for high-energy footage where speed matters more than face
+                detection.
               </p>
-              <div>
-                <span className="font-semibold">Best for:</span>
-                <ul className="list-disc list-inside text-muted-foreground ml-2 mt-1">
-                  <li>Single-person videos with left positioning</li>
-                  <li>Presentations where the presenter is on the left</li>
-                  <li>When the left side has the most important content</li>
-                </ul>
+              <div className="grid sm:grid-cols-2 gap-2 text-sm text-muted-foreground">
+                <div className="space-y-1">
+                  <div className="font-semibold text-foreground">Styles</div>
+                  <ul className="list-disc list-inside">
+                    <li>intelligent_motion (full)</li>
+                    <li>intelligent_split_motion (split)</li>
+                  </ul>
+                </div>
+                <div className="space-y-1">
+                  <div className="font-semibold text-foreground">Best for</div>
+                  <ul className="list-disc list-inside">
+                    <li>Gaming & esports POVs</li>
+                    <li>Sports & fitness clips</li>
+                    <li>High-motion stage content</li>
+                  </ul>
+                </div>
               </div>
-              <p className="text-sm text-muted-foreground">
-                <span className="font-semibold">Output:</span> Portrait format
-                (1080x1920)
-              </p>
             </CardContent>
           </Card>
 
           <Card className="glass">
             <CardHeader>
               <div className="flex items-center gap-3">
-                <Eye className="h-6 w-6 text-primary" />
-                <CardTitle>Right Focus</CardTitle>
+                <ScanFace className="h-6 w-6 text-primary" />
+                <CardTitle>Smart Face Mode (Tier 2)</CardTitle>
               </div>
-              <CardDescription>Focus on the right side of your video</CardDescription>
+              <CardDescription>
+                Balanced AI face detection to keep the main face centered.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-muted-foreground">
-                Crops and focuses on the right side of your video, making it full-height
-                portrait. Perfect when your main subject is positioned on the right.
+                Ideal for talking-head content that needs reliable framing without the
+                premium mesh tracker.
               </p>
-              <div>
-                <span className="font-semibold">Best for:</span>
-                <ul className="list-disc list-inside text-muted-foreground ml-2 mt-1">
-                  <li>Single-person videos with right positioning</li>
-                  <li>Explanations where content is on the right</li>
-                  <li>When the right side has the most important content</li>
-                </ul>
+              <div className="grid sm:grid-cols-2 gap-2 text-sm text-muted-foreground">
+                <div className="space-y-1">
+                  <div className="font-semibold text-foreground">Styles</div>
+                  <ul className="list-disc list-inside">
+                    <li>intelligent (full)</li>
+                    <li>intelligent_split (split)</li>
+                  </ul>
+                </div>
+                <div className="space-y-1">
+                  <div className="font-semibold text-foreground">Best for</div>
+                  <ul className="list-disc list-inside">
+                    <li>Talking-head explainers</li>
+                    <li>Screen-share + webcam tutorials</li>
+                    <li>Standard interviews</li>
+                  </ul>
+                </div>
               </div>
-              <p className="text-sm text-muted-foreground">
-                <span className="font-semibold">Output:</span> Portrait format
-                (1080x1920)
-              </p>
             </CardContent>
           </Card>
 
@@ -156,60 +176,34 @@ export default function StylesPage() {
             <CardHeader>
               <div className="flex items-center gap-3">
                 <Sparkles className="h-6 w-6 text-primary" />
-                <CardTitle>Intelligent Crop</CardTitle>
-              </div>
-              <CardDescription>AI-powered face and subject tracking</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-muted-foreground">
-                Uses artificial intelligence to automatically track faces and important
-                subjects in your video, keeping them centered and in focus as the video
-                plays. The smartest option for videos with people.
-              </p>
-              <div>
-                <span className="font-semibold">Best for:</span>
-                <ul className="list-disc list-inside text-muted-foreground ml-2 mt-1">
-                  <li>Videos with people (faces are automatically detected)</li>
-                  <li>Videos where subjects move around</li>
-                  <li>When you want the most professional-looking crop</li>
-                  <li>Dynamic videos with movement</li>
-                </ul>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                <span className="font-semibold">Output:</span> Portrait format (default
-                9:16, customizable)
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card className="glass">
-            <CardHeader>
-              <div className="flex items-center gap-3">
-                <Target className="h-6 w-6 text-primary" />
-                <CardTitle>Intelligent Split View</CardTitle>
+                <CardTitle>Active Speaker Mode (Tier 3, Premium)</CardTitle>
               </div>
               <CardDescription>
-                AI-powered 9:16 optimized for TikTok & Reels
+                Premium YuNet + Face Mesh tracking that focuses on the person speaking.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-muted-foreground">
-                Uses the same AI-powered tracking as Intelligent Crop, but specifically
-                optimized for 9:16 portrait format. Perfect for TikTok, Instagram Reels,
-                and YouTube Shorts.
+                Best choice for multi-speaker conversations where you need accurate
+                speaker focus and minimal camera drift.
               </p>
-              <div>
-                <span className="font-semibold">Best for:</span>
-                <ul className="list-disc list-inside text-muted-foreground ml-2 mt-1">
-                  <li>Videos with people for TikTok/Reels/Shorts</li>
-                  <li>When you need guaranteed 9:16 format</li>
-                  <li>Maximum compatibility with short-form platforms</li>
-                </ul>
+              <div className="grid sm:grid-cols-2 gap-2 text-sm text-muted-foreground">
+                <div className="space-y-1">
+                  <div className="font-semibold text-foreground">Styles</div>
+                  <ul className="list-disc list-inside">
+                    <li>intelligent_speaker (full)</li>
+                    <li>intelligent_split_speaker (split)</li>
+                  </ul>
+                </div>
+                <div className="space-y-1">
+                  <div className="font-semibold text-foreground">Best for</div>
+                  <ul className="list-disc list-inside">
+                    <li>Podcasts & debates</li>
+                    <li>Panel interviews</li>
+                    <li>Any multi-speaker conversation</li>
+                  </ul>
+                </div>
               </div>
-              <p className="text-sm text-muted-foreground">
-                <span className="font-semibold">Output:</span> Portrait format (9:16 -
-                guaranteed)
-              </p>
             </CardContent>
           </Card>
 
@@ -248,46 +242,45 @@ export default function StylesPage() {
         <div className="grid md:grid-cols-2 gap-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Choose Split View if...</CardTitle>
+              <CardTitle className="text-lg">Choose Motion Mode if...</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-muted-foreground">
-                Your video has two people or two focal points, or both sides of the
-                screen are equally important.
+                You need speed for fast movement (gaming, sports, dance) and don&apos;t
+                require face awareness.
               </p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Choose Left/Right Focus if...</CardTitle>
+              <CardTitle className="text-lg">Choose Smart Face if...</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-muted-foreground">
-                The main subject is on one side and you want a simple, focused crop.
+                You&apos;re making talking-head content, tutorials, or interviews and
+                want the main face centered reliably.
               </p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Choose Intelligent Crop if...</CardTitle>
+              <CardTitle className="text-lg">Choose Active Speaker if...</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-muted-foreground">
-                Your video has people or moving subjects and you want the best automatic
-                tracking.
+                You have multiple people and want the crop to follow whoever is speaking
+                in real time (premium).
               </p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">
-                Choose Intelligent Split View if...
-              </CardTitle>
+              <CardTitle className="text-lg">Choose Static Split/Left/Right if...</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-muted-foreground">
-                You&apos;re posting on TikTok, Instagram Reels, or YouTube Shorts and
-                want guaranteed 9:16 format with AI tracking.
+                You prefer deterministic framing, fastest processing, or already know the
+                exact subject placement.
               </p>
             </CardContent>
           </Card>

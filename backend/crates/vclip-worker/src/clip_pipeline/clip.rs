@@ -22,15 +22,11 @@ pub fn clip_id(video_id: &VideoId, task: &ClipTask) -> String {
 fn encoding_for_style(style: Style) -> EncodingConfig {
     match style {
         Style::Intelligent
-        | Style::IntelligentBasic
         | Style::IntelligentSpeaker
         | Style::IntelligentMotion
-        | Style::IntelligentActivity
         | Style::IntelligentSplit
-        | Style::IntelligentSplitBasic
         | Style::IntelligentSplitSpeaker
-        | Style::IntelligentSplitMotion
-        | Style::IntelligentSplitActivity => EncodingConfig::for_intelligent_crop(),
+        | Style::IntelligentSplitMotion => EncodingConfig::for_intelligent_crop(),
         // Static Split/Focus styles use higher CRF to shrink output size.
         Style::Split => EncodingConfig::for_split_view().with_crf(24),
         Style::SplitFast => EncodingConfig::for_split_view().with_crf(24),

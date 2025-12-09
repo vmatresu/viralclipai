@@ -47,7 +47,6 @@
 //! ```
 
 pub mod activity_scorer;
-pub mod activity_split;
 pub mod camera_constraints;
 pub mod config;
 pub mod crop_planner;
@@ -56,13 +55,13 @@ pub mod face_activity;
 pub mod face_mesh;
 pub mod face_landmarks;
 pub mod fast_split;
+pub mod motion;
 pub mod layout_detector;
 pub mod models;
 pub mod renderer;
 pub mod segment_analysis;
 pub mod smoother;
 pub mod smoothing_utils;
-pub mod speaker_detector;
 pub mod stacking;
 pub mod split;
 pub mod tier_aware_cropper;
@@ -77,7 +76,6 @@ pub mod yunet;
 mod tests;
 
 pub use activity_scorer::{ActivityScore, TemporalActivityTracker};
-pub use activity_split::create_activity_split_clip;
 pub use config::IntelligentCropConfig;
 pub use crop_planner::CropPlanner;
 pub use detector::FaceDetector;
@@ -88,7 +86,6 @@ pub use layout_detector::{HeuristicGenerator, LayoutDetector, VideoLayout};
 pub use models::*;
 pub use renderer::IntelligentRenderer;
 pub use smoother::CameraSmoother;
-pub use speaker_detector::{ActiveSpeaker, SpeakerDetector, SpeakerSegment};
 pub use split::{create_intelligent_split_clip, IntelligentSplitProcessor, SplitLayout};
 pub use tier_aware_cropper::{create_tier_aware_intelligent_clip, TierAwareIntelligentCropper};
 pub use tier_aware_smoother::TierAwareCameraSmoother;

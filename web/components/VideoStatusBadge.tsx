@@ -10,11 +10,14 @@
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 
 import { useProcessing } from "@/lib/processing-context";
+import { getStyleLabel, getStyleTier, getTierBadgeClasses } from "@/lib/styleTiers";
+import { cn } from "@/lib/utils";
 
 interface VideoStatusBadgeProps {
   videoId: string;
   status?: "processing" | "completed" | "failed";
   clipsCount?: number;
+  style?: string;
   className?: string;
 }
 
@@ -22,6 +25,7 @@ export function VideoStatusBadge({
   videoId,
   status,
   clipsCount,
+  style,
   className = "",
 }: VideoStatusBadgeProps) {
   const { getJob } = useProcessing();
@@ -30,6 +34,8 @@ export function VideoStatusBadge({
   // Use job status from context if available, otherwise fall back to API status
   const effectiveStatus = job?.status ?? status;
   const progress = job?.progress ?? 0;
+  const styleLabel = getStyleLabel(style);
+  const styleBadgeClasses = style ? getTierBadgeClasses(getStyleTier(style)?.color) : "";
 
   if (effectiveStatus === "completed") {
     return (
@@ -40,6 +46,16 @@ export function VideoStatusBadge({
         Complete
         {clipsCount !== undefined && clipsCount > 0 && (
           <span className="text-green-500/70">({clipsCount} clips)</span>
+        )}
+        {styleLabel && (
+          <span
+            className={cn(
+              "ml-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+              styleBadgeClasses
+            )}
+          >
+            {styleLabel}
+          </span>
         )}
       </div>
     );
@@ -52,6 +68,16 @@ export function VideoStatusBadge({
       >
         <XCircle className="h-3 w-3" />
         Failed
+        {styleLabel && (
+          <span
+            className={cn(
+              "ml-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+              styleBadgeClasses
+            )}
+          >
+            {styleLabel}
+          </span>
+        )}
       </div>
     );
   }
@@ -65,6 +91,16 @@ export function VideoStatusBadge({
         Processing
         {progress > 0 && (
           <span className="text-primary/70">{Math.round(progress)}%</span>
+        )}
+        {styleLabel && (
+          <span
+            className={cn(
+              "ml-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+              styleBadgeClasses
+            )}
+          >
+            {styleLabel}
+          </span>
         )}
       </div>
     );

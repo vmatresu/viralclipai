@@ -11,12 +11,9 @@ use tracing::{debug, info};
 use vclip_models::DetectionTier;
 
 use super::pipeline::{ActiveSpeakerHint, DetectionPipeline, DetectionResult, FrameResult};
-use super::providers::{
-    AudioProvider, FaceActivityProvider, FaceProvider, StandardAudioProvider,
-    VisualFaceActivityProvider, YuNetFaceProvider,
-};
+use super::providers::{FaceProvider, YuNetFaceProvider};
 use crate::error::MediaResult;
-use crate::intelligent::{IntelligentCropConfig, IoUTracker, SpeakerDetector};
+use crate::intelligent::{IntelligentCropConfig, IoUTracker};
 use crate::intelligent::face_mesh::{FaceDetailAnalyzer, OrtFaceMeshAnalyzer};
 use crate::intelligent::models::Detection;
 use crate::intelligent::models::BoundingBox;
@@ -51,20 +48,13 @@ impl PipelineBuilder {
                 Ok(Box::new(BasicPipeline::new()))
             }
             DetectionTier::SpeakerAware => {
-                info!("Building SpeakerAware tier pipeline (YuNet + audio + face activity)");
+                info!("Building SpeakerAware tier pipeline (YuNet + FaceMesh visual activity, no audio)");
                 Ok(Box::new(SpeakerAwarePipeline::new()))
             }
             DetectionTier::MotionAware => {
-                // MotionAware uses Basic pipeline for face detection,
-                // visual activity is computed separately in the cropper
-                info!("Building MotionAware tier pipeline (YuNet + visual motion)");
-                Ok(Box::new(BasicPipeline::new()))
-            }
-            DetectionTier::ActivityAware => {
-                // ActivityAware uses Basic pipeline for face detection,
-                // full visual activity with temporal tracking in the cropper
-                info!("Building ActivityAware tier pipeline (YuNet + full visual activity)");
-                Ok(Box::new(BasicPipeline::new()))
+                // MotionAware uses heuristic motion only; no NN initialization
+                info!("Building MotionAware tier pipeline (heuristic motion)");
+                Ok(Box::new(NonePipeline))
             }
         }
     }
@@ -188,8 +178,6 @@ impl DetectionPipeline for BasicPipeline {
 /// Pipeline for `DetectionTier::SpeakerAware` - full detection stack.
 struct SpeakerAwarePipeline {
     face_provider: YuNetFaceProvider,
-    audio_provider: StandardAudioProvider,
-    face_activity_provider: Arc<std::sync::Mutex<VisualFaceActivityProvider>>,
     face_analyzer: Option<Arc<dyn FaceDetailAnalyzer + Send + Sync>>,
 }
 
@@ -200,10 +188,6 @@ impl SpeakerAwarePipeline {
 
         Self {
             face_provider: YuNetFaceProvider::new(),
-            audio_provider: StandardAudioProvider::new(),
-            face_activity_provider: Arc::new(std::sync::Mutex::new(
-                VisualFaceActivityProvider::new(),
-            )),
             face_analyzer,
         }
     }
@@ -237,60 +221,54 @@ impl DetectionPipeline for SpeakerAwarePipeline {
                 .await?
         };
 
-        // Detect speaker activity
-        let speaker_segments = self
-            .audio_provider
-            .detect_speakers(video_path, duration, width)
-            .await?;
-
-        let speaker_detector = SpeakerDetector::new();
-
-        // Compute per-face activity scores
+        // Compute per-face visual activity scores using mouth openness only
         let sample_interval = 1.0 / 2.0;
-        let frames: Vec<FrameResult> = {
-            let mut activity_provider = self.face_activity_provider.lock().unwrap();
+        let frames: Vec<FrameResult> = face_detections
+            .into_iter()
+            .enumerate()
+            .map(|(i, faces)| {
+                let time = start_time + (i as f64 * sample_interval);
 
-            face_detections
-                .into_iter()
-                .enumerate()
-                .map(|(i, faces)| {
-                    let time = start_time + (i as f64 * sample_interval);
+                let mut activity_scores: Vec<(u32, f64)> = faces
+                    .iter()
+                    .map(|det| {
+                        let score = det.mouth_openness.unwrap_or(0.0);
+                        (det.track_id, score)
+                    })
+                    .collect();
 
-                    // Compute activity scores for each face
-                    let activity_scores: Vec<(u32, f64)> = faces
-                        .iter()
-                        .map(|det| {
-                            let score = activity_provider.compute_activity(
-                                &det.bbox,
-                                det.track_id,
-                                time,
-                                det.score,
-                            );
-                            (det.track_id, score)
-                        })
-                        .collect();
+                // Determine active speaker purely from mouth activity (visual-only)
+                let active_speaker = activity_scores
+                    .iter()
+                    .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+                    .map(|(track_id, _)| {
+                        // Simple left/right hint based on face position if two faces
+                        if let Some(face) = faces.iter().find(|f| f.track_id == *track_id) {
+                            if face.bbox.cx() < (width as f64 / 2.0) {
+                                ActiveSpeakerHint::Left
+                            } else {
+                                ActiveSpeakerHint::Right
+                            }
+                        } else {
+                            ActiveSpeakerHint::Single
+                        }
+                    });
 
-                    let active_speaker = if !speaker_segments.is_empty() {
-                        Some(ActiveSpeakerHint::from(
-                            speaker_detector.speaker_at_time(&speaker_segments, time),
-                        ))
-                    } else {
-                        None
-                    };
+                // Ensure deterministic order for downstream consumers
+                activity_scores.sort_by_key(|(track_id, _)| *track_id);
 
-                    FrameResult {
-                        time,
-                        faces,
-                        activity_scores: Some(activity_scores),
-                        active_speaker,
-                    }
-                })
-                .collect()
-        };
+                FrameResult {
+                    time,
+                    faces,
+                    activity_scores: Some(activity_scores),
+                    active_speaker,
+                }
+            })
+            .collect();
 
         Ok(DetectionResult {
             frames,
-            speaker_segments: Some(speaker_segments),
+            speaker_segments: None,
             tier_used: DetectionTier::SpeakerAware,
             width,
             height,

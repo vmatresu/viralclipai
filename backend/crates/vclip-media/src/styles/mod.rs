@@ -53,49 +53,19 @@ impl StyleProcessorFactoryTrait for StyleProcessorFactory {
             Style::LeftFocus => Ok(Box::new(left_focus::LeftFocusProcessor::new())),
             Style::RightFocus => Ok(Box::new(right_focus::RightFocusProcessor::new())),
 
-            // Intelligent single-view styles (tier-aware, audio + activity)
-            Style::Intelligent | Style::IntelligentBasic => {
-                Ok(Box::new(intelligent::IntelligentProcessor::new()))
-            }
-            Style::IntelligentSpeaker => {
-                Ok(Box::new(intelligent::IntelligentProcessor::with_tier(
-                    vclip_models::DetectionTier::SpeakerAware,
-                )))
-            }
+            // Intelligent single-view styles (tier-aware)
+            Style::Intelligent | Style::IntelligentSpeaker | Style::IntelligentMotion => Ok(
+                Box::new(intelligent::IntelligentProcessor::with_tier(
+                    style.detection_tier(),
+                )),
+            ),
 
-            // Intelligent single-view styles (tier-aware, visual-based)
-            Style::IntelligentMotion => {
-                Ok(Box::new(intelligent::IntelligentProcessor::with_tier(
-                    vclip_models::DetectionTier::MotionAware,
-                )))
-            }
-            Style::IntelligentActivity => {
-                Ok(Box::new(intelligent::IntelligentProcessor::with_tier(
-                    vclip_models::DetectionTier::ActivityAware,
-                )))
-            }
-
-            // Intelligent split-view styles (tier-aware, audio + activity)
-            Style::IntelligentSplit | Style::IntelligentSplitBasic => {
-                Ok(Box::new(intelligent_split::IntelligentSplitProcessor::new()))
-            }
-            Style::IntelligentSplitSpeaker => {
-                Ok(Box::new(intelligent_split::IntelligentSplitProcessor::with_tier(
-                    vclip_models::DetectionTier::SpeakerAware,
-                )))
-            }
-
-            // Intelligent split-view styles (tier-aware, visual-based)
-            Style::IntelligentSplitMotion => {
-                Ok(Box::new(intelligent_split::IntelligentSplitProcessor::with_tier(
-                    vclip_models::DetectionTier::MotionAware,
-                )))
-            }
-            Style::IntelligentSplitActivity => {
-                Ok(Box::new(intelligent_split::IntelligentSplitProcessor::with_tier(
-                    vclip_models::DetectionTier::ActivityAware,
-                )))
-            }
+            // Intelligent split-view styles (tier-aware)
+            Style::IntelligentSplit
+            | Style::IntelligentSplitSpeaker
+            | Style::IntelligentSplitMotion => Ok(Box::new(
+                intelligent_split::IntelligentSplitProcessor::with_tier(style.detection_tier()),
+            )),
         }
     }
 }

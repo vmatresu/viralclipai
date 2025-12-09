@@ -2,9 +2,8 @@
 //!
 //! This module provides the processing pipeline for visual-based intelligent styles:
 //! - `IntelligentMotion` - uses frame differencing to detect active faces
-//! - `IntelligentActivity` - full visual activity (motion + size + temporal smoothing)
 //!
-//! Unlike the audio-based SpeakerAware style, these work with any audio format.
+//! Fully visual heuristics; no audio inputs are used.
 //!
 //! # Pipeline
 //!
@@ -53,11 +52,6 @@ impl VisualActivityCropper {
     /// Create with default configuration for MotionAware tier.
     pub fn motion_aware() -> Self {
         Self::new(IntelligentCropConfig::default(), DetectionTier::MotionAware)
-    }
-
-    /// Create with default configuration for ActivityAware tier.
-    pub fn activity_aware() -> Self {
-        Self::new(IntelligentCropConfig::default(), DetectionTier::ActivityAware)
     }
 
     /// Get the detection tier.
@@ -148,13 +142,13 @@ impl VisualActivityCropper {
 
 /// Create a visual activity intelligent clip from a video file.
 ///
-/// This is the main entry point for IntelligentMotion and IntelligentActivity styles.
+/// This is the main entry point for Motion-aware intelligent styles.
 ///
 /// # Arguments
 /// * `input` - Path to the input video file (full source video)
 /// * `output` - Path for the output file
 /// * `task` - Clip task with timing and style information
-/// * `tier` - Detection tier (MotionAware or ActivityAware)
+/// * `tier` - Detection tier (MotionAware)
 /// * `encoding` - Encoding configuration
 /// * `progress_callback` - Callback for progress updates
 pub async fn create_visual_activity_clip<P, F>(
@@ -215,21 +209,16 @@ mod tests {
     fn test_cropper_creation() {
         let cropper = VisualActivityCropper::motion_aware();
         assert_eq!(cropper.tier(), DetectionTier::MotionAware);
-
-        let cropper = VisualActivityCropper::activity_aware();
-        assert_eq!(cropper.tier(), DetectionTier::ActivityAware);
     }
 
     #[test]
     fn test_tier_uses_visual_activity() {
         assert!(DetectionTier::MotionAware.uses_visual_activity());
-        assert!(DetectionTier::ActivityAware.uses_visual_activity());
-        assert!(!DetectionTier::SpeakerAware.uses_visual_activity());
+        assert!(DetectionTier::SpeakerAware.uses_visual_activity());
     }
 
     #[test]
     fn test_visual_tiers_dont_use_audio() {
         assert!(!DetectionTier::MotionAware.uses_audio());
-        assert!(!DetectionTier::ActivityAware.uses_audio());
     }
 }

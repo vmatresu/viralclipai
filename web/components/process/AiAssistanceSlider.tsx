@@ -1,20 +1,25 @@
 import type { ComponentType } from "react";
 
-import { Activity, Gauge, ScanFace, Sparkles, Target } from "lucide-react";
+import { Activity, Gauge, ScanFace, Sparkles } from "lucide-react";
 
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 
-export type AiLevel =
-  | "fast"
-  | "face_aware"
-  | "face_tracking"
-  | "motion_aware"
-  | "premium";
+export type AiLevel = "static" | "motion" | "basic_face" | "active_face";
+
+type LegacyAiLevel = "fast" | "face_aware" | "face_tracking" | "motion_aware" | "premium";
+
+const LEGACY_TO_CURRENT: Record<LegacyAiLevel, AiLevel> = {
+  fast: "static",
+  face_aware: "basic_face",
+  face_tracking: "basic_face",
+  motion_aware: "motion",
+  premium: "active_face",
+};
 
 interface AiAssistanceSliderProps {
-  value: AiLevel;
+  value: AiLevel | LegacyAiLevel;
   onChange: (value: AiLevel) => void;
 }
 
@@ -26,47 +31,42 @@ const steps: {
   icon: ComponentType<{ className?: string }>;
 }[] = [
   {
-    value: "fast",
-    label: "Fast",
-    shortLabel: "Fast",
-    description: "Static center crop. Fastest processing, no AI analysis.",
+    value: "static",
+    label: "Static",
+    shortLabel: "Static",
+    description: "Static crop or split. Fastest processing, no AI.",
     icon: Gauge,
   },
   {
-    value: "face_aware",
-    label: "Face-aware",
-    shortLabel: "Face-aware",
-    description: "Heuristic based framing. Detects faces but doesn't track movement.",
-    icon: ScanFace,
-  },
-  {
-    value: "face_tracking",
-    label: "Tracking",
-    shortLabel: "Tracking",
-    description: "Keeps speaker in frame. Smoothly follows active speaker.",
-    icon: Target,
-  },
-  {
-    value: "motion_aware",
+    value: "motion",
     label: "Motion",
     shortLabel: "Motion",
-    description: "Follows movement & gestures. Dynamic camera work.",
+    description: "Follows movement & gestures using fast heuristics (no neural nets).",
     icon: Activity,
   },
   {
-    value: "premium",
-    label: "Premium AI Detection",
+    value: "basic_face",
+    label: "Smart Face",
+    shortLabel: "Smart",
+    description: "AI face detection keeps the main face centered.",
+    icon: ScanFace,
+  },
+  {
+    value: "active_face",
+    label: "Active Speaker (Premium)",
     shortLabel: "Premium",
-    description: "Full scene understanding. Best framing, timing & direction.",
+    description: "Premium face mesh tracking for whoever is actively speaking.",
     icon: Sparkles,
   },
 ];
 
 export function AiAssistanceSlider({ value, onChange }: AiAssistanceSliderProps) {
-  // Convert string value to index for the slider (0-4)
-  const currentIndex = steps.findIndex((s) => s.value === value);
-  // Default to face_aware (index 1) if invalid or not set
-  const safeIndex = currentIndex !== -1 ? currentIndex : 1;
+  const normalizedValue =
+    LEGACY_TO_CURRENT[value as LegacyAiLevel] ?? (value as AiLevel | undefined);
+
+  const currentIndex = steps.findIndex((s) => s.value === normalizedValue);
+  const defaultIndex = steps.findIndex((s) => s.value === "basic_face");
+  const safeIndex = currentIndex !== -1 ? currentIndex : Math.max(defaultIndex, 0);
   const currentStep = steps[safeIndex];
 
   if (!currentStep) return null;
@@ -84,7 +84,7 @@ export function AiAssistanceSlider({ value, onChange }: AiAssistanceSliderProps)
       <div className="px-6 py-5 border-b border-brand-100/80 bg-white/90 backdrop-blur-sm dark:border-white/5 dark:bg-white/[0.02]">
         <div className="flex items-center justify-between mb-2">
           <Label className="text-base text-muted-foreground uppercase tracking-widest font-semibold text-[10px]">
-            Intelligence Level
+            Detection Tier
           </Label>
           <span
             className={cn(
@@ -98,7 +98,7 @@ export function AiAssistanceSlider({ value, onChange }: AiAssistanceSliderProps)
           </span>
         </div>
         <h4 className="text-xl font-medium text-white mb-1">
-          {currentStep.label} Mode
+          {currentStep.label}
         </h4>
         <p className="text-sm text-muted-foreground leading-relaxed opacity-90">
           {currentStep.description}

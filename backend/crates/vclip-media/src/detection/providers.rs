@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use std::path::Path;
 
 use crate::error::MediaResult;
-use crate::intelligent::{BoundingBox, FrameDetections, SpeakerSegment};
+use crate::intelligent::{BoundingBox, FrameDetections};
 
 /// Face detection provider.
 ///
@@ -34,27 +34,6 @@ pub trait FaceProvider: Send + Sync {
 
     /// Whether this provider uses AI/ML detection (vs pure heuristics).
     fn uses_ai(&self) -> bool;
-}
-
-/// Audio activity detection provider.
-///
-/// Wraps speaker detection implementations for determining which
-/// person is speaking at any given time.
-#[async_trait]
-pub trait AudioProvider: Send + Sync {
-    /// Detect speaker activity segments.
-    ///
-    /// # Returns
-    /// Vector of speaker segments with timing and speaker identification.
-    async fn detect_speakers(
-        &self,
-        video_path: &Path,
-        duration: f64,
-        width: u32,
-    ) -> MediaResult<Vec<SpeakerSegment>>;
-
-    /// Provider name for logging.
-    fn name(&self) -> &'static str;
 }
 
 /// Face activity analysis provider.
@@ -93,7 +72,7 @@ pub trait FaceActivityProvider: Send + Sync {
 // Default Implementations
 // ============================================================================
 
-use crate::intelligent::{FaceDetector, IntelligentCropConfig, SpeakerDetector};
+use crate::intelligent::{FaceDetector, IntelligentCropConfig};
 
 /// YuNet-based face provider with heuristic fallback.
 pub struct YuNetFaceProvider {
@@ -136,41 +115,6 @@ impl FaceProvider for YuNetFaceProvider {
 
     fn uses_ai(&self) -> bool {
         true
-    }
-}
-
-/// Standard audio provider using SpeakerDetector.
-pub struct StandardAudioProvider {
-    detector: SpeakerDetector,
-}
-
-impl StandardAudioProvider {
-    pub fn new() -> Self {
-        Self {
-            detector: SpeakerDetector::new(),
-        }
-    }
-}
-
-impl Default for StandardAudioProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[async_trait]
-impl AudioProvider for StandardAudioProvider {
-    async fn detect_speakers(
-        &self,
-        video_path: &Path,
-        duration: f64,
-        width: u32,
-    ) -> MediaResult<Vec<SpeakerSegment>> {
-        self.detector.detect_speakers(video_path, duration, width).await
-    }
-
-    fn name(&self) -> &'static str {
-        "speaker_detector"
     }
 }
 
@@ -275,12 +219,6 @@ mod tests {
         let provider = YuNetFaceProvider::new();
         assert_eq!(provider.name(), "yunet");
         assert!(provider.uses_ai());
-    }
-
-    #[test]
-    fn test_audio_provider_creation() {
-        let provider = StandardAudioProvider::new();
-        assert_eq!(provider.name(), "speaker_detector");
     }
 
     #[test]

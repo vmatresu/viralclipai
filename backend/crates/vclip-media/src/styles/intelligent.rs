@@ -5,17 +5,15 @@
 //!
 //! Detection behavior is controlled by the `DetectionTier`:
 //! - `Basic`: YuNet face detection only - follows most prominent face
-//! - `SpeakerAware`: YuNet + audio + face activity - robust speaker tracking with hysteresis
-//! - `MotionAware`: Visual motion + face detection - favors active movers
-//! - `ActivityAware`: Full visual activity + face detection - high quality motion tracking
+//! - `SpeakerAware`: YuNet + face mesh mouth activity - visual-only speaker tracking
+//! - `MotionAware`: Visual motion heuristics - favors active movers, no NN
 //!
 //! # Tier Differences
 //!
 //! - **Basic**: Camera follows the largest/most confident face. Good for single-speaker content.
-//! - **SpeakerAware**: Full activity tracking with hysteresis. Minimum dwell time (1.0s)
+//! - **SpeakerAware**: Visual mouth activity tracking with hysteresis. Minimum dwell time (1.0s)
 //!   before switching, requires 20% improvement margin. Best for multi-speaker podcasts.
-//! - **MotionAware**: Uses visual motion to follow active faces. Works with mono audio.
-//! - **ActivityAware**: Combines motion + size change analysis for stable tracking.
+//! - **MotionAware**: Pure motion heuristic cropper (no NN), suited for high-motion clips.
 
 use async_trait::async_trait;
 use tracing::info;
@@ -75,7 +73,6 @@ impl StyleProcessor for IntelligentProcessor {
             DetectionTier::Basic => "intelligent",
             DetectionTier::SpeakerAware => "intelligent_speaker",
             DetectionTier::MotionAware => "intelligent_motion",
-            DetectionTier::ActivityAware => "intelligent_activity",
         }
     }
 
@@ -83,10 +80,8 @@ impl StyleProcessor for IntelligentProcessor {
         matches!(
             style,
             Style::Intelligent
-                | Style::IntelligentBasic
                 | Style::IntelligentSpeaker
                 | Style::IntelligentMotion
-                | Style::IntelligentActivity
         )
     }
 
@@ -183,7 +178,6 @@ impl StyleProcessor for IntelligentProcessor {
             DetectionTier::Basic => 1.0,
             DetectionTier::MotionAware => 1.3,
             DetectionTier::SpeakerAware => 1.6,
-            DetectionTier::ActivityAware => 1.7,
         };
 
         let mut complexity = utils::estimate_complexity(duration, true);
@@ -220,7 +214,6 @@ mod tests {
     fn test_can_handle_all_intelligent_styles() {
         let processor = IntelligentProcessor::new();
         assert!(processor.can_handle(Style::Intelligent));
-        assert!(processor.can_handle(Style::IntelligentBasic));
         assert!(processor.can_handle(Style::IntelligentSpeaker));
 
         assert!(!processor.can_handle(Style::IntelligentSplit));

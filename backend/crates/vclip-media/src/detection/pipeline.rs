@@ -8,7 +8,7 @@ use std::path::Path;
 use vclip_models::DetectionTier;
 
 use crate::error::MediaResult;
-use crate::intelligent::{FrameDetections, SpeakerSegment};
+use crate::intelligent::FrameDetections;
 
 /// Result of analyzing a video segment through a detection pipeline.
 #[derive(Debug, Clone)]
@@ -51,6 +51,14 @@ pub struct FrameResult {
     pub active_speaker: Option<ActiveSpeakerHint>,
 }
 
+/// Time span for an active speaker segment (visual-only tiers).
+#[derive(Debug, Clone, Copy)]
+pub struct SpeakerSegment {
+    pub start: f64,
+    pub end: f64,
+    pub speaker: ActiveSpeakerHint,
+}
+
 /// Hint about which speaker is currently active.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ActiveSpeakerHint {
@@ -64,17 +72,6 @@ pub enum ActiveSpeakerHint {
     None,
     /// Single speaker (for single-person videos).
     Single,
-}
-
-impl From<crate::intelligent::ActiveSpeaker> for ActiveSpeakerHint {
-    fn from(speaker: crate::intelligent::ActiveSpeaker) -> Self {
-        match speaker {
-            crate::intelligent::ActiveSpeaker::Left => ActiveSpeakerHint::Left,
-            crate::intelligent::ActiveSpeaker::Right => ActiveSpeakerHint::Right,
-            crate::intelligent::ActiveSpeaker::Both => ActiveSpeakerHint::Both,
-            crate::intelligent::ActiveSpeaker::None => ActiveSpeakerHint::None,
-        }
-    }
 }
 
 /// Core trait for detection pipelines.
@@ -112,23 +109,6 @@ mod tests {
 
     #[test]
     fn test_active_speaker_hint_conversion() {
-        use crate::intelligent::ActiveSpeaker;
-
-        assert_eq!(
-            ActiveSpeakerHint::from(ActiveSpeaker::Left),
-            ActiveSpeakerHint::Left
-        );
-        assert_eq!(
-            ActiveSpeakerHint::from(ActiveSpeaker::Right),
-            ActiveSpeakerHint::Right
-        );
-        assert_eq!(
-            ActiveSpeakerHint::from(ActiveSpeaker::Both),
-            ActiveSpeakerHint::Both
-        );
-        assert_eq!(
-            ActiveSpeakerHint::from(ActiveSpeaker::None),
-            ActiveSpeakerHint::None
-        );
+        assert_eq!(ActiveSpeakerHint::Left, ActiveSpeakerHint::Left);
     }
 }

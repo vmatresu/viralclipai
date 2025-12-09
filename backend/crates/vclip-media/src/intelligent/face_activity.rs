@@ -1,9 +1,7 @@
 //! Face activity analysis for multi-face scenarios.
 //!
-//! This module detects which face is active/speaking using visual cues:
-//! - Mouth movement detection (via face landmarks)
-//! - Motion/frame differencing around faces
-//! - Face size and confidence changes
+//! This module detects which face is active/speaking using visual cues from
+//! mouth movement only (visual MAR); audio and mixed cues were removed.
 //!
 //! Mirrors the Python `FaceActivityAnalyzer` class.
 
@@ -36,10 +34,10 @@ pub struct FaceActivityConfig {
     /// Weight for mouth activity in combined score
     pub weight_mouth: f64,
 
-    /// Weight for motion activity in combined score
+    /// Weight for motion activity in combined score (disabled)
     pub weight_motion: f64,
 
-    /// Weight for size changes in combined score
+    /// Weight for size changes in combined score (disabled)
     pub weight_size: f64,
 
     /// EMA smoothing parameter
@@ -53,9 +51,9 @@ impl Default for FaceActivityConfig {
             activity_window: 0.5,
             min_switch_duration: 1.0,
             switch_margin: 0.2,
-            weight_mouth: 0.6,
-            weight_motion: 0.3,
-            weight_size: 0.1,
+            weight_mouth: 1.0,
+            weight_motion: 0.0,
+            weight_size: 0.0,
             smoothing_alpha: 0.3,
         }
     }
@@ -312,25 +310,6 @@ impl FaceActivityAnalyzer {
                 scores.push(mouth_score);
                 weights.push(self.config.weight_mouth);
             }
-        }
-
-        // Motion
-        if self.config.weight_motion > 0.0 {
-            let motion_score = self.compute_motion_score(frame, &detection.bbox, detection.track_id);
-            scores.push(motion_score);
-            weights.push(self.config.weight_motion);
-        }
-
-        // Size change
-        if self.config.weight_size > 0.0 {
-            let size_score = self.compute_size_change_score(
-                &detection.bbox,
-                detection.score,
-                detection.track_id,
-                detection.time,
-            );
-            scores.push(size_score);
-            weights.push(self.config.weight_size);
         }
 
         if scores.is_empty() {

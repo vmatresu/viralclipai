@@ -30,22 +30,14 @@ pub enum Style {
     Intelligent,
     /// Intelligent split with face tracking (dual view, basic tier)
     IntelligentSplit,
-    /// Intelligent crop - YuNet face detection only
-    IntelligentBasic,
-    /// Intelligent split - YuNet face detection only
-    IntelligentSplitBasic,
-    /// Intelligent crop - full detection (YuNet + audio + face activity, requires stereo audio)
+    /// Intelligent crop - full detection (YuNet + face mesh activity, visual-only)
     IntelligentSpeaker,
-    /// Intelligent split - full detection (YuNet + audio + face activity, requires stereo audio)
+    /// Intelligent split - full detection (YuNet + face mesh activity, visual-only)
     IntelligentSplitSpeaker,
-    /// Intelligent crop - YuNet + visual motion detection (works with any audio)
+    /// Intelligent crop - visual motion heuristic (no NN)
     IntelligentMotion,
-    /// Intelligent split - YuNet + visual motion detection (works with any audio)
+    /// Intelligent split - visual motion heuristic (no NN)
     IntelligentSplitMotion,
-    /// Intelligent crop - full visual activity (motion + size + temporal, works with any audio)
-    IntelligentActivity,
-    /// Intelligent split - full visual activity (motion + size + temporal, works with any audio)
-    IntelligentSplitActivity,
 }
 
 impl Style {
@@ -58,14 +50,10 @@ impl Style {
         Style::SplitFast,
         Style::Intelligent,
         Style::IntelligentSplit,
-        Style::IntelligentBasic,
-        Style::IntelligentSplitBasic,
         Style::IntelligentSpeaker,
         Style::IntelligentSplitSpeaker,
         Style::IntelligentMotion,
         Style::IntelligentSplitMotion,
-        Style::IntelligentActivity,
-        Style::IntelligentSplitActivity,
     ];
 
     /// Styles included when user requests "all".
@@ -115,14 +103,10 @@ impl Style {
             Style::SplitFast => "split_fast",
             Style::Intelligent => "intelligent",
             Style::IntelligentSplit => "intelligent_split",
-            Style::IntelligentBasic => "intelligent_basic",
-            Style::IntelligentSplitBasic => "intelligent_split_basic",
             Style::IntelligentSpeaker => "intelligent_speaker",
             Style::IntelligentSplitSpeaker => "intelligent_split_speaker",
             Style::IntelligentMotion => "intelligent_motion",
             Style::IntelligentSplitMotion => "intelligent_split_motion",
-            Style::IntelligentActivity => "intelligent_activity",
-            Style::IntelligentSplitActivity => "intelligent_split_activity",
         }
     }
 
@@ -132,14 +116,10 @@ impl Style {
             self,
             Style::Intelligent
                 | Style::IntelligentSplit
-                | Style::IntelligentBasic
-                | Style::IntelligentSplitBasic
                 | Style::IntelligentSpeaker
                 | Style::IntelligentSplitSpeaker
                 | Style::IntelligentMotion
                 | Style::IntelligentSplitMotion
-                | Style::IntelligentActivity
-                | Style::IntelligentSplitActivity
         )
     }
 
@@ -151,13 +131,9 @@ impl Style {
             | Style::LeftFocus
             | Style::RightFocus
             | Style::SplitFast => DetectionTier::None,
-            Style::Intelligent
-            | Style::IntelligentSplit
-            | Style::IntelligentBasic
-            | Style::IntelligentSplitBasic => DetectionTier::Basic,
+            Style::Intelligent | Style::IntelligentSplit => DetectionTier::Basic,
             Style::IntelligentSpeaker | Style::IntelligentSplitSpeaker => DetectionTier::SpeakerAware,
             Style::IntelligentMotion | Style::IntelligentSplitMotion => DetectionTier::MotionAware,
-            Style::IntelligentActivity | Style::IntelligentSplitActivity => DetectionTier::ActivityAware,
         }
     }
 
@@ -175,10 +151,8 @@ impl Style {
             Style::Split
                 | Style::SplitFast
                 | Style::IntelligentSplit
-                | Style::IntelligentSplitBasic
                 | Style::IntelligentSplitSpeaker
                 | Style::IntelligentSplitMotion
-                | Style::IntelligentSplitActivity
         )
     }
 
@@ -206,14 +180,10 @@ impl FromStr for Style {
             "split_fast" => Ok(Style::SplitFast),
             "intelligent" => Ok(Style::Intelligent),
             "intelligent_split" => Ok(Style::IntelligentSplit),
-            "intelligent_basic" => Ok(Style::IntelligentBasic),
-            "intelligent_split_basic" => Ok(Style::IntelligentSplitBasic),
             "intelligent_speaker" => Ok(Style::IntelligentSpeaker),
             "intelligent_split_speaker" => Ok(Style::IntelligentSplitSpeaker),
             "intelligent_motion" => Ok(Style::IntelligentMotion),
             "intelligent_split_motion" => Ok(Style::IntelligentSplitMotion),
-            "intelligent_activity" => Ok(Style::IntelligentActivity),
-            "intelligent_split_activity" => Ok(Style::IntelligentSplitActivity),
             _ => Err(StyleParseError(s.to_string())),
         }
     }
@@ -474,12 +444,13 @@ mod tests {
         // Basic tier styles
         assert_eq!(Style::Intelligent.detection_tier(), DetectionTier::Basic);
         assert_eq!(Style::IntelligentSplit.detection_tier(), DetectionTier::Basic);
-        assert_eq!(Style::IntelligentBasic.detection_tier(), DetectionTier::Basic);
-        
-        // Audio-aware tier
         // Speaker-aware tier
         assert_eq!(Style::IntelligentSpeaker.detection_tier(), DetectionTier::SpeakerAware);
         assert_eq!(Style::IntelligentSplitSpeaker.detection_tier(), DetectionTier::SpeakerAware);
+
+        // Motion-aware tier
+        assert_eq!(Style::IntelligentMotion.detection_tier(), DetectionTier::MotionAware);
+        assert_eq!(Style::IntelligentSplitMotion.detection_tier(), DetectionTier::MotionAware);
     }
 
     #[test]
@@ -488,6 +459,8 @@ mod tests {
         assert!(Style::Split.is_split_view());
         assert!(Style::SplitFast.is_split_view());
         assert!(Style::IntelligentSplit.is_split_view());
+        assert!(Style::IntelligentSplitSpeaker.is_split_view());
+        assert!(Style::IntelligentSplitMotion.is_split_view());
         
         // Non-split styles
         assert!(!Style::Original.is_split_view());

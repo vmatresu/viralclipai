@@ -47,14 +47,10 @@ pub fn build_video_filter(style: Style) -> Option<String> {
         // All intelligent styles are handled separately with face detection
         Style::Intelligent
         | Style::IntelligentSplit
-        | Style::IntelligentBasic
-        | Style::IntelligentSplitBasic
         | Style::IntelligentSpeaker
         | Style::IntelligentSplitSpeaker
         | Style::IntelligentMotion
-        | Style::IntelligentSplitMotion
-        | Style::IntelligentActivity
-        | Style::IntelligentSplitActivity => None,
+        | Style::IntelligentSplitMotion => None,
     }
 }
 

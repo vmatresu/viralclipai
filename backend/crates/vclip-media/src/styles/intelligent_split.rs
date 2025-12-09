@@ -6,8 +6,7 @@
 //! Detection behavior is controlled by the `DetectionTier`:
 //! - `Basic`: Fixed vertical positioning (fast, deterministic)
 //! - `SpeakerAware`: Dynamic per-panel positioning based on face detection
-//! - `MotionAware`: Visual motion-aware cropping for either panel
-//! - `ActivityAware`: Full visual activity awareness for stable switching
+//! - `MotionAware`: Visual motion-aware cropping for either panel (no NN)
 //!
 //! # Tier Differences for Split View
 //!
@@ -15,7 +14,7 @@
 //!   Fast and deterministic, good for consistent podcast layouts.
 //! - **SpeakerAware**: Full face detection with dynamic positioning. Analyzes
 //!   face positions in each panel and computes optimal vertical offset.
-//! - **MotionAware/ActivityAware**: Visual motion guides panel focus; robust to mono audio.
+//! - **MotionAware**: Visual motion guides panel focus; robust to mono audio.
 
 use async_trait::async_trait;
 use tracing::info;
@@ -74,7 +73,6 @@ impl StyleProcessor for IntelligentSplitProcessor {
             DetectionTier::Basic => "intelligent_split",
             DetectionTier::SpeakerAware => "intelligent_split_speaker",
             DetectionTier::MotionAware => "intelligent_split_motion",
-            DetectionTier::ActivityAware => "intelligent_split_activity",
         }
     }
 
@@ -82,10 +80,8 @@ impl StyleProcessor for IntelligentSplitProcessor {
         matches!(
             style,
             Style::IntelligentSplit
-                | Style::IntelligentSplitBasic
                 | Style::IntelligentSplitSpeaker
                 | Style::IntelligentSplitMotion
-                | Style::IntelligentSplitActivity
         )
     }
 
@@ -123,36 +119,17 @@ impl StyleProcessor for IntelligentSplitProcessor {
             tier_name, self.tier
         );
 
-        match self.tier {
-            // Visual activity pipeline supports dynamic 9:16 ↔ 9:8+9:8 switching within a clip
-            DetectionTier::ActivityAware | DetectionTier::MotionAware => {
-                crate::intelligent::create_visual_activity_split_clip(
-                    request.input_path.as_ref(),
-                    request.output_path.as_ref(),
-                    &request.task,
-                    self.tier,
-                    &request.encoding,
-                    |_progress| {},
-                )
-                .await?
-            }
-            _ => {
-                // Use tier-aware split processor for tier-specific behavior
-                // - Basic: Fixed vertical positioning (0% left, 15% right)
-                // - SpeakerAware: Face-aware positioning per panel
-                crate::intelligent::create_tier_aware_split_clip(
-                    request.input_path.as_ref(),
-                    request.output_path.as_ref(),
-                    &request.task,
-                    self.tier,
-                    &request.encoding,
-                    |_progress| {
-                        // Could emit progress updates
-                    },
-                )
-                .await?
-            }
-        };
+        crate::intelligent::create_tier_aware_split_clip(
+            request.input_path.as_ref(),
+            request.output_path.as_ref(),
+            &request.task,
+            self.tier,
+            &request.encoding,
+            |_progress| {
+                // Could emit progress updates
+            },
+        )
+        .await?;
 
         let processing_time = timer.elapsed();
 
@@ -199,7 +176,6 @@ impl StyleProcessor for IntelligentSplitProcessor {
             DetectionTier::Basic => 1.2,
             DetectionTier::MotionAware => 1.4,
             DetectionTier::SpeakerAware => 1.8,
-            DetectionTier::ActivityAware => 1.7,
         };
 
         let mut complexity = utils::estimate_complexity(duration, true);
@@ -236,8 +212,8 @@ mod tests {
     fn test_can_handle_all_intelligent_split_styles() {
         let processor = IntelligentSplitProcessor::new();
         assert!(processor.can_handle(Style::IntelligentSplit));
-        assert!(processor.can_handle(Style::IntelligentSplitBasic));
         assert!(processor.can_handle(Style::IntelligentSplitSpeaker));
+        assert!(processor.can_handle(Style::IntelligentSplitMotion));
 
         assert!(!processor.can_handle(Style::Intelligent));
         assert!(!processor.can_handle(Style::Split));

@@ -9,10 +9,8 @@
 
 use super::config::IntelligentCropConfig;
 use super::models::BoundingBox;
-use super::speaker_detector::{ActiveSpeaker, SpeakerDetector, SpeakerSegment};
 use crate::error::MediaResult;
 use std::path::Path;
-use tracing::{debug, info};
 
 /// Detected video layout type.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -289,41 +287,14 @@ impl HeuristicGenerator {
     /// 3. Provides smooth transitions between speakers
     pub async fn speaker_aware_heuristic<P: AsRef<Path>>(
         &self,
-        video_path: P,
+        _video_path: P,
         width: u32,
         height: u32,
         num_samples: usize,
     ) -> MediaResult<Vec<Vec<(BoundingBox, f64)>>> {
-        let video_path = video_path.as_ref();
-
-        // Get video duration estimate from samples
+        // Visual-only fallback: generate stable left/right boxes without audio analysis.
         let sample_interval = 1.0 / self.config.fps_sample;
-        let duration = num_samples as f64 * sample_interval;
-
-        // Detect speaker activity throughout the video
-        let speaker_detector = SpeakerDetector::new();
-        let speaker_segments = speaker_detector.detect_speakers(video_path, duration, width).await?;
-
-        info!(
-            "Speaker detection: {} segments, duration: {:.2}s",
-            speaker_segments.len(),
-            duration
-        );
-        for segment in &speaker_segments {
-            debug!(
-                "  [{:.2}s - {:.2}s]: {:?} (conf: {:.2})",
-                segment.start_time, segment.end_time, segment.speaker, segment.confidence
-            );
-        }
-
-        // Generate per-frame detections based on speaker activity
-        self.generate_speaker_aware_detections(
-            &speaker_segments,
-            width,
-            height,
-            num_samples,
-            sample_interval,
-        )
+        self.generate_speaker_aware_detections(width, height, num_samples, sample_interval)
     }
 
     /// Generate frame-by-frame detections based on speaker activity.
@@ -332,11 +303,10 @@ impl HeuristicGenerator {
     /// maintaining smooth transitions between speaker changes.
     pub fn generate_speaker_aware_detections(
         &self,
-        speaker_segments: &[SpeakerSegment],
         width: u32,
         height: u32,
         num_samples: usize,
-        sample_interval: f64,
+        _sample_interval: f64,
     ) -> MediaResult<Vec<Vec<(BoundingBox, f64)>>> {
         let w = width as f64;
         let h = height as f64;
@@ -352,76 +322,25 @@ impl HeuristicGenerator {
         let left_cx = w * 0.25; // Center of left half
         let right_cx = w * 0.75; // Center of right half
 
-        // Create a lookup for speaker at each sample
-        let speaker_detector = SpeakerDetector::new();
-
         let mut detections = Vec::with_capacity(num_samples);
-        let mut prev_speaker = ActiveSpeaker::Left;
-
-        // Track transition state for smooth switching
-        let mut transition_progress: f64 = 0.0;
-        let mut transition_from = left_cx;
-        let mut transition_to = left_cx;
-        let transition_duration = 0.15; // seconds for smooth transition (reduced from 0.3)
-
-        for i in 0..num_samples {
-            let time = i as f64 * sample_interval;
-            let current_speaker = speaker_detector.speaker_at_time(speaker_segments, time);
-
-            // Determine target X position based on speaker
-            let target_cx = match current_speaker {
-                ActiveSpeaker::Left | ActiveSpeaker::None => left_cx,
-                ActiveSpeaker::Right => right_cx,
-                ActiveSpeaker::Both => w * 0.5, // Center for both
-            };
-
-            // Handle speaker change with smooth transition
-            if current_speaker != prev_speaker && current_speaker != ActiveSpeaker::None {
-                transition_progress = 0.0;
-                transition_from = match prev_speaker {
-                    ActiveSpeaker::Left | ActiveSpeaker::None => left_cx,
-                    ActiveSpeaker::Right => right_cx,
-                    ActiveSpeaker::Both => w * 0.5,
-                };
-                transition_to = target_cx;
-                prev_speaker = current_speaker;
-            }
-
-            // Calculate interpolated position
-            let cx = if transition_progress < 1.0 {
-                // Ease in-out cubic for smooth motion
-                let t = transition_progress;
-                let ease = if t < 0.5 {
-                    4.0 * t * t * t
-                } else {
-                    1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
-                };
-                transition_from + (transition_to - transition_from) * ease
-            } else {
-                target_cx
-            };
-
-            // Advance transition
-            transition_progress += sample_interval / transition_duration;
-            transition_progress = transition_progress.min(1.0);
-
-            // Add natural micro-variation for realism
-            let variation = (i as f64 * 0.1).sin() * 0.008;
-            let confidence = match current_speaker {
-                ActiveSpeaker::None => 0.5,
-                ActiveSpeaker::Both => 0.65,
-                _ => 0.75 + variation.abs() * 0.1,
-            };
-
-            let bbox = BoundingBox::new(
-                cx - face_width / 2.0 + w * variation * 0.15,
-                cy - face_height / 2.0 + h * variation * 0.1,
+        for _ in 0..num_samples {
+            let left_bbox = BoundingBox::new(
+                left_cx - face_width / 2.0,
+                cy - face_height / 2.0,
                 face_width,
                 face_height,
             )
             .clamp(width, height);
 
-            detections.push(vec![(bbox, confidence)]);
+            let right_bbox = BoundingBox::new(
+                right_cx - face_width / 2.0,
+                cy - face_height / 2.0,
+                face_width,
+                face_height,
+            )
+            .clamp(width, height);
+
+            detections.push(vec![(left_bbox, 0.8), (right_bbox, 0.8)]);
         }
 
         Ok(detections)

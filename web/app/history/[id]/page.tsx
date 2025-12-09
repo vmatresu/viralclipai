@@ -10,7 +10,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { type Clip } from "@/components/ClipGrid";
@@ -39,6 +39,7 @@ import {
 } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { useProcessing } from "@/lib/processing-context";
+import { normalizeStyleForSelection } from "@/lib/styleTiers";
 
 interface UserSettings {
   plan: string;
@@ -98,7 +99,7 @@ export default function HistoryDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedScenes, setSelectedScenes] = useState<Set<number>>(new Set());
-  const [selectedStyles, setSelectedStyles] = useState<string[]>(["split"]);
+  const [selectedStyles, setSelectedStyles] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
@@ -113,6 +114,7 @@ export default function HistoryDetailPage() {
     completeJob: contextCompleteJob,
     failJob: contextFailJob,
   } = useProcessing();
+  const selectionInitializedRef = useRef(false);
 
   const {
     isProcessing: isReprocessing,
@@ -390,8 +392,43 @@ export default function HistoryDetailPage() {
   }, []);
 
   const handleStylesChange = useCallback((styles: string[]) => {
+    selectionInitializedRef.current = true;
     setSelectedStyles(styles);
   }, []);
+
+  useEffect(() => {
+    if (selectionInitializedRef.current) return;
+
+    const collected = new Set<string>();
+
+    if (sceneStylesData && sceneStylesData.length > 0) {
+      sceneStylesData.forEach((entry) => {
+        entry.styles.forEach((style) => {
+          const normalized = normalizeStyleForSelection(style);
+          if (normalized) {
+            collected.add(normalized);
+          }
+        });
+      });
+    } else if (clips.length > 0) {
+      clips.forEach((clip) => {
+        if (!clip.style) return;
+        const normalized = normalizeStyleForSelection(clip.style);
+        if (normalized) {
+          collected.add(normalized);
+        }
+      });
+    }
+
+    if (sceneStylesData || clips.length > 0) {
+      selectionInitializedRef.current = true;
+      if (collected.size > 0) {
+        setSelectedStyles(Array.from(collected));
+      } else {
+        setSelectedStyles(["intelligent_split"]);
+      }
+    }
+  }, [sceneStylesData, clips]);
 
   const handleCopyUrl = useCallback(async () => {
     if (highlightsData?.video_url) {

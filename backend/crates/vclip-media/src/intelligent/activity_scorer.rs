@@ -1,8 +1,7 @@
 //! Temporal activity tracking and active-face selection.
 //!
 //! This module aggregates per-face activity scores over time windows,
-//! fuses visual activity with audio speech detection, and implements
-//! hysteresis-based switching logic to prevent jittery face changes.
+//! fuses visual activity and implements hysteresis-based switching logic to prevent jittery face changes.
 //!
 //! Mirrors the Python `TemporalActivityTracker` class.
 
@@ -11,10 +10,10 @@ use tracing::debug;
 
 use super::face_activity::FaceActivityConfig;
 
-/// Temporal activity tracker with audio fusion and switching logic.
+/// Temporal activity tracker with visual-only fusion and switching logic.
 pub struct TemporalActivityTracker {
-    /// Activity history per track ID: (time, visual_score, audio_score)
-    activity_history: HashMap<u32, Vec<(f64, f64, f64)>>,
+    /// Activity history per track ID: (time, visual_score)
+    activity_history: HashMap<u32, Vec<(f64, f64)>>,
 
     /// Currently selected active face
     current_face: Option<u32>,
@@ -42,21 +41,19 @@ impl TemporalActivityTracker {
     /// # Arguments
     /// * `track_id` - Face track ID
     /// * `visual_score` - Visual activity score (0.0-1.0)
-    /// * `audio_score` - Speech activity score (0.0-1.0), 0.0 if unknown
     /// * `time` - Current timestamp in seconds
     pub fn update_activity(
         &mut self,
         track_id: u32,
         visual_score: f64,
-        audio_score: f64,
         time: f64,
     ) {
         let history = self.activity_history.entry(track_id).or_default();
-        history.push((time, visual_score, audio_score));
+        history.push((time, visual_score));
 
         // Keep only recent history within activity window
         let window_start = time - self.config.activity_window;
-        history.retain(|(t, _, _)| *t >= window_start);
+        history.retain(|(t, _)| *t >= window_start);
     }
 
     /// Get average visual activity score for a track over the activity window.
@@ -66,29 +63,8 @@ impl TemporalActivityTracker {
                 let window_start = current_time - self.config.activity_window;
                 let recent: Vec<f64> = history
                     .iter()
-                    .filter(|(t, _, _)| *t >= window_start)
-                    .map(|(_, v, _)| *v)
-                    .collect();
-
-                if recent.is_empty() {
-                    return 0.0;
-                }
-
-                self.smooth_scores(&recent)
-            }
-            None => 0.0,
-        }
-    }
-
-    /// Get average audio activity score for a track.
-    pub fn get_average_audio_activity(&self, track_id: u32, current_time: f64) -> f64 {
-        match self.activity_history.get(&track_id) {
-            Some(history) => {
-                let window_start = current_time - self.config.activity_window;
-                let recent: Vec<f64> = history
-                    .iter()
-                    .filter(|(t, _, _)| *t >= window_start)
-                    .map(|(_, _, a)| *a)
+                    .filter(|(t, _)| *t >= window_start)
+                    .map(|(_, v)| *v)
                     .collect();
 
                 if recent.is_empty() {
@@ -121,20 +97,15 @@ impl TemporalActivityTracker {
         smoothed
     }
 
-    /// Compute final fused score combining visual and audio activity.
-    ///
-    /// Formula: `visual * (0.5 + 0.5 * audio)`
-    /// - Visual-only activity is down-weighted but not ignored
-    /// - Speech boosts the active speaker
-    pub fn compute_final_score(&self, visual_score: f64, audio_score: f64) -> f64 {
-        visual_score * (0.5 + 0.5 * audio_score)
+    /// Compute final score (visual-only).
+    pub fn compute_final_score(&self, visual_score: f64) -> f64 {
+        visual_score
     }
 
     /// Get final fused activity score for a track.
     pub fn get_final_activity(&self, track_id: u32, current_time: f64) -> f64 {
         let visual = self.get_average_visual_activity(track_id, current_time);
-        let audio = self.get_average_audio_activity(track_id, current_time);
-        self.compute_final_score(visual, audio)
+        self.compute_final_score(visual)
     }
 
     /// Select the most active face, respecting minimum switch duration.
@@ -280,7 +251,7 @@ pub struct ActivityScore {
     /// Combined visual score (0.0-1.0)
     pub visual_combined: f64,
 
-    /// Final fused score with audio (0.0-1.0)
+    /// Final score (visual-only)
     pub final_score: f64,
 }
 
@@ -310,14 +281,8 @@ impl ActivityScore {
             motion_activity: motion,
             size_activity: size,
             visual_combined,
-            final_score: visual_combined, // Audio fusion applied separately
+            final_score: visual_combined,
         }
-    }
-
-    /// Apply audio fusion to compute final score.
-    pub fn with_audio(mut self, audio_score: f64) -> Self {
-        self.final_score = self.visual_combined * (0.5 + 0.5 * audio_score);
-        self
     }
 }
 
@@ -339,8 +304,8 @@ mod tests {
         let mut tracker = TemporalActivityTracker::new(test_config());
 
         // Add some activity
-        tracker.update_activity(1, 0.8, 0.0, 0.0);
-        tracker.update_activity(2, 0.3, 0.0, 0.0);
+        tracker.update_activity(1, 0.8, 0.0);
+        tracker.update_activity(2, 0.3, 0.0);
 
         let selected = tracker.select_active_face(&[1, 2], 0.0);
         assert_eq!(selected, Some(1), "Should select most active face");
@@ -351,17 +316,17 @@ mod tests {
         let mut tracker = TemporalActivityTracker::new(test_config());
 
         // Initial selection
-        tracker.update_activity(1, 0.5, 0.0, 0.0);
-        tracker.update_activity(2, 0.3, 0.0, 0.0);
+        tracker.update_activity(1, 0.5, 0.0);
+        tracker.update_activity(2, 0.3, 0.0);
         tracker.select_active_face(&[1, 2], 0.0);
 
         // Face 2 becomes much more active, but too soon to switch
-        tracker.update_activity(2, 0.9, 0.0, 0.5);
+        tracker.update_activity(2, 0.9, 0.5);
         let selected = tracker.select_active_face(&[1, 2], 0.5);
         assert_eq!(selected, Some(1), "Should not switch before min_switch_duration");
 
         // After min_switch_duration, should switch
-        tracker.update_activity(2, 0.9, 0.0, 1.5);
+        tracker.update_activity(2, 0.9, 1.5);
         let selected = tracker.select_active_face(&[1, 2], 1.5);
         assert_eq!(selected, Some(2), "Should switch after min_switch_duration");
     }
@@ -371,40 +336,35 @@ mod tests {
         let mut tracker = TemporalActivityTracker::new(test_config());
 
         // Initial selection
-        tracker.update_activity(1, 0.5, 0.0, 0.0);
-        tracker.update_activity(2, 0.3, 0.0, 0.0);
+        tracker.update_activity(1, 0.5, 0.0);
+        tracker.update_activity(2, 0.3, 0.0);
         tracker.select_active_face(&[1, 2], 0.0);
 
         // Face 2 slightly better, but not enough margin
-        tracker.update_activity(1, 0.5, 0.0, 1.5);
-        tracker.update_activity(2, 0.6, 0.0, 1.5); // Only 0.1 improvement, margin is 0.2
+        tracker.update_activity(1, 0.5, 1.5);
+        tracker.update_activity(2, 0.6, 1.5); // Only 0.1 improvement, margin is 0.2
         let selected = tracker.select_active_face(&[1, 2], 1.5);
         assert_eq!(selected, Some(1), "Should not switch without sufficient margin");
 
         // Face 2 significantly better
-        tracker.update_activity(2, 0.9, 0.0, 1.6);
+        tracker.update_activity(2, 0.9, 1.6);
         let selected = tracker.select_active_face(&[1, 2], 1.6);
         assert_eq!(selected, Some(2), "Should switch with sufficient margin");
     }
 
     #[test]
-    fn test_audio_fusion() {
+    fn test_visual_score() {
         let tracker = TemporalActivityTracker::new(test_config());
 
-        // Visual only
-        let score_no_audio = tracker.compute_final_score(0.8, 0.0);
-        assert!((score_no_audio - 0.4).abs() < 0.01, "No audio: 0.8 * 0.5 = 0.4");
-
-        // Visual + audio
-        let score_with_audio = tracker.compute_final_score(0.8, 1.0);
-        assert!((score_with_audio - 0.8).abs() < 0.01, "With audio: 0.8 * 1.0 = 0.8");
+        let score = tracker.compute_final_score(0.8);
+        assert!((score - 0.8).abs() < 0.01, "Visual-only score should match input");
     }
 
     #[test]
     fn test_cleanup_track() {
         let mut tracker = TemporalActivityTracker::new(test_config());
 
-        tracker.update_activity(1, 0.5, 0.0, 0.0);
+        tracker.update_activity(1, 0.5, 0.0);
         tracker.select_active_face(&[1], 0.0);
 
         assert_eq!(tracker.current_face, Some(1));
@@ -426,7 +386,6 @@ mod tests {
         assert_eq!(score.mouth_activity, 0.8);
         assert!(score.visual_combined > 0.0);
 
-        let with_audio = score.with_audio(0.8);
-        assert!(with_audio.final_score > score.final_score);
+        assert!(score.final_score > 0.0);
     }
 }

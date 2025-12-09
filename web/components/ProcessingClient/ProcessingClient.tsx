@@ -125,7 +125,7 @@ export function ProcessingClient() {
           ws.send(
             JSON.stringify({
               url: sanitizedUrl,
-              styles: styles.length > 0 ? styles : ["split"], // Fallback to default if none selected
+              styles: styles.length > 0 ? styles : ["intelligent_split"], // Fallback to default if none selected
               token,
               prompt: sanitizedPrompt || undefined,
             })

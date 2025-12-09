@@ -2,100 +2,80 @@
 
 ## Overview
 
-This document describes the architecture for tier-specific behavior in ViralClipAI's intelligent video processing pipeline. The implementation makes `intelligent` and `intelligent_speaker` styles produce meaningfully different outputs based on their detection tier. The former AudioAware tier has been removed because stereo audio inputs were unreliable (duplicated/mono).
+The intelligent pipeline is now fully visual-only (audio removed due to unreliable mono/duplicated inputs) and organized into the **Clean 4** tiers. Motion tier is NN-free; SpeakerAware uses FaceMesh mouth activity (MAR) only.
 
 ## Tier Definitions
 
-### DetectionTier::None (SplitFast, Static Styles)
+### DetectionTier::None (Static/SplitFast)
+- **Detection**: Heuristic positioning only  
+- **Camera behavior**: Fixed or center-weighted positioning  
+- **Use case**: Fast, deterministic
 
-- **Detection**: Heuristic positioning only
-- **Camera behavior**: Fixed or center-weighted positioning
-- **Use case**: Fast processing, deterministic results
+### DetectionTier::MotionAware (IntelligentMotion, IntelligentSplitMotion)
+- **Detection**: NN-free heuristic motion (frame differencing)  
+- **Camera behavior**: Center-of-motion targeting; no faces, no audio  
+- **Use case**: High-motion clips (gaming/sports)
 
 ### DetectionTier::Basic (Intelligent, IntelligentSplit)
-
-- **Detection**: YuNet face detection
-- **Camera behavior**: Follow the most prominent face (largest × confidence)
-- **Use case**: Single-speaker content, general face tracking
+- **Detection**: YuNet face detection  
+- **Camera behavior**: Follow the most prominent face (largest × confidence)  
+- **Use case**: General talking-heads
 
 ### DetectionTier::SpeakerAware (IntelligentSpeaker, IntelligentSplitSpeaker)
-
-- **Detection**: YuNet + audio + face activity (mouth movement, motion)
-- **Camera behavior**: Robust speaker tracking with hysteresis
-- **Switching**: Minimum dwell time (1.0s), margin threshold (20%)
-- **Use case**: Multi-speaker podcasts with interruptions/overlaps
+- **Detection**: YuNet + FaceMesh (mouth MAR), visual-only  
+- **Camera behavior**: Mouth-activity-driven speaker tracking with hysteresis  
+- **Switching**: Dwell ≥ 1.0s, margin 20%  
+- **Use case**: Podcasts/interviews, visual active face
 
 ## Implementation
 
-### New Components
+### TierAwareCameraSmoother (`tier_aware_smoother.rs`)
+- **Basic**: `compute_focus_basic()` - largest face × confidence  
+- **MotionAware**: Motion-only tracks (NN-free) with snaps/hysteresis  
+- **SpeakerAware**: `compute_focus_speaker_aware()` - mouth MAR with hysteresis, no audio
 
-#### TierAwareCameraSmoother (`tier_aware_smoother.rs`)
+### TierAwareIntelligentCropper (`tier_aware_cropper.rs`)
+1. Face detection (Basic/SpeakerAware) or motion detection (MotionAware, NN-free)  
+2. Tier-aware camera smoothing  
+3. Crop planning and rendering
 
-Camera smoother that uses speaker and activity information:
-
-- **Basic**: `compute_focus_basic()` - largest face × confidence
-- **SpeakerAware**: `compute_focus_speaker_aware()` - full activity tracking
-
-#### TierAwareIntelligentCropper (`tier_aware_cropper.rs`)
-
-Orchestrates the full pipeline with tier-specific behavior:
-
-1. Face detection
-2. Speaker detection (SpeakerAware only)
-3. Tier-aware camera smoothing
-4. Crop planning and rendering
-
-#### TierAwareSplitProcessor (`tier_aware_split.rs`)
-
-Split view processing with tier-specific vertical positioning:
-
-- **Basic**: Fixed positioning (0% left, 15% right)
-- **SpeakerAware**: Face-aware positioning per panel
+### TierAwareSplitProcessor (`tier_aware_split.rs`)
+- **Basic**: Fixed positioning (0% left, 15% right)  
+- **SpeakerAware**: Visual-only mouth activity; leftmost → top, rightmost → bottom (hard invariant)  
+- **MotionAware**: Motion-guided split using NN-free motion tracks
 
 ### Integration Points
+- **IntelligentProcessor** (`styles/intelligent.rs`): `create_tier_aware_intelligent_clip()` for None/Basic/MotionAware/SpeakerAware.  
+- **IntelligentSplitProcessor** (`styles/intelligent_split.rs`): `create_tier_aware_split_clip()` for None/Basic/MotionAware/SpeakerAware.
 
-#### IntelligentProcessor (`styles/intelligent.rs`)
+## Camera Behavior Specs
 
-Uses `create_tier_aware_intelligent_clip()` with the processor's tier.
+### Basic
+- Target: Largest face × confidence  
+- Smoothing: Moving average ~0.3s  
+- Max pan: ~600 px/s  
+- No speaker awareness
 
-#### IntelligentSplitProcessor (`styles/intelligent_split.rs`)
+### MotionAware
+- Target: Center-of-motion heuristic  
+- Hysteresis: Minimum segment duration to avoid flapping  
+- Fallback: Centered box if no motion
 
-Uses `create_tier_aware_split_clip()` with the processor's tier.
-
-## Camera Behavior Specifications
-
-### Basic Tier
-
-- **Target selection**: Largest face × confidence score
-- **Smoothing**: Moving average with 0.3s window
-- **Max pan speed**: 600 px/s
-- **No speaker awareness**
-
-### SpeakerAware Tier
-
-- **Target selection**: Face with highest activity score
-- **Activity components**: Visual activity + audio activity
-- **Hysteresis**: Minimum dwell time 1.0s, switch margin 20%
-- **Fallback**: If activity unclear, use Basic behavior
+### SpeakerAware (Visual-Only)
+- Target: Face with highest mouth MAR  
+- Hysteresis: Dwell 1.0s, margin 20%  
+- Fallback: Basic behavior if unclear
 
 ## File Changes Summary
-
-### Modified Files
-
-- `intelligent/mod.rs` - Export new tier-aware components
-- `styles/intelligent.rs` - Use tier-aware intelligent clip
-- `styles/intelligent_split.rs` - Use tier-aware split clip
-
-### New Files
-
-- `intelligent/tier_aware_cropper.rs` - Tier-aware orchestration
-- `intelligent/tier_aware_smoother.rs` - Tier-specific camera logic
-- `intelligent/tier_aware_split.rs` - Tier-aware split view
-- `intelligent/tests.rs` - Comprehensive tests
+- `intelligent/mod.rs` - Tier-aware exports; motion detector  
+- `styles/intelligent.rs` / `styles/intelligent_split.rs` - Tier-aware processors  
+- `intelligent/tier_aware_cropper.rs` - Tier-aware orchestration (motion path NN-free)  
+- `intelligent/tier_aware_smoother.rs` - Visual-only smoothing logic  
+- `intelligent/tier_aware_split.rs` - Split invariant (left→top, right→bottom)  
+- `intelligent/tests.rs` - Visual-only tests
 
 ## Preserved Fixes
-
-1. **A/V sync**: Two-pass seeking in `extract_segment()`
-2. **Padding**: `pad_before_seconds` and `pad_after_seconds`
-3. **Split framing**: 15% vertical bias for bottom panel
-4. **Camera responsiveness**: 600 px/s max pan speed, 0.3s smoothing
+1. A/V sync: Two-pass seeking in `extract_segment()`  
+2. Padding: `pad_before_seconds`, `pad_after_seconds`  
+3. Split framing: SpeakerAware invariant + mild hysteresis  
+4. Camera responsiveness: 600 px/s max pan speed, ~0.3s smoothing (Basic/SpeakerAware)
