@@ -70,8 +70,6 @@ pub mod tier_aware_cropper;
 pub mod tier_aware_smoother;
 pub mod tier_aware_split;
 pub mod tracker;
-pub mod visual_activity_cropper;
-pub mod visual_activity_split;
 pub mod yunet;
 
 #[cfg(test)]

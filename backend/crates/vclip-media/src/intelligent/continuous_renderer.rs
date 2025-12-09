@@ -171,7 +171,7 @@ impl ContinuousRenderer {
         }
 
         // Final segment
-        if let Some(last) = windows.last() {
+        if !windows.is_empty() {
             segments.push(CropSegment {
                 start_time: current_start,
                 crop: current_crop,
