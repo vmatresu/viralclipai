@@ -7,12 +7,14 @@
 
 services:
   api:
+    platform: linux/amd64
     build:
       context: ..
       dockerfile: Dockerfile
       target: api-runtime
       args:
-        - BUILDKIT_INLINE_CACHE=1
+        BUILDKIT_INLINE_CACHE: 1
+        SERVICE_TYPE: api
       cache_from:
         - viralclipai-api:latest
     image: viralclipai-api:${VERSION:-latest}

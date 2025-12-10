@@ -46,6 +46,7 @@ FROM ubuntu:24.04 AS builder
 # Build arguments for multi-arch
 ARG TARGETPLATFORM
 ARG TARGETARCH
+ARG SERVICE_TYPE=api
 
 # Install build dependencies and pre-built OpenCV 4.12.0
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -119,13 +120,21 @@ COPY backend/crates ./crates
 
 # Build application with release optimizations
 # LTO and single codegen unit are set in Cargo.toml [profile.release]
-RUN cargo build --release --bin vclip-api --bin vclip-worker
+# Only build the binary needed for this service type
+RUN if [ "$SERVICE_TYPE" = "api" ]; then \
+        cargo build --release --bin vclip-api; \
+    elif [ "$SERVICE_TYPE" = "worker" ]; then \
+        cargo build --release --bin vclip-worker; \
+    else \
+        echo "Invalid SERVICE_TYPE: $SERVICE_TYPE" && exit 1; \
+    fi
 
 # Strip binaries for smaller size (saves ~50-70%)
-RUN strip target/release/vclip-api target/release/vclip-worker
-
-# Verify binaries exist and show sizes
-RUN ls -lah target/release/vclip-api target/release/vclip-worker
+RUN if [ "$SERVICE_TYPE" = "api" ]; then \
+        strip target/release/vclip-api && ls -lah target/release/vclip-api; \
+    elif [ "$SERVICE_TYPE" = "worker" ]; then \
+        strip target/release/vclip-worker && ls -lah target/release/vclip-worker; \
+    fi
 
 # -----------------------------------------------------------------------------
 # Stage 4: API Runtime - Ubuntu 24.04 slim (matches builder glibc version)

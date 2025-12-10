@@ -7,18 +7,20 @@
 
 services:
   worker:
+    platform: linux/amd64
     build:
       context: ..
       dockerfile: Dockerfile
       target: worker-runtime
       args:
-        - BUILDKIT_INLINE_CACHE=1
+        BUILDKIT_INLINE_CACHE: 1
+        SERVICE_TYPE: worker
       cache_from:
         - viralclipai-worker:latest
     image: viralclipai-worker:${VERSION:-latest}
     container_name: vclip-worker
     restart: unless-stopped
-    stop_grace_period: 120s  # Longer for video processing
+    stop_grace_period: 120s # Longer for video processing
     env_file:
       - ../.env
 
