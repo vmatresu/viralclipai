@@ -35,6 +35,7 @@ import { analyticsEvents } from "@/lib/analytics";
 import { apiFetch, bulkDeleteClips, deleteAllClips, deleteClip } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { invalidateClipsCache } from "@/lib/cache";
+import { copyShareUrl } from "@/lib/clipDelivery";
 import { frontendLogger } from "@/lib/logger";
 import { getStyleLabel, getStyleTier, getTierBadgeClasses } from "@/lib/styleTiers";
 import { cn } from "@/lib/utils";
@@ -43,6 +44,14 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
 function cacheBustToken(clip: Clip): string {
   return clip.completed_at ?? clip.updated_at ?? clip.name ?? Date.now().toString();
+}
+
+/**
+ * Get a unique key for a clip, preferring clip_id over name.
+ * This prevents key collisions when clips have the same filename.
+ */
+function getClipKey(clip: Clip): string {
+  return clip.clip_id ?? clip.name;
 }
 
 function buildDownloadUrl(clip: Clip): string {
@@ -153,6 +162,8 @@ export interface Clip {
   style?: string;
   completed_at?: string | null;
   updated_at?: string | null;
+  /** Unique clip ID for share API */
+  clip_id?: string;
 }
 
 interface ClipGridProps {
@@ -616,9 +627,9 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
                   clip={clip}
                   videoId={videoId}
                   onRef={(el) => {
-                    videoRefs.current[clip.name] = el;
+                    videoRefs.current[getClipKey(clip)] = el;
                   }}
-                  onPlay={() => handlePlay(clip.name)}
+                  onPlay={() => handlePlay(getClipKey(clip))}
                   getVideoUrl={getVideoUrl}
                 />
 
@@ -627,13 +638,13 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
                   <div
                     className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/10 transition-colors cursor-pointer"
                     onClick={() => {
-                      const video = videoRefs.current[clip.name];
+                      const video = videoRefs.current[getClipKey(clip)];
                       if (video) void video.play();
                     }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
-                        const video = videoRefs.current[clip.name];
+                        const video = videoRefs.current[getClipKey(clip)];
                         if (video) void video.play();
                       }
                     }}
@@ -809,16 +820,36 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
                     variant="secondary"
                     size="icon"
                     className="shrink-0"
-                    onClick={() => {
-                      const urlToCopy = buildDownloadUrl(clip);
-                      void navigator.clipboard.writeText(urlToCopy);
-                      toast.success("Link copied to clipboard");
-                      void analyticsEvents.clipCopiedLink({
-                        clipId: clip.name,
-                        clipName: clip.name,
-                      });
+                    onClick={async () => {
+                      // Use share URL (persistent) if clip_id is available, otherwise fallback to direct URL
+                      const clipId = clip.clip_id ?? clip.name;
+                      try {
+                        const token = await getIdToken();
+                        if (token && clipId) {
+                          // Create share link and copy to clipboard
+                          await copyShareUrl(clipId, token);
+                          void analyticsEvents.clipCopiedLink({
+                            clipId,
+                            clipName: clip.name,
+                          });
+                        } else {
+                          // Fallback: copy direct URL
+                          const urlToCopy = buildDownloadUrl(clip);
+                          await navigator.clipboard.writeText(urlToCopy);
+                          toast.success("Direct link copied to clipboard");
+                          void analyticsEvents.clipCopiedLink({
+                            clipId: clip.name,
+                            clipName: clip.name,
+                          });
+                        }
+                      } catch {
+                        // Fallback: copy direct URL on error
+                        const urlToCopy = buildDownloadUrl(clip);
+                        await navigator.clipboard.writeText(urlToCopy);
+                        toast.success("Direct link copied to clipboard");
+                      }
                     }}
-                    title="Copy Link"
+                    title="Copy Share Link"
                   >
                     <Link2 className="h-4 w-4" />
                   </Button>

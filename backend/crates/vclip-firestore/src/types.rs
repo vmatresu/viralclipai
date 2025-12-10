@@ -72,6 +72,86 @@ pub struct ListDocumentsResponse {
     pub next_page_token: Option<String>,
 }
 
+// ============================================================================
+// Batch Write Types (for atomic multi-document operations)
+// ============================================================================
+
+/// A single write operation in a batch.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Write {
+    /// Update or insert a document.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub update: Option<Document>,
+
+    /// Delete a document by name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delete: Option<String>,
+
+    /// Field mask for partial updates.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub update_mask: Option<DocumentMask>,
+
+    /// Precondition for the write.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_document: Option<Precondition>,
+}
+
+/// Document field mask for partial updates.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentMask {
+    pub field_paths: Vec<String>,
+}
+
+/// Precondition for a write operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Precondition {
+    /// Document must exist.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exists: Option<bool>,
+
+    /// Document must have this update time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub update_time: Option<String>,
+}
+
+/// Batch write request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchWriteRequest {
+    pub writes: Vec<Write>,
+}
+
+/// Result of a single write in a batch.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteResult {
+    /// Update time of the written document.
+    pub update_time: Option<String>,
+}
+
+/// Status of a single write in a batch.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Status {
+    /// gRPC status code (0 = OK).
+    pub code: Option<i32>,
+    /// Error message if failed.
+    pub message: Option<String>,
+}
+
+/// Batch write response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchWriteResponse {
+    /// Results for each write, in order.
+    pub write_results: Option<Vec<WriteResult>>,
+    /// Status for each write, in order.
+    pub status: Option<Vec<Status>>,
+}
+
 /// Convert a Rust value to Firestore Value.
 pub trait ToFirestoreValue {
     fn to_firestore_value(&self) -> Value;

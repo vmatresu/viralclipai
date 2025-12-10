@@ -92,6 +92,12 @@ which = "7.0"
 
 # URL parsing
 url = "2.5"
+urlencoding = "2.1"
+
+# Cryptography (HMAC signing for delivery tokens)
+base64 = "0.22"
+hmac = "0.12"
+sha2 = "0.10"
 
 # Testing
 tokio-test = "0.4"

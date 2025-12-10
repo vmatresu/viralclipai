@@ -123,6 +123,21 @@ export interface WSSceneCompletedMessage extends BaseWSMessage {
 }
 
 /**
+ * Scene progress tracking for UI state
+ */
+export interface SceneProgress {
+  sceneId: number;
+  sceneTitle: string;
+  styleCount: number;
+  startSec: number;
+  durationSec: number;
+  status: "pending" | "processing" | "completed" | "failed";
+  clipsCompleted: number;
+  clipsFailed: number;
+  currentSteps: Map<string, { step: ClipProcessingStep; details?: string }>;
+}
+
+/**
  * Union type of all WebSocket messages
  */
 export type WSMessage =

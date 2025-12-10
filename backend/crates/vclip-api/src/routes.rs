@@ -11,6 +11,10 @@ use crate::handlers::admin::{
     enqueue_synthetic_job, get_queue_status, get_system_info,
     get_user, list_users, recalculate_user_storage, update_user_plan, update_user_usage,
 };
+use crate::handlers::clip_delivery::{
+    create_share, get_download_url, get_playback_url, get_thumbnail_url,
+    resolve_share, revoke_share,
+};
 use crate::handlers::settings::{get_settings, update_settings};
 use crate::handlers::storage::{check_storage_quota, get_storage_quota};
 use crate::handlers::videos::{
@@ -47,6 +51,18 @@ pub fn create_router(state: AppState, metrics_handle: Option<PrometheusHandle>) 
         // User videos list
         .route("/user/videos", get(list_user_videos));
 
+    // Clip delivery routes (secure playback/download/share URLs)
+    let clip_routes = Router::new()
+        // Playback URL (short-lived presigned URL for video player)
+        .route("/clips/:clip_id/play-url", post(get_playback_url))
+        // Download URL (short-lived presigned URL with Content-Disposition)
+        .route("/clips/:clip_id/download-url", post(get_download_url))
+        // Thumbnail URL
+        .route("/clips/:clip_id/thumbnail-url", post(get_thumbnail_url))
+        // Share management
+        .route("/clips/:clip_id/share", post(create_share))
+        .route("/clips/:clip_id/share", delete(revoke_share));
+
     let settings_routes = Router::new()
         .route("/settings", get(get_settings))
         .route("/settings", post(update_settings));
@@ -71,13 +87,26 @@ pub fn create_router(state: AppState, metrics_handle: Option<PrometheusHandle>) 
     // Create rate limiter for API routes
     let rate_limiter = std::sync::Arc::new(RateLimiterCache::new(state.config.rate_limit_rps));
 
+    // Create a more restrictive rate limiter for public share routes (5 req/sec)
+    // This helps prevent brute-force attacks on share slugs
+    let share_rate_limiter = std::sync::Arc::new(RateLimiterCache::new(5));
+
     let api_routes = Router::new()
         .merge(video_routes)
+        .merge(clip_routes)
         .merge(settings_routes)
         .merge(storage_routes)
         .merge(admin_routes)
         .layer(middleware::from_fn_with_state(
             rate_limiter.clone(),
+            rate_limit_middleware,
+        ));
+
+    // Public share resolution route (no auth required, but rate-limited)
+    let share_routes = Router::new()
+        .route("/c/:share_slug", get(resolve_share))
+        .layer(middleware::from_fn_with_state(
+            share_rate_limiter,
             rate_limit_middleware,
         ));
 
@@ -99,6 +128,7 @@ pub fn create_router(state: AppState, metrics_handle: Option<PrometheusHandle>) 
 
     Router::new()
         .nest("/api", api_routes)
+        .merge(share_routes) // Public /c/{share_slug} route
         .merge(ws_routes)
         .merge(health_routes)
         .merge(metrics_routes)

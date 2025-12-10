@@ -9,7 +9,7 @@ use reqwest::{Client, StatusCode};
 use tracing::{debug, warn};
 
 use crate::error::{FirestoreError, FirestoreResult};
-use crate::types::{Document, ListDocumentsResponse, Value};
+use crate::types::{BatchWriteRequest, BatchWriteResponse, Document, ListDocumentsResponse, Value, Write};
 
 /// Firestore client configuration.
 #[derive(Debug, Clone)]
@@ -397,5 +397,95 @@ impl FirestoreClient {
         }
 
         Err(last_error.unwrap_or_else(|| FirestoreError::request_failed("Unknown error")))
+    }
+
+    // ========================================================================
+    // Batch Write Operations (Atomic multi-document writes)
+    // ========================================================================
+
+    /// Build full document name for batch operations.
+    pub fn full_document_name(&self, collection: &str, doc_id: &str) -> String {
+        format!(
+            "projects/{}/databases/{}/documents/{}/{}",
+            self.config.project_id, self.config.database_id, collection, doc_id
+        )
+    }
+
+    /// Execute a batch write (atomic multi-document operation).
+    ///
+    /// All writes in the batch either succeed or fail together.
+    /// Maximum 500 writes per batch (Firestore limit).
+    ///
+    /// # Arguments
+    /// * `writes` - Vector of Write operations to execute atomically
+    ///
+    /// # Returns
+    /// * `Ok(BatchWriteResponse)` - All writes succeeded
+    /// * `Err(FirestoreError)` - One or more writes failed (all rolled back)
+    pub async fn batch_write(&self, writes: Vec<Write>) -> FirestoreResult<BatchWriteResponse> {
+        if writes.is_empty() {
+            return Ok(BatchWriteResponse {
+                write_results: Some(vec![]),
+                status: Some(vec![]),
+            });
+        }
+
+        if writes.len() > 500 {
+            return Err(FirestoreError::request_failed(
+                "Batch write exceeds 500 document limit",
+            ));
+        }
+
+        let url = format!(
+            "https://firestore.googleapis.com/v1/projects/{}/databases/{}/documents:batchWrite",
+            self.config.project_id, self.config.database_id
+        );
+        let token = self.get_token().await?;
+
+        let request = BatchWriteRequest { writes };
+
+        let response = self
+            .http
+            .post(&url)
+            .bearer_auth(&token)
+            .json(&request)
+            .send()
+            .await?;
+
+        match response.status() {
+            StatusCode::OK => {
+                let batch_response: BatchWriteResponse = response.json().await?;
+
+                // Check for partial failures in the response
+                if let Some(statuses) = &batch_response.status {
+                    for (i, status) in statuses.iter().enumerate() {
+                        if let Some(code) = status.code {
+                            if code != 0 {
+                                let msg = status.message.as_deref().unwrap_or("Unknown error");
+                                return Err(FirestoreError::request_failed(format!(
+                                    "Batch write failed at index {}: {} (code {})",
+                                    i, msg, code
+                                )));
+                            }
+                        }
+                    }
+                }
+
+                Ok(batch_response)
+            }
+            StatusCode::CONFLICT => Err(FirestoreError::AlreadyExists(
+                "Batch write conflict: document already exists".to_string(),
+            )),
+            StatusCode::PRECONDITION_FAILED => Err(FirestoreError::PreconditionFailed(
+                "Batch write precondition failed".to_string(),
+            )),
+            status => {
+                let body = response.text().await.unwrap_or_default();
+                Err(FirestoreError::request_failed(format!(
+                    "Batch write failed with {}: {}",
+                    status, body
+                )))
+            }
+        }
     }
 }

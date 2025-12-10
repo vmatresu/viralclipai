@@ -19,6 +19,9 @@ pub enum ApiError {
     #[error("Not found: {0}")]
     NotFound(String),
 
+    #[error("Gone: {0}")]
+    Gone(String),
+
     #[error("Bad request: {0}")]
     BadRequest(String),
 
@@ -70,6 +73,7 @@ impl ApiError {
             ApiError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
             ApiError::Forbidden(_) => StatusCode::FORBIDDEN,
             ApiError::NotFound(_) => StatusCode::NOT_FOUND,
+            ApiError::Gone(_) => StatusCode::GONE,
             ApiError::BadRequest(_) | ApiError::Validation(_) => StatusCode::BAD_REQUEST,
             ApiError::Conflict(_) => StatusCode::CONFLICT,
             ApiError::RateLimited => StatusCode::TOO_MANY_REQUESTS,

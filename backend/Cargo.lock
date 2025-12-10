@@ -4453,12 +4453,17 @@ dependencies = [
  "aws-credential-types",
  "aws-sdk-s3",
  "aws-types",
+ "base64 0.22.1",
+ "chrono",
+ "hmac",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.17",
  "tokio",
  "tokio-test",
  "tracing",
+ "urlencoding",
  "vclip-models",
 ]
 
