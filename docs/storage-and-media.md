@@ -14,6 +14,14 @@ R2 is S3-compatible and offers zero egress fees, which is ideal for a video-heav
 
 The Rust `vclip-storage` crate encapsulates all R2 interactions.
 
+## Quotas and plans
+
+This document focuses on **where** bytes live (R2 layout and media flows).
+For **plan tiers, clip quotas, and per-user storage limits**, see
+`plans-and-quotas.md`. That doc explains how much storage and how many clips
+each plan is allowed, and how usage is tracked; this doc explains how the
+underlying media objects are organized and accessed.
+
 ## Configuration
 
 Backend configuration is done via env vars (see `docs/configuration.md` and `r2-setup.md`):
