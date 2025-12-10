@@ -1,6 +1,6 @@
-//! Admin handlers for canary testing and monitoring.
+//! Admin handlers for canary testing, monitoring, and user management.
 
-use axum::extract::State;
+use axum::extract::{Path, Query, State};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -145,5 +145,195 @@ pub async fn get_system_info(
         version: env!("CARGO_PKG_VERSION").to_string(),
         rust_version: env!("CARGO_PKG_RUST_VERSION").to_string(),
         build_timestamp: chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
+/// User info response for admin views.
+#[derive(Serialize)]
+pub struct AdminUserResponse {
+    pub uid: String,
+    pub email: Option<String>,
+    pub plan: String,
+    pub role: Option<String>,
+    pub clips_used_this_month: u32,
+    pub max_clips_per_month: u32,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// List users query params.
+#[derive(Debug, Deserialize)]
+pub struct ListUsersQuery {
+    #[serde(default = "default_limit")]
+    pub limit: u32,
+    pub page_token: Option<String>,
+}
+
+fn default_limit() -> u32 { 20 }
+
+/// List users response.
+#[derive(Serialize)]
+pub struct ListUsersResponse {
+    pub users: Vec<AdminUserResponse>,
+    pub next_page_token: Option<String>,
+}
+
+/// Get max clips for a plan (hardcoded fallback for list view performance).
+fn get_plan_max_clips(plan: &str) -> u32 {
+    match plan {
+        "free" => 20,
+        "pro" => 100,
+        "studio" => 10000,
+        _ => 20,
+    }
+}
+
+/// List all users (admin only).
+pub async fn list_users(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(query): Query<ListUsersQuery>,
+) -> ApiResult<Json<ListUsersResponse>> {
+    if !state.user_service.is_super_admin(&user.uid).await? {
+        return Err(ApiError::forbidden("Admin access required"));
+    }
+
+    let (users, next_token) = state.user_service
+        .list_users(query.limit, query.page_token.as_deref())
+        .await?;
+
+    let users: Vec<AdminUserResponse> = users.into_iter().map(|u| {
+        let max_clips = get_plan_max_clips(&u.plan);
+        AdminUserResponse {
+            uid: u.uid,
+            email: u.email,
+            plan: u.plan,
+            role: u.role,
+            clips_used_this_month: u.clips_used_this_month,
+            max_clips_per_month: max_clips,
+            created_at: u.created_at.to_rfc3339(),
+            updated_at: u.updated_at.to_rfc3339(),
+        }
+    }).collect();
+
+    Ok(Json(ListUsersResponse { users, next_page_token: next_token }))
+}
+
+/// Get user by UID (admin only).
+pub async fn get_user(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(target_uid): Path<String>,
+) -> ApiResult<Json<AdminUserResponse>> {
+    if !state.user_service.is_super_admin(&user.uid).await? {
+        return Err(ApiError::forbidden("Admin access required"));
+    }
+
+    let target = state.user_service
+        .get_user_by_uid(&target_uid)
+        .await?
+        .ok_or_else(|| ApiError::not_found("User not found"))?;
+
+    // Get actual plan limits from Firestore
+    let limits = state.user_service.get_plan_limits(&target_uid).await?;
+
+    Ok(Json(AdminUserResponse {
+        uid: target.uid,
+        email: target.email,
+        plan: target.plan,
+        role: target.role,
+        clips_used_this_month: target.clips_used_this_month,
+        max_clips_per_month: limits.max_clips_per_month,
+        created_at: target.created_at.to_rfc3339(),
+        updated_at: target.updated_at.to_rfc3339(),
+    }))
+}
+
+/// Update user plan request.
+#[derive(Debug, Deserialize)]
+pub struct UpdateUserPlanRequest {
+    pub plan: String,
+}
+
+/// Update user plan response.
+#[derive(Serialize)]
+pub struct UpdateUserPlanResponse {
+    pub success: bool,
+    pub uid: String,
+    pub plan: String,
+    pub message: String,
+}
+
+/// Update user's plan (admin only).
+pub async fn update_user_plan(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(target_uid): Path<String>,
+    Json(request): Json<UpdateUserPlanRequest>,
+) -> ApiResult<Json<UpdateUserPlanResponse>> {
+    if !state.user_service.is_super_admin(&user.uid).await? {
+        return Err(ApiError::forbidden("Admin access required"));
+    }
+
+    // Validate plan name
+    let valid_plans = ["free", "pro", "studio"];
+    if !valid_plans.contains(&request.plan.as_str()) {
+        return Err(ApiError::bad_request(format!(
+            "Invalid plan. Must be one of: {}",
+            valid_plans.join(", ")
+        )));
+    }
+
+    let updated = state.user_service
+        .update_user_plan(&target_uid, &request.plan)
+        .await?;
+
+    info!("Admin {} updated user {} plan to '{}'", user.uid, target_uid, request.plan);
+
+    Ok(Json(UpdateUserPlanResponse {
+        success: true,
+        uid: updated.uid,
+        plan: updated.plan,
+        message: format!("Plan updated to '{}'", request.plan),
+    }))
+}
+
+/// Update user usage request.
+#[derive(Debug, Deserialize)]
+pub struct UpdateUserUsageRequest {
+    pub clips_used: u32,
+}
+
+/// Update user usage response.
+#[derive(Serialize)]
+pub struct UpdateUserUsageResponse {
+    pub success: bool,
+    pub uid: String,
+    pub clips_used_this_month: u32,
+    pub message: String,
+}
+
+/// Update user's monthly usage (admin only).
+pub async fn update_user_usage(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(target_uid): Path<String>,
+    Json(request): Json<UpdateUserUsageRequest>,
+) -> ApiResult<Json<UpdateUserUsageResponse>> {
+    if !state.user_service.is_super_admin(&user.uid).await? {
+        return Err(ApiError::forbidden("Admin access required"));
+    }
+
+    let updated = state.user_service
+        .set_usage(&target_uid, request.clips_used)
+        .await?;
+
+    info!("Admin {} set user {} usage to {}", user.uid, target_uid, request.clips_used);
+
+    Ok(Json(UpdateUserUsageResponse {
+        success: true,
+        uid: updated.uid,
+        clips_used_this_month: updated.clips_used_this_month,
+        message: format!("Usage set to {}", request.clips_used),
     }))
 }

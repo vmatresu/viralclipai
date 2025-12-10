@@ -92,8 +92,9 @@ export async function apiFetch<T = unknown>(
       body: body ? JSON.stringify(body) : undefined,
       // Security: don't send credentials unless explicitly needed
       credentials: "same-origin",
-      // Security: prevent caching of sensitive data
-      cache: method === "GET" ? "default" : "no-store",
+      // Security: prevent caching of sensitive/user-specific data
+      // Always use no-store to ensure fresh data (settings, plans, usage counts)
+      cache: "no-store",
     });
 
     if (!res.ok) {

@@ -40,7 +40,10 @@ futures-util = "0.3"
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 regex-lite = "0.1"
+regex = "1.10"
+url = "2.5"
 rustls = { workspace = true }
+scopeguard = "1.2"
 
 [dev-dependencies]
 tokio-test = { workspace = true }

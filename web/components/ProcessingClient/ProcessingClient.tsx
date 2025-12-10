@@ -6,11 +6,12 @@
 
 "use client";
 
-import { type FormEvent } from "react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { DetailedProcessingStatus } from "@/components/shared/DetailedProcessingStatus";
 import { analyticsEvents } from "@/lib/analytics";
+import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
 import { limitLength, sanitizeUrl } from "@/lib/security/validation";
@@ -24,6 +25,10 @@ import { ErrorDisplay } from "./ErrorDisplay";
 import { useVideoProcessing } from "./hooks";
 import { Results } from "./Results";
 import { VideoForm } from "./VideoForm";
+
+interface UserSettings {
+  plan: string;
+}
 
 export function ProcessingClient() {
   const {
@@ -68,9 +73,27 @@ export function ProcessingClient() {
 
   const { getIdToken, loading: authLoading, user } = useAuth();
   const hasResults = clips.length > 0;
+  const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
 
   // SECURITY: Don't show results if user is not authenticated
   const canShowResults = user !== null && !authLoading;
+
+  // Load user settings to get plan info
+  const loadUserSettings = useCallback(async () => {
+    if (authLoading || !user) return;
+    try {
+      const token = await getIdToken();
+      if (!token) return;
+      const settings = await apiFetch<UserSettings>("/api/settings", { token });
+      setUserSettings(settings);
+    } catch (err) {
+      frontendLogger.error("Failed to load user settings:", err);
+    }
+  }, [authLoading, user, getIdToken]);
+
+  useEffect(() => {
+    void loadUserSettings();
+  }, [loadUserSettings]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -255,6 +278,7 @@ export function ProcessingClient() {
           setCustomPrompt={setCustomPrompt}
           onSubmit={onSubmit}
           submitting={submitting}
+          userPlan={userSettings?.plan}
         />
       )}
 

@@ -170,16 +170,26 @@ export function stylesToSelection(
   };
 }
 
+/** Styles that require a studio plan (Active Speaker) */
+const STUDIO_ONLY_STYLES = ["intelligent_speaker", "intelligent_split_speaker"];
+
+/** Styles that require at least a pro plan (Smart Face) */
+const PRO_ONLY_STYLES = ["intelligent", "intelligent_split"];
+
 function QualitySlider({
   levels,
   value,
   onChange,
   disabled,
+  hasStudioPlan,
+  hasProPlan,
 }: {
   levels: QualityLevel[];
   value: string;
   disabled?: boolean;
   onChange: (next: string) => void;
+  hasStudioPlan?: boolean;
+  hasProPlan?: boolean;
 }) {
   const activeIndex = Math.max(
     levels.findIndex((level) => level.value === value),
@@ -211,7 +221,15 @@ function QualitySlider({
           // levels is a trusted local constant; clamp protects bounds.
           // eslint-disable-next-line security/detect-object-injection
           const target = levels[clampedIndex];
-          if (target) onChange(target.value);
+          if (!target) return;
+          // Prevent selecting studio-only styles without studio plan
+          const isStudioLocked =
+            STUDIO_ONLY_STYLES.includes(target.value) && !hasStudioPlan;
+          // Prevent selecting pro-only styles without pro/studio plan
+          const isProLocked = PRO_ONLY_STYLES.includes(target.value) && !hasProPlan;
+          if (!isStudioLocked && !isProLocked) {
+            onChange(target.value);
+          }
         }}
         disabled={disabled}
         aria-label="Processing quality"
@@ -232,18 +250,33 @@ function QualitySlider({
         {levels.map((level, idx) => {
           const isActive = idx === activeIndex;
           const Icon = level.icon;
+          const isStudioOnly = STUDIO_ONLY_STYLES.includes(level.value);
+          const isProOnly = PRO_ONLY_STYLES.includes(level.value);
+          const isStudioLocked = isStudioOnly && !hasStudioPlan;
+          const isProLocked = isProOnly && !hasProPlan;
+          const isLocked = isStudioLocked || isProLocked;
+          const planLabel = isStudioOnly ? "Studio" : isProOnly ? "Pro" : null;
+          const lockTitle = isStudioLocked
+            ? "Studio plan required"
+            : isProLocked
+              ? "Pro plan required"
+              : undefined;
           return (
             <button
               key={level.value}
               type="button"
-              onClick={() => onChange(level.value)}
-              disabled={disabled}
+              onClick={() => !isLocked && onChange(level.value)}
+              disabled={disabled || isLocked}
               className={cn(
-                "space-y-0.5 rounded-lg border border-transparent px-2 py-1 transition-colors",
-                !disabled && "hover:border-white/10 hover:bg-white/5",
-                isActive && "border-fuchsia-400/40 bg-fuchsia-500/10 text-white"
+                "space-y-0.5 rounded-lg border border-transparent px-2 py-1 transition-colors relative",
+                !disabled && !isLocked && "hover:border-white/10 hover:bg-white/5",
+                isActive &&
+                  !isLocked &&
+                  "border-fuchsia-400/40 bg-fuchsia-500/10 text-white",
+                isLocked && "opacity-50 cursor-not-allowed"
               )}
               data-interactive="true"
+              title={lockTitle}
             >
               <div className="flex items-center justify-center gap-1">
                 {Icon && <Icon className="h-3 w-3" />}
@@ -252,6 +285,16 @@ function QualitySlider({
               {level.helper && (
                 <div className="text-[11px] text-muted-foreground leading-tight">
                   {level.helper}
+                </div>
+              )}
+              {planLabel && (
+                <div
+                  className={cn(
+                    "text-[9px] font-semibold uppercase tracking-wide mt-0.5",
+                    isStudioOnly ? "text-amber-400" : "text-blue-400"
+                  )}
+                >
+                  {planLabel}
                 </div>
               )}
             </button>
@@ -269,6 +312,8 @@ function LayoutCard({
   levelValue,
   levels,
   onLevelChange,
+  hasStudioPlan,
+  hasProPlan,
 }: {
   title: string;
   enabled: boolean;
@@ -276,6 +321,8 @@ function LayoutCard({
   levelValue: string;
   levels: QualityLevel[];
   onLevelChange: (next: string) => void;
+  hasStudioPlan?: boolean;
+  hasProPlan?: boolean;
 }) {
   const enableId = `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-toggle`;
 
@@ -351,6 +398,8 @@ function LayoutCard({
           value={levelValue}
           onChange={onLevelChange}
           disabled={!enabled}
+          hasStudioPlan={hasStudioPlan}
+          hasProPlan={hasProPlan}
         />
       </div>
     </div>
@@ -362,6 +411,8 @@ interface StyleQualitySelectorProps {
   onChange: (styles: string[]) => void;
   disabled?: boolean;
   className?: string;
+  /** User's current plan - used to gate studio-only features */
+  userPlan?: string;
 }
 
 export function StyleQualitySelector({
@@ -369,7 +420,10 @@ export function StyleQualitySelector({
   onChange,
   disabled = false,
   className,
+  userPlan,
 }: StyleQualitySelectorProps) {
+  const hasStudioPlan = userPlan === "studio";
+  const hasProPlan = userPlan === "pro" || userPlan === "studio";
   const selection = useMemo(
     () => stylesToSelection(selectedStyles, DEFAULT_SELECTION),
     [selectedStyles]
@@ -406,6 +460,8 @@ export function StyleQualitySelector({
             onLevelChange={(next) =>
               updateSelection({ splitStyle: next, splitEnabled: true })
             }
+            hasStudioPlan={hasStudioPlan}
+            hasProPlan={hasProPlan}
           />
 
           <LayoutCard
@@ -417,6 +473,8 @@ export function StyleQualitySelector({
             onLevelChange={(next) =>
               updateSelection({ fullStyle: next, fullEnabled: true })
             }
+            hasStudioPlan={hasStudioPlan}
+            hasProPlan={hasProPlan}
           />
         </div>
 

@@ -2,6 +2,7 @@
 
 import { type FormEvent, useEffect, useState } from "react";
 
+import { UserManagement } from "@/components/admin/UserManagement";
 import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 
@@ -255,11 +256,23 @@ export default function SettingsPage() {
       {data?.role === "superadmin" && (
         <section className="glass rounded-2xl p-6 space-y-4">
           <h2 className="text-xl font-semibold text-foreground">
+            Admin: User Management
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            View and manage user accounts and their subscription plans.
+          </p>
+          <UserManagement getIdToken={getIdToken} />
+        </section>
+      )}
+
+      {data?.role === "superadmin" && (
+        <section className="glass rounded-2xl p-6 space-y-4">
+          <h2 className="text-xl font-semibold text-foreground">
             Admin: Global Prompt
           </h2>
           <p className="text-sm text-muted-foreground">
             Manage the global base prompt used for video analysis. This prompt is used
-            when users don't provide a custom prompt. The prompt is stored in Firestore
+            when users do not provide a custom prompt. The prompt is stored in Firestore
             and is the source of truth for the system.
           </p>
           {promptLoading ? (

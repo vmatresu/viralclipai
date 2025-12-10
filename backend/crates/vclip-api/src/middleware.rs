@@ -27,11 +27,17 @@ pub type GlobalRateLimiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
 /// Per-IP rate limiter using governor.
 pub type IpRateLimiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
 
-/// IP-based rate limiter cache.
+/// Maximum number of IPs to track in rate limiter cache.
+/// This prevents unbounded memory growth from attackers using many IPs.
+const MAX_RATE_LIMITER_ENTRIES: usize = 10_000;
+
+/// IP-based rate limiter cache with automatic cleanup.
 #[derive(Clone)]
 pub struct RateLimiterCache {
-    limiters: Arc<RwLock<HashMap<IpAddr, Arc<IpRateLimiter>>>>,
+    limiters: Arc<RwLock<HashMap<IpAddr, (Arc<IpRateLimiter>, Instant)>>>,
     quota: Quota,
+    /// Time-to-live for cached rate limiters (default: 1 hour)
+    ttl: std::time::Duration,
 }
 
 impl RateLimiterCache {
@@ -43,6 +49,28 @@ impl RateLimiterCache {
         Self {
             limiters: Arc::new(RwLock::new(HashMap::new())),
             quota,
+            ttl: std::time::Duration::from_secs(3600), // 1 hour
+        }
+    }
+
+    /// Clean up expired rate limiters to prevent memory leaks.
+    async fn cleanup_expired(&self) {
+        let mut limiters = self.limiters.write().await;
+        let now = Instant::now();
+        
+        // Remove entries older than TTL
+        limiters.retain(|_, (_, created_at)| now.duration_since(*created_at) < self.ttl);
+        
+        // If still over capacity, remove oldest entries
+        if limiters.len() > MAX_RATE_LIMITER_ENTRIES {
+            let mut entries: Vec<_> = limiters.iter().map(|(ip, (_, t))| (*ip, *t)).collect();
+            entries.sort_by_key(|(_, t)| *t);
+            
+            let to_remove = limiters.len() - MAX_RATE_LIMITER_ENTRIES;
+            for (ip, _) in entries.into_iter().take(to_remove) {
+                limiters.remove(&ip);
+            }
+            warn!("Rate limiter cache exceeded capacity, removed {} entries", to_remove);
         }
     }
 
@@ -51,7 +79,7 @@ impl RateLimiterCache {
         // Try read lock first
         {
             let limiters = self.limiters.read().await;
-            if let Some(limiter) = limiters.get(&ip) {
+            if let Some((limiter, _)) = limiters.get(&ip) {
                 return Arc::clone(limiter);
             }
         }
@@ -59,12 +87,19 @@ impl RateLimiterCache {
         // Need to create new limiter
         let mut limiters = self.limiters.write().await;
         // Double-check after acquiring write lock
-        if let Some(limiter) = limiters.get(&ip) {
+        if let Some((limiter, _)) = limiters.get(&ip) {
             return Arc::clone(limiter);
         }
 
+        // Cleanup before adding new entry if at capacity
+        if limiters.len() >= MAX_RATE_LIMITER_ENTRIES {
+            drop(limiters);
+            self.cleanup_expired().await;
+            limiters = self.limiters.write().await;
+        }
+
         let limiter = Arc::new(RateLimiter::direct(self.quota));
-        limiters.insert(ip, Arc::clone(&limiter));
+        limiters.insert(ip, (Arc::clone(&limiter), Instant::now()));
         limiter
     }
 
@@ -136,6 +171,7 @@ pub fn cors_layer(origins: &[String]) -> CorsLayer {
 }
 
 /// Security headers middleware.
+/// These are hardcoded values that are guaranteed to parse correctly.
 pub async fn security_headers(
     request: Request<Body>,
     next: Next,
@@ -143,19 +179,42 @@ pub async fn security_headers(
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
 
-    headers.insert("X-Content-Type-Options", "nosniff".parse().unwrap());
-    headers.insert("X-Frame-Options", "DENY".parse().unwrap());
-    headers.insert("X-XSS-Protection", "1; mode=block".parse().unwrap());
+    // SAFETY: All header values below are compile-time constants that are valid.
+    // Using expect() with explicit messages for debugging if somehow invalid.
+    headers.insert(
+        "X-Content-Type-Options",
+        "nosniff".parse().expect("valid header value"),
+    );
+    headers.insert(
+        "X-Frame-Options",
+        "DENY".parse().expect("valid header value"),
+    );
+    headers.insert(
+        "X-XSS-Protection",
+        "1; mode=block".parse().expect("valid header value"),
+    );
     headers.insert(
         "Strict-Transport-Security",
-        "max-age=31536000; includeSubDomains".parse().unwrap(),
+        "max-age=31536000; includeSubDomains".parse().expect("valid header value"),
     );
-    headers.insert("Referrer-Policy", "strict-origin-when-cross-origin".parse().unwrap());
+    headers.insert(
+        "Referrer-Policy",
+        "strict-origin-when-cross-origin".parse().expect("valid header value"),
+    );
     headers.insert(
         "Permissions-Policy",
         "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
             .parse()
-            .unwrap(),
+            .expect("valid header value"),
+    );
+    // Additional security headers
+    headers.insert(
+        "Cross-Origin-Resource-Policy",
+        "same-origin".parse().expect("valid header value"),
+    );
+    headers.insert(
+        "X-Permitted-Cross-Domain-Policies",
+        "none".parse().expect("valid header value"),
     );
 
     response
@@ -183,9 +242,10 @@ pub async fn request_id(
     let mut response = next.run(request).await;
 
     // Add to response headers
-    response
-        .headers_mut()
-        .insert("X-Request-ID", request_id.parse().unwrap());
+    // SAFETY: request_id is either a valid UUID or a sanitized header value
+    if let Ok(header_value) = request_id.parse() {
+        response.headers_mut().insert("X-Request-ID", header_value);
+    }
 
     response
 }

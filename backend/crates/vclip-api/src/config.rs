@@ -28,7 +28,9 @@ impl Default for ApiConfig {
         Self {
             host: "0.0.0.0".to_string(),
             port: 8000,
-            cors_origins: vec!["*".to_string()],
+            // SECURITY: Default to empty CORS origins (no cross-origin allowed)
+            // In production, explicitly set CORS_ORIGINS env var
+            cors_origins: Vec::new(),
             rate_limit_rps: 10,
             rate_limit_burst: 20,
             request_timeout: Duration::from_secs(30),

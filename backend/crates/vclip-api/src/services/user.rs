@@ -289,6 +289,20 @@ impl UserService {
         Ok(())
     }
 
+    /// Set monthly usage to a specific value (admin only).
+    pub async fn set_usage(&self, uid: &str, usage: u32) -> ApiResult<UserRecord> {
+        let mut user = self.get_or_create_user(uid, None).await?;
+        
+        let current_month = current_month_key();
+        user.clips_used_this_month = usage;
+        user.usage_reset_month = Some(current_month);
+        user.updated_at = Utc::now();
+        
+        self.update_user(&user).await?;
+        info!("Set user {} usage to {}", uid, usage);
+        Ok(user)
+    }
+
     /// Check if user owns a video.
     pub async fn user_owns_video(&self, uid: &str, video_id: &str) -> ApiResult<bool> {
         let video_repo = vclip_firestore::VideoRepository::new(
@@ -345,10 +359,59 @@ impl UserService {
         Ok(user.plan == "pro" || user.plan == "studio")
     }
 
+    /// Check if user has studio plan.
+    pub async fn has_studio_plan(&self, uid: &str) -> ApiResult<bool> {
+        let user = self.get_or_create_user(uid, None).await?;
+        Ok(user.plan == "studio")
+    }
+
     /// Check if user is a super admin.
     pub async fn is_super_admin(&self, uid: &str) -> ApiResult<bool> {
         let user = self.get_or_create_user(uid, None).await?;
         Ok(user.role.as_deref() == Some("superadmin"))
+    }
+
+    /// Update a user's plan (admin only).
+    pub async fn update_user_plan(&self, uid: &str, new_plan: &str) -> ApiResult<UserRecord> {
+        // Validate plan exists
+        let plan_exists = self.firestore.get_document("plans", new_plan).await
+            .map_err(|e| ApiError::internal(format!("Failed to check plan: {}", e)))?
+            .is_some();
+        
+        if !plan_exists {
+            return Err(ApiError::bad_request(format!("Plan '{}' does not exist", new_plan)));
+        }
+
+        let mut user = self.get_or_create_user(uid, None).await?;
+        user.plan = new_plan.to_string();
+        user.updated_at = Utc::now();
+        self.update_user(&user).await?;
+        
+        info!("Updated user {} plan to '{}'", uid, new_plan);
+        Ok(user)
+    }
+
+    /// Get user by UID (public for admin use).
+    pub async fn get_user_by_uid(&self, uid: &str) -> ApiResult<Option<UserRecord>> {
+        self.get_user(uid).await
+    }
+
+    /// List all users with pagination.
+    pub async fn list_users(&self, limit: u32, page_token: Option<&str>) -> ApiResult<(Vec<UserRecord>, Option<String>)> {
+        let response = self.firestore
+            .list_documents("users", Some(limit), page_token)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to list users: {}", e)))?;
+        
+        let docs = response.documents.unwrap_or_default();
+        let mut users = Vec::with_capacity(docs.len());
+        for doc in docs {
+            match parse_user_document(&doc) {
+                Ok(user) => users.push(user),
+                Err(e) => warn!("Failed to parse user document: {}", e),
+            }
+        }
+        Ok((users, response.next_page_token))
     }
 
     /// Validate plan limits before processing.

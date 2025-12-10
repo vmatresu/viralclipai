@@ -1,7 +1,7 @@
 //! WebSocket handlers with backpressure support.
 
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
@@ -17,7 +17,88 @@ use vclip_firestore::VideoRepository;
 use vclip_queue::ProcessVideoJob;
 
 use crate::metrics;
+use crate::security::{validate_video_url, sanitize_string, is_valid_video_id, MAX_PROMPT_LENGTH};
 use crate::state::AppState;
+
+/// Maximum concurrent WebSocket connections per user.
+/// Prevents a single user from consuming too many resources.
+const MAX_CONCURRENT_CONNECTIONS_PER_USER: usize = 3;
+
+/// Minimum time between new processing jobs per user (rate limiting).
+const MIN_JOB_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Per-user connection tracking for WebSocket rate limiting.
+pub struct UserConnectionTracker {
+    connections: tokio::sync::RwLock<std::collections::HashMap<String, (usize, Instant)>>,
+}
+
+impl UserConnectionTracker {
+    pub fn new() -> Self {
+        Self {
+            connections: tokio::sync::RwLock::new(std::collections::HashMap::new()),
+        }
+    }
+
+    /// Try to acquire a connection slot for a user.
+    /// Returns false if the user has too many concurrent connections or is rate limited.
+    pub async fn try_acquire(&self, user_id: &str) -> Result<(), &'static str> {
+        let mut connections = self.connections.write().await;
+        let now = Instant::now();
+
+        if let Some((count, last_job_time)) = connections.get_mut(user_id) {
+            // Check rate limit
+            if now.duration_since(*last_job_time) < MIN_JOB_INTERVAL {
+                return Err("Please wait a few seconds before starting another job");
+            }
+            // Check concurrent connection limit
+            if *count >= MAX_CONCURRENT_CONNECTIONS_PER_USER {
+                return Err("Too many concurrent connections. Please wait for existing jobs to complete.");
+            }
+            *count += 1;
+            *last_job_time = now;
+        } else {
+            connections.insert(user_id.to_string(), (1, now));
+        }
+        Ok(())
+    }
+
+    /// Release a connection slot for a user.
+    pub async fn release(&self, user_id: &str) {
+        let mut connections = self.connections.write().await;
+        if let Some((count, _)) = connections.get_mut(user_id) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                connections.remove(user_id);
+            }
+        }
+    }
+}
+
+impl Default for UserConnectionTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Global user connection tracker.
+static USER_CONNECTIONS: std::sync::LazyLock<UserConnectionTracker> = 
+    std::sync::LazyLock::new(UserConnectionTracker::new);
+
+/// Styles that require a studio plan (Active Speaker).
+const STUDIO_ONLY_STYLES: &[Style] = &[Style::IntelligentSpeaker, Style::IntelligentSplitSpeaker];
+
+/// Styles that require at least a pro plan (Smart Face).
+const PRO_ONLY_STYLES: &[Style] = &[Style::Intelligent, Style::IntelligentSplit];
+
+/// Check if any of the styles require a studio plan.
+fn contains_studio_only_styles(styles: &[Style]) -> bool {
+    styles.iter().any(|s| STUDIO_ONLY_STYLES.contains(s))
+}
+
+/// Check if any of the styles require at least a pro plan.
+fn contains_pro_only_styles(styles: &[Style]) -> bool {
+    styles.iter().any(|s| PRO_ONLY_STYLES.contains(s))
+}
 
 /// Global counter for active WebSocket connections.
 static ACTIVE_WS_CONNECTIONS: AtomicI64 = AtomicI64::new(0);
@@ -161,6 +242,53 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
     let uid = claims.uid().to_string();
     info!("WebSocket process started for user {}", uid);
 
+    // =========================================================================
+    // SECURITY: Rate limiting - prevent abuse
+    // =========================================================================
+    if let Err(rate_limit_msg) = USER_CONNECTIONS.try_acquire(&uid).await {
+        warn!(user = %uid, "WebSocket rate limit hit");
+        let error = WsMessage::error(rate_limit_msg);
+        let _ = tx.send(Message::Text(serde_json::to_string(&error).unwrap_or_default())).await;
+        drop(tx);
+        let _ = send_task.await;
+        return;
+    }
+    
+    // Ensure we release the connection slot when done
+    let uid_for_cleanup = uid.clone();
+    let _guard = scopeguard::guard((), |_| {
+        // Release connection slot on scope exit
+        tokio::spawn(async move {
+            USER_CONNECTIONS.release(&uid_for_cleanup).await;
+        });
+    });
+
+    // =========================================================================
+    // SECURITY: Validate and sanitize all user inputs
+    // =========================================================================
+
+    // Validate video URL (SSRF protection)
+    let validated_url = match validate_video_url(&request.url) {
+        result => match result.into_result() {
+            Ok(url) => url,
+            Err(e) => {
+                let error = WsMessage::error(format!("Invalid video URL: {}", e));
+                let _ = tx.send(Message::Text(serde_json::to_string(&error).unwrap_or_default())).await;
+                drop(tx);
+                let _ = send_task.await;
+                return;
+            }
+        }
+    };
+
+    // Validate prompt length
+    let sanitized_prompt = request.prompt.as_ref().map(|p| {
+        if p.len() > MAX_PROMPT_LENGTH {
+            warn!(user = %uid, "Prompt truncated from {} to {} chars", p.len(), MAX_PROMPT_LENGTH);
+        }
+        sanitize_string(p)
+    });
+
     // Get or create user
     if let Err(e) = state.user_service.get_or_create_user(&uid, claims.email.as_deref()).await {
         warn!("Failed to get/create user {}: {}", uid, e);
@@ -178,15 +306,49 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
         return;
     }
 
+    // Check studio plan requirement for Active Speaker styles
+    if contains_studio_only_styles(&styles) {
+        match state.user_service.has_studio_plan(&uid).await {
+            Ok(false) => {
+                let error = WsMessage::error("Active Speaker style is only available for Studio plans. Please upgrade to access this feature.");
+                let _ = tx.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
+                drop(tx);
+                let _ = send_task.await;
+                return;
+            }
+            Err(e) => {
+                warn!("Failed to check studio plan: {}", e);
+            }
+            Ok(true) => {}
+        }
+    }
+
+    // Check pro plan requirement for Smart Face styles
+    if contains_pro_only_styles(&styles) {
+        match state.user_service.has_pro_or_studio_plan(&uid).await {
+            Ok(false) => {
+                let error = WsMessage::error("Smart Face style is only available for Pro and Studio plans. Please upgrade to access this feature.");
+                let _ = tx.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
+                drop(tx);
+                let _ = send_task.await;
+                return;
+            }
+            Err(e) => {
+                warn!("Failed to check pro plan: {}", e);
+            }
+            Ok(true) => {}
+        }
+    }
+
     // Parse crop mode and target aspect
     let crop_mode: CropMode = request.crop_mode.parse().unwrap_or_default();
     let target_aspect: AspectRatio = request.target_aspect.parse().unwrap_or_default();
 
-    // Create job with all parameters
-    let job = ProcessVideoJob::new(&uid, &request.url, styles)
+    // Create job with validated/sanitized parameters
+    let job = ProcessVideoJob::new(&uid, &validated_url, styles)
         .with_crop_mode(crop_mode)
         .with_target_aspect(target_aspect)
-        .with_custom_prompt(request.prompt.clone());
+        .with_custom_prompt(sanitized_prompt);
     let job_id = job.job_id.clone();
     let video_id = job.video_id.clone();
 
@@ -361,6 +523,33 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
     };
 
     let uid = claims.uid().to_string();
+    
+    // SECURITY: Validate video_id format to prevent injection attacks
+    if !is_valid_video_id(&request.video_id) {
+        let error = WsMessage::error("Invalid video ID format");
+        let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap_or_default())).await;
+        return;
+    }
+
+    // SECURITY: Validate scene_ids count
+    if request.scene_ids.is_empty() {
+        let error = WsMessage::error("At least one scene ID is required");
+        let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap_or_default())).await;
+        return;
+    }
+    if request.scene_ids.len() > 50 {
+        let error = WsMessage::error("Cannot reprocess more than 50 scenes at once");
+        let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap_or_default())).await;
+        return;
+    }
+
+    // SECURITY: Validate styles count
+    if request.styles.len() > 10 {
+        let error = WsMessage::error("Cannot use more than 10 styles");
+        let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap_or_default())).await;
+        return;
+    }
+
     info!(
         "WebSocket reprocess started for user {}, video {}",
         uid, request.video_id
@@ -399,19 +588,6 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
         Ok(false) => {}
     }
 
-    // Check plan restrictions (pro/studio only)
-    match state.user_service.has_pro_or_studio_plan(&uid).await {
-        Ok(false) => {
-            let error = WsMessage::error("Scene reprocessing is only available for Pro and Studio plans. Please upgrade to access this feature.");
-            let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
-            return;
-        }
-        Err(e) => {
-            warn!("Failed to check plan: {}", e);
-        }
-        Ok(true) => {}
-    }
-
     // Parse styles with "all" expansion support
     let styles = Style::expand_styles(&request.styles);
 
@@ -419,6 +595,36 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
         let error = WsMessage::error("No valid styles specified");
         let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
         return;
+    }
+
+    // Check studio plan requirement for Active Speaker styles
+    if contains_studio_only_styles(&styles) {
+        match state.user_service.has_studio_plan(&uid).await {
+            Ok(false) => {
+                let error = WsMessage::error("Active Speaker style is only available for Studio plans. Please upgrade to access this feature.");
+                let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
+                return;
+            }
+            Err(e) => {
+                warn!("Failed to check studio plan: {}", e);
+            }
+            Ok(true) => {}
+        }
+    }
+
+    // Check pro plan requirement for Smart Face styles
+    if contains_pro_only_styles(&styles) {
+        match state.user_service.has_pro_or_studio_plan(&uid).await {
+            Ok(false) => {
+                let error = WsMessage::error("Smart Face style is only available for Pro and Studio plans. Please upgrade to access this feature.");
+                let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
+                return;
+            }
+            Err(e) => {
+                warn!("Failed to check pro plan: {}", e);
+            }
+            Ok(true) => {}
+        }
     }
 
     // Validate plan limits

@@ -4,9 +4,13 @@ use axum::middleware;
 use axum::routing::{delete, get, patch, post};
 use axum::Router;
 use metrics_exporter_prometheus::PrometheusHandle;
+use tower_http::limit::RequestBodyLimitLayer;
 
 use crate::handlers::{health, ready};
-use crate::handlers::admin::{enqueue_synthetic_job, get_queue_status, get_system_info};
+use crate::handlers::admin::{
+    enqueue_synthetic_job, get_queue_status, get_system_info,
+    get_user, list_users, update_user_plan, update_user_usage,
+};
 use crate::handlers::settings::{get_settings, update_settings};
 use crate::handlers::videos::{
     bulk_delete_clips, bulk_delete_videos, delete_all_clips, delete_clip, delete_video, get_video_highlights, get_video_info,
@@ -46,11 +50,16 @@ pub fn create_router(state: AppState, metrics_handle: Option<PrometheusHandle>) 
         .route("/settings", get(get_settings))
         .route("/settings", post(update_settings));
 
-    // Admin routes for canary testing (superadmin only)
+    // Admin routes for canary testing and user management (superadmin only)
     let admin_routes = Router::new()
         .route("/admin/jobs/synthetic", post(enqueue_synthetic_job))
         .route("/admin/queue/status", get(get_queue_status))
-        .route("/admin/system/info", get(get_system_info));
+        .route("/admin/system/info", get(get_system_info))
+        // User management
+        .route("/admin/users", get(list_users))
+        .route("/admin/users/:uid", get(get_user))
+        .route("/admin/users/:uid/plan", patch(update_user_plan))
+        .route("/admin/users/:uid/usage", patch(update_user_usage));
 
     // Create rate limiter for API routes
     let rate_limiter = std::sync::Arc::new(RateLimiterCache::new(state.config.rate_limit_rps));
@@ -85,6 +94,8 @@ pub fn create_router(state: AppState, metrics_handle: Option<PrometheusHandle>) 
         .merge(ws_routes)
         .merge(health_routes)
         .merge(metrics_routes)
+        // SECURITY: Request body size limit to prevent DoS attacks
+        .layer(RequestBodyLimitLayer::new(state.config.max_body_size))
         .layer(middleware::from_fn(metrics_middleware))
         .layer(middleware::from_fn(security_headers))
         .layer(middleware::from_fn(request_id))

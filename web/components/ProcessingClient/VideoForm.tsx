@@ -28,6 +28,8 @@ interface VideoFormProps {
   setCustomPrompt: (prompt: string) => void;
   onSubmit: (e: FormEvent) => void;
   submitting: boolean;
+  /** User's current plan - used to gate studio-only features */
+  userPlan?: string;
 }
 
 export function VideoForm({
@@ -39,6 +41,7 @@ export function VideoForm({
   setCustomPrompt,
   onSubmit,
   submitting,
+  userPlan,
 }: VideoFormProps) {
   return (
     <Card className="glass shadow-2xl">
@@ -140,7 +143,11 @@ export function VideoForm({
             </div>
           </div>
 
-          <StyleQualitySelector selectedStyles={styles} onChange={setStyles} />
+          <StyleQualitySelector
+            selectedStyles={styles}
+            onChange={setStyles}
+            userPlan={userPlan}
+          />
 
           <Button
             type="submit"

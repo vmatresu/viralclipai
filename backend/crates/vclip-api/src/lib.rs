@@ -14,6 +14,7 @@ pub mod handlers;
 pub mod metrics;
 pub mod middleware;
 pub mod routes;
+pub mod security;
 pub mod services;
 pub mod state;
 pub mod ws;

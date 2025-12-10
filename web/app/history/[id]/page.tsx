@@ -681,10 +681,6 @@ export default function HistoryDetailPage() {
     );
   }, [selectedScenes.size, selectedStyles.length, isProcessing, isReprocessing]);
 
-  const hasProOrStudioPlan = useMemo(() => {
-    return userSettings?.plan === "pro" || userSettings?.plan === "studio";
-  }, [userSettings?.plan]);
-
   if (authLoading) {
     return (
       <div className="flex flex-col items-center justify-center py-24 space-y-4">
@@ -884,77 +880,76 @@ export default function HistoryDetailPage() {
         )}
       </div>
 
-      {hasProOrStudioPlan && (
-        <Card className="glass">
-          <CardHeader
-            className="cursor-pointer hover:bg-accent/50 transition-colors"
-            onClick={() => setIsCollapsed(!isCollapsed)}
-          >
-            <CardTitle className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-primary" />
-              Select Scenes to Reprocess
-              <Button
-                variant="ghost"
-                size="sm"
-                className="ml-auto h-6 w-6 p-0"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsCollapsed(!isCollapsed);
-                }}
-              >
-                {isCollapsed ? (
-                  <ChevronRight className="h-4 w-4" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
-                )}
+      <Card className="glass">
+        <CardHeader
+          className="cursor-pointer hover:bg-accent/50 transition-colors"
+          onClick={() => setIsCollapsed(!isCollapsed)}
+        >
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-primary" />
+            Select Scenes to Reprocess
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto h-6 w-6 p-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsCollapsed(!isCollapsed);
+              }}
+            >
+              {isCollapsed ? (
+                <ChevronRight className="h-4 w-4" />
+              ) : (
+                <ChevronDown className="h-4 w-4" />
+              )}
+            </Button>
+          </CardTitle>
+          <CardDescription>
+            Choose scenes and styles to generate new clips. Smart Face requires Pro,
+            Active Speaker requires Studio.
+          </CardDescription>
+        </CardHeader>
+        {!isCollapsed && (
+          <CardContent className="space-y-6">
+            <StyleQualitySelector
+              selectedStyles={selectedStyles}
+              onChange={handleStylesChange}
+              disabled={isProcessing || isReprocessing}
+              userPlan={userSettings?.plan}
+            />
+
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold">
+                Select Scenes ({selectedScenes.size} selected)
+              </h3>
+              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                {highlightsData.highlights.map((highlight) => (
+                  <SceneCard
+                    key={highlight.id}
+                    highlight={highlight}
+                    selected={selectedScenes.has(highlight.id)}
+                    disabled={isProcessing || isReprocessing}
+                    onToggle={handleSceneToggle}
+                    formatTime={formatTime}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-4 border-t">
+              <p className="text-sm text-muted-foreground">
+                {canReprocess
+                  ? `Will generate ${totalClipsToGenerate} new clip(s)`
+                  : "Select scenes and styles to reprocess"}
+              </p>
+              <Button onClick={handleReprocess} disabled={!canReprocess} size="lg">
+                <Play className="h-4 w-4 mr-2" />
+                Reprocess Selected
               </Button>
-            </CardTitle>
-            <CardDescription>
-              Choose scenes and styles to generate new clips. This feature is available
-              for Pro and Studio plans.
-            </CardDescription>
-          </CardHeader>
-          {!isCollapsed && (
-            <CardContent className="space-y-6">
-              <StyleQualitySelector
-                selectedStyles={selectedStyles}
-                onChange={handleStylesChange}
-                disabled={isProcessing || isReprocessing}
-              />
-
-              <div className="space-y-3">
-                <h3 className="text-sm font-semibold">
-                  Select Scenes ({selectedScenes.size} selected)
-                </h3>
-                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                  {highlightsData.highlights.map((highlight) => (
-                    <SceneCard
-                      key={highlight.id}
-                      highlight={highlight}
-                      selected={selectedScenes.has(highlight.id)}
-                      disabled={isProcessing || isReprocessing}
-                      onToggle={handleSceneToggle}
-                      formatTime={formatTime}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between pt-4 border-t">
-                <p className="text-sm text-muted-foreground">
-                  {canReprocess
-                    ? `Will generate ${totalClipsToGenerate} new clip(s)`
-                    : "Select scenes and styles to reprocess"}
-                </p>
-                <Button onClick={handleReprocess} disabled={!canReprocess} size="lg">
-                  <Play className="h-4 w-4 mr-2" />
-                  Reprocess Selected
-                </Button>
-              </div>
-            </CardContent>
-          )}
-        </Card>
-      )}
+            </div>
+          </CardContent>
+        )}
+      </Card>
 
       <Card className="shadow-sm">
         <CardHeader className="pb-3">

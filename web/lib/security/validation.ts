@@ -3,6 +3,8 @@
  * Provides input validation and sanitization functions
  */
 
+import { MAX_PROMPT_LENGTH, MAX_URL_LENGTH } from "./constants";
+
 /**
  * Validates if a string is a valid URL
  * @param url - The URL string to validate
@@ -134,4 +136,152 @@ export function limitLength(input: string, maxLength: number): string {
     return input.substring(0, maxLength);
   }
   return input;
+}
+
+// ============================================================================
+// Video URL Validation (must match backend whitelist)
+// ============================================================================
+
+/**
+ * Allowed video URL domains (whitelist for security)
+ * This list must match the backend security.rs ALLOWED_DOMAINS
+ */
+const ALLOWED_VIDEO_DOMAINS = new Set([
+  // YouTube
+  "youtube.com",
+  "www.youtube.com",
+  "youtu.be",
+  "m.youtube.com",
+  // Vimeo
+  "vimeo.com",
+  "www.vimeo.com",
+  "player.vimeo.com",
+  // Loom
+  "loom.com",
+  "www.loom.com",
+  // Wistia
+  "wistia.com",
+  "www.wistia.com",
+  "fast.wistia.com",
+  // Dailymotion
+  "dailymotion.com",
+  "www.dailymotion.com",
+  // TikTok
+  "tiktok.com",
+  "www.tiktok.com",
+  "vm.tiktok.com",
+  // Twitter/X
+  "twitter.com",
+  "www.twitter.com",
+  "x.com",
+  "www.x.com",
+  // Instagram
+  "instagram.com",
+  "www.instagram.com",
+  // Facebook
+  "facebook.com",
+  "www.facebook.com",
+  "fb.watch",
+  // Twitch
+  "twitch.tv",
+  "www.twitch.tv",
+  "clips.twitch.tv",
+  // Streamable
+  "streamable.com",
+  "www.streamable.com",
+]);
+
+/**
+ * Maximum URL length for video URLs (alias for consistency)
+ */
+const MAX_VIDEO_URL_LENGTH = MAX_URL_LENGTH;
+
+/**
+ * Validates a video URL for security
+ * @param url - The video URL to validate
+ * @returns Object with isValid flag and error message if invalid
+ */
+export function validateVideoUrl(url: string): {
+  isValid: boolean;
+  error?: string;
+  sanitizedUrl?: string;
+} {
+  // Check length
+  if (url.length > MAX_VIDEO_URL_LENGTH) {
+    return { isValid: false, error: "URL is too long" };
+  }
+
+  const trimmed = url.trim();
+  if (!trimmed) {
+    return { isValid: false, error: "URL cannot be empty" };
+  }
+
+  // Parse URL
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return { isValid: false, error: "Invalid URL format" };
+  }
+
+  // Check protocol
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return {
+      isValid: false,
+      error: "Only HTTP and HTTPS URLs are allowed",
+    };
+  }
+
+  // Extract domain
+  const domain = parsed.hostname.toLowerCase();
+
+  // Check domain whitelist
+  if (!isDomainAllowed(domain)) {
+    return {
+      isValid: false,
+      error: `Domain "${domain}" is not supported. Please use a supported video platform (YouTube, Vimeo, TikTok, etc.)`,
+    };
+  }
+
+  return { isValid: true, sanitizedUrl: parsed.href };
+}
+
+/**
+ * Check if a domain is in the allowed list
+ */
+function isDomainAllowed(domain: string): boolean {
+  // Direct match
+  if (ALLOWED_VIDEO_DOMAINS.has(domain)) {
+    return true;
+  }
+
+  // Check parent domains (e.g., "video.youtube.com" is allowed because "youtube.com" is)
+  const parts = domain.split(".");
+  if (parts.length >= 2) {
+    const parent = `${parts[parts.length - 2]}.${parts[parts.length - 1]}`;
+    if (ALLOWED_VIDEO_DOMAINS.has(parent)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Sanitizes a prompt string for safe submission
+ * @param prompt - The prompt to sanitize
+ * @returns Sanitized prompt
+ */
+export function sanitizePrompt(prompt: string): string {
+  // Remove control characters except newline and tab
+  const cleaned = prompt
+    .split("")
+    .filter((c) => {
+      const code = c.charCodeAt(0);
+      return code >= 32 || c === "\n" || c === "\t";
+    })
+    .join("");
+
+  // Limit length
+  return limitLength(cleaned, MAX_PROMPT_LENGTH);
 }

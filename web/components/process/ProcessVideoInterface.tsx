@@ -13,18 +13,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { analyticsEvents } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
-import { limitLength, sanitizeUrl } from "@/lib/security/validation";
 import { cn } from "@/lib/utils";
 import { type ClipProcessingStep } from "@/lib/websocket";
+import { createWebSocketConnection, getWebSocketUrl } from "@/lib/websocket-client";
 import {
   handleWSMessage,
   type MessageHandlerCallbacks,
 } from "@/lib/websocket/messageHandler";
-import { createWebSocketConnection, getWebSocketUrl } from "@/lib/websocket-client";
 import { type SceneProgress } from "@/types/processing";
 
 import { DetailedProcessingStatus } from "../shared/DetailedProcessingStatus";
 
+import { sanitizePrompt, validateVideoUrl } from "@/lib/security";
 import { AiAssistanceSlider, type AiLevel } from "./AiAssistanceSlider";
 import { LayoutSelector, type LayoutOption } from "./LayoutSelector";
 
@@ -236,15 +236,19 @@ export function ProcessVideoInterface() {
         return;
       }
 
-      // Validate and sanitize inputs
-      const sanitizedUrl = sanitizeUrl(url);
-      if (!sanitizedUrl) {
-        toast.error("Invalid video URL. Please provide a valid YouTube or TikTok URL.");
+      // SECURITY: Validate and sanitize inputs before sending to backend
+      const urlValidation = validateVideoUrl(url);
+      if (!urlValidation.isValid || !urlValidation.sanitizedUrl) {
+        toast.error(
+          urlValidation.error ||
+            "Invalid video URL. Please use a supported platform (YouTube, Vimeo, TikTok, etc.)"
+        );
         setIsProcessing(false);
         return;
       }
+      const sanitizedUrl = urlValidation.sanitizedUrl;
 
-      const sanitizedPrompt = limitLength(prompt.trim(), 5000);
+      const sanitizedPrompt = sanitizePrompt(prompt.trim());
       const styles = getStylesFromSelection(layout, aiLevel, staticCropSide);
       const cropMode = exportOriginal ? "none" : "auto";
 
