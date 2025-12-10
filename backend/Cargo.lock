@@ -4368,6 +4368,7 @@ dependencies = [
  "tokio",
  "tokio-test",
  "tracing",
+ "urlencoding",
  "vclip-models",
  "wiremock",
 ]

@@ -74,6 +74,7 @@ pub fn extract_youtube_id(url: &str) -> YoutubeIdResult<String> {
 
 /// Check if URL is from a YouTube domain
 fn is_youtube_domain(url: &str) -> bool {
+    let url = url.to_ascii_lowercase();
     url.contains("youtube.com") || url.contains("youtu.be")
 }
 
@@ -154,22 +155,11 @@ fn extract_from_shorts_url(url: &str) -> Option<String> {
 
 /// Extract the first valid ID segment from a string
 fn extract_id_from_segment(segment: &str) -> Option<String> {
-    // Split on URL delimiters and take the first segment
-    for delimiter in ["&", "#", "?", "/"] {
-        if let Some(id_part) = segment.split(delimiter).next() {
-            let id = id_part.trim();
-            if id.len() == 11 && is_valid_youtube_id_chars(id) {
-                return Some(id.to_string());
-            }
-        }
-    }
-
-    // If no delimiters found and segment is exactly 11 chars, check it
-    if segment.len() == 11 && is_valid_youtube_id_chars(segment) {
-        return Some(segment.to_string());
-    }
-
-    None
+    let delimiters = ['&', '#', '?', '/'];
+    let end = segment
+        .find(|c| delimiters.contains(&c))
+        .unwrap_or(segment.len());
+    Some(segment[..end].trim().to_string())
 }
 
 /// Check if string contains only valid YouTube ID characters

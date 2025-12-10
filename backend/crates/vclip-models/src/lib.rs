@@ -6,12 +6,14 @@
 //! - Encoding configuration
 //! - Detection tiers for intelligent processing
 //! - WebSocket message schemas
+//! - Plan configuration and storage limits
 
 pub mod clip;
 pub mod detection_tier;
 pub mod encoding;
 pub mod highlight;
 pub mod job;
+pub mod plan;
 pub mod style;
 pub mod utils;
 pub mod video;
@@ -23,6 +25,8 @@ pub use detection_tier::DetectionTier;
 pub use encoding::EncodingConfig;
 pub use highlight::{Highlight, HighlightCategory};
 pub use job::{Job, JobId, JobState, JobType};
+pub use plan::{format_bytes, PlanLimits, PlanTier, StorageUsage};
+pub use plan::{FREE_STORAGE_LIMIT_BYTES, PRO_STORAGE_LIMIT_BYTES, STUDIO_STORAGE_LIMIT_BYTES};
 pub use style::{AspectRatio, CropMode, Style};
 pub use utils::{extract_youtube_id, extract_youtube_id_legacy, YoutubeIdError, YoutubeIdResult};
 pub use video::{VideoId, VideoMetadata, VideoStatus};

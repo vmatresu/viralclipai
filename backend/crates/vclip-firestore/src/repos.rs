@@ -277,6 +277,144 @@ impl VideoRepository {
         Ok(())
     }
 
+    /// Update the total size of all clips for this video.
+    pub async fn update_total_size(&self, video_id: &VideoId, total_size_bytes: u64) -> FirestoreResult<()> {
+        let mut fields = HashMap::new();
+        fields.insert("total_size_bytes".to_string(), total_size_bytes.to_firestore_value());
+        fields.insert("updated_at".to_string(), Utc::now().to_firestore_value());
+
+        self.client
+            .update_document(
+                &self.collection(),
+                video_id.as_str(),
+                fields,
+                Some(vec!["total_size_bytes".to_string(), "updated_at".to_string()]),
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Maximum retries for optimistic concurrency updates.
+    const MAX_SIZE_UPDATE_RETRIES: u32 = 5;
+
+    /// Add to the total size (when a clip is created).
+    /// Uses optimistic locking to handle concurrent clip creation safely.
+    pub async fn add_clip_size(&self, video_id: &VideoId, size_bytes: u64) -> FirestoreResult<u64> {
+        self.update_clip_size_with_retry(video_id, size_bytes as i64).await
+    }
+
+    /// Subtract from the total size (when a clip is deleted).
+    /// Uses optimistic locking to handle concurrent clip deletion safely.
+    pub async fn subtract_clip_size(&self, video_id: &VideoId, size_bytes: u64) -> FirestoreResult<u64> {
+        self.update_clip_size_with_retry(video_id, -(size_bytes as i64)).await
+    }
+
+    /// Internal helper for concurrency-safe video size updates with retry.
+    async fn update_clip_size_with_retry(
+        &self,
+        video_id: &VideoId,
+        size_delta: i64,
+    ) -> FirestoreResult<u64> {
+        use tracing::{debug, warn};
+        
+        let mut last_error = None;
+        
+        for attempt in 0..Self::MAX_SIZE_UPDATE_RETRIES {
+            // Get current document with update_time
+            let doc = self.client.get_document(&self.collection(), video_id.as_str()).await?;
+            
+            let (current_size, update_time) = match &doc {
+                Some(d) => {
+                    let size = d.fields.as_ref()
+                        .and_then(|f| f.get("total_size_bytes"))
+                        .and_then(|v| u64::from_firestore_value(v))
+                        .unwrap_or(0);
+                    (size, d.update_time.clone())
+                }
+                None => {
+                    // Video doesn't exist - this shouldn't happen
+                    return Err(FirestoreError::not_found(format!(
+                        "Video {} not found",
+                        video_id.as_str()
+                    )));
+                }
+            };
+            
+            // Calculate new size with safe arithmetic
+            let new_size = if size_delta >= 0 {
+                current_size.saturating_add(size_delta as u64)
+            } else {
+                current_size.saturating_sub((-size_delta) as u64)
+            };
+            
+            // Build update fields
+            let mut fields = HashMap::new();
+            fields.insert("total_size_bytes".to_string(), new_size.to_firestore_value());
+            fields.insert("updated_at".to_string(), Utc::now().to_firestore_value());
+            
+            let update_mask = vec![
+                "total_size_bytes".to_string(),
+                "updated_at".to_string(),
+            ];
+            
+            // Attempt update with precondition
+            match self.client
+                .update_document_with_precondition(
+                    &self.collection(),
+                    video_id.as_str(),
+                    fields,
+                    Some(update_mask),
+                    update_time.as_deref(),
+                )
+                .await
+            {
+                Ok(_) => {
+                    return Ok(new_size);
+                }
+                Err(e) if e.is_precondition_failed() => {
+                    // Another writer updated the document; retry
+                    debug!(
+                        "Video size update precondition failed for {} (attempt {}), retrying",
+                        video_id.as_str(), attempt + 1
+                    );
+                    last_error = Some(e);
+                    // Brief backoff before retry
+                    tokio::time::sleep(std::time::Duration::from_millis(50 * (attempt as u64 + 1))).await;
+                    continue;
+                }
+                Err(e) => {
+                    return Err(e);
+                }
+            }
+        }
+        
+        // All retries exhausted
+        warn!(
+            "Video size update failed after {} retries for {}: {:?}",
+            Self::MAX_SIZE_UPDATE_RETRIES, video_id.as_str(), last_error
+        );
+        Err(FirestoreError::request_failed(format!(
+            "Failed to update video size after {} retries",
+            Self::MAX_SIZE_UPDATE_RETRIES
+        )))
+    }
+
+    /// Recalculate total size from all clips (for consistency/migration).
+    pub async fn recalculate_total_size(&self, video_id: &VideoId) -> FirestoreResult<u64> {
+        let clip_repo = ClipRepository::new(
+            self.client.clone(),
+            &self.user_id,
+            video_id.clone(),
+        );
+        
+        let clips = clip_repo.list(None).await?;
+        let total_size: u64 = clips.iter().map(|c| c.file_size_bytes).sum();
+        
+        self.update_total_size(video_id, total_size).await?;
+        
+        Ok(total_size)
+    }
+
     /// Delete a video.
     pub async fn delete(&self, video_id: &VideoId) -> FirestoreResult<bool> {
         self.client
@@ -457,6 +595,7 @@ fn video_metadata_to_fields(video: &VideoMetadata) -> HashMap<String, Value> {
     fields.insert("created_at".to_string(), video.created_at.to_firestore_value());
     fields.insert("updated_at".to_string(), video.updated_at.to_firestore_value());
     fields.insert("clips_count".to_string(), video.clips_count.to_firestore_value());
+    fields.insert("total_size_bytes".to_string(), video.total_size_bytes.to_firestore_value());
     fields.insert("highlights_json_key".to_string(), video.highlights_json_key.to_firestore_value());
     fields.insert("created_by".to_string(), video.created_by.to_firestore_value());
     fields
@@ -481,6 +620,13 @@ fn document_to_video_metadata(
         fields
             .get(key)
             .and_then(|v| u32::from_firestore_value(v))
+            .unwrap_or(0)
+    };
+
+    let get_u64 = |key: &str| -> u64 {
+        fields
+            .get(key)
+            .and_then(|v| u64::from_firestore_value(v))
             .unwrap_or(0)
     };
 
@@ -520,6 +666,7 @@ fn document_to_video_metadata(
         crop_mode: get_string("crop_mode"),
         target_aspect: get_string("target_aspect"),
         clips_count: get_u32("clips_count"),
+        total_size_bytes: get_u64("total_size_bytes"),
         clips_by_style: HashMap::new(), // TODO: parse map
         highlights_json_key: get_string("highlights_json_key"),
         created_by: get_string("created_by"),

@@ -158,7 +158,10 @@ impl FailureTracker {
     pub fn record_success(&mut self) {
         if self.consecutive_failures > 0 && self.suppressed {
             // Log recovery after suppression
-            debug!("Operation recovered after {} consecutive failures", self.consecutive_failures);
+            debug!(
+                "Operation recovered after {} consecutive failures",
+                self.consecutive_failures
+            );
         }
         self.consecutive_failures = 0;
         self.suppressed = false;
@@ -197,8 +200,7 @@ mod tests {
 
     #[test]
     fn test_retry_config_delay_calculation() {
-        let config = RetryConfig::new("test")
-            .with_base_delay(Duration::from_millis(100));
+        let config = RetryConfig::new("test").with_base_delay(Duration::from_millis(100));
 
         assert_eq!(config.delay_for_attempt(0), Duration::from_millis(100));
         assert_eq!(config.delay_for_attempt(1), Duration::from_millis(200));
@@ -259,8 +261,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_retry_async_eventual_success() {
-        let config = RetryConfig::new("test")
-            .with_base_delay(Duration::from_millis(1));
+        let config = RetryConfig::new("test").with_base_delay(Duration::from_millis(1));
         let call_count = std::sync::atomic::AtomicU32::new(0);
 
         let result = retry_async(&config, || {

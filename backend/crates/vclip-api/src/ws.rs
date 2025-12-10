@@ -294,6 +294,92 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
         warn!("Failed to get/create user {}: {}", uid, e);
     }
 
+    // =========================================================================
+    // QUOTA ENFORCEMENT: Check if user has exceeded their plan limits
+    // =========================================================================
+    
+    // Check monthly clip quota
+    let used = match state.user_service.get_monthly_usage(&uid).await {
+        Ok(used) => used,
+        Err(e) => {
+            warn!("Failed to get monthly usage for {}: {}", uid, e);
+            let error = WsMessage::error("Unable to verify clip quota. Please try again in a moment.");
+            let _ = tx
+                .send(Message::Text(
+                    serde_json::to_string(&error).unwrap_or_default(),
+                ))
+                .await;
+            drop(tx);
+            let _ = send_task.await;
+            return;
+        }
+    };
+
+    let limits = match state.user_service.get_plan_limits(&uid).await {
+        Ok(limits) => limits,
+        Err(e) => {
+            warn!("Failed to get plan limits for {}: {}", uid, e);
+            let error =
+                WsMessage::error("Unable to verify your plan limits. Please try again shortly.");
+            let _ = tx
+                .send(Message::Text(
+                    serde_json::to_string(&error).unwrap_or_default(),
+                ))
+                .await;
+            drop(tx);
+            let _ = send_task.await;
+            return;
+        }
+    };
+
+    if used >= limits.max_clips_per_month {
+        let error = WsMessage::error(format!(
+            "Monthly clip limit exceeded. You've used {} of {} clips this month. Please upgrade your plan or wait until next month.",
+            used, limits.max_clips_per_month
+        ));
+        let _ = tx
+            .send(Message::Text(
+                serde_json::to_string(&error).unwrap_or_default(),
+            ))
+            .await;
+        drop(tx);
+        let _ = send_task.await;
+        return;
+    }
+
+    // Check storage quota
+    let usage = match state.user_service.get_storage_usage(&uid).await {
+        Ok(usage) => usage,
+        Err(e) => {
+            warn!("Failed to get storage usage for {}: {}", uid, e);
+            let error =
+                WsMessage::error("Unable to verify storage quota. Please try again in a moment.");
+            let _ = tx
+                .send(Message::Text(
+                    serde_json::to_string(&error).unwrap_or_default(),
+                ))
+                .await;
+            drop(tx);
+            let _ = send_task.await;
+            return;
+        }
+    };
+
+    if usage.percentage() >= 100.0 {
+        let error = WsMessage::error(format!(
+            "Storage limit exceeded. You've used {} of {} storage. Please delete some clips or upgrade your plan.",
+            usage.format_total(), usage.format_limit()
+        ));
+        let _ = tx
+            .send(Message::Text(
+                serde_json::to_string(&error).unwrap_or_default(),
+            ))
+            .await;
+        drop(tx);
+        let _ = send_task.await;
+        return;
+    }
+
     // Parse styles with "all" expansion support
     let style_strs = request.styles.unwrap_or_else(|| vec!["split".to_string()]);
     let styles = Style::expand_styles(&style_strs);
@@ -558,6 +644,82 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
     // Get or create user
     if let Err(e) = state.user_service.get_or_create_user(&uid, claims.email.as_deref()).await {
         warn!("Failed to get/create user {}: {}", uid, e);
+    }
+
+    // =========================================================================
+    // QUOTA ENFORCEMENT: Check if user has exceeded their plan limits
+    // =========================================================================
+    
+    // Check monthly clip quota
+    let used = match state.user_service.get_monthly_usage(&uid).await {
+        Ok(used) => used,
+        Err(e) => {
+            warn!("Failed to get monthly usage for {}: {}", uid, e);
+            let error = WsMessage::error("Unable to verify clip quota. Please try again in a moment.");
+            let _ = sender
+                .send(Message::Text(
+                    serde_json::to_string(&error).unwrap_or_default(),
+                ))
+                .await;
+            return;
+        }
+    };
+
+    let limits = match state.user_service.get_plan_limits(&uid).await {
+        Ok(limits) => limits,
+        Err(e) => {
+            warn!("Failed to get plan limits for {}: {}", uid, e);
+            let error =
+                WsMessage::error("Unable to verify your plan limits. Please try again shortly.");
+            let _ = sender
+                .send(Message::Text(
+                    serde_json::to_string(&error).unwrap_or_default(),
+                ))
+                .await;
+            return;
+        }
+    };
+
+    if used >= limits.max_clips_per_month {
+        let error = WsMessage::error(format!(
+            "Monthly clip limit exceeded. You've used {} of {} clips this month. Please upgrade your plan or wait until next month.",
+            used, limits.max_clips_per_month
+        ));
+        let _ = sender
+            .send(Message::Text(
+                serde_json::to_string(&error).unwrap_or_default(),
+            ))
+            .await;
+        return;
+    }
+
+    // Check storage quota
+    let usage = match state.user_service.get_storage_usage(&uid).await {
+        Ok(usage) => usage,
+        Err(e) => {
+            warn!("Failed to get storage usage for {}: {}", uid, e);
+            let error =
+                WsMessage::error("Unable to verify storage quota. Please try again in a moment.");
+            let _ = sender
+                .send(Message::Text(
+                    serde_json::to_string(&error).unwrap_or_default(),
+                ))
+                .await;
+            return;
+        }
+    };
+
+    if usage.percentage() >= 100.0 {
+        let error = WsMessage::error(format!(
+            "Storage limit exceeded. You've used {} of {} storage. Please delete some clips or upgrade your plan.",
+            usage.format_total(), usage.format_limit()
+        ));
+        let _ = sender
+            .send(Message::Text(
+                serde_json::to_string(&error).unwrap_or_default(),
+            ))
+            .await;
+        return;
     }
 
     // Check ownership

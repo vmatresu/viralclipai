@@ -92,12 +92,7 @@ pub async fn process_scene(
     if pending_tasks.is_empty() {
         if let Err(e) = ctx
             .progress
-            .scene_completed(
-                &job.job_id,
-                scene_id,
-                scene_tasks.len() as u32,
-                0,
-            )
+            .scene_completed(&job.job_id, scene_id, scene_tasks.len() as u32, 0)
             .await
         {
             tracing::warn!(
@@ -168,12 +163,7 @@ pub async fn process_scene(
     // Emit scene summary event
     if let Err(e) = ctx
         .progress
-        .scene_completed(
-            &job.job_id,
-            scene_id,
-            completed as u32,
-            errors.len() as u32,
-        )
+        .scene_completed(&job.job_id, scene_id, completed as u32, errors.len() as u32)
         .await
     {
         tracing::warn!(
@@ -202,4 +192,3 @@ pub async fn process_scene(
         skipped: skipped_tasks.len(),
     })
 }
-

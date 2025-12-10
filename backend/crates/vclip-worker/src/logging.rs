@@ -3,7 +3,7 @@
 //! Provides consistent, structured logging for job processing with
 //! tracing spans and contextual information.
 
-use tracing::{info, warn, error, Span};
+use tracing::{error, info, warn, Span};
 use vclip_models::JobId;
 
 /// Job logger for structured logging with consistent formatting.
@@ -113,7 +113,7 @@ mod tests {
     fn test_job_logger_creation() {
         let job_id = JobId::new();
         let logger = JobLogger::new(&job_id, "test_operation");
-        
+
         assert_eq!(logger.job_id(), job_id.to_string());
         assert_eq!(logger.operation(), "test_operation");
     }
@@ -121,7 +121,7 @@ mod tests {
     #[test]
     fn test_job_logger_from_string() {
         let logger = JobLogger::from_string("test-job-123", "render");
-        
+
         assert_eq!(logger.job_id(), "test-job-123");
         assert_eq!(logger.operation(), "render");
     }

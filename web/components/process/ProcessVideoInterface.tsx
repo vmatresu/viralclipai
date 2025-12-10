@@ -1,6 +1,14 @@
 "use client";
 
-import { ArrowRight, Crown, Link2, Lock, Sparkles } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowRight,
+  Crown,
+  Link2,
+  Lock,
+  Sparkles,
+  TrendingUp,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -26,12 +34,13 @@ import { frontendLogger } from "@/lib/logger";
 import { sanitizePrompt, validateVideoUrl } from "@/lib/security";
 import { cn } from "@/lib/utils";
 import { type ClipProcessingStep } from "@/lib/websocket";
+import { createWebSocketConnection, getWebSocketUrl } from "@/lib/websocket-client";
 import {
   handleWSMessage,
   type MessageHandlerCallbacks,
 } from "@/lib/websocket/messageHandler";
-import { createWebSocketConnection, getWebSocketUrl } from "@/lib/websocket-client";
 import { type SceneProgress } from "@/types/processing";
+import { type StorageInfo } from "@/types/storage";
 
 import { DetailedProcessingStatus } from "../shared/DetailedProcessingStatus";
 
@@ -45,6 +54,9 @@ import { LayoutSelector, type LayoutOption } from "./LayoutSelector";
 
 interface UserSettings {
   plan: string;
+  max_clips_per_month: number;
+  clips_used_this_month: number;
+  storage: StorageInfo;
 }
 
 type StaticFocusOption = "left" | "center" | "right";
@@ -66,6 +78,16 @@ export function ProcessVideoInterface() {
   const [userPlan, setUserPlan] = useState<string | undefined>(undefined);
   const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
 
+  // Quota tracking state
+  const [quotaInfo, setQuotaInfo] = useState<{
+    clipsUsed: number;
+    clipsLimit: number;
+    storageUsed: number;
+    storageLimit: number;
+    storageUsedFormatted: string;
+    storageLimitFormatted: string;
+  } | null>(null);
+
   // Progress tracking state
   const [logs, setLogs] = useState<string[]>([]);
   const [progress, setProgress] = useState(0);
@@ -73,23 +95,34 @@ export function ProcessVideoInterface() {
     new Map()
   );
 
-  // Load user settings to get plan info
+  // Load user settings to get plan info and quota
   const loadUserSettings = useCallback(async () => {
     if (authLoading || !user) {
       setUserPlan(undefined);
+      setQuotaInfo(null);
       return;
     }
     try {
       const token = await getIdToken();
       if (!token) {
         setUserPlan(undefined);
+        setQuotaInfo(null);
         return;
       }
       const settings = await apiFetch<UserSettings>("/api/settings", { token });
       setUserPlan(settings.plan);
+      setQuotaInfo({
+        clipsUsed: settings.clips_used_this_month,
+        clipsLimit: settings.max_clips_per_month,
+        storageUsed: settings.storage.used_bytes,
+        storageLimit: settings.storage.limit_bytes,
+        storageUsedFormatted: settings.storage.used_formatted,
+        storageLimitFormatted: settings.storage.limit_formatted,
+      });
     } catch (err) {
       frontendLogger.error("Failed to load user settings:", err);
       setUserPlan(undefined);
+      setQuotaInfo(null);
     }
   }, [authLoading, user, getIdToken]);
 
@@ -259,6 +292,15 @@ export function ProcessVideoInterface() {
   const isSelectedTierGated = isTierGated(aiLevel, userPlan);
   const requiredPlan = getRequiredPlan(aiLevel);
 
+  // Check if user is over quota (clips or storage)
+  const isOverClipQuota = quotaInfo
+    ? quotaInfo.clipsUsed >= quotaInfo.clipsLimit
+    : false;
+  const isOverStorageQuota = quotaInfo
+    ? quotaInfo.storageUsed >= quotaInfo.storageLimit
+    : false;
+  const isOverQuota = isOverClipQuota || isOverStorageQuota;
+
   const handleLaunch = async () => {
     if (!url) {
       // Validation: If no URL, focus input and trigger attention animation
@@ -274,6 +316,14 @@ export function ProcessVideoInterface() {
     // Check if the selected tier requires an upgrade
     if (isSelectedTierGated) {
       setShowUpgradeDialog(true);
+      return;
+    }
+
+    // Check if user is over quota
+    if (isOverQuota) {
+      toast.error(
+        "You've exceeded your plan limits. Please upgrade or delete existing clips."
+      );
       return;
     }
 
@@ -424,6 +474,46 @@ export function ProcessVideoInterface() {
           Paste a YouTube link to generate AI-edited vertical clips.
         </p>
       </div>
+
+      {/* Over Quota Warning Banner */}
+      {isOverQuota && quotaInfo && (
+        <div className="rounded-xl border border-destructive bg-destructive/10 p-4 space-y-3">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-destructive mt-0.5 flex-shrink-0" />
+            <div className="flex-1 space-y-2">
+              <p className="font-semibold text-destructive">
+                You&apos;ve exceeded your plan limits!
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {isOverClipQuota && (
+                  <>
+                    You&apos;ve used {quotaInfo.clipsUsed} of {quotaInfo.clipsLimit}{" "}
+                    monthly clips.{" "}
+                  </>
+                )}
+                {isOverStorageQuota && (
+                  <>
+                    Storage is full ({quotaInfo.storageUsedFormatted} /{" "}
+                    {quotaInfo.storageLimitFormatted}).{" "}
+                  </>
+                )}
+                You cannot create new clips until you upgrade or delete existing clips.
+              </p>
+              <div className="flex gap-2 mt-2">
+                <Button asChild variant="default" size="sm">
+                  <Link href="/pricing">
+                    <TrendingUp className="h-4 w-4 mr-2" />
+                    Upgrade Plan
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" size="sm">
+                  <Link href="/history">Manage Clips</Link>
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Step 1: Input */}
       <div className="space-y-4">
@@ -600,13 +690,20 @@ export function ProcessVideoInterface() {
             "w-full md:w-auto text-lg h-14 px-8 transition-all duration-300",
             isSelectedTierGated
               ? "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-[0_0_20px_-5px_theme(colors.amber.500)] hover:shadow-[0_0_30px_-5px_theme(colors.amber.500)]"
-              : "shadow-[0_0_20px_-5px_theme(colors.primary.DEFAULT)] hover:shadow-[0_0_30px_-5px_theme(colors.primary.DEFAULT)]"
+              : isOverQuota
+                ? "bg-destructive/80 hover:bg-destructive/90"
+                : "shadow-[0_0_20px_-5px_theme(colors.primary.DEFAULT)] hover:shadow-[0_0_30px_-5px_theme(colors.primary.DEFAULT)]"
           )}
           onClick={handleLaunch}
-          disabled={isProcessing}
+          disabled={isProcessing || isOverQuota}
         >
           {isProcessing ? (
             "Processing..."
+          ) : isOverQuota ? (
+            <>
+              <AlertCircle className="mr-2 w-5 h-5" />
+              Quota Exceeded
+            </>
           ) : isSelectedTierGated ? (
             <>
               <Lock className="mr-2 w-5 h-5" />

@@ -42,6 +42,12 @@ pub struct UserRecord {
     pub clips_used_this_month: u32,
     #[serde(default)]
     pub usage_reset_month: Option<String>,
+    /// Total storage used in bytes across all videos/clips.
+    #[serde(default)]
+    pub total_storage_bytes: u64,
+    /// Total number of clips across all videos.
+    #[serde(default)]
+    pub total_clips_count: u32,
 }
 
 impl Default for UserRecord {
@@ -56,6 +62,8 @@ impl Default for UserRecord {
             role: None,
             clips_used_this_month: 0,
             usage_reset_month: None,
+            total_storage_bytes: 0,
+            total_clips_count: 0,
         }
     }
 }
@@ -68,6 +76,25 @@ pub struct PlanLimits {
     pub max_highlights_per_video: u32,
     pub max_styles_per_video: u32,
     pub can_reprocess: bool,
+    /// Storage limit in bytes.
+    pub storage_limit_bytes: u64,
+}
+
+/// Result of unified quota check.
+#[derive(Debug, Clone)]
+pub struct QuotaCheckResult {
+    /// Clips used this month.
+    pub clips_used: u32,
+    /// Monthly clip limit.
+    pub clips_limit: u32,
+    /// Storage used in bytes.
+    pub storage_used_bytes: u64,
+    /// Storage limit in bytes.
+    pub storage_limit_bytes: u64,
+    /// Storage usage percentage (0-100).
+    pub storage_percentage: f64,
+    /// User's plan ID.
+    pub plan_id: String,
 }
 
 impl Default for PlanLimits {
@@ -78,6 +105,7 @@ impl Default for PlanLimits {
             max_highlights_per_video: 3,
             max_styles_per_video: 2,
             can_reprocess: false,
+            storage_limit_bytes: vclip_models::FREE_STORAGE_LIMIT_BYTES,
         }
     }
 }
@@ -125,6 +153,8 @@ impl UserService {
                     role: None,
                     clips_used_this_month: 0,
                     usage_reset_month: Some(current_month_key()),
+                    total_storage_bytes: 0,
+                    total_clips_count: 0,
                 };
                 self.create_user(&user).await?;
                 info!("Created new user: {}", uid);
@@ -485,6 +515,275 @@ impl UserService {
             Err(e) => Err(ApiError::internal(format!("Failed to get video: {}", e))),
         }
     }
+
+    // ========================================================================
+    // Storage Tracking Methods
+    // ========================================================================
+
+    /// Maximum retries for optimistic concurrency updates.
+    const MAX_STORAGE_UPDATE_RETRIES: u32 = 5;
+
+    /// Get the user's current storage usage.
+    pub async fn get_storage_usage(&self, uid: &str) -> ApiResult<vclip_models::StorageUsage> {
+        let user = self.get_or_create_user(uid, None).await?;
+        let limits = self.get_plan_limits(uid).await?;
+        
+        Ok(vclip_models::StorageUsage::new(
+            user.total_storage_bytes,
+            user.total_clips_count,
+            limits.storage_limit_bytes,
+        ))
+    }
+
+    /// Add storage usage when a clip is created (concurrency-safe).
+    /// Uses optimistic locking with retry to handle concurrent updates.
+    /// Returns the new total storage bytes.
+    pub async fn add_storage(&self, uid: &str, size_bytes: u64) -> ApiResult<u64> {
+        self.update_storage_with_retry(uid, size_bytes as i64, 1).await
+    }
+
+    /// Subtract storage usage when a clip is deleted (concurrency-safe).
+    /// Uses optimistic locking with retry to handle concurrent updates.
+    /// Returns the new total storage bytes.
+    pub async fn subtract_storage(&self, uid: &str, size_bytes: u64) -> ApiResult<u64> {
+        self.update_storage_with_retry(uid, -(size_bytes as i64), -1).await
+    }
+
+    /// Internal helper for concurrency-safe storage updates with retry.
+    /// 
+    /// Uses Firestore's `updateTime` precondition to implement optimistic locking.
+    /// If another writer updated the document between our read and write, we retry.
+    async fn update_storage_with_retry(
+        &self,
+        uid: &str,
+        bytes_delta: i64,
+        clips_delta: i32,
+    ) -> ApiResult<u64> {
+        let mut last_error = None;
+        
+        for attempt in 0..Self::MAX_STORAGE_UPDATE_RETRIES {
+            // Get current document with update_time
+            let doc = self.firestore
+                .get_document("users", uid)
+                .await
+                .map_err(|e| ApiError::internal(format!("Firestore error: {}", e)))?;
+            
+            let (current_bytes, current_clips, update_time) = match &doc {
+                Some(d) => {
+                    let fields = d.fields.as_ref();
+                    let bytes = fields
+                        .and_then(|f| f.get("total_storage_bytes"))
+                        .and_then(|v| u64::from_firestore_value(v))
+                        .unwrap_or(0);
+                    let clips = fields
+                        .and_then(|f| f.get("total_clips_count"))
+                        .and_then(|v| u32::from_firestore_value(v))
+                        .unwrap_or(0);
+                    (bytes, clips, d.update_time.clone())
+                }
+                None => {
+                    // User doesn't exist, create them first
+                    let _ = self.get_or_create_user(uid, None).await?;
+                    (0u64, 0u32, None)
+                }
+            };
+            
+            // Calculate new values with safe arithmetic
+            let new_bytes = if bytes_delta >= 0 {
+                current_bytes.saturating_add(bytes_delta as u64)
+            } else {
+                current_bytes.saturating_sub((-bytes_delta) as u64)
+            };
+            
+            let new_clips = if clips_delta >= 0 {
+                current_clips.saturating_add(clips_delta as u32)
+            } else {
+                current_clips.saturating_sub((-clips_delta) as u32)
+            };
+            
+            // Build update fields
+            let mut fields = std::collections::HashMap::new();
+            fields.insert("total_storage_bytes".to_string(), new_bytes.to_firestore_value());
+            fields.insert("total_clips_count".to_string(), new_clips.to_firestore_value());
+            fields.insert("updated_at".to_string(), Utc::now().to_firestore_value());
+            
+            let update_mask = vec![
+                "total_storage_bytes".to_string(),
+                "total_clips_count".to_string(),
+                "updated_at".to_string(),
+            ];
+            
+            // Attempt update with precondition
+            match self.firestore
+                .update_document_with_precondition(
+                    "users",
+                    uid,
+                    fields,
+                    Some(update_mask),
+                    update_time.as_deref(),
+                )
+                .await
+            {
+                Ok(_) => {
+                    let action = if bytes_delta >= 0 { "Added" } else { "Subtracted" };
+                    info!(
+                        "{} {} bytes storage for user {}, new total: {} bytes ({} clips)",
+                        action, bytes_delta.unsigned_abs(), uid, new_bytes, new_clips
+                    );
+                    return Ok(new_bytes);
+                }
+                Err(e) if e.is_precondition_failed() => {
+                    // Another writer updated the document; retry
+                    debug!(
+                        "Storage update precondition failed for user {} (attempt {}), retrying",
+                        uid, attempt + 1
+                    );
+                    last_error = Some(e);
+                    // Brief backoff before retry
+                    tokio::time::sleep(std::time::Duration::from_millis(50 * (attempt as u64 + 1))).await;
+                    continue;
+                }
+                Err(e) => {
+                    return Err(ApiError::internal(format!("Failed to update storage: {}", e)));
+                }
+            }
+        }
+        
+        // All retries exhausted
+        warn!(
+            "Storage update failed after {} retries for user {}: {:?}",
+            Self::MAX_STORAGE_UPDATE_RETRIES, uid, last_error
+        );
+        Err(ApiError::internal(format!(
+            "Failed to update storage after {} retries",
+            Self::MAX_STORAGE_UPDATE_RETRIES
+        )))
+    }
+
+    /// Check if adding a clip would exceed storage limits.
+    /// Returns Ok(()) if within limits, Err with details if would exceed.
+    pub async fn check_storage_quota(&self, uid: &str, additional_bytes: u64) -> ApiResult<()> {
+        let usage = self.get_storage_usage(uid).await?;
+        
+        if usage.would_exceed(additional_bytes) {
+            let limits = self.get_plan_limits(uid).await?;
+            return Err(ApiError::forbidden(format!(
+                "Storage quota exceeded. Current usage: {} / {}. Requested: {}. Upgrade to {} for more storage.",
+                vclip_models::format_bytes(usage.total_bytes),
+                vclip_models::format_bytes(usage.limit_bytes),
+                vclip_models::format_bytes(additional_bytes),
+                if limits.plan_id == "free" { "Pro" } else { "Studio" }
+            )));
+        }
+        
+        Ok(())
+    }
+
+    /// Unified quota enforcement check for clip creation.
+    /// 
+    /// This is the single source of truth for quota checks, used by both
+    /// HTTP handlers and WebSocket handlers to ensure consistent enforcement.
+    /// 
+    /// Checks:
+    /// 1. Monthly clip quota
+    /// 2. Storage quota  
+    /// 3. Plan-specific clip limits for the requested number of clips
+    /// 
+    /// Returns `Ok(QuotaCheckResult)` with current usage info, or `Err` with
+    /// a user-friendly error message if any quota would be exceeded.
+    pub async fn check_all_quotas(&self, uid: &str, clips_to_create: u32) -> ApiResult<QuotaCheckResult> {
+        // Get all quota information upfront
+        let limits = self.get_plan_limits(uid).await?;
+        let used = self.get_monthly_usage(uid).await?;
+        let storage_usage = self.get_storage_usage(uid).await?;
+        
+        // Check monthly clip quota
+        if used >= limits.max_clips_per_month {
+            return Err(ApiError::forbidden(format!(
+                "Monthly clip limit exceeded. You've used {} of {} clips this month. Please upgrade your plan or wait until next month.",
+                used, limits.max_clips_per_month
+            )));
+        }
+        
+        // Check if this request would exceed monthly quota
+        if used.saturating_add(clips_to_create) > limits.max_clips_per_month {
+            return Err(ApiError::forbidden(format!(
+                "This would exceed your monthly clip limit. Used: {}, Limit: {}, Requested: {}",
+                used, limits.max_clips_per_month, clips_to_create
+            )));
+        }
+        
+        // Check storage quota
+        if storage_usage.percentage() >= 100.0 {
+            return Err(ApiError::forbidden(format!(
+                "Storage limit exceeded. You've used {} of {} storage. Please delete some clips or upgrade your plan.",
+                storage_usage.format_total(), storage_usage.format_limit()
+            )));
+        }
+        
+        Ok(QuotaCheckResult {
+            clips_used: used,
+            clips_limit: limits.max_clips_per_month,
+            storage_used_bytes: storage_usage.total_bytes,
+            storage_limit_bytes: storage_usage.limit_bytes,
+            storage_percentage: storage_usage.percentage(),
+            plan_id: limits.plan_id,
+        })
+    }
+    
+    /// Check if the user's plan allows reprocessing.
+    pub async fn can_reprocess(&self, uid: &str) -> ApiResult<bool> {
+        let limits = self.get_plan_limits(uid).await?;
+        Ok(limits.can_reprocess)
+    }
+
+    /// Recalculate storage usage from all videos (for migration/consistency).
+    pub async fn recalculate_storage(&self, uid: &str) -> ApiResult<(u64, u32)> {
+        let video_repo = vclip_firestore::VideoRepository::new(
+            (*self.firestore).clone(),
+            uid,
+        );
+        
+        let videos = video_repo.list(None).await
+            .map_err(|e| ApiError::internal(format!("Failed to list videos: {}", e)))?;
+        
+        let mut total_bytes: u64 = 0;
+        let mut total_clips: u32 = 0;
+        
+        for video in videos {
+            let clip_repo = vclip_firestore::ClipRepository::new(
+                (*self.firestore).clone(),
+                uid,
+                video.video_id.clone(),
+            );
+            
+            let clips = clip_repo.list(None).await.unwrap_or_default();
+            let video_size: u64 = clips.iter().map(|c| c.file_size_bytes).sum();
+            let video_clips = clips.len() as u32;
+            
+            total_bytes += video_size;
+            total_clips += video_clips;
+            
+            // Update video's total_size_bytes
+            if let Err(e) = video_repo.update_total_size(&video.video_id, video_size).await {
+                warn!("Failed to update video {} total size: {}", video.video_id, e);
+            }
+        }
+        
+        // Update user's totals
+        let mut user = self.get_or_create_user(uid, None).await?;
+        user.total_storage_bytes = total_bytes;
+        user.total_clips_count = total_clips;
+        user.updated_at = Utc::now();
+        self.update_user(&user).await?;
+        
+        info!(
+            "Recalculated storage for user {}: {} bytes, {} clips",
+            uid, total_bytes, total_clips
+        );
+        
+        Ok((total_bytes, total_clips))
+    }
 }
 
 /// Get current month key (YYYY-MM).
@@ -509,6 +808,13 @@ fn parse_user_document(doc: &vclip_firestore::Document) -> ApiResult<UserRecord>
             .and_then(|v| u32::from_firestore_value(v))
             .unwrap_or(0)
     };
+
+    let get_u64 = |key: &str| -> u64 {
+        fields
+            .get(key)
+            .and_then(|v| u64::from_firestore_value(v))
+            .unwrap_or(0)
+    };
     
     Ok(UserRecord {
         uid: get_string("uid").unwrap_or_default(),
@@ -526,6 +832,8 @@ fn parse_user_document(doc: &vclip_firestore::Document) -> ApiResult<UserRecord>
         role: get_string("role"),
         clips_used_this_month: get_u32("clips_used_this_month"),
         usage_reset_month: get_string("usage_reset_month"),
+        total_storage_bytes: get_u64("total_storage_bytes"),
+        total_clips_count: get_u32("total_clips_count"),
     })
 }
 
@@ -542,15 +850,35 @@ fn parse_plan_limits(plan_doc: &vclip_firestore::Document) -> ApiResult<PlanLimi
         .unwrap_or_else(|| "unknown".to_string());
 
     // Get limits map
-    let max_clips_per_month = if let Some(Value::MapValue(limits_map)) = fields.get("limits") {
-        limits_map
+    let (max_clips_per_month, storage_limit_bytes) = if let Some(Value::MapValue(limits_map)) = fields.get("limits") {
+        let clips = limits_map
             .fields
             .as_ref()
             .and_then(|fields| fields.get("max_clips_per_month"))
             .and_then(|v| u32::from_firestore_value(v))
-            .unwrap_or(20) // Default fallback
+            .unwrap_or(20);
+        let storage = limits_map
+            .fields
+            .as_ref()
+            .and_then(|fields| fields.get("storage_limit_bytes"))
+            .and_then(|v| u64::from_firestore_value(v))
+            .unwrap_or_else(|| {
+                // Fallback to plan-based defaults if not in Firestore
+                match plan_id.as_str() {
+                    "pro" => vclip_models::PRO_STORAGE_LIMIT_BYTES,
+                    "studio" => vclip_models::STUDIO_STORAGE_LIMIT_BYTES,
+                    _ => vclip_models::FREE_STORAGE_LIMIT_BYTES,
+                }
+            });
+        (clips, storage)
     } else {
-        20 // Default fallback
+        // Fallback to plan-based defaults
+        let storage = match plan_id.as_str() {
+            "pro" => vclip_models::PRO_STORAGE_LIMIT_BYTES,
+            "studio" => vclip_models::STUDIO_STORAGE_LIMIT_BYTES,
+            _ => vclip_models::FREE_STORAGE_LIMIT_BYTES,
+        };
+        (20, storage)
     };
 
     // For now, use reasonable defaults for other limits based on plan tier
@@ -568,6 +896,7 @@ fn parse_plan_limits(plan_doc: &vclip_firestore::Document) -> ApiResult<PlanLimi
         max_highlights_per_video,
         max_styles_per_video,
         can_reprocess,
+        storage_limit_bytes,
     })
 }
 
@@ -591,5 +920,13 @@ fn user_to_fields(user: &UserRecord) -> HashMap<String, Value> {
     if let Some(ref month) = user.usage_reset_month {
         fields.insert("usage_reset_month".to_string(), month.to_firestore_value());
     }
+    fields.insert(
+        "total_storage_bytes".to_string(),
+        user.total_storage_bytes.to_firestore_value(),
+    );
+    fields.insert(
+        "total_clips_count".to_string(),
+        user.total_clips_count.to_firestore_value(),
+    );
     fields
 }

@@ -115,13 +115,16 @@ impl GeminiClient {
         // Use cookies file if available for YouTube authentication
         let cookies_path = "/app/youtube-cookies.txt";
         let mut args = vec![
-            "--remote-components", "ejs:github",
-            "--print", "title",
-            "--print", "webpage_url",
+            "--remote-components",
+            "ejs:github",
+            "--print",
+            "title",
+            "--print",
+            "webpage_url",
             "--no-download",
             "--no-playlist",
         ];
-        
+
         if std::path::Path::new(cookies_path).exists() {
             args.push("--cookies");
             args.push(cookies_path);
@@ -132,7 +135,9 @@ impl GeminiClient {
             .args(&args)
             .output()
             .await
-            .map_err(|e| WorkerError::ai_failed(format!("Failed to run yt-dlp for metadata: {}", e)))?;
+            .map_err(|e| {
+                WorkerError::ai_failed(format!("Failed to run yt-dlp for metadata: {}", e))
+            })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -160,12 +165,19 @@ impl GeminiClient {
             ));
         }
 
-        info!("Got video metadata: title='{}', url='{}'", title, canonical_url);
+        info!(
+            "Got video metadata: title='{}', url='{}'",
+            title, canonical_url
+        );
         Ok((title, canonical_url))
     }
 
     /// Get transcript only (without calling Gemini).
-    pub async fn get_transcript_only(&self, video_url: &str, workdir: &Path) -> WorkerResult<String> {
+    pub async fn get_transcript_only(
+        &self,
+        video_url: &str,
+        workdir: &Path,
+    ) -> WorkerResult<String> {
         self.get_transcript(video_url, workdir).await
     }
 
@@ -221,15 +233,19 @@ impl GeminiClient {
         let cookies_path = "/app/youtube-cookies.txt";
         let output_template_str = output_template.to_string_lossy();
         let mut args = vec![
-            "--remote-components", "ejs:github",
+            "--remote-components",
+            "ejs:github",
             "--write-auto-sub",
             "--write-sub",
-            "--sub-lang", "en,en-US,en-GB",
+            "--sub-lang",
+            "en,en-US,en-GB",
             "--skip-download",
-            "--sub-format", "vtt",
-            "--output", &output_template_str,
+            "--sub-format",
+            "vtt",
+            "--output",
+            &output_template_str,
         ];
-        
+
         if std::path::Path::new(cookies_path).exists() {
             args.push("--cookies");
             args.push(cookies_path);
@@ -254,9 +270,7 @@ impl GeminiClient {
         let mut vtt_files: Vec<_> = std::fs::read_dir(workdir)
             .map_err(|e| WorkerError::ai_failed(format!("Failed to read workdir: {}", e)))?
             .filter_map(|entry| entry.ok())
-            .filter(|entry| {
-                entry.path().extension().and_then(|s| s.to_str()) == Some("vtt")
-            })
+            .filter(|entry| entry.path().extension().and_then(|s| s.to_str()) == Some("vtt"))
             .collect();
 
         if vtt_files.is_empty() {
@@ -286,9 +300,7 @@ impl GeminiClient {
 
         // Save parsed transcript
         let transcript_path = workdir.join("transcript.txt");
-        tokio::fs::write(&transcript_path, &transcript)
-            .await
-            .ok();
+        tokio::fs::write(&transcript_path, &transcript).await.ok();
 
         // Cleanup VTT files
         for entry in vtt_files {
@@ -423,10 +435,9 @@ Additional instructions:
             )));
         }
 
-        let gemini_response: GeminiResponse = response
-            .json()
-            .await
-            .map_err(|e| WorkerError::ai_failed(format!("Failed to parse Gemini response: {}", e)))?;
+        let gemini_response: GeminiResponse = response.json().await.map_err(|e| {
+            WorkerError::ai_failed(format!("Failed to parse Gemini response: {}", e))
+        })?;
 
         let text = gemini_response
             .candidates

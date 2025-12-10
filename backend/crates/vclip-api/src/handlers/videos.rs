@@ -268,6 +268,10 @@ pub struct VideoSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub video_title: Option<String>,
     pub clips_count: u32,
+    /// Total size of all clips in bytes.
+    pub total_size_bytes: u64,
+    /// Human-readable total size.
+    pub total_size_formatted: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -307,6 +311,8 @@ pub async fn list_user_videos(
             video_url: Some(v.video_url),
             video_title: Some(v.video_title),
             clips_count: v.clips_count,
+            total_size_bytes: v.total_size_bytes,
+            total_size_formatted: vclip_models::format_bytes(v.total_size_bytes),
             created_at: Some(v.created_at.to_rfc3339()),
             status: Some(v.status.as_str().to_string()),
             custom_prompt: v.custom_prompt,
@@ -338,6 +344,25 @@ pub async fn delete_video(
         return Err(ApiError::not_found("Video not found"));
     }
 
+    // Get video metadata to know the total size for storage tracking
+    let video_repo = vclip_firestore::VideoRepository::new(
+        (*state.firestore).clone(),
+        &user.uid,
+    );
+    let video_size = video_repo.get(&VideoId::from_string(&video_id)).await
+        .ok()
+        .flatten()
+        .map(|v| v.total_size_bytes)
+        .unwrap_or(0);
+
+    // Get clip count for storage tracking
+    let clip_repo = vclip_firestore::ClipRepository::new(
+        (*state.firestore).clone(),
+        &user.uid,
+        VideoId::from_string(&video_id),
+    );
+    let clip_count = clip_repo.list(None).await.map(|c| c.len() as u32).unwrap_or(0);
+
     // Delete files from R2
     let files_deleted = state
         .storage
@@ -345,13 +370,17 @@ pub async fn delete_video(
         .await?;
 
     // Delete from Firestore
-    let video_repo = vclip_firestore::VideoRepository::new(
-        (*state.firestore).clone(),
-        &user.uid,
-    );
     video_repo.delete(&VideoId::from_string(&video_id)).await?;
 
-    info!("Deleted video {} for user {} ({} files)", video_id, user.uid, files_deleted);
+    // Update user's total storage - recalculate to ensure consistency
+    if video_size > 0 || clip_count > 0 {
+        // Recalculate storage to ensure consistency after video deletion
+        if let Err(e) = state.user_service.recalculate_storage(&user.uid).await {
+            warn!("Failed to recalculate storage after deleting video {}: {}", video_id, e);
+        }
+    }
+
+    info!("Deleted video {} for user {} ({} files, {} bytes)", video_id, user.uid, files_deleted, video_size);
 
     Ok(Json(DeleteVideoResponse {
         success: true,
@@ -569,6 +598,55 @@ pub async fn delete_clip(
         return Err(ApiError::not_found("Video not found"));
     }
 
+    // Get clip metadata first to know the file size for storage tracking
+    let clip_repo = vclip_firestore::ClipRepository::new(
+        (*state.firestore).clone(),
+        &user.uid,
+        vclip_models::VideoId::from_string(&video_id),
+    );
+
+    // Prefer Firestore metadata, but fall back to R2 object size if Firestore lookup fails.
+    let mut clip_size_bytes: Option<u64> = match clip_repo.list(None).await {
+        Ok(clips) => clips
+            .iter()
+            .find(|c| c.filename == clip_name)
+            .map(|c| c.file_size_bytes),
+        Err(e) => {
+            warn!(
+                "Failed to list clips for size lookup ({} / {}): {}. Falling back to storage.",
+                user.uid, video_id, e
+            );
+            None
+        }
+    };
+
+    if clip_size_bytes.is_none() {
+        let object_prefix = format!("{}/{}/clips/{}", user.uid, video_id, clip_name);
+        match state.storage.list_objects(&object_prefix).await {
+            Ok(objects) => {
+                clip_size_bytes = objects
+                    .into_iter()
+                    .find(|o| o.key.ends_with(&clip_name))
+                    .map(|o| o.size);
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to read clip size from storage for {}/{}/{}: {}",
+                    user.uid, video_id, clip_name, e
+                );
+            }
+        }
+    }
+
+    let clip_size = clip_size_bytes.unwrap_or(0);
+    let size_unknown = clip_size == 0;
+    if size_unknown {
+        warn!(
+            "Clip size unknown for {}/{}/{}; will trigger storage recalculation",
+            user.uid, video_id, clip_name
+        );
+    }
+
     // Delete clip and thumbnail from R2
     let files_deleted = state
         .storage
@@ -576,20 +654,51 @@ pub async fn delete_clip(
         .await?;
 
     // Delete clip metadata from Firestore
-    let clip_repo = vclip_firestore::ClipRepository::new(
-        (*state.firestore).clone(),
-        &user.uid,
-        vclip_models::VideoId::from_string(&video_id),
-    );
     let metadata_deleted = clip_repo.delete_by_filename(&clip_name).await?;
+
+    // Update storage counters
+    if size_unknown {
+        // When size is unknown, recalculate to ensure consistency.
+        // This is slower but ensures we don't drift out of sync.
+        if let Err(e) = state.user_service.recalculate_storage(&user.uid).await {
+            warn!(
+                "Failed to recalculate storage after deleting clip with unknown size {}: {}",
+                clip_name, e
+            );
+        }
+    } else {
+        // Update video's total size
+        let video_repo = vclip_firestore::VideoRepository::new((*state.firestore).clone(), &user.uid);
+        if let Err(e) = video_repo
+            .subtract_clip_size(&vclip_models::VideoId::from_string(&video_id), clip_size)
+            .await
+        {
+            warn!(
+                "Failed to update video total size after deleting {}: {}",
+                clip_name, e
+            );
+        }
+
+        // Decrement user's storage
+        if let Err(e) = state
+            .user_service
+            .subtract_storage(&user.uid, clip_size)
+            .await
+        {
+            warn!(
+                "Failed to update user storage after deleting {}: {}",
+                clip_name, e
+            );
+        }
+    }
 
     // Refresh video clips_count to reflect deletion
     if let Err(e) = refresh_clips_count(&state, &user.uid, &video_id).await {
         warn!("Failed to refresh clips_count after deleting {}: {}", clip_name, e);
     }
 
-    info!("Deleted clip {} from video {} for user {} ({} files, metadata deleted: {})", 
-          clip_name, video_id, user.uid, files_deleted, metadata_deleted);
+    info!("Deleted clip {} from video {} for user {} ({} files, {} bytes, metadata deleted: {})", 
+          clip_name, video_id, user.uid, files_deleted, clip_size, metadata_deleted);
 
     Ok(Json(DeleteClipResponse {
         success: true,
@@ -688,6 +797,27 @@ pub async fn bulk_delete_clips(
     let mut results = HashMap::new();
     let mut deleted_count = 0u32;
     let mut failed_count = 0u32;
+    let mut any_unknown_sizes = false;
+
+    let video_id_obj = vclip_models::VideoId::from_string(&video_id);
+    let clip_repo = vclip_firestore::ClipRepository::new(
+        (*state.firestore).clone(),
+        &user.uid,
+        video_id_obj.clone(),
+    );
+    let video_repo = vclip_firestore::VideoRepository::new((*state.firestore).clone(), &user.uid);
+
+    // Build a lookup of clip sizes from Firestore so we can subtract accurate storage.
+    let clip_sizes: HashMap<String, u64> = clip_repo
+        .list(None)
+        .await
+        .map(|clips| {
+            clips
+                .into_iter()
+                .map(|c| (c.filename, c.file_size_bytes))
+                .collect()
+        })
+        .unwrap_or_default();
 
     for clip_name in &request.clip_names {
         // Delete clip and thumbnail from R2
@@ -706,12 +836,6 @@ pub async fn bulk_delete_clips(
         };
 
         // Delete clip metadata from Firestore
-        let clip_repo = vclip_firestore::ClipRepository::new(
-            (*state.firestore).clone(),
-            &user.uid,
-            vclip_models::VideoId::from_string(&video_id),
-        );
-        
         let metadata_deleted = match clip_repo.delete_by_filename(clip_name).await {
             Ok(deleted) => deleted,
             Err(e) => {
@@ -726,6 +850,46 @@ pub async fn bulk_delete_clips(
             }
         };
 
+        // Determine clip size (prefer Firestore metadata, fallback to storage listing)
+        let mut clip_size = clip_sizes.get(clip_name).copied().unwrap_or(0);
+        if clip_size == 0 {
+            let object_prefix = format!("{}/{}/clips/{}", user.uid, video_id, clip_name);
+            if let Ok(objects) = state.storage.list_objects(&object_prefix).await {
+                clip_size = objects
+                    .into_iter()
+                    .find(|o| o.key.ends_with(clip_name))
+                    .map(|o| o.size)
+                    .unwrap_or(0);
+            }
+        }
+
+        let size_was_known = clip_size > 0;
+        if size_was_known {
+            if let Err(e) = video_repo
+                .subtract_clip_size(&video_id_obj, clip_size)
+                .await
+            {
+                warn!(
+                    "Failed to update video total size after deleting {}: {}",
+                    clip_name, e
+                );
+            }
+
+            if let Err(e) = state
+                .user_service
+                .subtract_storage(&user.uid, clip_size)
+                .await
+            {
+                warn!(
+                    "Failed to update user storage after deleting {}: {}",
+                    clip_name, e
+                );
+            }
+        } else {
+            // Track that we had an unknown size - we'll recalculate at the end
+            any_unknown_sizes = true;
+        }
+
         results.insert(clip_name.clone(), BulkDeleteResult {
             success: true,
             error: None,
@@ -735,6 +899,17 @@ pub async fn bulk_delete_clips(
 
         info!("Deleted clip {} from video {} for user {} ({} files, metadata deleted: {})", 
               clip_name, video_id, user.uid, files_deleted, metadata_deleted);
+    }
+
+    // If any clips had unknown sizes, recalculate storage to ensure consistency
+    if any_unknown_sizes {
+        info!(
+            "Some clips had unknown sizes during bulk delete for {}/{}; recalculating storage",
+            user.uid, video_id
+        );
+        if let Err(e) = state.user_service.recalculate_storage(&user.uid).await {
+            warn!("Failed to recalculate storage after bulk delete: {}", e);
+        }
     }
 
     // Refresh video clips_count to reflect deletions
@@ -763,11 +938,13 @@ pub async fn delete_all_clips(
     }
 
     // Get all clips for this video from Firestore
+    let video_id_obj = vclip_models::VideoId::from_string(&video_id);
     let clip_repo = vclip_firestore::ClipRepository::new(
         (*state.firestore).clone(),
         &user.uid,
-        vclip_models::VideoId::from_string(&video_id),
+        video_id_obj.clone(),
     );
+    let video_repo = vclip_firestore::VideoRepository::new((*state.firestore).clone(), &user.uid);
     
     let clips = match clip_repo.list(None).await {
         Ok(clips) => clips,
@@ -813,12 +990,6 @@ pub async fn delete_all_clips(
         };
 
         // Delete clip metadata from Firestore
-        let clip_repo = vclip_firestore::ClipRepository::new(
-            (*state.firestore).clone(),
-            &user.uid,
-            vclip_models::VideoId::from_string(&video_id),
-        );
-        
         match clip_repo.delete_by_filename(&clip_name).await {
             Ok(deleted) => {
                 if deleted {
@@ -830,6 +1001,30 @@ pub async fn delete_all_clips(
                     deleted_count += 1;
                     info!("Deleted clip {} from video {} for user {} ({} files)", 
                           clip_name, video_id, user.uid, files_deleted);
+
+                    let clip_size = clip.file_size_bytes;
+                    if clip_size > 0 {
+                        if let Err(e) = video_repo
+                            .subtract_clip_size(&video_id_obj, clip_size)
+                            .await
+                        {
+                            warn!(
+                                "Failed to update video total size after deleting {}: {}",
+                                clip_name, e
+                            );
+                        }
+                    }
+
+                    if let Err(e) = state
+                        .user_service
+                        .subtract_storage(&user.uid, clip_size)
+                        .await
+                    {
+                        warn!(
+                            "Failed to update user storage after deleting {}: {}",
+                            clip_name, e
+                        );
+                    }
                 } else {
                     // Clip metadata not found
                     results.insert(clip_name.clone(), BulkDeleteResult {
@@ -1067,7 +1262,26 @@ pub async fn reprocess_scenes(
         ));
     }
 
-    // Validate plan limits
+    // Check if user has exceeded monthly clip quota
+    let used = state.user_service.get_monthly_usage(&user.uid).await?;
+    let limits = state.user_service.get_plan_limits(&user.uid).await?;
+    if used >= limits.max_clips_per_month {
+        return Err(ApiError::forbidden(format!(
+            "Monthly clip limit exceeded. You've used {} of {} clips this month. Please upgrade your plan or wait until next month.",
+            used, limits.max_clips_per_month
+        )));
+    }
+
+    // Check storage quota
+    let storage_usage = state.user_service.get_storage_usage(&user.uid).await?;
+    if storage_usage.percentage() >= 100.0 {
+        return Err(ApiError::forbidden(format!(
+            "Storage limit exceeded. You've used {} of {} storage. Please delete some clips or upgrade your plan.",
+            storage_usage.format_total(), storage_usage.format_limit()
+        )));
+    }
+
+    // Validate plan limits for the number of clips being created
     let total_clips = request.scene_ids.len() as u32 * request.styles.len() as u32;
     state.user_service.validate_plan_limits(&user.uid, total_clips).await?;
 

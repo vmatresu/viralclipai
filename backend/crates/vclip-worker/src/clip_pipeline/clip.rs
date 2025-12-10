@@ -1,10 +1,10 @@
+use std::collections::HashMap;
 use std::path::Path;
 
-use tracing::info;
-use vclip_firestore::ClipRepository;
-use vclip_media::core::{
-    ProcessingContext as MediaProcessingContext, ProcessingRequest,
-};
+use chrono::Utc;
+use tracing::{debug, info, warn};
+use vclip_firestore::{ClipRepository, FromFirestoreValue, ToFirestoreValue};
+use vclip_media::core::{ProcessingContext as MediaProcessingContext, ProcessingRequest};
 use vclip_media::intelligent::parse_timestamp;
 use vclip_models::{
     ClipMetadata, ClipProcessingStep, ClipTask, EncodingConfig, JobId, Style, VideoId,
@@ -110,7 +110,10 @@ pub async fn process_single_clip(
     // Stage 1: Extracting segment
     emit_progress!(
         ClipProcessingStep::ExtractingSegment,
-        Some(format!("{:.1}s - {:.1}s ({:.1}s)", start_sec, end_sec, duration_sec))
+        Some(format!(
+            "{:.1}s - {:.1}s ({:.1}s)",
+            start_sec, end_sec, duration_sec
+        ))
     );
 
     // Create processing request with error context
@@ -149,15 +152,19 @@ pub async fn process_single_clip(
     );
 
     // Get style processor and process (strategy pattern)
-    let processor = ctx.style_registry.get_processor(task.style).await.map_err(|e| {
-        tracing::error!(
-            scene_id = scene_id,
-            style = %style_name,
-            error = %e,
-            "Failed to get style processor"
-        );
-        e
-    })?;
+    let processor = ctx
+        .style_registry
+        .get_processor(task.style)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                scene_id = scene_id,
+                style = %style_name,
+                error = %e,
+                "Failed to get style processor"
+            );
+            e
+        })?;
 
     let result = processor.process(request, proc_ctx).await.map_err(|e| {
         tracing::error!(
@@ -307,6 +314,114 @@ pub async fn process_single_clip(
         WorkerError::Firestore(e)
     })?;
 
+    // Update video's total size (fire and forget - non-critical)
+    let video_repo = vclip_firestore::VideoRepository::new(ctx.firestore.clone(), user_id);
+    if let Err(e) = video_repo
+        .add_clip_size(video_id, result.file_size_bytes)
+        .await
+    {
+        tracing::warn!(
+            video_id = %video_id,
+            size_bytes = result.file_size_bytes,
+            error = %e,
+            "Failed to update video total size (non-critical)"
+        );
+    }
+
+    // Update user's total storage (fire and forget) using optimistic concurrency to avoid lost updates.
+    let firestore = ctx.firestore.clone();
+    let uid = user_id.to_string();
+    let clip_size = result.file_size_bytes;
+    let _ = tokio::spawn(async move {
+        const MAX_ATTEMPTS: u8 = 5;
+        let mut attempt: u8 = 0;
+
+        loop {
+            attempt += 1;
+            match firestore.get_document("users", &uid).await {
+                Ok(Some(doc)) => {
+                    let update_time = doc.update_time.clone();
+                    let fields = doc.fields.unwrap_or_default();
+                    let current_bytes = fields
+                        .get("total_storage_bytes")
+                        .and_then(|v| u64::from_firestore_value(v))
+                        .unwrap_or(0);
+                    let current_clips = fields
+                        .get("total_clips_count")
+                        .and_then(|v| u32::from_firestore_value(v))
+                        .unwrap_or(0);
+
+                    let mut update_fields = HashMap::new();
+                    update_fields.insert(
+                        "total_storage_bytes".to_string(),
+                        current_bytes.saturating_add(clip_size).to_firestore_value(),
+                    );
+                    update_fields.insert(
+                        "total_clips_count".to_string(),
+                        current_clips.saturating_add(1).to_firestore_value(),
+                    );
+                    update_fields.insert("updated_at".to_string(), Utc::now().to_firestore_value());
+
+                    let update_mask = vec![
+                        "total_storage_bytes".to_string(),
+                        "total_clips_count".to_string(),
+                        "updated_at".to_string(),
+                    ];
+
+                    match firestore
+                        .update_document_with_precondition(
+                            "users",
+                            &uid,
+                            update_fields,
+                            Some(update_mask),
+                            update_time.as_deref(),
+                        )
+                        .await
+                    {
+                        Ok(_) => break,
+                        Err(e)
+                            if e.is_precondition_failed() && attempt < MAX_ATTEMPTS =>
+                        {
+                            debug!(
+                                user_id = %uid,
+                                attempt,
+                                "Concurrent storage update detected, retrying"
+                            );
+                            continue;
+                        }
+                        Err(e) => {
+                            warn!(
+                                user_id = %uid,
+                                size_bytes = clip_size,
+                                error = %e,
+                                attempt,
+                                "Failed to update user storage totals after clip creation"
+                            );
+                            break;
+                        }
+                    }
+                }
+                Ok(None) => {
+                    warn!(
+                        user_id = %uid,
+                        size_bytes = clip_size,
+                        "User not found when updating storage totals after clip creation"
+                    );
+                    break;
+                }
+                Err(e) => {
+                    warn!(
+                        user_id = %uid,
+                        size_bytes = clip_size,
+                        error = %e,
+                        "Failed to fetch user for storage update after clip creation"
+                    );
+                    break;
+                }
+            }
+        }
+    });
+
     // Structured success log
     info!(
         scene_id = scene_id,
@@ -319,4 +434,3 @@ pub async fn process_single_clip(
 
     Ok(())
 }
-

@@ -38,6 +38,7 @@ import {
   type TierColor,
 } from "@/lib/styleTiers";
 import { cn } from "@/lib/utils";
+import { formatBytes, parseSizeToBytes } from "@/types/storage";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -62,6 +63,8 @@ export type SceneGroup = {
   startSec: number;
   endSec: number;
   clips: HistoryClip[];
+  /** Total size of all clips in this scene in bytes. */
+  totalSizeBytes?: number;
 };
 
 const tierWeight: Record<TierColor, number> = {
@@ -90,6 +93,8 @@ export function groupClipsByScene(clips: HistoryClip[]): SceneGroup[] {
   clips.forEach((clip) => {
     const existing = groups.get(clip.sceneId);
     const sceneTitle = clip.sceneTitle ?? `Scene ${clip.sceneId}`;
+    const clipSizeBytes = parseSizeToBytes(clip.size);
+
     if (!existing) {
       groups.set(clip.sceneId, {
         sceneId: clip.sceneId,
@@ -97,6 +102,7 @@ export function groupClipsByScene(clips: HistoryClip[]): SceneGroup[] {
         startSec: clip.startSec,
         endSec: clip.endSec,
         clips: [clip],
+        totalSizeBytes: clipSizeBytes,
       });
       return;
     }
@@ -104,6 +110,7 @@ export function groupClipsByScene(clips: HistoryClip[]): SceneGroup[] {
     existing.clips.push(clip);
     existing.startSec = Math.min(existing.startSec || clip.startSec, clip.startSec);
     existing.endSec = Math.max(existing.endSec || clip.endSec, clip.endSec);
+    existing.totalSizeBytes = (existing.totalSizeBytes ?? 0) + clipSizeBytes;
   });
 
   return Array.from(groups.values()).sort(
@@ -327,6 +334,11 @@ function HistorySceneItem({
                     {formatRange(scene)}
                   </span>
                   <Badge variant="secondary">{styles.length} styles</Badge>
+                  {scene.totalSizeBytes && scene.totalSizeBytes > 0 && (
+                    <Badge variant="outline" className="text-muted-foreground">
+                      {formatBytes(scene.totalSizeBytes)}
+                    </Badge>
+                  )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="font-semibold text-base leading-tight flex-1">

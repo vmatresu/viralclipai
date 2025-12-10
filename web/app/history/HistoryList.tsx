@@ -71,12 +71,27 @@ interface UserVideo {
   custom_prompt?: string;
   status?: "processing" | "completed";
   clips_count?: number;
+  /** Total size of all clips in bytes. */
+  total_size_bytes?: number;
+  /** Human-readable total size. */
+  total_size_formatted?: string;
+}
+
+interface StorageInfo {
+  used_bytes: number;
+  limit_bytes: number;
+  total_clips: number;
+  percentage: number;
+  used_formatted: string;
+  limit_formatted: string;
+  remaining_formatted: string;
 }
 
 interface PlanUsage {
   plan: string;
   max_clips_per_month: number;
   clips_used_this_month: number;
+  storage?: StorageInfo;
 }
 
 export default function HistoryList() {
@@ -428,6 +443,11 @@ export default function HistoryList() {
     ? Math.max(0, planUsage.max_clips_per_month - planUsage.clips_used_this_month)
     : 0;
 
+  // Storage usage
+  const storagePercentage = planUsage?.storage?.percentage ?? 0;
+  const isHighStorage = storagePercentage >= 80;
+  const isNearStorageLimit = storagePercentage >= 90;
+
   const getProgressBarColor = () => {
     if (isNearLimit) return "bg-destructive";
     if (isHighUsage) return "bg-destructive/80";
@@ -452,9 +472,10 @@ export default function HistoryList() {
 
     return (
       <>
+        {/* Monthly Clips Usage */}
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">Usage</span>
+            <span className="text-muted-foreground">Monthly Clips</span>
             <span
               className={
                 isHighUsage ? "text-destructive font-semibold" : "text-muted-foreground"
@@ -470,20 +491,76 @@ export default function HistoryList() {
             />
           </div>
         </div>
-        {isHighUsage && (
+
+        {/* Storage Usage */}
+        {planUsage.storage && (
+          <div className="space-y-2 pt-2 border-t border-muted">
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Storage</span>
+              <span
+                className={
+                  isHighStorage ? "text-destructive font-semibold" : "text-muted-foreground"
+                }
+              >
+                {planUsage.storage.used_formatted} / {planUsage.storage.limit_formatted}
+              </span>
+            </div>
+            <div className="relative h-3 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className={`h-full transition-all duration-500 ${
+                  isNearStorageLimit ? "bg-destructive" : isHighStorage ? "bg-destructive/80" : "bg-primary"
+                }`}
+                style={{ width: `${Math.min(storagePercentage, 100)}%` }}
+              />
+            </div>
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>{planUsage.storage.total_clips} total clips</span>
+              <span>{planUsage.storage.remaining_formatted} remaining</span>
+            </div>
+          </div>
+        )}
+
+        {/* Over Limit Warning */}
+        {(usagePercentage >= 100 || storagePercentage >= 100) && (
+          <div className="rounded-lg border border-destructive bg-destructive/20 p-4 space-y-3">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-destructive mt-0.5 flex-shrink-0" />
+              <div className="flex-1 space-y-2">
+                <p className="font-semibold text-destructive">
+                  You&apos;ve exceeded your plan limits!
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {usagePercentage >= 100 && `You've used ${planUsage?.clips_used_this_month} of ${planUsage?.max_clips_per_month} monthly clips. `}
+                  {storagePercentage >= 100 && `Storage is full (${planUsage?.storage?.used_formatted} / ${planUsage?.storage?.limit_formatted}). `}
+                  You cannot create new clips until you upgrade or delete existing clips.
+                </p>
+                <div className="flex gap-2 mt-2">
+                  <Button asChild variant="default" size="sm">
+                    <Link href="/pricing">
+                      <TrendingUp className="h-4 w-4 mr-2" />
+                      Upgrade Plan
+                    </Link>
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* High Usage Warnings (not over limit) */}
+        {(isHighUsage || isHighStorage) && usagePercentage < 100 && storagePercentage < 100 && (
           <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 space-y-3">
             <div className="flex items-start gap-3">
               <Zap className="h-5 w-5 text-destructive mt-0.5 flex-shrink-0" />
               <div className="flex-1 space-y-2">
                 <p className="font-semibold text-destructive">
-                  {isNearLimit
-                    ? "You're almost out of clips this month!"
-                    : "You're running low on clips this month"}
+                  {isNearLimit || isNearStorageLimit
+                    ? "You're almost at your limit!"
+                    : "You're running low on capacity"}
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  {isNearLimit
-                    ? `Only ${remainingClips} clip${remainingClips !== 1 ? "s" : ""} remaining. Upgrade to Pro for more clips!`
-                    : `You've used ${Math.round(usagePercentage)}% of your monthly limit.`}
+                  {isNearLimit && `Only ${remainingClips} clip${remainingClips !== 1 ? "s" : ""} remaining this month. `}
+                  {isNearStorageLimit && `Only ${planUsage.storage?.remaining_formatted} storage remaining. `}
+                  Upgrade to Pro for more capacity!
                 </p>
                 <Button asChild variant="default" size="sm" className="mt-2">
                   <Link href="/pricing">
@@ -495,7 +572,7 @@ export default function HistoryList() {
             </div>
           </div>
         )}
-        {!isHighUsage && remainingClips < 10 && (
+        {!isHighUsage && !isHighStorage && remainingClips < 10 && remainingClips > 0 && (
           <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
             <p className="text-sm text-muted-foreground">
               <span className="font-semibold text-foreground">
@@ -616,6 +693,7 @@ export default function HistoryList() {
               </TableHead>
               <TableHead className="w-[400px]">Video Details</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Size</TableHead>
               <TableHead>Date</TableHead>
               <TableHead className="w-[100px] text-right">Actions</TableHead>
             </TableRow>
@@ -726,6 +804,9 @@ export default function HistoryList() {
                       status={v.status}
                       clipsCount={v.clips_count}
                     />
+                  </TableCell>
+                  <TableCell className="text-muted-foreground text-sm">
+                    {v.total_size_formatted || "—"}
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">
                     {dateStr}

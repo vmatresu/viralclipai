@@ -191,12 +191,12 @@ async fn process_render_clip_inner(
     .await?;
 
     // Increment completed clips count in Firestore
-    let video_repo =
-        vclip_firestore::VideoRepository::new(ctx.firestore.clone(), &job.user_id);
+    let video_repo = vclip_firestore::VideoRepository::new(ctx.firestore.clone(), &job.user_id);
     if let Err(e) = video_repo.increment_completed_clips(&job.video_id).await {
         tracing::warn!(
             "Failed to increment completed clips for video {}: {}",
-            job.video_id, e
+            job.video_id,
+            e
         );
     }
 
@@ -225,10 +225,7 @@ async fn download_video_for_render(
     let video_key = format!("{}/{}/source.mp4", job.user_id, job.video_id);
     match ctx.storage.download_file(&video_key, &video_file).await {
         Ok(_) => {
-            info!(
-                "Downloaded video from R2 for render job: {}",
-                job.video_id
-            );
+            info!("Downloaded video from R2 for render job: {}", job.video_id);
             Ok(video_file)
         }
         Err(e) => {

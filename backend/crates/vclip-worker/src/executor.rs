@@ -198,15 +198,8 @@ impl JobExecutor {
 
             tokio::spawn(async move {
                 let _permit = permit;
-                Self::execute_job(
-                    ctx,
-                    queue,
-                    message_id,
-                    job,
-                    video_processor,
-                    consumer_name,
-                )
-                .await;
+                Self::execute_job(ctx, queue, message_id, job, video_processor, consumer_name)
+                    .await;
             });
         }
 
@@ -230,27 +223,33 @@ impl JobExecutor {
         let hb_queue = Arc::clone(&queue);
         let hb_message_id = message_id.clone();
         let hb_consumer = consumer_name.clone();
-        let hb_interval = ctx.config.job_heartbeat_interval.max(Duration::from_secs(1));
+        let hb_interval = ctx
+            .config
+            .job_heartbeat_interval
+            .max(Duration::from_secs(1));
         let heartbeat_task = tokio::spawn(async move {
-            use crate::retry::{retry_async, RetryConfig, FailureTracker};
-            
+            use crate::retry::{retry_async, FailureTracker, RetryConfig};
+
             let mut ticker = tokio::time::interval(hb_interval);
             let mut failure_tracker = FailureTracker::new(5);
             let retry_config = RetryConfig::new("heartbeat")
                 .with_max_retries(3)
                 .with_base_delay(Duration::from_millis(100));
-            
+
             loop {
                 ticker.tick().await;
-                
+
                 let queue_ref = &hb_queue;
                 let consumer_ref = &hb_consumer;
                 let message_ref = &hb_message_id;
-                
+
                 let result = retry_async(&retry_config, || async {
-                    queue_ref.refresh_visibility(consumer_ref, message_ref).await
-                }).await;
-                
+                    queue_ref
+                        .refresh_visibility(consumer_ref, message_ref)
+                        .await
+                })
+                .await;
+
                 match result {
                     crate::retry::RetryResult::Success(()) => {
                         failure_tracker.record_success();
@@ -308,18 +307,16 @@ impl JobExecutor {
                         QueueJob::ReprocessScenes(j) => (j.user_id.clone(), j.video_id.clone()),
                         QueueJob::RenderSceneStyle(j) => (j.user_id.clone(), j.video_id.clone()),
                     };
-                    let video_repo = vclip_firestore::VideoRepository::new(
-                        ctx.firestore.clone(),
-                        &user_id,
-                    );
+                    let video_repo =
+                        vclip_firestore::VideoRepository::new(ctx.firestore.clone(), &user_id);
                     if let Err(fail_err) = video_repo
-                        .fail(&video_id, &format!("Job failed after {} retries: {}", max_retries, e))
+                        .fail(
+                            &video_id,
+                            &format!("Job failed after {} retries: {}", max_retries, e),
+                        )
                         .await
                     {
-                        error!(
-                            "Failed to mark video {} as failed: {}",
-                            video_id, fail_err
-                        );
+                        error!("Failed to mark video {} as failed: {}", video_id, fail_err);
                     } else {
                         info!("Marked video {} as failed after max retries", video_id);
                     }

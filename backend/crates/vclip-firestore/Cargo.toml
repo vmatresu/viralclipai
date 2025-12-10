@@ -18,6 +18,7 @@ reqwest = { workspace = true }
 gcp_auth = { workspace = true }
 chrono = { workspace = true }
 metrics = { workspace = true }
+urlencoding = "2.1"
 
 [dev-dependencies]
 tokio-test = { workspace = true }

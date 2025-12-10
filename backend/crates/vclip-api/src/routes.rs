@@ -9,9 +9,10 @@ use tower_http::limit::RequestBodyLimitLayer;
 use crate::handlers::{health, ready};
 use crate::handlers::admin::{
     enqueue_synthetic_job, get_queue_status, get_system_info,
-    get_user, list_users, update_user_plan, update_user_usage,
+    get_user, list_users, recalculate_user_storage, update_user_plan, update_user_usage,
 };
 use crate::handlers::settings::{get_settings, update_settings};
+use crate::handlers::storage::{check_storage_quota, get_storage_quota};
 use crate::handlers::videos::{
     bulk_delete_clips, bulk_delete_videos, delete_all_clips, delete_clip, delete_video, get_video_highlights, get_video_info,
     get_video_scene_styles, list_user_videos, reprocess_scenes, stream_clip, update_video_title,
@@ -50,6 +51,10 @@ pub fn create_router(state: AppState, metrics_handle: Option<PrometheusHandle>) 
         .route("/settings", get(get_settings))
         .route("/settings", post(update_settings));
 
+    let storage_routes = Router::new()
+        .route("/storage/quota", get(get_storage_quota))
+        .route("/storage/check", post(check_storage_quota));
+
     // Admin routes for canary testing and user management (superadmin only)
     let admin_routes = Router::new()
         .route("/admin/jobs/synthetic", post(enqueue_synthetic_job))
@@ -59,7 +64,9 @@ pub fn create_router(state: AppState, metrics_handle: Option<PrometheusHandle>) 
         .route("/admin/users", get(list_users))
         .route("/admin/users/:uid", get(get_user))
         .route("/admin/users/:uid/plan", patch(update_user_plan))
-        .route("/admin/users/:uid/usage", patch(update_user_usage));
+        .route("/admin/users/:uid/usage", patch(update_user_usage))
+        // Storage management
+        .route("/admin/users/:uid/storage/recalculate", post(recalculate_user_storage));
 
     // Create rate limiter for API routes
     let rate_limiter = std::sync::Arc::new(RateLimiterCache::new(state.config.rate_limit_rps));
@@ -67,6 +74,7 @@ pub fn create_router(state: AppState, metrics_handle: Option<PrometheusHandle>) 
     let api_routes = Router::new()
         .merge(video_routes)
         .merge(settings_routes)
+        .merge(storage_routes)
         .merge(admin_routes)
         .layer(middleware::from_fn_with_state(
             rate_limiter.clone(),

@@ -231,6 +231,82 @@ impl FirestoreClient {
         }
     }
 
+    /// Update a document with an updateTime precondition to avoid lost updates.
+    ///
+    /// This is useful for optimistic concurrency control where concurrent writers
+    /// may contend on the same document.
+    pub async fn update_document_with_precondition(
+        &self,
+        collection: &str,
+        doc_id: &str,
+        fields: HashMap<String, Value>,
+        update_mask: Option<Vec<String>>,
+        update_time: Option<&str>,
+    ) -> FirestoreResult<Document> {
+        let mut url = self.document_path(collection, doc_id);
+        let mut params: Vec<String> = Vec::new();
+
+        if let Some(mask) = update_mask {
+            params.extend(
+                mask.iter()
+                    .map(|f| format!("updateMask.fieldPaths={}", f)),
+            );
+        }
+
+        if let Some(ts) = update_time {
+            params.push(format!(
+                "currentDocument.updateTime={}",
+                urlencoding::encode(ts)
+            ));
+        }
+
+        if !params.is_empty() {
+            url = format!("{}?{}", url, params.join("&"));
+        }
+
+        let token = self.get_token().await?;
+
+        let body = Document {
+            name: None,
+            fields: Some(fields),
+            create_time: None,
+            update_time: None,
+        };
+
+        let response = self
+            .http
+            .patch(&url)
+            .bearer_auth(&token)
+            .json(&body)
+            .send()
+            .await?;
+
+        match response.status() {
+            StatusCode::OK => {
+                let doc: Document = response.json().await?;
+                Ok(doc)
+            }
+            StatusCode::PRECONDITION_FAILED | StatusCode::CONFLICT => {
+                let body = response.text().await.unwrap_or_default();
+                Err(FirestoreError::PreconditionFailed(format!(
+                    "PATCH {} precondition failed: {}",
+                    url, body
+                )))
+            }
+            StatusCode::NOT_FOUND => Err(FirestoreError::not_found(format!(
+                "{}/{}",
+                collection, doc_id
+            ))),
+            status => {
+                let body = response.text().await.unwrap_or_default();
+                Err(FirestoreError::request_failed(format!(
+                    "PATCH {} failed with {}: {}",
+                    url, status, body
+                )))
+            }
+        }
+    }
+
     /// Delete a document.
     pub async fn delete_document(&self, collection: &str, doc_id: &str) -> FirestoreResult<()> {
         let url = self.document_path(collection, doc_id);

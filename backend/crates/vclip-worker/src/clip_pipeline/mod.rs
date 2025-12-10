@@ -10,13 +10,13 @@ use vclip_queue::ProcessVideoJob;
 use crate::error::WorkerResult;
 use crate::processor::{AnalysisData, EnhancedProcessingContext};
 
-pub mod tasks;
-pub mod scene;
 pub mod clip;
+pub mod scene;
+pub mod tasks;
 
-pub use scene::SceneProcessingResults;
-pub use scene::process_scene;
 pub use clip::process_single_clip;
+pub use scene::process_scene;
+pub use scene::SceneProcessingResults;
 
 pub struct ClipProcessingResults {
     pub total_processed: usize,
@@ -72,20 +72,17 @@ pub async fn process_clips(
     }
 
     // Load existing completed clips to enable skip-on-resume.
-    let existing_completed: HashSet<String> = match ClipRepository::new(
-        ctx.firestore.clone(),
-        &job.user_id,
-        job.video_id.clone(),
-    )
-    .list(Some(ClipStatus::Completed))
-    .await
-    {
-        Ok(clips) => clips.into_iter().map(|c| c.clip_id).collect(),
-        Err(e) => {
-            info!("Failed to list completed clips (will process all): {}", e);
-            HashSet::new()
-        }
-    };
+    let existing_completed: HashSet<String> =
+        match ClipRepository::new(ctx.firestore.clone(), &job.user_id, job.video_id.clone())
+            .list(Some(ClipStatus::Completed))
+            .await
+        {
+            Ok(clips) => clips.into_iter().map(|c| c.clip_id).collect(),
+            Err(e) => {
+                info!("Failed to list completed clips (will process all): {}", e);
+                HashSet::new()
+            }
+        };
 
     if !existing_completed.is_empty() {
         info!(
@@ -129,7 +126,10 @@ pub async fn process_clips(
         }
 
         let progress = 40 + (processed_count * 55 / total_clips) as u32;
-        ctx.progress.progress(&job.job_id, progress as u8).await.ok();
+        ctx.progress
+            .progress(&job.job_id, progress as u8)
+            .await
+            .ok();
     }
 
     Ok(ClipProcessingResults {
@@ -137,4 +137,3 @@ pub async fn process_clips(
         completed_count: completed_clips,
     })
 }
-

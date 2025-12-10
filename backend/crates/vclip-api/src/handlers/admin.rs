@@ -337,3 +337,49 @@ pub async fn update_user_usage(
         message: format!("Usage set to {}", request.clips_used),
     }))
 }
+
+
+/// Recalculate storage response.
+#[derive(Serialize)]
+pub struct RecalculateStorageResponse {
+    pub success: bool,
+    pub uid: String,
+    pub total_storage_bytes: u64,
+    pub total_storage_formatted: String,
+    pub total_clips: u32,
+    pub message: String,
+}
+
+/// Recalculate storage for a user (admin only).
+/// This is useful for migration or fixing inconsistent storage counts.
+pub async fn recalculate_user_storage(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(target_uid): Path<String>,
+) -> ApiResult<Json<RecalculateStorageResponse>> {
+    if !state.user_service.is_super_admin(&user.uid).await? {
+        return Err(ApiError::forbidden("Admin access required"));
+    }
+
+    let (total_bytes, total_clips) = state.user_service
+        .recalculate_storage(&target_uid)
+        .await?;
+
+    info!(
+        "Admin {} recalculated storage for user {}: {} bytes, {} clips",
+        user.uid, target_uid, total_bytes, total_clips
+    );
+
+    Ok(Json(RecalculateStorageResponse {
+        success: true,
+        uid: target_uid,
+        total_storage_bytes: total_bytes,
+        total_storage_formatted: vclip_models::format_bytes(total_bytes),
+        total_clips,
+        message: format!(
+            "Storage recalculated: {} ({} clips)",
+            vclip_models::format_bytes(total_bytes),
+            total_clips
+        ),
+    }))
+}

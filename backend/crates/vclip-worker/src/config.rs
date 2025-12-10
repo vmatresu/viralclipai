@@ -62,8 +62,7 @@ impl WorkerConfig {
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(30),
             ),
-            work_dir: std::env::var("WORKER_WORK_DIR")
-                .unwrap_or_else(|_| "/tmp/vclip".to_string()),
+            work_dir: std::env::var("WORKER_WORK_DIR").unwrap_or_else(|_| "/tmp/vclip".to_string()),
             claim_interval: Duration::from_secs(
                 std::env::var("WORKER_CLAIM_INTERVAL_SECS")
                     .ok()

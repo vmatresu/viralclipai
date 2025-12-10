@@ -50,7 +50,11 @@ impl SourceVideoCoordinator {
     ///
     /// Atomically increments the active job count and sets/refreshes the TTL.
     /// Returns the new active job count.
-    pub async fn job_started(&self, user_id: &str, video_id: &str) -> Result<i64, redis::RedisError> {
+    pub async fn job_started(
+        &self,
+        user_id: &str,
+        video_id: &str,
+    ) -> Result<i64, redis::RedisError> {
         let mut conn = self.client.get_multiplexed_async_connection().await?;
         let key = Self::active_jobs_key(user_id, video_id);
 
@@ -71,7 +75,11 @@ impl SourceVideoCoordinator {
     ///
     /// Atomically decrements the active job count.
     /// Returns true if this was the last job (count reached 0) and cleanup should occur.
-    pub async fn job_finished(&self, user_id: &str, video_id: &str) -> Result<bool, redis::RedisError> {
+    pub async fn job_finished(
+        &self,
+        user_id: &str,
+        video_id: &str,
+    ) -> Result<bool, redis::RedisError> {
         let mut conn = self.client.get_multiplexed_async_connection().await?;
         let key = Self::active_jobs_key(user_id, video_id);
 
@@ -87,10 +95,7 @@ impl SourceVideoCoordinator {
         if remaining <= 0 {
             // Clean up the key
             let _: () = conn.del(&key).await?;
-            info!(
-                video_id = video_id,
-                "Last job complete, cleanup authorized"
-            );
+            info!(video_id = video_id, "Last job complete, cleanup authorized");
             Ok(true)
         } else {
             Ok(false)
@@ -102,10 +107,7 @@ impl SourceVideoCoordinator {
     /// This should be called when `job_finished` returns true.
     pub async fn cleanup_work_dir(work_dir: &Path) -> Result<(), std::io::Error> {
         if work_dir.exists() {
-            info!(
-                "Cleaning up work directory: {}",
-                work_dir.display()
-            );
+            info!("Cleaning up work directory: {}", work_dir.display());
             tokio::fs::remove_dir_all(work_dir).await?;
         }
         Ok(())
@@ -115,7 +117,11 @@ impl SourceVideoCoordinator {
     ///
     /// Useful for debugging and monitoring.
     #[allow(dead_code)]
-    pub async fn get_active_count(&self, user_id: &str, video_id: &str) -> Result<i64, redis::RedisError> {
+    pub async fn get_active_count(
+        &self,
+        user_id: &str,
+        video_id: &str,
+    ) -> Result<i64, redis::RedisError> {
         let mut conn = self.client.get_multiplexed_async_connection().await?;
         let key = Self::active_jobs_key(user_id, video_id);
         let count: Option<i64> = conn.get(&key).await?;
@@ -127,14 +133,15 @@ impl SourceVideoCoordinator {
     /// This can be used by an admin/cleanup job to handle orphaned keys
     /// from crashed workers.
     #[allow(dead_code)]
-    pub async fn force_cleanup(&self, user_id: &str, video_id: &str) -> Result<(), redis::RedisError> {
+    pub async fn force_cleanup(
+        &self,
+        user_id: &str,
+        video_id: &str,
+    ) -> Result<(), redis::RedisError> {
         let mut conn = self.client.get_multiplexed_async_connection().await?;
         let key = Self::active_jobs_key(user_id, video_id);
 
-        warn!(
-            video_id = video_id,
-            "Force cleaning up active jobs key"
-        );
+        warn!(video_id = video_id, "Force cleaning up active jobs key");
 
         let _: () = conn.del(&key).await?;
         Ok(())
@@ -172,7 +179,10 @@ mod tests {
         assert!(should_cleanup);
 
         // Verify count is 0
-        let count = coordinator.get_active_count(user_id, video_id).await.unwrap();
+        let count = coordinator
+            .get_active_count(user_id, video_id)
+            .await
+            .unwrap();
         assert_eq!(count, 0);
     }
 }

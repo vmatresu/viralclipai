@@ -19,6 +19,27 @@ pub struct UserSettingsResponse {
     pub clips_used_this_month: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    /// Storage usage information
+    pub storage: StorageInfo,
+}
+
+/// Storage usage information for the user.
+#[derive(Serialize)]
+pub struct StorageInfo {
+    /// Total storage used in bytes.
+    pub used_bytes: u64,
+    /// Storage limit in bytes.
+    pub limit_bytes: u64,
+    /// Total number of clips.
+    pub total_clips: u32,
+    /// Usage percentage (0-100).
+    pub percentage: f64,
+    /// Human-readable used storage.
+    pub used_formatted: String,
+    /// Human-readable storage limit.
+    pub limit_formatted: String,
+    /// Human-readable remaining storage.
+    pub remaining_formatted: String,
 }
 
 /// Get user settings.
@@ -34,6 +55,9 @@ pub async fn get_settings(
     
     // Get monthly usage
     let used = state.user_service.get_monthly_usage(&user.uid).await?;
+    
+    // Get storage usage
+    let storage_usage = state.user_service.get_storage_usage(&user.uid).await?;
     
     // Check if super admin
     let role = if state.user_service.is_super_admin(&user.uid).await? {
@@ -63,6 +87,15 @@ pub async fn get_settings(
         max_clips_per_month: limits.max_clips_per_month,
         clips_used_this_month: used,
         role,
+        storage: StorageInfo {
+            used_bytes: storage_usage.total_bytes,
+            limit_bytes: storage_usage.limit_bytes,
+            total_clips: storage_usage.total_clips,
+            percentage: storage_usage.percentage(),
+            used_formatted: storage_usage.format_total(),
+            limit_formatted: storage_usage.format_limit(),
+            remaining_formatted: storage_usage.format_remaining(),
+        },
     }))
 }
 

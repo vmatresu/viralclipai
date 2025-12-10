@@ -37,6 +37,9 @@ pub enum FirestoreError {
 
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+
+    #[error("Precondition failed: {0}")]
+    PreconditionFailed(String),
 }
 
 impl FirestoreError {
@@ -58,5 +61,15 @@ impl FirestoreError {
             self,
             FirestoreError::Network(_) | FirestoreError::RateLimited(_)
         )
+    }
+
+    /// True if the error was caused by a failed precondition (e.g., updateTime mismatch).
+    pub fn is_precondition_failed(&self) -> bool {
+        matches!(self, FirestoreError::PreconditionFailed(_))
+            || matches!(
+                self,
+                FirestoreError::RequestFailed(msg)
+                if msg.contains("FAILED_PRECONDITION") || msg.contains("Precondition")
+            )
     }
 }

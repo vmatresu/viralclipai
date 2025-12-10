@@ -7,7 +7,10 @@ use vclip_worker::WorkerConfig;
 async fn main() -> anyhow::Result<()> {
     let config = WorkerConfig::from_env();
 
-    println!("worker-selfcheck: starting with work_dir={}", config.work_dir);
+    println!(
+        "worker-selfcheck: starting with work_dir={}",
+        config.work_dir
+    );
     ensure_workdir(&config.work_dir).await?;
     ensure_ffmpeg()?;
     ensure_env_present(&["REDIS_URL"])?;
@@ -29,7 +32,10 @@ fn ensure_ffmpeg() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("ffmpeg not available: {}", e))?;
 
     if !output.status.success() {
-        return Err(anyhow::anyhow!("ffmpeg -version failed: {:?}", output.status));
+        return Err(anyhow::anyhow!(
+            "ffmpeg -version failed: {:?}",
+            output.status
+        ));
     }
     Ok(())
 }
@@ -42,4 +48,3 @@ fn ensure_env_present(vars: &[&str]) -> anyhow::Result<()> {
     }
     Ok(())
 }
-

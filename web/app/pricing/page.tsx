@@ -10,6 +10,7 @@ const plans = [
     cadence: "",
     description: "Up to 20 clips / month",
     features: [
+      "100 MB storage",
       "All AI highlight detection features",
       "Basic email support",
       "Great for testing and validation",
@@ -25,6 +26,7 @@ const plans = [
     cadence: "per month, per creator",
     description: "Up to 500 clips / month",
     features: [
+      "1 GB storage",
       "Priority processing in the queue",
       "TikTok publish integration",
       "Workspace history & reprocessing",
@@ -41,6 +43,7 @@ const plans = [
     cadence: "for custom pricing",
     description: "Higher clip limits & dedicated capacity",
     features: [
+      "5 GB storage",
       "Team accounts & shared settings",
       "Custom integrations & SLAs",
       "Dedicated support & onboarding",

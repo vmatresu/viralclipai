@@ -89,8 +89,9 @@ impl EnhancedProcessingContext {
         style_registry.register_factory(Arc::new(style_factory));
 
         // Initialize source video coordinator for distributed cleanup
-        let source_coordinator = crate::source_video_coordinator::SourceVideoCoordinator::new(&redis_url)
-            .map_err(|e| WorkerError::Queue(vclip_queue::QueueError::Redis(e)))?;
+        let source_coordinator =
+            crate::source_video_coordinator::SourceVideoCoordinator::new(&redis_url)
+                .map_err(|e| WorkerError::Queue(vclip_queue::QueueError::Redis(e)))?;
 
         Ok(Self {
             config,
@@ -229,10 +230,9 @@ impl VideoProcessor {
         let plan_path = work_dir.join("clip_plan.json");
 
         // Attempt to reuse a previously persisted plan to avoid non-determinism on retries.
-        let cached_plan = tokio::fs::read(&plan_path)
-            .await
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<crate::gemini::HighlightsResponse>(&bytes).ok());
+        let cached_plan = tokio::fs::read(&plan_path).await.ok().and_then(|bytes| {
+            serde_json::from_slice::<crate::gemini::HighlightsResponse>(&bytes).ok()
+        });
 
         let cached_present = cached_plan.is_some();
         let ai_response = if let Some(plan) = cached_plan {
@@ -383,7 +383,11 @@ impl VideoProcessor {
         completed_clips: u32,
     ) -> WorkerResult<()> {
         let video_repo = vclip_firestore::VideoRepository::new(ctx.firestore.clone(), &job.user_id);
-        let clip_repo = vclip_firestore::ClipRepository::new(ctx.firestore.clone(), &job.user_id, job.video_id.clone());
+        let clip_repo = vclip_firestore::ClipRepository::new(
+            ctx.firestore.clone(),
+            &job.user_id,
+            job.video_id.clone(),
+        );
 
         // Reconcile actual completed clips from Firestore to avoid marking completed with zero.
         let actual_completed = clip_repo
@@ -462,4 +466,3 @@ pub struct AnalysisData {
 
 // Re-export JobLogger from logging module for backward compatibility
 pub use crate::logging::JobLogger;
-

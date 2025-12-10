@@ -8,11 +8,11 @@
 //! - Graceful shutdown
 //! - New modular architecture with security and performance
 
+pub mod clip_pipeline;
 pub mod config;
 pub mod error;
 pub mod executor;
 pub mod gemini;
-pub mod clip_pipeline;
 pub mod logging;
 pub mod processor;
 pub mod render_job;
@@ -24,6 +24,5 @@ pub use config::WorkerConfig;
 pub use error::{WorkerError, WorkerResult};
 pub use executor::JobExecutor;
 pub use logging::JobLogger;
-pub use processor::{VideoProcessor, EnhancedProcessingContext};
+pub use processor::{EnhancedProcessingContext, VideoProcessor};
 pub use source_video_coordinator::SourceVideoCoordinator;
-

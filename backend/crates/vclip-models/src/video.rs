@@ -149,6 +149,10 @@ pub struct VideoMetadata {
     #[serde(default)]
     pub clips_count: u32,
 
+    /// Total size of all clips in bytes
+    #[serde(default)]
+    pub total_size_bytes: u64,
+
     /// Clips grouped by style
     #[serde(default)]
     pub clips_by_style: HashMap<String, u32>,
@@ -194,6 +198,7 @@ impl VideoMetadata {
             crop_mode: "none".to_string(),
             target_aspect: "9:16".to_string(),
             clips_count: 0,
+            total_size_bytes: 0,
             clips_by_style: HashMap::new(),
             highlights_json_key: format!("{}/{}/highlights.json", user_id, video_id),
             created_by: user_id,

@@ -5,12 +5,14 @@ import { type FormEvent, useEffect, useState } from "react";
 import { UserManagement } from "@/components/admin/UserManagement";
 import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
+import { type StorageInfo } from "@/types/storage";
 
 interface SettingsResponse {
   plan: string;
   max_clips_per_month: number;
   clips_used_this_month: number;
   role?: string;
+  storage: StorageInfo;
   settings: {
     tiktok_access_token?: string;
     tiktok_account_id?: string;
@@ -180,16 +182,69 @@ export default function SettingsPage() {
             );
           }
           if (data) {
+            const storagePercentage = data.storage?.percentage ?? 0;
+            const isHighStorage = storagePercentage >= 80;
+            const isNearLimit = storagePercentage >= 90;
+
             return (
-              <div className="space-y-1 text-sm text-muted-foreground">
-                <div>
-                  <span className="font-semibold text-foreground">Plan:</span>{" "}
-                  <span className="uppercase text-brand-600 text-xs">{data.plan}</span>
+              <div className="space-y-4">
+                <div className="space-y-1 text-sm text-muted-foreground">
+                  <div>
+                    <span className="font-semibold text-foreground">Plan:</span>{" "}
+                    <span className="uppercase text-brand-600 text-xs">
+                      {data.plan}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-semibold text-foreground">
+                      Monthly Clips:
+                    </span>{" "}
+                    {data.clips_used_this_month} / {data.max_clips_per_month}
+                  </div>
                 </div>
-                <div>
-                  <span className="font-semibold text-foreground">Monthly Clips:</span>{" "}
-                  {data.clips_used_this_month} / {data.max_clips_per_month}
-                </div>
+
+                {/* Storage Usage Section */}
+                {data.storage && (
+                  <div className="space-y-2 pt-2 border-t border-brand-100 dark:border-white/10">
+                    <div className="flex justify-between text-sm">
+                      <span className="font-semibold text-foreground">Storage</span>
+                      <span
+                        className={
+                          isHighStorage
+                            ? "text-red-500 font-semibold"
+                            : "text-muted-foreground"
+                        }
+                      >
+                        {data.storage.used_formatted} / {data.storage.limit_formatted}
+                      </span>
+                    </div>
+                    <div className="relative h-3 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className={`h-full transition-all duration-500 ${
+                          isNearLimit
+                            ? "bg-red-500"
+                            : isHighStorage
+                              ? "bg-orange-500"
+                              : "bg-brand-500"
+                        }`}
+                        style={{ width: `${Math.min(storagePercentage, 100)}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>{data.storage.total_clips} clips</span>
+                      <span>{data.storage.remaining_formatted} remaining</span>
+                    </div>
+                    {isHighStorage && (
+                      <div
+                        className={`text-xs ${isNearLimit ? "text-red-500" : "text-orange-500"}`}
+                      >
+                        {isNearLimit
+                          ? "⚠️ Storage almost full! Consider upgrading your plan or deleting old clips."
+                          : "⚠️ Storage usage is high. Consider upgrading your plan."}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           }

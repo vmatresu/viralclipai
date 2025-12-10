@@ -159,10 +159,8 @@ impl WsMessage {
     /// Create a log message.
     pub fn log(message: impl Into<String>) -> Self {
         let now = Utc::now();
-        let ts = now.format("%H:%M:%S").to_string();
-        let message = format!("[{}] {}", ts, message.into());
         WsMessage::Log {
-            message,
+            message: message.into(),
             timestamp: now,
         }
     }
