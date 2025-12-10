@@ -1,4 +1,4 @@
-import { Activity, Gauge, ScanFace, Sparkles } from "lucide-react";
+import { Activity, Crown, Gauge, ScanFace, Sparkles } from "lucide-react";
 
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
@@ -23,9 +23,34 @@ const LEGACY_TO_CURRENT: Record<LegacyAiLevel, AiLevel> = {
   premium: "active_face",
 };
 
+/** Tiers that require at least a Pro plan (Smart Face) */
+const PRO_ONLY_TIERS: AiLevel[] = ["basic_face"];
+
+/** Tiers that require a Studio plan (Active Speaker / Premium) */
+const STUDIO_ONLY_TIERS: AiLevel[] = ["active_face"];
+
+/** Check if a tier requires a paid plan */
+export function isTierGated(tier: AiLevel, userPlan?: string): boolean {
+  const hasStudioPlan = userPlan === "studio";
+  const hasProPlan = userPlan === "pro" || userPlan === "studio";
+
+  if (STUDIO_ONLY_TIERS.includes(tier) && !hasStudioPlan) return true;
+  if (PRO_ONLY_TIERS.includes(tier) && !hasProPlan) return true;
+  return false;
+}
+
+/** Get the required plan name for a tier */
+export function getRequiredPlan(tier: AiLevel): "Pro" | "Studio" | null {
+  if (STUDIO_ONLY_TIERS.includes(tier)) return "Studio";
+  if (PRO_ONLY_TIERS.includes(tier)) return "Pro";
+  return null;
+}
+
 interface AiAssistanceSliderProps {
   value: AiLevel | LegacyAiLevel;
   onChange: (value: AiLevel) => void;
+  /** User's current plan - used to show plan badges. Undefined means not logged in. */
+  userPlan?: string;
 }
 
 const steps: {
@@ -65,7 +90,7 @@ const steps: {
   },
 ];
 
-export function AiAssistanceSlider({ value, onChange }: AiAssistanceSliderProps) {
+export function AiAssistanceSlider({ value, onChange, userPlan }: AiAssistanceSliderProps) {
   const normalizedValue =
     LEGACY_TO_CURRENT[value as LegacyAiLevel] ?? (value as AiLevel | undefined);
 
@@ -76,6 +101,7 @@ export function AiAssistanceSlider({ value, onChange }: AiAssistanceSliderProps)
 
   if (!currentStep) return null;
 
+  // Allow selecting any tier - gating happens at launch time
   const handleSliderChange = (vals: number[]) => {
     const newIndex = vals[0];
     if (typeof newIndex === "number" && newIndex >= 0 && newIndex < steps.length) {
@@ -123,6 +149,8 @@ export function AiAssistanceSlider({ value, onChange }: AiAssistanceSliderProps)
           {/* Tick marks positioned at exact slider stop percentages */}
           {steps.map((step, idx) => {
             const percentage = (idx / (steps.length - 1)) * 98;
+            const planLabel = getRequiredPlan(step.value);
+            const isGated = isTierGated(step.value, userPlan);
             return (
               <button
                 key={step.value}
@@ -148,6 +176,9 @@ export function AiAssistanceSlider({ value, onChange }: AiAssistanceSliderProps)
                   )}
                 >
                   {step.shortLabel}
+                  {planLabel && isGated && (
+                    <Crown className="inline-block ml-0.5 h-2.5 w-2.5 text-amber-400" />
+                  )}
                 </span>
                 <span className="sr-only">{step.label}</span>
               </button>
@@ -160,22 +191,37 @@ export function AiAssistanceSlider({ value, onChange }: AiAssistanceSliderProps)
           {steps.map((step, idx) => {
             const Icon = step.icon;
             const isActive = idx === safeIndex;
+            const planLabel = getRequiredPlan(step.value);
+            const isGated = isTierGated(step.value, userPlan);
             return (
               <button
                 key={step.value}
                 type="button"
                 onClick={() => onChange(step.value)}
                 className={cn(
-                  "flex items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
+                  "flex items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors relative",
                   isActive
                     ? "border-brand-300 bg-brand-50 text-foreground shadow-sm dark:border-primary/60 dark:bg-primary/10 dark:text-white"
                     : "border-brand-100 bg-white text-muted-foreground hover:border-brand-200 hover:text-foreground dark:border-white/5 dark:bg-white/5 dark:text-muted-foreground dark:hover:border-white/20 dark:hover:text-white"
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" />
-                <span className="text-xs font-semibold leading-tight">
-                  {step.label}
-                </span>
+                <div className="flex flex-col">
+                  <span className="text-xs font-semibold leading-tight">
+                    {step.label}
+                  </span>
+                  {planLabel && isGated && (
+                    <span
+                      className={cn(
+                        "text-[9px] font-semibold uppercase tracking-wide flex items-center gap-0.5",
+                        planLabel === "Studio" ? "text-amber-400" : "text-blue-400"
+                      )}
+                    >
+                      <Crown className="h-2.5 w-2.5" />
+                      {planLabel}
+                    </span>
+                  )}
+                </div>
               </button>
             );
           })}

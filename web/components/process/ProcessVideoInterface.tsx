@@ -1,16 +1,26 @@
 "use client";
 
-import { ArrowRight, Link2, Sparkles } from "lucide-react";
+import { ArrowRight, Crown, Link2, Lock, Sparkles } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { analyticsEvents } from "@/lib/analytics";
+import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
 import { sanitizePrompt, validateVideoUrl } from "@/lib/security";
@@ -25,24 +35,36 @@ import { type SceneProgress } from "@/types/processing";
 
 import { DetailedProcessingStatus } from "../shared/DetailedProcessingStatus";
 
-import { AiAssistanceSlider, type AiLevel } from "./AiAssistanceSlider";
+import {
+  AiAssistanceSlider,
+  getRequiredPlan,
+  isTierGated,
+  type AiLevel,
+} from "./AiAssistanceSlider";
 import { LayoutSelector, type LayoutOption } from "./LayoutSelector";
+
+interface UserSettings {
+  plan: string;
+}
 
 type StaticFocusOption = "left" | "center" | "right";
 
 export function ProcessVideoInterface() {
   const router = useRouter();
-  const { getIdToken } = useAuth();
+  const { getIdToken, user, loading: authLoading } = useAuth();
 
   const [url, setUrl] = useState("");
   const [layout, setLayout] = useState<LayoutOption>("split");
-  const [aiLevel, setAiLevel] = useState<AiLevel>("basic_face");
+  // Default to "motion" which is available for all users (free tier)
+  const [aiLevel, setAiLevel] = useState<AiLevel>("motion");
   const [prompt, setPrompt] = useState("");
   const [exportOriginal, setExportOriginal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [shouldAnimateInput, setShouldAnimateInput] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const [staticCropSide, setStaticCropSide] = useState<StaticFocusOption>("center");
+  const [userPlan, setUserPlan] = useState<string | undefined>(undefined);
+  const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
 
   // Progress tracking state
   const [logs, setLogs] = useState<string[]>([]);
@@ -50,6 +72,30 @@ export function ProcessVideoInterface() {
   const [sceneProgress, setSceneProgress] = useState<Map<number, SceneProgress>>(
     new Map()
   );
+
+  // Load user settings to get plan info
+  const loadUserSettings = useCallback(async () => {
+    if (authLoading || !user) {
+      setUserPlan(undefined);
+      return;
+    }
+    try {
+      const token = await getIdToken();
+      if (!token) {
+        setUserPlan(undefined);
+        return;
+      }
+      const settings = await apiFetch<UserSettings>("/api/settings", { token });
+      setUserPlan(settings.plan);
+    } catch (err) {
+      frontendLogger.error("Failed to load user settings:", err);
+      setUserPlan(undefined);
+    }
+  }, [authLoading, user, getIdToken]);
+
+  useEffect(() => {
+    void loadUserSettings();
+  }, [loadUserSettings]);
 
   const predefinedPrompts = [
     {
@@ -209,6 +255,10 @@ export function ProcessVideoInterface() {
     }
   };
 
+  // Check if the selected tier requires an upgrade
+  const isSelectedTierGated = isTierGated(aiLevel, userPlan);
+  const requiredPlan = getRequiredPlan(aiLevel);
+
   const handleLaunch = async () => {
     if (!url) {
       // Validation: If no URL, focus input and trigger attention animation
@@ -218,6 +268,12 @@ export function ProcessVideoInterface() {
       setShouldAnimateInput(true);
       // Reset animation state after it plays to allow re-triggering
       setTimeout(() => setShouldAnimateInput(false), 1000);
+      return;
+    }
+
+    // Check if the selected tier requires an upgrade
+    if (isSelectedTierGated) {
+      setShowUpgradeDialog(true);
       return;
     }
 
@@ -468,7 +524,7 @@ export function ProcessVideoInterface() {
             </h3>
           </div>
           <div className="pl-11">
-            <AiAssistanceSlider value={aiLevel} onChange={setAiLevel} />
+            <AiAssistanceSlider value={aiLevel} onChange={setAiLevel} userPlan={userPlan} />
             {layout === "full" && aiLevel === "static" && (
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
@@ -536,14 +592,94 @@ export function ProcessVideoInterface() {
 
         <Button
           size="lg"
-          className="w-full md:w-auto text-lg h-14 px-8 shadow-[0_0_20px_-5px_theme(colors.primary.DEFAULT)] hover:shadow-[0_0_30px_-5px_theme(colors.primary.DEFAULT)] transition-all duration-300"
+          className={cn(
+            "w-full md:w-auto text-lg h-14 px-8 transition-all duration-300",
+            isSelectedTierGated
+              ? "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-[0_0_20px_-5px_theme(colors.amber.500)] hover:shadow-[0_0_30px_-5px_theme(colors.amber.500)]"
+              : "shadow-[0_0_20px_-5px_theme(colors.primary.DEFAULT)] hover:shadow-[0_0_30px_-5px_theme(colors.primary.DEFAULT)]"
+          )}
           onClick={handleLaunch}
           disabled={isProcessing}
         >
-          {isProcessing ? "Processing..." : "Launch Processor"}
-          {!isProcessing && <ArrowRight className="ml-2 w-5 h-5" />}
+          {isProcessing ? (
+            "Processing..."
+          ) : isSelectedTierGated ? (
+            <>
+              <Lock className="mr-2 w-5 h-5" />
+              Upgrade to {requiredPlan}
+            </>
+          ) : (
+            <>
+              Launch Processor
+              <ArrowRight className="ml-2 w-5 h-5" />
+            </>
+          )}
         </Button>
       </div>
+
+      {/* Upgrade Dialog */}
+      <Dialog open={showUpgradeDialog} onOpenChange={setShowUpgradeDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Crown className="h-5 w-5 text-amber-400" />
+              Upgrade to {requiredPlan}
+            </DialogTitle>
+            <DialogDescription className="pt-2">
+              {aiLevel === "active_face" ? (
+                <>
+                  <span className="font-semibold text-foreground">Premium AI</span> uses
+                  advanced face mesh tracking to follow whoever is actively speaking.
+                  This feature is available on the{" "}
+                  <span className="font-semibold text-amber-400">Studio</span> plan.
+                </>
+              ) : (
+                <>
+                  <span className="font-semibold text-foreground">Smart Face</span> uses
+                  AI face detection to keep the main subject perfectly centered. This
+                  feature is available on{" "}
+                  <span className="font-semibold text-blue-400">Pro</span> and{" "}
+                  <span className="font-semibold text-amber-400">Studio</span> plans.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-3">
+              <div className="flex items-center gap-2 text-sm">
+                <Sparkles className="h-4 w-4 text-primary" />
+                <span>Unlock premium AI detection tiers</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <Sparkles className="h-4 w-4 text-primary" />
+                <span>Process more videos per month</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <Sparkles className="h-4 w-4 text-primary" />
+                <span>Priority processing queue</span>
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowUpgradeDialog(false)}
+              className="w-full sm:w-auto"
+            >
+              Maybe later
+            </Button>
+            <Button
+              asChild
+              className="w-full sm:w-auto bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
+            >
+              <Link href="/pricing">
+                <Crown className="mr-2 h-4 w-4" />
+                View Plans
+              </Link>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
