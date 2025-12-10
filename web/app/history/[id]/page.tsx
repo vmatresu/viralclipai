@@ -210,12 +210,17 @@ export default function HistoryDetailPage() {
   const historyClips = useMemo<HistoryClip[]>(() => {
     if (!clips || clips.length === 0) return [];
     return clips.flatMap((clip) => {
+      // Use backend scene_id if available (from clip metadata)
+      // For backward compatibility, fall back to parsing from filename
       const parsed = parseClipIdentifier(clip);
-      if (!parsed) return [];
+      if (!parsed) {
+        // If we can't parse scene info, skip this clip
+        return [];
+      }
       const timing = highlightTimingById.get(parsed.sceneId);
       return [
         {
-          id: clip.name ?? `${parsed.sceneId}-${parsed.style}`,
+          id: clip.clip_id, // Use clip_id as primary identifier
           sceneId: parsed.sceneId,
           sceneTitle: sceneTitleById.get(parsed.sceneId),
           startSec: timing?.start ?? 0,
@@ -224,7 +229,7 @@ export default function HistoryDetailPage() {
           thumbnailUrl: clip.thumbnail ?? "",
           videoUrl: clip.direct_url ?? clip.url,
           size: clip.size,
-          clipName: clip.name,
+          clipName: clip.name, // Keep filename for API calls
           directUrl: clip.direct_url,
           title: clip.title,
         },

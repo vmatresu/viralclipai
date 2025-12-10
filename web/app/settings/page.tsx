@@ -186,20 +186,37 @@ export default function SettingsPage() {
             const isHighStorage = storagePercentage >= 80;
             const isNearLimit = storagePercentage >= 90;
 
+            const isOverClipLimit =
+              data.clips_used_this_month > data.max_clips_per_month;
+            const isOverStorage =
+              data.storage && data.storage.used_bytes > data.storage.limit_bytes;
+
             return (
               <div className="space-y-4">
                 <div className="space-y-1 text-sm text-muted-foreground">
                   <div>
                     <span className="font-semibold text-foreground">Plan:</span>{" "}
-                    <span className="uppercase text-brand-600 text-xs">
+                    <span className="uppercase text-brand-600 text-xs font-bold">
                       {data.plan}
                     </span>
                   </div>
                   <div>
                     <span className="font-semibold text-foreground">
-                      Monthly Clips:
+                      Clips This Month:
                     </span>{" "}
-                    {data.clips_used_this_month} / {data.max_clips_per_month}
+                    <span
+                      className={isOverClipLimit ? "text-red-500 font-semibold" : ""}
+                    >
+                      {data.clips_used_this_month}
+                    </span>
+                    {" / "}
+                    <span className="text-foreground">{data.max_clips_per_month}</span>
+                    {isOverClipLimit && (
+                      <span className="text-red-500 text-xs ml-2">
+                        ({data.clips_used_this_month - data.max_clips_per_month} over
+                        limit)
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -231,16 +248,24 @@ export default function SettingsPage() {
                       />
                     </div>
                     <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>{data.storage.total_clips} clips</span>
-                      <span>{data.storage.remaining_formatted} remaining</span>
-                    </div>
-                    {isHighStorage && (
-                      <div
-                        className={`text-xs ${isNearLimit ? "text-red-500" : "text-orange-500"}`}
+                      <span>{data.storage.total_clips} clips stored</span>
+                      <span
+                        className={isOverStorage ? "text-red-500 font-semibold" : ""}
                       >
-                        {isNearLimit
-                          ? "⚠️ Storage almost full! Consider upgrading your plan or deleting old clips."
-                          : "⚠️ Storage usage is high. Consider upgrading your plan."}
+                        {isOverStorage
+                          ? `${data.storage.remaining_formatted.replace("-", "")} over limit`
+                          : `${data.storage.remaining_formatted} remaining`}
+                      </span>
+                    </div>
+                    {(isHighStorage || isOverStorage) && (
+                      <div
+                        className={`text-xs ${isNearLimit || isOverStorage ? "text-red-500" : "text-orange-500"}`}
+                      >
+                        {isOverStorage
+                          ? "🚨 Storage limit exceeded! Please upgrade your plan or delete clips to continue."
+                          : isNearLimit
+                            ? "⚠️ Storage almost full! Upgrade your plan or delete old clips."
+                            : "⚠️ Storage usage is high. Consider upgrading your plan."}
                       </div>
                     )}
                   </div>

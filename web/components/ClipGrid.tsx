@@ -47,11 +47,11 @@ function cacheBustToken(clip: Clip): string {
 }
 
 /**
- * Get a unique key for a clip, preferring clip_id over name.
- * This prevents key collisions when clips have the same filename.
+ * Get a unique key for a clip using its clip_id.
+ * This is the stable identifier for all UI state management.
  */
 function getClipKey(clip: Clip): string {
-  return clip.clip_id ?? clip.name;
+  return clip.clip_id;
 }
 
 function buildDownloadUrl(clip: Clip): string {
@@ -152,7 +152,8 @@ function VideoPlayer({ id, clip, onRef, onPlay, getVideoUrl }: VideoPlayerProps)
 }
 
 export interface Clip {
-  name: string;
+  clip_id: string; // Primary identifier
+  name: string; // Filename for legacy endpoints
   title: string;
   description: string;
   url: string;
@@ -162,8 +163,6 @@ export interface Clip {
   style?: string;
   completed_at?: string | null;
   updated_at?: string | null;
-  /** Unique clip ID for share API */
-  clip_id?: string;
 }
 
 interface ClipGridProps {
@@ -201,11 +200,11 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
 
   // Function to get video URL - prefer direct_url (presigned R2) for faster loading
   const getVideoUrl = async (clip: Clip): Promise<string> => {
-    const clipName = clip.name;
+    const clipKey = getClipKey(clip);
 
     // If it's already a blob URL, return it
-    if (blobUrls.current[clipName]) {
-      return blobUrls.current[clipName];
+    if (blobUrls.current[clipKey]) {
+      return blobUrls.current[clipKey];
     }
 
     // Prefer direct_url (presigned R2 URL) for much faster loading
@@ -238,7 +237,7 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
 
         const blob = await response.blob();
         const blobUrl = URL.createObjectURL(blob);
-        blobUrls.current[clipName] = blobUrl;
+        blobUrls.current[clipKey] = blobUrl;
         return blobUrl;
       } catch (error) {
         frontendLogger.error("Failed to load video", error);
@@ -250,14 +249,14 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
     return clip.url;
   };
 
-  const handlePlay = (clipName: string) => {
-    if (playingClip && playingClip !== clipName) {
+  const handlePlay = (clipKey: string) => {
+    if (playingClip && playingClip !== clipKey) {
       const prevVideo = videoRefs.current[playingClip];
       if (prevVideo) {
         prevVideo.pause();
       }
     }
-    setPlayingClip(clipName);
+    setPlayingClip(clipKey);
   };
 
   // Bulk selection functions
@@ -265,17 +264,17 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
     if (selectedClips.size === clips.length) {
       setSelectedClips(new Set());
     } else {
-      setSelectedClips(new Set(clips.map((clip) => clip.name)));
+      setSelectedClips(new Set(clips.map(getClipKey)));
     }
   };
 
-  const handleClipSelect = (clipName: string) => {
+  const handleClipSelect = (clipKey: string) => {
     setSelectedClips((prev) => {
       const next = new Set(prev);
-      if (next.has(clipName)) {
-        next.delete(clipName);
+      if (next.has(clipKey)) {
+        next.delete(clipKey);
       } else {
-        next.add(clipName);
+        next.add(clipKey);
       }
       return next;
     });
@@ -305,17 +304,23 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
         return;
       }
 
-      const result = await bulkDeleteClips(videoId, Array.from(selectedClips), token);
+      // Map clip_ids to filenames for API call
+      const clipKeyToName = new Map(clips.map((c) => [getClipKey(c), c.name]));
+      const clipNames = Array.from(selectedClips)
+        .map((key) => clipKeyToName.get(key))
+        .filter((name): name is string => Boolean(name));
+
+      const result = await bulkDeleteClips(videoId, clipNames, token);
 
       // Invalidate cache since clips have changed
       void invalidateClipsCache(videoId);
 
       // Clean up blob URLs for deleted clips
-      selectedClips.forEach((clipName) => {
-        const blobUrl = blobUrls.current[clipName];
+      selectedClips.forEach((clipKey) => {
+        const blobUrl = blobUrls.current[clipKey];
         if (blobUrl) {
           URL.revokeObjectURL(blobUrl);
-          delete blobUrls.current[clipName];
+          delete blobUrls.current[clipKey];
         }
       });
 
@@ -329,8 +334,8 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
       }
 
       // Remove video refs for deleted clips
-      selectedClips.forEach((clipName) => {
-        delete videoRefs.current[clipName];
+      selectedClips.forEach((clipKey) => {
+        delete videoRefs.current[clipKey];
       });
 
       const successful = result.deleted_count;
@@ -351,8 +356,8 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
       // Clear selection
       setSelectedClips(new Set());
 
-      // Notify parent component
-      selectedClips.forEach((clipName) => {
+      // Notify parent component (using filenames for backward compatibility)
+      clipNames.forEach((clipName) => {
         if (onClipDeleted) {
           onClipDeleted(clipName);
         }
@@ -385,10 +390,11 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
 
       // Clean up blob URLs for all clips
       clips.forEach((clip) => {
-        const blobUrl = blobUrls.current[clip.name];
+        const clipKey = getClipKey(clip);
+        const blobUrl = blobUrls.current[clipKey];
         if (blobUrl) {
           URL.revokeObjectURL(blobUrl);
-          delete blobUrls.current[clip.name];
+          delete blobUrls.current[clipKey];
         }
       });
 
@@ -448,7 +454,8 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
   const handleDeleteConfirm = async () => {
     if (!clipToDelete) return;
 
-    setDeletingClip(clipToDelete.name);
+    const clipKey = getClipKey(clipToDelete);
+    setDeletingClip(clipKey);
     try {
       const token = await getIdToken();
       if (!token) {
@@ -462,15 +469,15 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
       void invalidateClipsCache(videoId);
 
       // Clean up blob URL if it exists
-      const blobUrl = blobUrls.current[clipToDelete.name];
+      const blobUrl = blobUrls.current[clipKey];
       if (blobUrl) {
         URL.revokeObjectURL(blobUrl);
-        delete blobUrls.current[clipToDelete.name];
+        delete blobUrls.current[clipKey];
       }
 
       // Stop playing if this clip was playing
-      if (playingClip === clipToDelete.name) {
-        const video = videoRefs.current[clipToDelete.name];
+      if (playingClip === clipKey) {
+        const video = videoRefs.current[clipKey];
         if (video) {
           video.pause();
         }
@@ -478,7 +485,7 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
       }
 
       // Remove video ref
-      delete videoRefs.current[clipToDelete.name];
+      delete videoRefs.current[clipKey];
 
       log(`Clip "${clipToDelete.title}" deleted successfully.`, "success");
       toast.success("Clip deleted successfully");
@@ -501,8 +508,9 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
   };
 
   async function publishToTikTok(clip: Clip, title: string, description: string) {
+    const clipKey = getClipKey(clip);
     try {
-      setPublishing(clip.name);
+      setPublishing(clipKey);
       const token = await getIdToken();
       if (!token) {
         toast.error("Please sign in to publish clips to TikTok.");
@@ -526,7 +534,7 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
 
       // Track successful TikTok publish
       void analyticsEvents.clipPublishedTikTok({
-        clipId: clip.name,
+        clipId: clip.clip_id,
         clipName: clip.name,
         success: true,
       });
@@ -538,7 +546,7 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
 
       // Track failed TikTok publish
       void analyticsEvents.clipPublishedFailed({
-        clipId: clip.name,
+        clipId: clip.clip_id,
         clipName: clip.name,
         errorType: errorMessage,
       });
@@ -610,12 +618,13 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {clips.map((clip, index) => {
           const uniqueId = `clip-${index}`;
-          const isPlaying = playingClip === clip.name;
-          const isSelected = selectedClips.has(clip.name);
+          const clipKey = getClipKey(clip);
+          const isPlaying = playingClip === clipKey;
+          const isSelected = selectedClips.has(clipKey);
 
           return (
             <Card
-              key={clip.name}
+              key={clipKey}
               className={`bg-card border-border/50 overflow-hidden hover:shadow-xl hover:border-primary/20 transition-all group flex flex-col rounded-xl ${
                 isSelected ? "ring-2 ring-primary" : ""
               }`}
@@ -669,11 +678,11 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
                         variant="ghost"
                         size="sm"
                         className="h-6 w-6 p-0 flex-shrink-0 mt-1"
-                        onClick={() => handleClipSelect(clip.name)}
+                        onClick={() => handleClipSelect(clipKey)}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
-                            handleClipSelect(clip.name);
+                            handleClipSelect(clipKey);
                           }
                         }}
                         aria-label={
@@ -759,7 +768,7 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
                       const styleMatch = clip.name.match(/_([^_]+)\.(mp4|jpg)$/);
                       const clipStyle = styleMatch?.[1] ?? "unknown";
                       void analyticsEvents.clipDownloaded({
-                        clipId: clip.name,
+                        clipId: clip.clip_id,
                         clipName: clip.name,
                         style: clipStyle,
                       });
@@ -822,7 +831,7 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
                     className="shrink-0"
                     onClick={async () => {
                       // Use share URL (persistent) if clip_id is available, otherwise fallback to direct URL
-                      const clipId = clip.clip_id ?? clip.name;
+                      const clipId = clip.clip_id;
                       try {
                         const token = await getIdToken();
                         if (token && clipId) {
@@ -838,7 +847,7 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
                           await navigator.clipboard.writeText(urlToCopy);
                           toast.success("Direct link copied to clipboard");
                           void analyticsEvents.clipCopiedLink({
-                            clipId: clip.name,
+                            clipId: clip.clip_id,
                             clipName: clip.name,
                           });
                         }

@@ -462,19 +462,6 @@ impl DeliveryUrlGenerator {
         })
     }
 
-    /// Generate Worker-fronted URL with signed token.
-    fn generate_worker_url(
-        &self,
-        clip_id: &str,
-        user_id: &str,
-        scope: DeliveryScope,
-        expiry: Duration,
-    ) -> StorageResult<DeliveryUrl> {
-        // For backward compatibility, delegate to the version without r2_key
-        // The Worker will need to resolve the key via other means (not recommended)
-        self.generate_worker_url_with_key(clip_id, user_id, None, scope, expiry)
-    }
-
     /// Generate Worker-fronted URL with signed token including R2 key.
     /// This enables fully stateless Worker delivery.
     pub fn generate_worker_url_with_key(

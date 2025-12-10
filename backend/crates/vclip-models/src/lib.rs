@@ -26,7 +26,7 @@ pub mod youtube_url_config;
 pub use clip::{ClipMetadata, ClipStatus, ClipTask};
 pub use detection_tier::DetectionTier;
 pub use encoding::EncodingConfig;
-pub use highlight::{Highlight, HighlightCategory};
+pub use highlight::{Highlight, HighlightCategory, HighlightsData, VideoHighlights};
 pub use job::{Job, JobId, JobState, JobType};
 pub use plan::{format_bytes, PlanLimits, PlanTier, StorageUsage};
 pub use plan::{FREE_STORAGE_LIMIT_BYTES, PRO_STORAGE_LIMIT_BYTES, STUDIO_STORAGE_LIMIT_BYTES};

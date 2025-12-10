@@ -20,7 +20,7 @@ use crate::processor::{EnhancedProcessingContext, JobLogger};
 /// Process a reprocess scenes job.
 ///
 /// This is different from `process_video_job` as it:
-/// 1. Loads existing highlights from storage (doesn't re-run AI analysis)
+/// 1. Loads existing highlights from Firestore (doesn't re-run AI analysis)
 /// 2. Filters to only the requested scene IDs
 /// 3. Downloads video from R2 or original URL (doesn't re-download from YouTube)
 /// 4. Only processes the selected scenes with the requested styles
@@ -37,16 +37,21 @@ pub async fn reprocess_scenes(
         .ok();
     ctx.progress.progress(&job.job_id, 5).await.ok();
 
-    // Load existing highlights from storage
-    let highlights = ctx
-        .storage
-        .load_highlights(&job.user_id, job.video_id.as_str())
+    // Load existing highlights from Firestore (source of truth)
+    let highlights_repo = vclip_firestore::HighlightsRepository::new(
+        ctx.firestore.clone(),
+        &job.user_id,
+    );
+    
+    let video_highlights = highlights_repo
+        .get(&job.video_id)
         .await
-        .map_err(|e| WorkerError::Storage(e))?;
+        .map_err(|e| WorkerError::Firestore(e))?
+        .ok_or_else(|| WorkerError::job_failed("Highlights not found in Firestore"))?;
 
     // Filter highlights to only requested scene IDs
     let scene_ids_set: std::collections::HashSet<_> = job.scene_ids.iter().copied().collect();
-    let selected_highlights: Vec<_> = highlights
+    let selected_highlights: Vec<_> = video_highlights
         .highlights
         .iter()
         .filter(|h| scene_ids_set.contains(&h.id))
@@ -76,12 +81,12 @@ pub async fn reprocess_scenes(
     tokio::fs::create_dir_all(&work_dir).await?;
 
     // Download source video
-    let video_file = download_source_video(ctx, job, &work_dir, &highlights).await?;
+    let video_file = download_source_video(ctx, job, &work_dir, &video_highlights).await?;
 
     ctx.progress.progress(&job.job_id, 25).await.ok();
 
-    // Generate clip tasks from selected highlights only
-    let clip_tasks = clip_pipeline::tasks::generate_clip_tasks_from_highlights(
+    // Generate clip tasks from selected highlights only (using Firestore model)
+    let clip_tasks = clip_pipeline::tasks::generate_clip_tasks_from_firestore_highlights(
         &selected_highlights,
         &job.styles,
         &job.crop_mode,
@@ -104,7 +109,7 @@ pub async fn reprocess_scenes(
         &clips_dir,
         &video_file,
         &clip_tasks,
-        &highlights,
+        &video_highlights,
         total_clips,
     )
     .await?;
@@ -137,7 +142,7 @@ async fn download_source_video(
     ctx: &EnhancedProcessingContext,
     job: &ReprocessScenesJob,
     work_dir: &PathBuf,
-    highlights: &vclip_storage::HighlightsData,
+    highlights: &vclip_models::VideoHighlights,
 ) -> WorkerResult<PathBuf> {
     ctx.progress
         .log(&job.job_id, "Downloading source video...")
@@ -200,7 +205,7 @@ async fn process_selected_scenes(
     clips_dir: &PathBuf,
     video_file: &PathBuf,
     clip_tasks: &[ClipTask],
-    highlights: &vclip_storage::HighlightsData,
+    highlights: &vclip_models::VideoHighlights,
     total_clips: usize,
 ) -> WorkerResult<u32> {
     // Load existing completed clips for skip-on-resume.

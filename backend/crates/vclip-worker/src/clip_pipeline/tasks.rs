@@ -49,6 +49,7 @@ pub fn sanitize_title(title: &str) -> String {
 }
 
 /// Generate clip tasks from a subset of highlight entries (for reprocessing).
+/// Uses R2 HighlightEntry format (legacy).
 pub fn generate_clip_tasks_from_highlights(
     highlights: &[&vclip_storage::operations::HighlightEntry],
     styles: &[Style],
@@ -77,3 +78,34 @@ pub fn generate_clip_tasks_from_highlights(
 
     tasks
 }
+
+/// Generate clip tasks from Firestore VideoHighlights (preferred source).
+pub fn generate_clip_tasks_from_firestore_highlights(
+    highlights: &[&vclip_models::Highlight],
+    styles: &[Style],
+    crop_mode: &CropMode,
+    target_aspect: &AspectRatio,
+) -> Vec<ClipTask> {
+    let mut tasks = Vec::new();
+
+    for highlight in highlights {
+        for style in styles {
+            tasks.push(ClipTask {
+                scene_id: highlight.id,
+                scene_title: sanitize_title(&highlight.title),
+                scene_description: highlight.description.clone(),
+                start: highlight.start.clone(),
+                end: highlight.end.clone(),
+                style: *style,
+                crop_mode: *crop_mode,
+                target_aspect: *target_aspect,
+                priority: highlight.id,
+                pad_before: highlight.pad_before,
+                pad_after: highlight.pad_after,
+            });
+        }
+    }
+
+    tasks
+}
+

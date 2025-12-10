@@ -32,6 +32,9 @@ pub struct VideoInfoResponse {
 
 #[derive(Serialize)]
 pub struct ClipInfo {
+    /// Unique clip ID from Firestore (primary identifier)
+    pub clip_id: String,
+    /// Filename (for backward compatibility and legacy endpoints)
     pub name: String,
     pub title: String,
     pub description: String,
@@ -88,19 +91,24 @@ pub async fn get_video_scene_styles(
 
     let video_id_obj = VideoId::from_string(&video_id);
 
-    // Best-effort highlight titles (do not fail if missing)
-    let highlight_titles: HashMap<u32, String> = match state
-        .storage
-        .load_highlights(&user.uid, &video_id)
+    // Best-effort highlight titles from Firestore (do not fail if missing)
+    let highlights_repo = vclip_firestore::HighlightsRepository::new(
+        (*state.firestore).clone(),
+        &user.uid,
+    );
+    
+    let highlight_titles: HashMap<u32, String> = highlights_repo
+        .get(&video_id_obj)
         .await
-    {
-        Ok(highlights) => highlights
-            .highlights
-            .into_iter()
-            .map(|h| (h.id, h.title))
-            .collect(),
-        Err(_) => HashMap::new(),
-    };
+        .ok()
+        .and_then(|opt| opt)
+        .map(|vh| {
+            vh.highlights
+                .into_iter()
+                .map(|h| (h.id, h.title))
+                .collect()
+        })
+        .unwrap_or_default();
 
     let clip_repo = vclip_firestore::ClipRepository::new(
         (*state.firestore).clone(),
@@ -172,22 +180,22 @@ pub async fn get_video_info(
         })?
         .ok_or_else(|| ApiError::not_found("Video not found"))?;
 
-    // Load highlights from R2 - this should exist after AI analysis
-    let highlights = state
-        .storage
-        .load_highlights(&user.uid, &video_id)
-        .await
-        .map_err(|e| {
-            if matches!(e, vclip_storage::StorageError::NotFound(_)) {
-                // Video is still processing - highlights.json not yet created
-                warn!("Highlights not found for video {}, status: {:?}", video_id, video_meta.status);
-                ApiError::Conflict(
-                    "Video is still being processed. Highlights will be available once AI analysis completes.".to_string()
-                )
-            } else {
-                ApiError::Storage(e)
-            }
-        })?;
+    // Load highlights from Firestore (source of truth)
+    let highlights_repo = vclip_firestore::HighlightsRepository::new(
+        (*state.firestore).clone(),
+        &user.uid,
+    );
+
+    let highlights = highlights_repo
+        .get(&video_id_obj)
+        .await?
+        .ok_or_else(|| {
+            warn!("Highlights not found for video {}, status: {:?}", video_id, video_meta.status);
+            ApiError::Conflict(
+                "Video is still being processed. Highlights will be available once AI analysis completes.".to_string()
+            )
+        })?
+        .to_highlights_data();
 
     // Build highlights map for metadata extraction
     let highlights_map: HashMap<u32, (String, String)> = highlights
@@ -227,6 +235,7 @@ pub async fn get_video_info(
         let size_str = format!("{:.1} MB", size_mb);
 
         clips.push(ClipInfo {
+            clip_id: clip_meta.clip_id.clone(),
             name: clip_meta.filename,
             title,
             description,
@@ -1104,20 +1113,20 @@ pub async fn get_video_highlights(
         return Err(ApiError::not_found("Video not found"));
     }
 
-    // Load highlights from R2
-    let highlights_data = state
-        .storage
-        .load_highlights(&user.uid, &video_id)
-        .await
-        .map_err(|e| {
-            if matches!(e, vclip_storage::StorageError::NotFound(_)) {
-                ApiError::not_found("Highlights not found for this video")
-            } else {
-                ApiError::Storage(e)
-            }
-        })?;
+    let video_id_obj = VideoId::from_string(&video_id);
 
-    let highlights: Vec<HighlightInfo> = highlights_data
+    // Load highlights from Firestore (source of truth)
+    let highlights_repo = vclip_firestore::HighlightsRepository::new(
+        (*state.firestore).clone(),
+        &user.uid,
+    );
+
+    let video_highlights = highlights_repo
+        .get(&video_id_obj)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Highlights not found for this video"))?;
+
+    let highlights: Vec<HighlightInfo> = video_highlights
         .highlights
         .into_iter()
         .map(|h| HighlightInfo {
@@ -1126,7 +1135,7 @@ pub async fn get_video_highlights(
             start: h.start,
             end: h.end,
             duration: h.duration,
-            hook_category: h.hook_category,
+            hook_category: h.hook_category.map(|c| format!("{:?}", c).to_lowercase()),
             reason: h.reason,
             description: h.description,
         })
@@ -1134,8 +1143,8 @@ pub async fn get_video_highlights(
 
     Ok(Json(HighlightsResponse {
         video_id,
-        video_url: highlights_data.video_url,
-        video_title: highlights_data.video_title,
+        video_url: video_highlights.video_url,
+        video_title: video_highlights.video_title,
         highlights,
     }))
 }
@@ -1285,14 +1294,18 @@ pub async fn reprocess_scenes(
     let total_clips = request.scene_ids.len() as u32 * request.styles.len() as u32;
     state.user_service.validate_plan_limits(&user.uid, total_clips).await?;
 
-    // Load highlights to validate scene IDs
-    let highlights_data = state
-        .storage
-        .load_highlights(&user.uid, &video_id)
-        .await
-        .map_err(|_| ApiError::not_found("Highlights not found for this video"))?;
+    // Load highlights from Firestore to validate scene IDs
+    let highlights_repo = vclip_firestore::HighlightsRepository::new(
+        (*state.firestore).clone(),
+        &user.uid,
+    );
+    
+    let video_highlights = highlights_repo
+        .get(&VideoId::from_string(&video_id))
+        .await?
+        .ok_or_else(|| ApiError::not_found("Highlights not found for this video"))?;
 
-    let available_ids: std::collections::HashSet<u32> = highlights_data
+    let available_ids: std::collections::HashSet<u32> = video_highlights
         .highlights
         .iter()
         .map(|h| h.id)

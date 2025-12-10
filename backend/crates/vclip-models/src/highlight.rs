@@ -1,5 +1,6 @@
 //! Highlight (scene) models.
 
+use chrono;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -36,6 +37,14 @@ pub struct Highlight {
     /// Duration in seconds
     pub duration: u32,
 
+    /// Padding before the start timestamp (seconds)
+    #[serde(default = "default_pad_before")]
+    pub pad_before: f64,
+
+    /// Padding after the end timestamp (seconds)
+    #[serde(default = "default_pad_after")]
+    pub pad_after: f64,
+
     /// Hook category
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hook_category: Option<HighlightCategory>,
@@ -47,6 +56,14 @@ pub struct Highlight {
     /// Description of the scene
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+}
+
+fn default_pad_before() -> f64 {
+    1.0
+}
+
+fn default_pad_after() -> f64 {
+    1.0
 }
 
 impl Highlight {
@@ -63,6 +80,8 @@ impl Highlight {
             start: start.into(),
             end: end.into(),
             duration: 0, // Will be calculated
+            pad_before: 1.0,
+            pad_after: 1.0,
             hook_category: None,
             reason: None,
             description: None,
@@ -106,6 +125,77 @@ impl HighlightsData {
             video_url: None,
             video_title: None,
             custom_prompt: None,
+        }
+    }
+}
+
+/// Video highlights stored in Firestore (source of truth).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct VideoHighlights {
+    /// Video ID this belongs to
+    pub video_id: String,
+
+    /// List of highlights
+    pub highlights: Vec<Highlight>,
+
+    /// Video URL
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video_url: Option<String>,
+
+    /// Video title
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video_title: Option<String>,
+
+    /// Custom prompt used for AI analysis
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_prompt: Option<String>,
+
+    /// When the highlights were created
+    pub created_at: chrono::DateTime<chrono::Utc>,
+
+    /// When the highlights were last updated
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl VideoHighlights {
+    /// Create new video highlights.
+    pub fn new(video_id: impl Into<String>, highlights: Vec<Highlight>) -> Self {
+        let now = chrono::Utc::now();
+        Self {
+            video_id: video_id.into(),
+            highlights,
+            video_url: None,
+            video_title: None,
+            custom_prompt: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    /// Convert from R2 HighlightsData (for migration).
+    pub fn from_highlights_data(
+        video_id: impl Into<String>,
+        data: HighlightsData,
+    ) -> Self {
+        let now = chrono::Utc::now();
+        Self {
+            video_id: video_id.into(),
+            highlights: data.highlights,
+            video_url: data.video_url,
+            video_title: data.video_title,
+            custom_prompt: data.custom_prompt,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    /// Convert to R2 HighlightsData format (for backward compatibility).
+    pub fn to_highlights_data(&self) -> HighlightsData {
+        HighlightsData {
+            highlights: self.highlights.clone(),
+            video_url: self.video_url.clone(),
+            video_title: self.video_title.clone(),
+            custom_prompt: self.custom_prompt.clone(),
         }
     }
 }

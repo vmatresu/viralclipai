@@ -236,24 +236,29 @@ async fn download_video_for_render(
     }
 }
 
-/// Fallback: download from original video URL stored in highlights.
+/// Fallback: download from original video URL stored in Firestore highlights.
 async fn download_video_fallback(
     ctx: &EnhancedProcessingContext,
     job: &RenderSceneStyleJob,
     video_file: &Path,
 ) -> WorkerResult<()> {
-    let highlights = ctx
-        .storage
-        .load_highlights(&job.user_id, job.video_id.as_str())
+    // Load highlights from Firestore (source of truth)
+    let highlights_repo = vclip_firestore::HighlightsRepository::new(
+        ctx.firestore.clone(),
+        &job.user_id,
+    );
+    
+    let video_highlights = highlights_repo
+        .get(&job.video_id)
         .await
-        .map_err(|e| {
-            WorkerError::job_failed(format!("Failed to load highlights for fallback: {}", e))
-        })?;
+        .map_err(|e| WorkerError::Firestore(e))?
+        .ok_or_else(|| WorkerError::job_failed("Highlights not found in Firestore"))?;
 
-    let video_url = highlights.video_url.ok_or_else(|| {
+    let video_url = video_highlights.video_url.ok_or_else(|| {
         WorkerError::job_failed("No video URL in highlights for fallback download")
     })?;
 
     download_video(&video_url, video_file).await?;
     Ok(())
 }
+

@@ -290,34 +290,54 @@ impl VideoProcessor {
 
         let video_repo = vclip_firestore::VideoRepository::new(ctx.firestore.clone(), &job.user_id);
 
-        // Store highlights
-        let highlights_data = vclip_storage::HighlightsData {
+        // Convert to VideoHighlights for Firestore
+        let video_highlights = vclip_models::highlight::VideoHighlights {
+            video_id: job.video_id.as_str().to_string(),
             highlights: analysis
                 .highlights
                 .highlights
                 .iter()
-                .map(|h| vclip_storage::operations::HighlightEntry {
+                .map(|h| vclip_models::Highlight {
                     id: h.id,
                     title: h.title.clone(),
-                    description: h.description.clone(),
                     start: h.start.clone(),
                     end: h.end.clone(),
                     duration: h.duration,
-                    pad_before_seconds: h.pad_before_seconds,
-                    pad_after_seconds: h.pad_after_seconds,
-                    hook_category: h.hook_category.clone(),
+                    pad_before: h.pad_before_seconds,
+                    pad_after: h.pad_after_seconds,
+                    hook_category: h.hook_category.as_ref().and_then(|cat| {
+                        match cat.to_lowercase().as_str() {
+                            "emotional" => Some(vclip_models::HighlightCategory::Emotional),
+                            "educational" => Some(vclip_models::HighlightCategory::Educational),
+                            "controversial" => Some(vclip_models::HighlightCategory::Controversial),
+                            "inspirational" => Some(vclip_models::HighlightCategory::Inspirational),
+                            "humorous" | "funny" => Some(vclip_models::HighlightCategory::Humorous),
+                            "dramatic" => Some(vclip_models::HighlightCategory::Dramatic),
+                            "surprising" => Some(vclip_models::HighlightCategory::Surprising),
+                            _ => Some(vclip_models::HighlightCategory::Other),
+                        }
+                    }),
                     reason: h.reason.clone(),
+                    description: h.description.clone(),
                 })
                 .collect(),
             video_url: Some(transcript.url.clone()),
             video_title: Some(transcript.title.clone()),
             custom_prompt: job.custom_prompt.clone(),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
         };
 
-        ctx.storage
-            .upload_highlights(&job.user_id, job.video_id.as_str(), &highlights_data)
+        // Store highlights in Firestore (source of truth)
+        let highlights_repo = vclip_firestore::HighlightsRepository::new(
+            ctx.firestore.clone(),
+            &job.user_id,
+        );
+        
+        highlights_repo
+            .upsert(&video_highlights)
             .await
-            .map_err(|e| WorkerError::Storage(e))?;
+            .map_err(|e| WorkerError::Firestore(e))?;
 
         // Create/update video record
         if let Ok(Some(mut existing_video)) = video_repo.get(&job.video_id).await {

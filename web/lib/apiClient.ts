@@ -320,6 +320,7 @@ export function getVideoDetails(
   token: string
 ): Promise<{
   clips: Array<{
+    clip_id: string;
     name: string;
     title: string;
     description: string;
@@ -328,6 +329,8 @@ export function getVideoDetails(
     thumbnail?: string | null;
     size: string;
     style?: string;
+    completed_at?: string | null;
+    updated_at?: string | null;
   }>;
   custom_prompt?: string;
   video_title?: string;
