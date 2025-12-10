@@ -524,7 +524,11 @@ export function ProcessVideoInterface() {
             </h3>
           </div>
           <div className="pl-11">
-            <AiAssistanceSlider value={aiLevel} onChange={setAiLevel} userPlan={userPlan} />
+            <AiAssistanceSlider
+              value={aiLevel}
+              onChange={setAiLevel}
+              userPlan={userPlan}
+            />
             {layout === "full" && aiLevel === "static" && (
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">

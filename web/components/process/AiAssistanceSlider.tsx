@@ -90,7 +90,11 @@ const steps: {
   },
 ];
 
-export function AiAssistanceSlider({ value, onChange, userPlan }: AiAssistanceSliderProps) {
+export function AiAssistanceSlider({
+  value,
+  onChange,
+  userPlan,
+}: AiAssistanceSliderProps) {
   const normalizedValue =
     LEGACY_TO_CURRENT[value as LegacyAiLevel] ?? (value as AiLevel | undefined);
 
