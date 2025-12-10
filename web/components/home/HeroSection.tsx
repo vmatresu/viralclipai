@@ -1,4 +1,5 @@
 import { ArrowRight, CheckCircle2, Play } from "lucide-react";
+import NextImage from "next/image";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
@@ -72,14 +73,16 @@ export function HeroSection() {
         </div>
 
         {/* Right Visual - Mockup */}
-        <div className="relative mx-auto lg:ml-auto w-full max-w-[600px] lg:max-w-none">
+        <div className="relative mx-auto lg:ml-auto w-full max-w-sm sm:max-w-md md:max-w-lg lg:max-w-none">
           {/* Main Image Container */}
           <div className="relative rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-2 shadow-2xl skew-y-1 lg:skew-y-2 transform transition-transform hover:skew-y-0 duration-500 ease-out hover:scale-[1.02] z-20">
-            <div className="relative aspect-[16/10] overflow-hidden rounded-xl bg-slate-900/50">
-              <img
+            <div className="relative aspect-[4/3] md:aspect-[16/10] overflow-hidden rounded-xl bg-slate-900/50">
+              <NextImage
                 src="/images/ai-clipper-saas-hero-image.png"
                 alt="Viral Clip AI Interface"
-                className="w-full h-full object-cover opacity-90"
+                fill
+                className="object-cover opacity-90"
+                priority
               />
 
               {/* Floating Elements for effect */}
@@ -92,10 +95,11 @@ export function HeroSection() {
 
           {/* Secondary Layer - Premium Mockup peaking from behind */}
           <div className="absolute top-10 -right-10 w-full h-full rounded-2xl border border-white/5 bg-slate-900/80 backdrop-blur-sm -z-10 skew-y-1 lg:skew-y-2 scale-95 opacity-60 overflow-hidden hidden md:block">
-            <img
+            <NextImage
               src="/images/premium-saas-hero-image.png"
               alt="Premium Dashboard View"
-              className="w-full h-full object-cover opacity-50 blur-[1px]"
+              fill
+              className="object-cover opacity-50 blur-[1px]"
             />
           </div>
 

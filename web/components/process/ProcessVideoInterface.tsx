@@ -13,18 +13,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { analyticsEvents } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
+import { sanitizePrompt, validateVideoUrl } from "@/lib/security";
 import { cn } from "@/lib/utils";
 import { type ClipProcessingStep } from "@/lib/websocket";
-import { createWebSocketConnection, getWebSocketUrl } from "@/lib/websocket-client";
 import {
   handleWSMessage,
   type MessageHandlerCallbacks,
 } from "@/lib/websocket/messageHandler";
+import { createWebSocketConnection, getWebSocketUrl } from "@/lib/websocket-client";
 import { type SceneProgress } from "@/types/processing";
 
 import { DetailedProcessingStatus } from "../shared/DetailedProcessingStatus";
 
-import { sanitizePrompt, validateVideoUrl } from "@/lib/security";
 import { AiAssistanceSlider, type AiLevel } from "./AiAssistanceSlider";
 import { LayoutSelector, type LayoutOption } from "./LayoutSelector";
 
