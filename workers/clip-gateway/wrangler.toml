@@ -1,9 +1,14 @@
 # Clip Gateway Worker
 # Deploy: cd workers/clip-gateway && wrangler deploy
 
-name = "clip-gateway"
+name = "viralclipai-prod-clip-gateway"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
+
+# Custom domain routes
+routes = [
+  { pattern = "clips.viralclipai.io/*", zone_name = "viralclipai.io" }
+]
 
 # R2 bucket binding
 [[r2_buckets]]
@@ -13,11 +18,6 @@ bucket_name = "viralclipai-videos"
 # Environment variables (set via wrangler secret)
 # SIGNING_SECRET - HMAC signing secret (must match backend)
 
-# Custom domain
-# routes = [
-#   { pattern = "cdn.viralclipai.io/*", zone_name = "viralclipai.io" }
-# ]
-
 [vars]
 # Default CORS origins (comma-separated)
-ALLOWED_ORIGINS = "https://app.viralclipai.io,https://viralclipai.io"
+ALLOWED_ORIGINS = "https://www.viralclipai.io,https://viralclipai.io,https://clips.viralclipai.io"

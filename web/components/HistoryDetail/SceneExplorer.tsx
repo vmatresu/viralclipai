@@ -8,7 +8,7 @@ import {
   Download,
   ExternalLink,
   Link2,
-  Play,
+  Share2,
   Trash,
   Trash2,
 } from "lucide-react";
@@ -507,14 +507,19 @@ function HistorySceneItem({
                               onClick={() => window.open(clip.videoUrl, "_blank")}
                             />
                             <ActionButton
-                              icon={<Play className="h-4 w-4" />}
-                              label="Play in new tab"
+                              icon={<Share2 className="h-4 w-4" />}
+                              label="Share to Socials"
                               onClick={async () => {
                                 try {
                                   const url = await resolvePlaybackUrl(clip);
-                                  window.open(url, "_blank");
+                                  // For now, copy the URL to clipboard for social sharing
+                                  // TODO: Implement proper social sharing with TikTok API when configured
+                                  await navigator.clipboard.writeText(url);
+                                  toast.success(
+                                    "Video URL copied to clipboard for sharing!"
+                                  );
                                 } catch {
-                                  window.open(clip.videoUrl, "_blank");
+                                  toast.error("Failed to prepare video for sharing");
                                 }
                               }}
                             />
