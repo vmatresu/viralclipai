@@ -42,3 +42,4 @@ web/playwright-report/
 web/test-results/
 .vercel
 youtube-cookies.txt
+.vscode/settings.json
