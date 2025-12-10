@@ -4,6 +4,7 @@ import * as AccordionPrimitive from "@radix-ui/react-accordion";
 import {
   AlertCircle,
   ChevronDown,
+  Copy,
   Download,
   ExternalLink,
   Link2,
@@ -11,6 +12,7 @@ import {
   Trash,
   Trash2,
 } from "lucide-react";
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -38,7 +40,10 @@ import {
   type TierColor,
 } from "@/lib/styleTiers";
 import { cn } from "@/lib/utils";
-import { formatBytes, parseSizeToBytes } from "@/types/storage";
+
+import { formatBytes, parseSizeToBytes } from "../../types/storage";
+
+import { buildHighlightCopyText, type Highlight } from "./SceneCard";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -65,15 +70,25 @@ export type SceneGroup = {
   clips: HistoryClip[];
   /** Total size of all clips in this scene in bytes. */
   totalSizeBytes?: number;
+  /** Full highlight info for this scene (title, description, reason, etc.) */
+  highlight?: Highlight;
 };
 
-const tierWeight: Record<TierColor, number> = {
-  static: 0,
-  motion: 1,
-  basic: 2,
-  premium: 3,
-  legacy: 4,
-};
+function getTierWeight(color: TierColor): number {
+  switch (color) {
+    case "static":
+      return 0;
+    case "motion":
+      return 1;
+    case "basic":
+      return 2;
+    case "premium":
+      return 3;
+    case "legacy":
+    default:
+      return 4;
+  }
+}
 
 function formatSeconds(seconds: number): string {
   const mins = Math.floor(seconds / 60);
@@ -87,8 +102,15 @@ function formatRange(scene: SceneGroup): string {
   return end ? `${start} – ${end}` : start;
 }
 
-export function groupClipsByScene(clips: HistoryClip[]): SceneGroup[] {
+export function groupClipsByScene(
+  clips: HistoryClip[],
+  highlights?: Highlight[]
+): SceneGroup[] {
   const groups = new Map<number, SceneGroup>();
+  const highlightMap = new Map<number, Highlight>();
+
+  // Build highlight lookup by id
+  highlights?.forEach((h) => highlightMap.set(h.id, h));
 
   clips.forEach((clip) => {
     const existing = groups.get(clip.sceneId);
@@ -103,6 +125,7 @@ export function groupClipsByScene(clips: HistoryClip[]): SceneGroup[] {
         endSec: clip.endSec,
         clips: [clip],
         totalSizeBytes: clipSizeBytes,
+        highlight: highlightMap.get(clip.sceneId),
       });
       return;
     }
@@ -183,6 +206,7 @@ export function HistorySceneExplorer({
     [getIdToken]
   );
 
+  // Scenes are already enriched with highlights by groupClipsByScene; just sort them.
   const sortedScenes = useMemo(
     () => [...scenes].sort((a, b) => a.startSec - b.startSec || a.sceneId - b.sceneId),
     [scenes]
@@ -256,10 +280,12 @@ function HistorySceneItem({
     return Array.from(clipsByStyle.keys()).sort((a, b) => {
       const tierA = getStyleTier(a)?.color ?? "legacy";
       const tierB = getStyleTier(b)?.color ?? "legacy";
-      if (tierWeight[tierA] === tierWeight[tierB]) {
+      const weightA = getTierWeight(tierA);
+      const weightB = getTierWeight(tierB);
+      if (weightA === weightB) {
         return a.localeCompare(b);
       }
-      return tierWeight[tierA] - tierWeight[tierB];
+      return weightA - weightB;
     });
   }, [clipsByStyle]);
 
@@ -361,9 +387,11 @@ function HistorySceneItem({
               <div className="flex items-center gap-3 sm:gap-4">
                 {firstThumbnail ? (
                   <div className="hidden sm:block">
-                    <img
+                    <Image
                       src={firstThumbnail}
                       alt={`Scene ${scene.sceneId} thumbnail`}
+                      width={112}
+                      height={64}
                       className="h-16 w-28 rounded-md object-cover shadow-sm ring-1 ring-border"
                     />
                   </div>
@@ -449,6 +477,12 @@ function HistorySceneItem({
                             <span>• {formatRange(scene)}</span>
                             {clip.size ? <span>• {clip.size}</span> : null}
                           </div>
+
+                          {/* Highlight title & description for social media */}
+                          {scene.highlight && (
+                            <HighlightInfoPanel highlight={scene.highlight} />
+                          )}
+
                           <div className="flex flex-wrap gap-2">
                             <ActionButton
                               icon={<Download className="h-4 w-4" />}
@@ -566,9 +600,11 @@ function HistorySceneItem({
                                   )}
                                 >
                                   {thumbClip.thumbnailUrl ? (
-                                    <img
+                                    <Image
                                       src={thumbClip.thumbnailUrl}
                                       alt={`${getStyleLabel(s) ?? s} thumbnail`}
+                                      width={320}
+                                      height={180}
                                       className="h-28 w-full object-cover"
                                     />
                                   ) : (
@@ -721,6 +757,47 @@ function SceneClipPlayer({ clip, resolvePlaybackUrl }: SceneClipPlayerProps) {
       >
         <track kind="captions" />
       </video>
+    </div>
+  );
+}
+
+interface HighlightInfoPanelProps {
+  highlight: Highlight;
+}
+
+/**
+ * Displays highlight title and description with a copy button for social media.
+ */
+function HighlightInfoPanel({ highlight }: HighlightInfoPanelProps) {
+  const handleCopy = useCallback(async () => {
+    const text = buildHighlightCopyText(highlight);
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("Copied title & description for social media");
+    } catch {
+      toast.error("Failed to copy");
+    }
+  }, [highlight]);
+
+  return (
+    <div className="rounded-md border bg-muted/40 p-3 space-y-2">
+      <div className="flex items-start justify-between gap-2">
+        <div className="space-y-1 flex-1 min-w-0">
+          <p className="text-sm font-semibold leading-tight">{highlight.title}</p>
+          {highlight.description && (
+            <p className="text-xs text-muted-foreground">{highlight.description}</p>
+          )}
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5 shrink-0"
+          onClick={handleCopy}
+        >
+          <Copy className="h-3.5 w-3.5" />
+          Copy for social
+        </Button>
+      </div>
     </div>
   );
 }

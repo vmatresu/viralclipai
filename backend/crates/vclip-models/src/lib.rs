@@ -36,4 +36,3 @@ pub use youtube_url_config::{
     analyze_youtube_url, analyze_youtube_url_json, LiveCaptureMode, LiveHandling, SubtitlePlan,
     UrlType, ValidationResult, VideoDownloadPlan, YoutubeUrlConfig, YoutubeUrlInput,
 };
-

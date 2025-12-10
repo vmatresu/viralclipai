@@ -292,7 +292,11 @@ mod tests {
 
     #[test]
     fn test_job_creation() {
-        let job = Job::new_process_video("user123", "https://youtube.com/watch?v=abc", vec![Style::Split]);
+        let job = Job::new_process_video(
+            "user123",
+            "https://youtube.com/watch?v=abc",
+            vec![Style::Split],
+        );
 
         assert_eq!(job.job_type, JobType::ProcessVideo);
         assert_eq!(job.state, JobState::Pending);

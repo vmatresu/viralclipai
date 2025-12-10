@@ -7,8 +7,8 @@ import {
   ChevronRight,
   Copy,
   Play,
-  Trash2,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -232,7 +232,10 @@ export default function HistoryDetailPage() {
     });
   }, [clips, highlightTimingById, sceneTitleById]);
 
-  const sceneGroups = useMemo(() => groupClipsByScene(historyClips), [historyClips]);
+  const sceneGroups = useMemo(
+    () => groupClipsByScene(historyClips, highlightsData?.highlights),
+    [historyClips, highlightsData?.highlights]
+  );
 
   const uniqueStyleCount = useMemo(() => {
     const styles = new Set<string>();

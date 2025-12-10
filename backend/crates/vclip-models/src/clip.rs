@@ -177,7 +177,13 @@ pub struct ClipTask {
 
 impl ClipTask {
     /// Create a new clip task.
-    pub fn new(scene_id: u32, scene_title: impl Into<String>, start: impl Into<String>, end: impl Into<String>, style: Style) -> Self {
+    pub fn new(
+        scene_id: u32,
+        scene_title: impl Into<String>,
+        start: impl Into<String>,
+        end: impl Into<String>,
+        style: Style,
+    ) -> Self {
         Self {
             scene_id,
             scene_title: scene_title.into(),

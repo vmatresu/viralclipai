@@ -94,7 +94,10 @@ impl DetectionTier {
     /// Returns true if this tier uses visual motion/activity analysis.
     /// These tiers work without audio.
     pub fn uses_visual_activity(&self) -> bool {
-        matches!(self, DetectionTier::MotionAware | DetectionTier::SpeakerAware)
+        matches!(
+            self,
+            DetectionTier::MotionAware | DetectionTier::SpeakerAware
+        )
     }
 
     /// Returns true if this tier uses face activity analysis (temporal tracking).
@@ -133,11 +136,26 @@ mod tests {
 
     #[test]
     fn test_tier_parse() {
-        assert_eq!("none".parse::<DetectionTier>().unwrap(), DetectionTier::None);
-        assert_eq!("basic".parse::<DetectionTier>().unwrap(), DetectionTier::Basic);
-        assert_eq!("speaker_aware".parse::<DetectionTier>().unwrap(), DetectionTier::SpeakerAware);
-        assert_eq!("motion_aware".parse::<DetectionTier>().unwrap(), DetectionTier::MotionAware);
-        assert_eq!("motion".parse::<DetectionTier>().unwrap(), DetectionTier::MotionAware);
+        assert_eq!(
+            "none".parse::<DetectionTier>().unwrap(),
+            DetectionTier::None
+        );
+        assert_eq!(
+            "basic".parse::<DetectionTier>().unwrap(),
+            DetectionTier::Basic
+        );
+        assert_eq!(
+            "speaker_aware".parse::<DetectionTier>().unwrap(),
+            DetectionTier::SpeakerAware
+        );
+        assert_eq!(
+            "motion_aware".parse::<DetectionTier>().unwrap(),
+            DetectionTier::MotionAware
+        );
+        assert_eq!(
+            "motion".parse::<DetectionTier>().unwrap(),
+            DetectionTier::MotionAware
+        );
         assert!("invalid".parse::<DetectionTier>().is_err());
     }
 
@@ -177,4 +195,3 @@ mod tests {
         assert!(DetectionTier::MotionAware.speed_rank() < DetectionTier::SpeakerAware.speed_rank());
     }
 }
-

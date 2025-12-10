@@ -45,9 +45,7 @@ pub enum WsMessage {
     },
 
     /// Progress update (0-100)
-    Progress {
-        value: u8,
-    },
+    Progress { value: u8 },
 
     /// Error message
     Error {

@@ -188,15 +188,24 @@ mod tests {
     fn test_plan_tier_storage_limits() {
         assert_eq!(PlanTier::Free.storage_limit_bytes(), 100 * 1024 * 1024);
         assert_eq!(PlanTier::Pro.storage_limit_bytes(), 1024 * 1024 * 1024);
-        assert_eq!(PlanTier::Studio.storage_limit_bytes(), 5 * 1024 * 1024 * 1024);
+        assert_eq!(
+            PlanTier::Studio.storage_limit_bytes(),
+            5 * 1024 * 1024 * 1024
+        );
     }
 
     #[test]
     fn test_storage_constants_match_tiers() {
         // Verify constants match tier methods
-        assert_eq!(FREE_STORAGE_LIMIT_BYTES, PlanTier::Free.storage_limit_bytes());
+        assert_eq!(
+            FREE_STORAGE_LIMIT_BYTES,
+            PlanTier::Free.storage_limit_bytes()
+        );
         assert_eq!(PRO_STORAGE_LIMIT_BYTES, PlanTier::Pro.storage_limit_bytes());
-        assert_eq!(STUDIO_STORAGE_LIMIT_BYTES, PlanTier::Studio.storage_limit_bytes());
+        assert_eq!(
+            STUDIO_STORAGE_LIMIT_BYTES,
+            PlanTier::Studio.storage_limit_bytes()
+        );
     }
 
     #[test]

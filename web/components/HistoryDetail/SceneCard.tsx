@@ -1,8 +1,11 @@
 "use client";
 
-import { Clock } from "lucide-react";
+import { Clock, Copy } from "lucide-react";
+import React, { useCallback } from "react";
+import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 
@@ -15,6 +18,17 @@ export interface Highlight {
   hook_category?: string;
   reason?: string;
   description?: string;
+}
+
+/**
+ * Build social media copy text from highlight title and description.
+ */
+export function buildHighlightCopyText(highlight: Highlight): string {
+  const parts: string[] = [highlight.title];
+  if (highlight.description) {
+    parts.push(highlight.description);
+  }
+  return parts.join("\n\n");
 }
 
 interface SceneCardProps {
@@ -32,6 +46,20 @@ export function SceneCard({
   onToggle,
   formatTime,
 }: SceneCardProps) {
+  const handleCopyForSocial = useCallback(
+    async (e: React.MouseEvent<HTMLButtonElement>) => {
+      e.stopPropagation();
+      const text = buildHighlightCopyText(highlight);
+      try {
+        await navigator.clipboard.writeText(text);
+        toast.success("Copied title & description for social media");
+      } catch {
+        toast.error("Failed to copy");
+      }
+    },
+    [highlight]
+  );
+
   return (
     <Card
       className={`cursor-pointer transition-all ${
@@ -72,14 +100,26 @@ export function SceneCard({
                 </>
               )}
             </div>
+            {/* Show full reason without truncation */}
             {highlight.reason && (
-              <p
-                className="text-xs text-muted-foreground line-clamp-2"
-                title={highlight.reason}
-              >
-                {highlight.reason}
+              <p className="text-xs text-muted-foreground">{highlight.reason}</p>
+            )}
+            {/* Show description if present */}
+            {highlight.description && (
+              <p className="text-xs text-muted-foreground/80 italic">
+                {highlight.description}
               </p>
             )}
+            {/* Copy button for social media */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 h-7 text-xs mt-1"
+              onClick={handleCopyForSocial}
+            >
+              <Copy className="h-3 w-3" />
+              Copy for social
+            </Button>
           </div>
         </div>
       </CardContent>

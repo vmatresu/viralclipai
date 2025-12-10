@@ -33,14 +33,14 @@ import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
 import { sanitizePrompt, validateVideoUrl } from "@/lib/security";
 import { cn } from "@/lib/utils";
-import { type ClipProcessingStep } from "@/lib/websocket";
-import { createWebSocketConnection, getWebSocketUrl } from "@/lib/websocket-client";
 import {
+  createWebSocketConnection,
+  getWebSocketUrl,
   handleWSMessage,
+  type ClipProcessingStep,
   type MessageHandlerCallbacks,
-} from "@/lib/websocket/messageHandler";
-import { type SceneProgress } from "@/types/processing";
-import { type StorageInfo } from "@/types/storage";
+  type SceneProgress,
+} from "@/lib/websocket";
 
 import { DetailedProcessingStatus } from "../shared/DetailedProcessingStatus";
 
@@ -51,6 +51,13 @@ import {
   type AiLevel,
 } from "./AiAssistanceSlider";
 import { LayoutSelector, type LayoutOption } from "./LayoutSelector";
+
+interface StorageInfo {
+  used_bytes: number;
+  limit_bytes: number;
+  used_formatted: string;
+  limit_formatted: string;
+}
 
 interface UserSettings {
   plan: string;
@@ -251,7 +258,7 @@ export function ProcessVideoInterface() {
       const scene = next.get(sceneId);
       if (scene) {
         const newSteps = new Map(scene.currentSteps);
-        newSteps.set(style, { step: step as any, details });
+        newSteps.set(style, { step, details });
         next.set(sceneId, { ...scene, currentSteps: newSteps });
       }
       return next;
@@ -346,7 +353,7 @@ export function ProcessVideoInterface() {
       const urlValidation = validateVideoUrl(url);
       if (!urlValidation.isValid || !urlValidation.sanitizedUrl) {
         toast.error(
-          urlValidation.error ||
+          urlValidation.error ??
             "Invalid video URL. Please use a supported platform (YouTube, Vimeo, TikTok, etc.)"
         );
         setIsProcessing(false);
@@ -639,11 +646,15 @@ export function ProcessVideoInterface() {
                             : "text-muted-foreground hover:text-foreground"
                         )}
                       >
-                        {side === "left"
-                          ? "Left"
-                          : side === "right"
-                            ? "Right"
-                            : "Center"}
+                        {(() => {
+                          if (side === "left") {
+                            return "Left";
+                          }
+                          if (side === "right") {
+                            return "Right";
+                          }
+                          return "Center";
+                        })()}
                       </button>
                     );
                   })}
@@ -688,33 +699,46 @@ export function ProcessVideoInterface() {
           size="lg"
           className={cn(
             "w-full md:w-auto text-lg h-14 px-8 transition-all duration-300",
-            isSelectedTierGated
-              ? "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-[0_0_20px_-5px_theme(colors.amber.500)] hover:shadow-[0_0_30px_-5px_theme(colors.amber.500)]"
-              : isOverQuota
-                ? "bg-destructive/80 hover:bg-destructive/90"
-                : "shadow-[0_0_20px_-5px_theme(colors.primary.DEFAULT)] hover:shadow-[0_0_30px_-5px_theme(colors.primary.DEFAULT)]"
+            (() => {
+              if (isSelectedTierGated) {
+                return "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-[0_0_20px_-5px_theme(colors.amber.500)] hover:shadow-[0_0_30px_-5px_theme(colors.amber.500)]";
+              }
+              if (isOverQuota) {
+                return "bg-destructive/80 hover:bg-destructive/90";
+              }
+              return "shadow-[0_0_20px_-5px_theme(colors.primary.DEFAULT)] hover:shadow-[0_0_30px_-5px_theme(colors.primary.DEFAULT)]";
+            })()
           )}
           onClick={handleLaunch}
           disabled={isProcessing || isOverQuota}
         >
-          {isProcessing ? (
-            "Processing..."
-          ) : isOverQuota ? (
-            <>
-              <AlertCircle className="mr-2 w-5 h-5" />
-              Quota Exceeded
-            </>
-          ) : isSelectedTierGated ? (
-            <>
-              <Lock className="mr-2 w-5 h-5" />
-              Upgrade to {requiredPlan}
-            </>
-          ) : (
-            <>
-              Launch Processor
-              <ArrowRight className="ml-2 w-5 h-5" />
-            </>
-          )}
+          {(() => {
+            if (isProcessing) {
+              return "Processing...";
+            }
+            if (isOverQuota) {
+              return (
+                <>
+                  <AlertCircle className="mr-2 w-5 h-5" />
+                  Quota Exceeded
+                </>
+              );
+            }
+            if (isSelectedTierGated) {
+              return (
+                <>
+                  <Lock className="mr-2 w-5 h-5" />
+                  Upgrade to {requiredPlan}
+                </>
+              );
+            }
+            return (
+              <>
+                Launch Processor
+                <ArrowRight className="ml-2 w-5 h-5" />
+              </>
+            );
+          })()}
         </Button>
       </div>
 

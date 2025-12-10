@@ -143,10 +143,12 @@ impl Style {
             | Style::CenterFocus
             | Style::SplitFast => DetectionTier::None,
             Style::Intelligent | Style::IntelligentSplit => DetectionTier::Basic,
-            Style::IntelligentSpeaker | Style::IntelligentSplitSpeaker => DetectionTier::SpeakerAware,
+            Style::IntelligentSpeaker | Style::IntelligentSplitSpeaker => {
+                DetectionTier::SpeakerAware
+            }
             Style::IntelligentMotion | Style::IntelligentSplitMotion => DetectionTier::MotionAware,
-            // Activity split works across tiers but usually requires at least Basic or SpeakerAware signals. 
-            // The tier is typically injected or determined at runtime, but here we can default to SpeakerAware 
+            // Activity split works across tiers but usually requires at least Basic or SpeakerAware signals.
+            // The tier is typically injected or determined at runtime, but here we can default to SpeakerAware
             // as it relies on activity signals.
             Style::IntelligentSplitActivity => DetectionTier::SpeakerAware,
         }
@@ -368,24 +370,15 @@ mod tests {
             "intelligent_split".parse::<Style>().unwrap(),
             Style::IntelligentSplit
         );
-        assert_eq!(
-            "center_focus".parse::<Style>().unwrap(),
-            Style::CenterFocus
-        );
+        assert_eq!("center_focus".parse::<Style>().unwrap(), Style::CenterFocus);
         assert!("unknown".parse::<Style>().is_err());
     }
 
     #[test]
     fn test_intelligent_styles() {
         // "intelligent" is its own style
-        assert_eq!(
-            "intelligent".parse::<Style>().unwrap(),
-            Style::Intelligent
-        );
-        assert_eq!(
-            "INTELLIGENT".parse::<Style>().unwrap(),
-            Style::Intelligent
-        );
+        assert_eq!("intelligent".parse::<Style>().unwrap(), Style::Intelligent);
+        assert_eq!("INTELLIGENT".parse::<Style>().unwrap(), Style::Intelligent);
         // "intelligent_split" is a separate style
         assert_eq!(
             "intelligent_split".parse::<Style>().unwrap(),
@@ -423,11 +416,8 @@ mod tests {
 
     #[test]
     fn test_expand_styles_dedup() {
-        let styles = Style::expand_styles(&[
-            "split".to_string(),
-            "all".to_string(),
-            "split".to_string(),
-        ]);
+        let styles =
+            Style::expand_styles(&["split".to_string(), "all".to_string(), "split".to_string()]);
         // Should deduplicate: split appears once, all expands but split already seen
         assert_eq!(styles.len(), 7);
     }
@@ -451,14 +441,19 @@ mod tests {
     #[test]
     fn test_style_credit_cost_defaults_to_one() {
         for style in Style::ALL.iter() {
-            assert_eq!(style.credit_cost(), 1, "unexpected credit cost for {:?}", style);
+            assert_eq!(
+                style.credit_cost(),
+                1,
+                "unexpected credit cost for {:?}",
+                style
+            );
         }
     }
 
     #[test]
     fn test_detection_tier_mapping() {
         use crate::detection_tier::DetectionTier;
-        
+
         // Fast styles -> None tier
         assert_eq!(Style::Original.detection_tier(), DetectionTier::None);
         assert_eq!(Style::Split.detection_tier(), DetectionTier::None);
@@ -466,17 +461,32 @@ mod tests {
         assert_eq!(Style::RightFocus.detection_tier(), DetectionTier::None);
         assert_eq!(Style::CenterFocus.detection_tier(), DetectionTier::None);
         assert_eq!(Style::SplitFast.detection_tier(), DetectionTier::None);
-        
+
         // Basic tier styles
         assert_eq!(Style::Intelligent.detection_tier(), DetectionTier::Basic);
-        assert_eq!(Style::IntelligentSplit.detection_tier(), DetectionTier::Basic);
+        assert_eq!(
+            Style::IntelligentSplit.detection_tier(),
+            DetectionTier::Basic
+        );
         // Speaker-aware tier
-        assert_eq!(Style::IntelligentSpeaker.detection_tier(), DetectionTier::SpeakerAware);
-        assert_eq!(Style::IntelligentSplitSpeaker.detection_tier(), DetectionTier::SpeakerAware);
+        assert_eq!(
+            Style::IntelligentSpeaker.detection_tier(),
+            DetectionTier::SpeakerAware
+        );
+        assert_eq!(
+            Style::IntelligentSplitSpeaker.detection_tier(),
+            DetectionTier::SpeakerAware
+        );
 
         // Motion-aware tier
-        assert_eq!(Style::IntelligentMotion.detection_tier(), DetectionTier::MotionAware);
-        assert_eq!(Style::IntelligentSplitMotion.detection_tier(), DetectionTier::MotionAware);
+        assert_eq!(
+            Style::IntelligentMotion.detection_tier(),
+            DetectionTier::MotionAware
+        );
+        assert_eq!(
+            Style::IntelligentSplitMotion.detection_tier(),
+            DetectionTier::MotionAware
+        );
     }
 
     #[test]
@@ -487,7 +497,7 @@ mod tests {
         assert!(Style::IntelligentSplit.is_split_view());
         assert!(Style::IntelligentSplitSpeaker.is_split_view());
         assert!(Style::IntelligentSplitMotion.is_split_view());
-        
+
         // Non-split styles
         assert!(!Style::Original.is_split_view());
         assert!(!Style::Intelligent.is_split_view());
@@ -504,7 +514,7 @@ mod tests {
         assert!(Style::LeftFocus.is_fast());
         assert!(Style::RightFocus.is_fast());
         assert!(Style::CenterFocus.is_fast());
-        
+
         // Non-fast styles (use AI detection)
         assert!(!Style::Intelligent.is_fast());
         assert!(!Style::IntelligentSpeaker.is_fast());
@@ -513,9 +523,14 @@ mod tests {
     #[test]
     fn test_new_style_parse() {
         assert_eq!("split_fast".parse::<Style>().unwrap(), Style::SplitFast);
-        assert_eq!("intelligent_speaker".parse::<Style>().unwrap(), Style::IntelligentSpeaker);
-        assert_eq!("intelligent_split_speaker".parse::<Style>().unwrap(), Style::IntelligentSplitSpeaker);
+        assert_eq!(
+            "intelligent_speaker".parse::<Style>().unwrap(),
+            Style::IntelligentSpeaker
+        );
+        assert_eq!(
+            "intelligent_split_speaker".parse::<Style>().unwrap(),
+            Style::IntelligentSplitSpeaker
+        );
         assert_eq!("center_focus".parse::<Style>().unwrap(), Style::CenterFocus);
     }
 }
-

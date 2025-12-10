@@ -51,7 +51,12 @@ pub struct Highlight {
 
 impl Highlight {
     /// Create a new highlight.
-    pub fn new(id: u32, title: impl Into<String>, start: impl Into<String>, end: impl Into<String>) -> Self {
+    pub fn new(
+        id: u32,
+        title: impl Into<String>,
+        start: impl Into<String>,
+        end: impl Into<String>,
+    ) -> Self {
         Self {
             id,
             title: title.into(),
@@ -66,10 +71,9 @@ impl Highlight {
 
     /// Calculate duration from start/end timestamps.
     pub fn with_calculated_duration(mut self) -> Self {
-        if let (Ok(start_secs), Ok(end_secs)) = (
-            parse_timestamp(&self.start),
-            parse_timestamp(&self.end),
-        ) {
+        if let (Ok(start_secs), Ok(end_secs)) =
+            (parse_timestamp(&self.start), parse_timestamp(&self.end))
+        {
             self.duration = (end_secs - start_secs).max(0.0) as u32;
         }
         self
