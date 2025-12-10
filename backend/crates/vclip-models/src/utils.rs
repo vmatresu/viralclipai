@@ -3,6 +3,8 @@
 //! This module provides shared utility functions that are used across
 //! multiple crates in the ViralClip backend, following DRY principles.
 
+use url::Url;
+
 /// Errors that can occur during YouTube ID extraction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum YoutubeIdError {
@@ -72,10 +74,37 @@ pub fn extract_youtube_id(url: &str) -> YoutubeIdResult<String> {
     Err(YoutubeIdError::VideoIdNotFound)
 }
 
-/// Check if URL is from a YouTube domain
-fn is_youtube_domain(url: &str) -> bool {
-    let url = url.to_ascii_lowercase();
-    url.contains("youtube.com") || url.contains("youtu.be")
+/// Extract hostname from a URL, normalizing case and requiring http/https.
+pub(crate) fn extract_host(url: &str) -> Option<String> {
+    parse_http_url(url).and_then(|parsed| parsed.host_str().map(|h| h.to_ascii_lowercase()))
+}
+
+/// Check if URL is from a YouTube domain by inspecting the host.
+pub(crate) fn is_youtube_domain(url: &str) -> bool {
+    extract_host(url)
+        .map(|host| is_allowed_youtube_host(&host))
+        .unwrap_or(false)
+}
+
+fn is_allowed_youtube_host(host: &str) -> bool {
+    const ALLOWED_BASES: [&str; 3] = ["youtube.com", "youtube-nocookie.com", "youtu.be"];
+
+    ALLOWED_BASES
+        .iter()
+        .any(|base| host == *base || host.ends_with(&format!(".{}", base)))
+}
+
+fn parse_http_url(url: &str) -> Option<Url> {
+    let trimmed = url.trim();
+
+    let parsed = Url::parse(trimmed)
+        .or_else(|_| Url::parse(&format!("https://{}", trimmed)))
+        .ok()?;
+
+    match parsed.scheme() {
+        "http" | "https" => Some(parsed),
+        _ => None,
+    }
 }
 
 /// Extract ID from youtube.com/watch?v=VIDEO_ID
@@ -164,7 +193,8 @@ fn extract_id_from_segment(segment: &str) -> Option<String> {
 
 /// Check if string contains only valid YouTube ID characters
 fn is_valid_youtube_id_chars(s: &str) -> bool {
-    s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 /// Validate YouTube video ID format and return it
@@ -231,7 +261,8 @@ mod tests {
 
         // With query parameters
         assert_eq!(
-            extract_youtube_id("https://youtube.com/watch?v=dQw4w9WgXcQ&list=PLrAXtmRdnEQy4qtr").unwrap(),
+            extract_youtube_id("https://youtube.com/watch?v=dQw4w9WgXcQ&list=PLrAXtmRdnEQy4qtr")
+                .unwrap(),
             "dQw4w9WgXcQ"
         );
 
@@ -303,10 +334,7 @@ mod tests {
             Some("dQw4w9WgXcQ".to_string())
         );
 
-        assert_eq!(
-            extract_youtube_id_legacy("https://invalid-url"),
-            None
-        );
+        assert_eq!(extract_youtube_id_legacy("https://invalid-url"), None);
     }
 
     #[test]
@@ -329,7 +357,8 @@ mod tests {
     fn test_edge_cases() {
         // URL with multiple query parameters
         assert_eq!(
-            extract_youtube_id("https://youtube.com/watch?v=dQw4w9WgXcQ&feature=share&si=test").unwrap(),
+            extract_youtube_id("https://youtube.com/watch?v=dQw4w9WgXcQ&feature=share&si=test")
+                .unwrap(),
             "dQw4w9WgXcQ"
         );
 
@@ -357,7 +386,28 @@ mod tests {
         assert!(is_youtube_domain("https://youtube.com/watch?v=test"));
         assert!(is_youtube_domain("https://youtu.be/test"));
         assert!(is_youtube_domain("https://www.youtube.com/test"));
+        assert!(is_youtube_domain("https://m.youtube.com/watch?v=test"));
+        assert!(is_youtube_domain(
+            "https://www.youtube-nocookie.com/embed/test"
+        ));
+
+        // Unsafe substrings should not be accepted
+        assert!(!is_youtube_domain("https://evil-youtube.com/watch?v=test"));
+        assert!(!is_youtube_domain(
+            "https://example.com/redirect?target=https://youtube.com/watch?v=test"
+        ));
+        assert!(!is_youtube_domain("javascript:alert(1)"));
         assert!(!is_youtube_domain("https://example.com"));
         assert!(!is_youtube_domain("https://vimeo.com"));
+
+        // Host extraction aligns with validation
+        assert_eq!(
+            extract_host("https://www.youtube.com/watch?v=test"),
+            Some("www.youtube.com".to_string())
+        );
+        assert_eq!(
+            extract_host("https://notyoutube.com/watch?v=test"),
+            Some("notyoutube.com".to_string())
+        );
     }
 }

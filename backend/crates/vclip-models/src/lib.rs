@@ -18,6 +18,7 @@ pub mod style;
 pub mod utils;
 pub mod video;
 pub mod ws;
+pub mod youtube_url_config;
 
 // Re-export common types
 pub use clip::{ClipMetadata, ClipStatus, ClipTask};
@@ -31,4 +32,8 @@ pub use style::{AspectRatio, CropMode, Style};
 pub use utils::{extract_youtube_id, extract_youtube_id_legacy, YoutubeIdError, YoutubeIdResult};
 pub use video::{VideoId, VideoMetadata, VideoStatus};
 pub use ws::{ClipProcessingStep, WsMessage, WsMessageType};
+pub use youtube_url_config::{
+    analyze_youtube_url, analyze_youtube_url_json, LiveCaptureMode, LiveHandling, SubtitlePlan,
+    UrlType, ValidationResult, VideoDownloadPlan, YoutubeUrlConfig, YoutubeUrlInput,
+};
 
