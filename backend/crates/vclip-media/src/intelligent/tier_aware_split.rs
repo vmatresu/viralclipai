@@ -56,6 +56,12 @@ impl TierAwareSplitProcessor {
     ///
     /// This uses SinglePassRenderer to apply all transforms (crop, scale, vstack)
     /// in ONE FFmpeg command, avoiding multiple encode passes.
+    ///
+    /// # Smart Split Detection
+    /// Before splitting, we check if faces appear SIMULTANEOUSLY for at least 3 seconds.
+    /// If not (e.g., camera switches between showing one person then another),
+    /// we fallback to full-frame intelligent cropping which handles alternating
+    /// speakers much better.
     pub async fn process<P: AsRef<Path>>(
         &self,
         segment: P,
@@ -72,18 +78,55 @@ impl TierAwareSplitProcessor {
 
         // Step 1: Get video metadata
         let step_start = std::time::Instant::now();
-        info!("[INTELLIGENT_SPLIT] Step 1/3: Probing video metadata...");
+        info!("[INTELLIGENT_SPLIT] Step 1/4: Probing video metadata...");
         
         let video_info = probe_video(segment).await?;
         let width = video_info.width;
         let height = video_info.height;
+        let fps = video_info.fps;
         let duration = video_info.duration;
 
         info!(
-            "[INTELLIGENT_SPLIT] Step 1/3 DONE in {:.2}s - {}x{} @ {:.2}fps, {:.2}s",
+            "[INTELLIGENT_SPLIT] Step 1/4 DONE in {:.2}s - {}x{} @ {:.2}fps, {:.2}s",
             step_start.elapsed().as_secs_f64(),
-            width, height, video_info.fps, duration
+            width, height, fps, duration
         );
+
+        // Step 2: Check if split mode is appropriate (simultaneous faces detection)
+        // Only use split mode for TRUE side-by-side podcasts where both faces are visible together.
+        // For videos that switch between showing one person at a time, use full-frame tracking.
+        let step_start = std::time::Instant::now();
+        info!("[INTELLIGENT_SPLIT] Step 2/4: Checking for simultaneous face presence...");
+        
+        let should_split = self.should_use_split_layout(segment, width, height, fps, duration).await;
+        
+        info!(
+            "[INTELLIGENT_SPLIT] Step 2/4 DONE in {:.2}s - should_split: {}",
+            step_start.elapsed().as_secs_f64(),
+            should_split
+        );
+        
+        if !should_split {
+            info!("[INTELLIGENT_SPLIT] Alternating/single-face detected → using full-frame tracking");
+            let cropper = super::tier_aware_cropper::TierAwareIntelligentCropper::new(
+                self.config.clone(),
+                self.tier,
+            );
+            cropper.process(segment, output, encoding).await?;
+            
+            // Generate thumbnail
+            let thumb_path = output.with_extension("jpg");
+            if let Err(e) = generate_thumbnail(output, &thumb_path).await {
+                tracing::warn!("[INTELLIGENT_SPLIT] Failed to generate thumbnail: {}", e);
+            }
+            
+            info!("[INTELLIGENT_SPLIT] ========================================");
+            info!(
+                "[INTELLIGENT_SPLIT] COMPLETE (full-frame) in {:.2}s",
+                pipeline_start.elapsed().as_secs_f64()
+            );
+            return Ok(());
+        }
 
         // Speaker-aware split uses dedicated mouth-openness path.
         if self.tier == DetectionTier::SpeakerAware {
@@ -485,6 +528,79 @@ impl TierAwareSplitProcessor {
         let bias = (normalized_y - 0.3).max(0.0).min(0.4);
 
         bias
+    }
+
+    /// Determine if split layout is appropriate for this video.
+    ///
+    /// Split layout is only appropriate for TRUE side-by-side podcasts where
+    /// both speakers are visible simultaneously. For videos that show one person
+    /// at a time (alternating left/right framings), full-frame tracking is better.
+    ///
+    /// # Algorithm
+    /// 1. Sample frames for face detection
+    /// 2. Count time where 2+ faces are visible SIMULTANEOUSLY
+    /// 3. If simultaneous time >= 3 seconds, use split mode
+    /// 4. Otherwise, use full-frame mode
+    async fn should_use_split_layout(
+        &self,
+        segment: &Path,
+        width: u32,
+        height: u32,
+        fps: f64,
+        duration: f64,
+    ) -> bool {
+        // Sample at a reasonable rate (not every frame, that's too expensive)
+        let sample_fps = self.config.fps_sample.max(2.0).min(8.0);
+        let sample_interval = 1.0 / sample_fps;
+        
+        // Minimum simultaneous visibility required for split mode
+        const MIN_SIMULTANEOUS_SECONDS: f64 = 3.0;
+        
+        // Detect faces across the video
+        let detections = match self.detector.detect_in_video(
+            segment,
+            0.0,
+            duration,
+            width,
+            height,
+            fps,
+        ).await {
+            Ok(dets) => dets,
+            Err(e) => {
+                tracing::warn!("[SPLIT_CHECK] Face detection failed: {} → defaulting to split", e);
+                return true; // Default to split if detection fails (preserves existing behavior)
+            }
+        };
+        
+        if detections.is_empty() {
+            info!("[SPLIT_CHECK] No faces detected → using full-frame mode");
+            return false;
+        }
+        
+        // Count time with 2+ faces visible simultaneously
+        let mut simultaneous_time = 0.0;
+        let mut distinct_tracks = std::collections::HashSet::new();
+        
+        for frame_dets in &detections {
+            if frame_dets.len() >= 2 {
+                simultaneous_time += sample_interval;
+            }
+            for det in frame_dets {
+                distinct_tracks.insert(det.track_id);
+            }
+        }
+        
+        let should_split = distinct_tracks.len() >= 2 && simultaneous_time >= MIN_SIMULTANEOUS_SECONDS;
+        
+        info!(
+            "[SPLIT_CHECK] {} tracks, {:.1}s simultaneous (need >= {:.1}s) → {}",
+            distinct_tracks.len(),
+            simultaneous_time,
+            MIN_SIMULTANEOUS_SECONDS,
+            if should_split { "SPLIT" } else { "FULL-FRAME" }
+        );
+        
+        should_split
     }
 
 }

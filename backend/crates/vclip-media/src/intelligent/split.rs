@@ -61,8 +61,12 @@ pub enum SplitLayout {
 
 #[derive(Debug, Default)]
 struct SplitAnalysis {
+    /// Number of distinct face tracks detected across the clip
     distinct_tracks: usize,
-    multi_face_time: f64,
+    /// Time (seconds) with 2+ faces visible SIMULTANEOUSLY
+    /// This is critical: we only want split mode for true side-by-side podcasts,
+    /// NOT for videos that switch between showing one person then another.
+    simultaneous_face_time: f64,
     left_vertical_bias: f64,
     right_vertical_bias: f64,
     /// Average horizontal center of left face as fraction of left half width (0.0-1.0)
@@ -138,23 +142,39 @@ impl IntelligentSplitProcessor {
             .detect_in_video(segment, 0.0, duration, width, height, fps)
             .await?;
         let analysis = self.analyze_detections(&detections, width, height);
-        let should_split =
-            analysis.distinct_tracks >= 2 && analysis.multi_face_time >= self.multi_face_threshold();
+        
+        // KEY DECISION: Only use split mode for TRUE side-by-side podcasts.
+        // Requirements:
+        // 1. At least 2 distinct face tracks detected
+        // 2. At least 3 seconds with BOTH faces visible SIMULTANEOUSLY
+        //
+        // This prevents split mode for videos that show one person at a time
+        // (e.g., switching between left and right camera framings).
+        let min_simultaneous_time = 3.0; // seconds
+        let should_split = analysis.distinct_tracks >= 2 
+            && analysis.simultaneous_face_time >= min_simultaneous_time;
 
         if !should_split {
             info!(
-                "Single-face detected (tracks: {}, multi-face time: {:.2}s) → using full-frame intelligent crop with tier {:?}",
-                analysis.distinct_tracks, analysis.multi_face_time, self.tier
+                "Using full-frame mode: {} tracks, {:.2}s simultaneous (need >= {:.1}s for split) → tier {:?}",
+                analysis.distinct_tracks, 
+                analysis.simultaneous_face_time,
+                min_simultaneous_time,
+                self.tier
             );
-            // Keep the original tier (including Motion/Activity) so we don't silently downgrade
-            // the style. This preserves dynamic motion/activity behavior while outputting 9:16
-            // single-speaker framing instead of switching to a different analysis mode.
+            // Use full-frame intelligent crop which dynamically follows faces
             let cropper = TierAwareIntelligentCropper::new(self.config.clone(), self.tier);
             cropper.process(segment, output, encoding).await?;
             self.generate_thumbnail(output).await;
-            info!("Intelligent split (single-face path) complete: {:?}", output);
+            info!("Intelligent split (full-frame path) complete: {:?}", output);
             return Ok(SplitLayout::FullFrame);
         }
+        
+        info!(
+            "Using split mode: {} tracks, {:.2}s simultaneous → splitting left/right",
+            analysis.distinct_tracks,
+            analysis.simultaneous_face_time
+        );
 
         info!("Step 1/4: Splitting video into left/right halves...");
         info!("Step 2/4: Applying face-centered crop to each panel...");
@@ -323,13 +343,15 @@ impl IntelligentSplitProcessor {
         let center_x = width as f64 / 2.0;
         let half_width = center_x;
         let mut track_presence: HashMap<u32, f64> = HashMap::new();
-        let mut multi_face_time = 0.0;
+        let mut simultaneous_face_time = 0.0;
         let mut left_faces: Vec<BoundingBox> = Vec::new();
         let mut right_faces: Vec<BoundingBox> = Vec::new();
 
         for frame_dets in detections {
+            // Track time when 2+ faces are visible SIMULTANEOUSLY
+            // This is the key metric for determining if split mode is appropriate
             if frame_dets.len() >= 2 {
-                multi_face_time += sample_interval;
+                simultaneous_face_time += sample_interval;
             }
             for det in frame_dets {
                 *track_presence.entry(det.track_id).or_insert(0.0) += sample_interval;
@@ -363,7 +385,7 @@ impl IntelligentSplitProcessor {
 
         SplitAnalysis {
             distinct_tracks: track_presence.len(),
-            multi_face_time,
+            simultaneous_face_time,
             left_vertical_bias,
             right_vertical_bias,
             left_horizontal_center,
@@ -394,10 +416,7 @@ impl IntelligentSplitProcessor {
         (normalized_y - 0.3).max(0.0).min(0.4)
     }
 
-    fn multi_face_threshold(&self) -> f64 {
-        // Require sustained presence to avoid toggling for brief motions
-        1.5
-    }
+    // Note: multi_face_threshold() removed - now using explicit 3.0s constant in process()
 
     async fn generate_thumbnail(&self, output: &Path) {
         info!("Step 3/3: Generating thumbnail...");
