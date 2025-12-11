@@ -366,10 +366,15 @@ function HistorySceneItem({
                     </Badge>
                   )}
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-semibold text-base leading-tight flex-1">
+                <div className="space-y-1">
+                  <p className="font-semibold text-base leading-tight">
                     {scene.sceneTitle}
                   </p>
+                  {scene.highlight?.reason && (
+                    <p className="text-xs text-muted-foreground leading-snug">
+                      {scene.highlight.reason}
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {tierSummaries.map((tier) => (
