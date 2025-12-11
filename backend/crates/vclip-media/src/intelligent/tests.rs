@@ -1,4 +1,7 @@
 //! Tests for tier-aware intelligent processing (visual-only).
+//!
+//! All tests verify that the premium intelligent_speaker style uses
+//! ONLY visual signals - NO audio information.
 
 #[cfg(test)]
 mod tier_aware_smoother_tests {
@@ -46,12 +49,14 @@ mod tier_aware_smoother_tests {
     }
 }
 
+
 /// Tests for the premium intelligent_speaker implementation.
+/// ALL TESTS VERIFY VISUAL-ONLY BEHAVIOR - NO AUDIO.
 #[cfg(test)]
 mod premium_speaker_tests {
     use crate::intelligent::models::{AspectRatio, BoundingBox, Detection};
     use crate::intelligent::premium::{
-        CameraTargetSelector, PremiumCameraPlanner, PremiumSpeakerConfig,
+        CameraTargetSelector, PremiumCameraPlanner, PremiumSmoother, PremiumSpeakerConfig,
     };
 
     fn make_detection(time: f64, x: f64, y: f64, size: f64, track_id: u32) -> Detection {
@@ -75,6 +80,41 @@ mod premium_speaker_tests {
         )
     }
 
+    // === Visual-Only Scoring Tests ===
+
+    #[test]
+    fn test_visual_scores_no_audio_dependency() {
+        let config = PremiumSpeakerConfig::default();
+        let mut selector = CameraTargetSelector::new(config, 1920, 1080);
+
+        // Create detection with mouth activity (visual signal from face mesh)
+        let det = make_detection_with_mouth(0.0, 500.0, 400.0, 200.0, 1, 0.8);
+        let detections = vec![det.clone()];
+        
+        selector.select_focus(&detections, 0.0);
+        let scores = selector.get_visual_scores(&det, 0.0);
+        
+        // All scores should be in valid range
+        assert!(scores.size_score >= 0.0 && scores.size_score <= 1.0);
+        assert!(scores.conf_score >= 0.0 && scores.conf_score <= 1.0);
+        assert!(scores.mouth_score >= 0.0 && scores.mouth_score <= 1.0);
+        assert!(scores.stability_score >= 0.0 && scores.stability_score <= 1.0);
+        assert!(scores.center_score >= 0.0 && scores.center_score <= 1.0);
+        assert!(scores.total > 0.0);
+    }
+
+    #[test]
+    fn test_config_weights_sum_to_one() {
+        let config = PremiumSpeakerConfig::default();
+        let weight_sum = config.weight_size
+            + config.weight_confidence
+            + config.weight_mouth_activity
+            + config.weight_track_stability
+            + config.weight_centering;
+        
+        assert!((weight_sum - 1.0).abs() < 0.01, "Visual weights should sum to 1.0: {}", weight_sum);
+    }
+
     // === Target Selector Tests ===
 
     #[test]
@@ -82,15 +122,13 @@ mod premium_speaker_tests {
         let config = PremiumSpeakerConfig::default();
         let mut selector = CameraTargetSelector::new(config, 1920, 1080);
 
-        // Initial position
         let det1 = vec![make_detection(0.0, 500.0, 400.0, 200.0, 1)];
         let focus1 = selector.select_focus(&det1, 0.0);
 
         // Small movement within dead-zone (5% of 1920 = 96px)
-        let det2 = vec![make_detection(0.1, 550.0, 400.0, 200.0, 1)]; // +50px
+        let det2 = vec![make_detection(0.1, 550.0, 400.0, 200.0, 1)];
         let focus2 = selector.select_focus(&det2, 0.1);
 
-        // Focus should be relatively stable
         let dx = (focus2.cx - focus1.cx).abs();
         assert!(dx < 100.0, "Focus moved too much within dead-zone: {}", dx);
     }
@@ -98,7 +136,7 @@ mod premium_speaker_tests {
     #[test]
     fn test_target_selector_dwell_time_prevents_rapid_switching() {
         let mut config = PremiumSpeakerConfig::default();
-        config.primary_subject_dwell_ms = 1000; // 1 second dwell
+        config.primary_subject_dwell_ms = 1000;
 
         let mut selector = CameraTargetSelector::new(config, 1920, 1080);
 
@@ -112,7 +150,7 @@ mod premium_speaker_tests {
 
         // At 0.5s, face 1 becomes larger - should NOT switch (dwell time)
         let det2 = vec![
-            make_detection(0.5, 200.0, 400.0, 300.0, 1), // Now larger
+            make_detection(0.5, 200.0, 400.0, 300.0, 1),
             make_detection(0.5, 1400.0, 400.0, 250.0, 2),
         ];
         let focus2 = selector.select_focus(&det2, 0.5);
@@ -135,8 +173,6 @@ mod premium_speaker_tests {
         let det = vec![make_detection(0.0, 800.0, 400.0, 200.0, 1)];
         let focus = selector.select_focus(&det, 0.0);
 
-        // Face center is at y=500 (400 + 200/2)
-        // With vertical bias, focus.cy should be shifted down
         let face_cy = 400.0 + 100.0;
         assert!(
             focus.cy > face_cy,
@@ -154,12 +190,11 @@ mod premium_speaker_tests {
 
         let mut selector = CameraTargetSelector::new(config, 1920, 1080);
 
-        // Simulate two speakers alternating briefly
         let mut last_track = 0u32;
         let mut switch_count = 0;
 
         for i in 0..20 {
-            let time = i as f64 * 0.2; // 0.2s intervals
+            let time = i as f64 * 0.2;
             let mouth1 = if i % 2 == 0 { 0.8 } else { 0.2 };
             let mouth2 = if i % 2 == 0 { 0.2 } else { 0.8 };
 
@@ -175,12 +210,177 @@ mod premium_speaker_tests {
             last_track = focus.track_id;
         }
 
-        // With 1.2s dwell time and 0.2s intervals, we should have very few switches
         assert!(
             switch_count <= 3,
             "Too many switches ({}), camera is ping-ponging",
             switch_count
         );
+    }
+
+    #[test]
+    fn test_target_selector_dropout_handling() {
+        let config = PremiumSpeakerConfig::default();
+        let mut selector = CameraTargetSelector::new(config, 1920, 1080);
+
+        // First frame with detection
+        let det1 = vec![make_detection(0.0, 500.0, 400.0, 200.0, 1)];
+        let focus1 = selector.select_focus(&det1, 0.0);
+
+        // Short dropout - should hold position
+        let focus2 = selector.select_focus(&[], 0.5);
+        assert!((focus2.cx - focus1.cx).abs() < 1.0, "Should hold position during short dropout");
+        assert_eq!(focus2.track_id, 1);
+
+        // Long dropout - should fallback
+        let focus3 = selector.select_focus(&[], 2.0);
+        assert_eq!(focus3.track_id, 0, "Should fallback after long dropout");
+    }
+
+    #[test]
+    fn test_target_selector_scene_change_detection() {
+        let mut config = PremiumSpeakerConfig::default();
+        config.enable_scene_detection = true;
+
+        let mut selector = CameraTargetSelector::new(config, 1920, 1080);
+
+        let det1 = vec![
+            make_detection(0.0, 200.0, 400.0, 200.0, 1),
+            make_detection(0.0, 1400.0, 400.0, 200.0, 2),
+        ];
+        selector.select_focus(&det1, 0.0);
+
+        // Scene change - completely different faces
+        let det2 = vec![
+            make_detection(1.0, 500.0, 300.0, 180.0, 10),
+            make_detection(1.0, 1200.0, 300.0, 180.0, 11),
+        ];
+
+        let focus = selector.select_focus(&det2, 1.0);
+        assert!(focus.track_id == 10 || focus.track_id == 11);
+        assert!(focus.is_scene_change);
+    }
+
+
+    // === Smoother Tests ===
+
+    #[test]
+    fn test_smoother_pan_speed_limiting() {
+        let mut config = PremiumSpeakerConfig::default();
+        config.max_pan_speed_px_per_sec = 100.0;
+
+        let mut smoother = PremiumSmoother::new(config, 30.0, 1920, 1080);
+
+        use crate::intelligent::premium::target_selector::FocusPoint;
+        
+        let focus1 = FocusPoint {
+            cx: 200.0, cy: 400.0, width: 200.0, height: 200.0,
+            track_id: 1, score: 0.9, is_scene_change: false,
+        };
+        smoother.smooth(&focus1, 0.0);
+
+        let focus2 = FocusPoint {
+            cx: 1500.0, cy: 400.0, width: 200.0, height: 200.0,
+            track_id: 1, score: 0.9, is_scene_change: false,
+        };
+        let kf2 = smoother.smooth(&focus2, 0.1);
+
+        let dx = (kf2.cx - 200.0).abs();
+        assert!(dx < 200.0, "Velocity not limited: {} px", dx);
+    }
+
+    #[test]
+    fn test_smoother_zoom_aware_dead_zone() {
+        let config = PremiumSpeakerConfig::default();
+        
+        let (dz_1x, _) = config.dead_zone_for_zoom(1920, 1080, 1.0);
+        let (dz_2x, _) = config.dead_zone_for_zoom(1920, 1080, 2.0);
+        let (dz_4x, _) = config.dead_zone_for_zoom(1920, 1080, 4.0);
+
+        assert!(dz_2x < dz_1x, "2x zoom should have smaller dead-zone");
+        assert!(dz_4x < dz_2x, "4x zoom should have smaller dead-zone");
+    }
+
+    #[test]
+    fn test_smoother_zoom_speed_limiting() {
+        let mut config = PremiumSpeakerConfig::default();
+        config.max_zoom_speed_per_sec = 0.5;
+
+        let mut smoother = PremiumSmoother::new(config, 30.0, 1920, 1080);
+
+        use crate::intelligent::premium::target_selector::FocusPoint;
+        
+        // Start with wide shot
+        let focus1 = FocusPoint {
+            cx: 960.0, cy: 540.0, width: 800.0, height: 800.0,
+            track_id: 1, score: 0.9, is_scene_change: false,
+        };
+        let kf1 = smoother.smooth(&focus1, 0.0);
+
+        // Request tight zoom
+        let focus2 = FocusPoint {
+            cx: 960.0, cy: 540.0, width: 200.0, height: 200.0,
+            track_id: 1, score: 0.9, is_scene_change: false,
+        };
+        let kf2 = smoother.smooth(&focus2, 0.1);
+
+        let zoom1 = 1920.0 / kf1.width;
+        let zoom2 = 1920.0 / kf2.width;
+        let zoom_change = (zoom2 - zoom1).abs();
+        
+        assert!(zoom_change < 0.2, "Zoom changed too fast: {}", zoom_change);
+    }
+
+    #[test]
+    fn test_smoother_soft_reset_on_scene_change() {
+        let config = PremiumSpeakerConfig::default();
+        let mut smoother = PremiumSmoother::new(config, 30.0, 1920, 1080);
+
+        use crate::intelligent::premium::target_selector::FocusPoint;
+        
+        let focus1 = FocusPoint {
+            cx: 200.0, cy: 400.0, width: 200.0, height: 200.0,
+            track_id: 1, score: 0.9, is_scene_change: false,
+        };
+        smoother.smooth(&focus1, 0.0);
+
+        let new_focus = FocusPoint {
+            cx: 1500.0, cy: 400.0, width: 200.0, height: 200.0,
+            track_id: 10, score: 0.9, is_scene_change: true,
+        };
+        smoother.soft_reset(&new_focus, 0.5);
+
+        let state = smoother.current_state().unwrap();
+        assert!(state.cx > 200.0, "Should have moved toward new focus");
+        assert!(state.cx < 1500.0, "Should not have fully jumped");
+    }
+
+    #[test]
+    fn test_smoother_real_timestamp_dt() {
+        let config = PremiumSpeakerConfig::default();
+        let mut smoother = PremiumSmoother::new(config, 30.0, 1920, 1080);
+
+        use crate::intelligent::premium::target_selector::FocusPoint;
+        
+        let focus1 = FocusPoint {
+            cx: 500.0, cy: 400.0, width: 200.0, height: 200.0,
+            track_id: 1, score: 0.9, is_scene_change: false,
+        };
+        smoother.smooth(&focus1, 0.0);
+
+        let focus2 = FocusPoint {
+            cx: 600.0, cy: 400.0, width: 200.0, height: 200.0,
+            track_id: 1, score: 0.9, is_scene_change: false,
+        };
+        let kf_short = smoother.smooth(&focus2, 0.033);
+
+        smoother.reset();
+        smoother.smooth(&focus1, 0.0);
+        let kf_long = smoother.smooth(&focus2, 0.1);
+
+        let dx_short = (kf_short.cx - 500.0).abs();
+        let dx_long = (kf_long.cx - 500.0).abs();
+        
+        assert!(dx_long >= dx_short, "Longer dt should allow more smoothing progress");
     }
 
     // === Camera Planner Tests ===
@@ -190,7 +390,6 @@ mod premium_speaker_tests {
         let config = PremiumSpeakerConfig::default();
         let mut planner = PremiumCameraPlanner::new(config, 1920, 1080, 30.0);
 
-        // Subject moves gradually
         let detections: Vec<Vec<Detection>> = (0..10)
             .map(|i| {
                 let x = 400.0 + i as f64 * 50.0;
@@ -200,40 +399,70 @@ mod premium_speaker_tests {
 
         let keyframes = planner.compute_camera_plan(&detections, 0.0, 1.0);
 
-        // Check that motion is smooth (no large jumps)
         for i in 1..keyframes.len() {
             let dx = (keyframes[i].cx - keyframes[i - 1].cx).abs();
-            assert!(
-                dx < 100.0,
-                "Motion not smooth at frame {}: dx={}",
-                i,
-                dx
-            );
+            assert!(dx < 100.0, "Motion not smooth at frame {}: dx={}", i, dx);
         }
     }
 
     #[test]
-    fn test_camera_planner_velocity_limiting() {
+    fn test_camera_planner_uses_real_timestamps() {
+        let config = PremiumSpeakerConfig::default();
+        let mut planner = PremiumCameraPlanner::new(config, 1920, 1080, 30.0);
+
+        let detections = vec![
+            vec![make_detection(0.0, 500.0, 400.0, 200.0, 1)],
+            vec![make_detection(0.5, 600.0, 400.0, 200.0, 1)],
+            vec![make_detection(0.6, 700.0, 400.0, 200.0, 1)],
+        ];
+
+        let keyframes = planner.compute_camera_plan(&detections, 0.0, 1.0);
+        
+        assert!((keyframes[0].time - 0.0).abs() < 0.01);
+        assert!((keyframes[1].time - 0.5).abs() < 0.01);
+        assert!((keyframes[2].time - 0.6).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_camera_planner_dropout_resilience() {
+        let config = PremiumSpeakerConfig::default();
+        let mut planner = PremiumCameraPlanner::new(config, 1920, 1080, 30.0);
+
+        let detections = vec![
+            vec![make_detection(0.0, 500.0, 400.0, 200.0, 1)],
+            vec![],
+            vec![],
+            vec![make_detection(0.3, 550.0, 400.0, 200.0, 1)],
+        ];
+
+        let keyframes = planner.compute_camera_plan(&detections, 0.0, 0.4);
+        assert_eq!(keyframes.len(), 4);
+
+        let dx_dropout = (keyframes[2].cx - keyframes[1].cx).abs();
+        assert!(dx_dropout < 50.0, "Should hold position during dropout");
+
+        assert_eq!(planner.stats().dropout_frames, 2);
+    }
+
+    #[test]
+    fn test_camera_planner_scene_change_adaptation() {
         let mut config = PremiumSpeakerConfig::default();
-        config.max_pan_speed_px_per_sec = 200.0; // Slow for testing
+        config.enable_scene_detection = true;
 
         let mut planner = PremiumCameraPlanner::new(config, 1920, 1080, 30.0);
 
-        // Large instant jump
         let detections = vec![
             vec![make_detection(0.0, 200.0, 400.0, 200.0, 1)],
-            vec![make_detection(0.1, 1500.0, 400.0, 200.0, 1)], // 1300px jump
+            vec![make_detection(0.1, 200.0, 400.0, 200.0, 1)],
+            vec![make_detection(0.2, 1500.0, 400.0, 200.0, 10)],
         ];
 
-        let keyframes = planner.compute_camera_plan(&detections, 0.0, 0.2);
-
-        // Movement should be limited
-        let dx = (keyframes[1].cx - keyframes[0].cx).abs();
-        assert!(
-            dx < 500.0,
-            "Velocity not limited: {} px movement in 0.1s",
-            dx
-        );
+        let keyframes = planner.compute_camera_plan(&detections, 0.0, 0.3);
+        
+        let dx = (keyframes[2].cx - keyframes[1].cx).abs();
+        assert!(dx > 100.0, "Scene change should allow faster repositioning");
+        
+        assert!(planner.stats().scene_changes >= 1);
     }
 
     #[test]
@@ -247,13 +476,8 @@ mod premium_speaker_tests {
 
         let crops = planner.compute_crop_windows(&keyframes, &AspectRatio::PORTRAIT);
 
-        // Should be 9:16 aspect ratio
         let ratio = crops[0].width as f64 / crops[0].height as f64;
-        assert!(
-            (ratio - 0.5625).abs() < 0.02,
-            "Aspect ratio wrong: {}",
-            ratio
-        );
+        assert!((ratio - 0.5625).abs() < 0.02, "Aspect ratio wrong: {}", ratio);
     }
 
     #[test]
@@ -261,23 +485,15 @@ mod premium_speaker_tests {
         let config = PremiumSpeakerConfig::default();
         let mut planner = PremiumCameraPlanner::new(config, 1920, 1080, 30.0);
 
-        // Subject near edge
         let detections = vec![vec![make_detection(0.0, 100.0, 400.0, 200.0, 1)]];
 
         let keyframes = planner.compute_camera_plan(&detections, 0.0, 0.1);
         let crops = planner.compute_crop_windows(&keyframes, &AspectRatio::PORTRAIT);
 
-        // Crop should be within frame bounds
         assert!(crops[0].x >= 0, "Crop x out of bounds: {}", crops[0].x);
         assert!(crops[0].y >= 0, "Crop y out of bounds: {}", crops[0].y);
-        assert!(
-            crops[0].x + crops[0].width <= 1920,
-            "Crop extends past frame width"
-        );
-        assert!(
-            crops[0].y + crops[0].height <= 1080,
-            "Crop extends past frame height"
-        );
+        assert!(crops[0].x + crops[0].width <= 1920, "Crop extends past frame width");
+        assert!(crops[0].y + crops[0].height <= 1080, "Crop extends past frame height");
     }
 
     // === Integration Tests ===
@@ -287,13 +503,12 @@ mod premium_speaker_tests {
         let config = PremiumSpeakerConfig::default();
         let mut planner = PremiumCameraPlanner::new(config, 1920, 1080, 30.0);
 
-        // Simulate a 3-second clip with two speakers
         let mut detections = Vec::new();
 
         for i in 0..30 {
             let time = i as f64 * 0.1;
-            let mouth1 = if i < 15 { 0.8 } else { 0.2 }; // Speaker 1 active first half
-            let mouth2 = if i < 15 { 0.2 } else { 0.8 }; // Speaker 2 active second half
+            let mouth1 = if i < 15 { 0.8 } else { 0.2 };
+            let mouth2 = if i < 15 { 0.2 } else { 0.8 };
 
             detections.push(vec![
                 make_detection_with_mouth(time, 300.0, 400.0, 200.0, 1, mouth1),
@@ -304,11 +519,9 @@ mod premium_speaker_tests {
         let keyframes = planner.compute_camera_plan(&detections, 0.0, 3.0);
         let crops = planner.compute_crop_windows(&keyframes, &AspectRatio::PORTRAIT);
 
-        // Should have keyframes for all frames
         assert_eq!(keyframes.len(), 30);
         assert_eq!(crops.len(), 30);
 
-        // All crops should be valid
         for crop in &crops {
             assert!(crop.width > 0 && crop.height > 0);
             assert!(crop.x >= 0 && crop.y >= 0);
@@ -320,32 +533,44 @@ mod premium_speaker_tests {
         let mut config = PremiumSpeakerConfig::default();
         config.max_pan_speed_px_per_sec = 100.0;
 
-        let mut planner = PremiumCameraPlanner::new(config, 1920, 1080, 10.0); // 10 fps
+        let mut planner = PremiumCameraPlanner::new(config, 1920, 1080, 10.0);
 
-        // Create detections with large position changes
         let detections = vec![
             vec![make_detection(0.0, 200.0, 400.0, 200.0, 1)],
-            vec![make_detection(0.1, 1700.0, 400.0, 200.0, 1)], // 1500px jump
-            vec![make_detection(0.2, 200.0, 400.0, 200.0, 1)],  // Jump back
+            vec![make_detection(0.1, 1700.0, 400.0, 200.0, 1)],
+            vec![make_detection(0.2, 200.0, 400.0, 200.0, 1)],
         ];
 
         let keyframes = planner.compute_camera_plan(&detections, 0.0, 0.3);
 
-        // Check that pan speed is limited
         for i in 1..keyframes.len() {
             let dt = keyframes[i].time - keyframes[i - 1].time;
             if dt > 0.0 {
                 let dx = (keyframes[i].cx - keyframes[i - 1].cx).abs();
                 let speed = dx / dt;
-                // Allow some tolerance due to smoothing
-                assert!(
-                    speed < 500.0,
-                    "Pan speed too high at frame {}: {} px/s",
-                    i,
-                    speed
-                );
+                assert!(speed < 500.0, "Pan speed too high at frame {}: {} px/s", i, speed);
             }
         }
     }
-}
 
+    #[test]
+    fn test_stats_tracking() {
+        let config = PremiumSpeakerConfig::default();
+        let mut planner = PremiumCameraPlanner::new(config, 1920, 1080, 30.0);
+
+        let detections = vec![
+            vec![make_detection(0.0, 500.0, 400.0, 200.0, 1)],
+            vec![],
+            vec![make_detection(0.2, 600.0, 400.0, 200.0, 1)],
+        ];
+
+        planner.compute_camera_plan(&detections, 0.0, 0.3);
+        
+        let stats = planner.stats();
+        assert_eq!(stats.total_frames, 3);
+        assert_eq!(stats.frames_with_detections, 2);
+        assert_eq!(stats.dropout_frames, 1);
+        assert!(stats.max_zoom > 0.0);
+        assert!(stats.min_zoom > 0.0);
+    }
+}

@@ -6,18 +6,30 @@
 //! # Features
 //!
 //! - **Smart Target Selection**: Selects primary subject with stability over time
+//!   using PURELY VISUAL signals (NO audio)
 //! - **Vertical Bias Framing**: Places eyes in upper third of frame
-//! - **Dead-zone Hysteresis**: Camera locks until subject moves significantly
-//! - **Smooth Transitions**: Exponential smoothing with max pan speed limits
+//! - **Zoom-aware Dead-zone**: Camera responsiveness adapts to zoom level
+//! - **Smooth Transitions**: Exponential smoothing with pan/zoom speed limits
 //! - **Scene Change Detection**: Fast adaptation on scene cuts
+//! - **Dropout Resilience**: Holds position during brief detection gaps
+//! - **Real Timestamps**: Uses actual detection timestamps for accurate dt
+//!
+//! # Visual-Only Scoring
+//!
+//! Subject selection uses these visual signals ONLY:
+//! - Face size/prominence
+//! - Detection confidence
+//! - Mouth/facial activity (from face mesh, NOT audio)
+//! - Track stability (age + jitter)
+//! - Geometric centering
 //!
 //! # Module Structure
 //!
 //! - `config`: Configuration parameters for the premium style
-//! - `target_selector`: Subject selection with activity tracking
-//! - `smoothing`: Camera motion smoothing algorithms
+//! - `target_selector`: Subject selection with visual activity tracking
+//! - `smoothing`: Camera motion smoothing with zoom-aware dead-zone
 //! - `crop_computer`: Aspect-ratio aware crop computation
-//! - `camera_planner`: Orchestrates the full pipeline
+//! - `camera_planner`: Orchestrates the full pipeline with real timestamps
 
 pub mod config;
 pub mod target_selector;
@@ -26,7 +38,7 @@ pub mod crop_computer;
 pub mod camera_planner;
 
 pub use config::PremiumSpeakerConfig;
-pub use target_selector::CameraTargetSelector;
-pub use smoothing::PremiumSmoother;
+pub use target_selector::{CameraTargetSelector, FocusPoint, VisualScores};
+pub use smoothing::{PremiumSmoother, CameraState};
 pub use crop_computer::{CropComputer, CropComputeConfig};
-pub use camera_planner::PremiumCameraPlanner;
+pub use camera_planner::{PremiumCameraPlanner, PlannerStats};

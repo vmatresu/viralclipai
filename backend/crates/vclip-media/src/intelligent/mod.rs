@@ -100,6 +100,7 @@ pub use continuous_renderer::{ContinuousRenderer, LayoutSpan, LayoutType};
 pub use premium::{
     PremiumSpeakerConfig, CameraTargetSelector, PremiumCameraPlanner,
     PremiumSmoother, CropComputer, CropComputeConfig,
+    FocusPoint, VisualScores, CameraState, PlannerStats,
 };
 
 use crate::error::MediaResult;

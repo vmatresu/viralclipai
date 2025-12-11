@@ -2,12 +2,14 @@
 //!
 //! Centralizes all tunable parameters for the Active Speaker mode,
 //! avoiding magic numbers scattered throughout the code.
+//! All scoring and switching is purely vision-based (NO audio).
 
 use serde::{Deserialize, Serialize};
 
 /// Configuration for the premium `intelligent_speaker` style.
 ///
 /// All parameters have sensible defaults but can be tuned for specific use cases.
+/// IMPORTANT: All subject scoring uses ONLY visual signals (no audio).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PremiumSpeakerConfig {
     // === Camera Motion Constraints ===
@@ -20,6 +22,17 @@ pub struct PremiumSpeakerConfig {
     /// Prevents abrupt starts/stops. Set to 0.0 to disable.
     /// Default: 800.0
     pub max_acceleration_px_per_sec2: f64,
+
+    // === Zoom Dynamics ===
+    /// Maximum zoom speed (zoom factor change per second).
+    /// Prevents jarring zoom pumping.
+    /// Default: 0.5 (50% zoom change per second max)
+    pub max_zoom_speed_per_sec: f64,
+
+    /// Maximum zoom acceleration (zoom speed change per second squared).
+    /// Smooths zoom ramp-up/down. Set to 0.0 to disable.
+    /// Default: 1.0
+    pub max_zoom_accel_per_sec2: f64,
 
     // === Temporal Smoothing ===
     /// Smoothing time window in milliseconds.
@@ -53,7 +66,7 @@ pub struct PremiumSpeakerConfig {
     /// Default: 0.12
     pub headroom_ratio: f64,
 
-    // === Subject Selection ===
+    // === Subject Selection (VISUAL-ONLY) ===
     /// Minimum dwell time before switching primary subject (milliseconds).
     /// Prevents rapid ping-ponging between speakers.
     /// Default: 1200 (1.2 seconds)
@@ -64,18 +77,42 @@ pub struct PremiumSpeakerConfig {
     /// Default: 0.25 (25% more active)
     pub switch_activity_margin: f64,
 
-    /// Weight for face size in subject scoring.
+    /// Weight for face size/prominence in subject scoring.
     /// Larger faces are considered more prominent.
-    /// Default: 0.4
-    pub weight_face_size: f64,
+    /// Default: 0.25
+    pub weight_size: f64,
 
     /// Weight for detection confidence in subject scoring.
-    /// Default: 0.3
+    /// Default: 0.15
     pub weight_confidence: f64,
 
-    /// Weight for mouth activity (speaking) in subject scoring.
-    /// Default: 0.3
+    /// Weight for mouth/facial activity (visual speaking cues).
+    /// Default: 0.30
     pub weight_mouth_activity: f64,
+
+    /// Weight for track stability (age + low jitter).
+    /// Stable tracks are preferred over flickering ones.
+    /// Default: 0.15
+    pub weight_track_stability: f64,
+
+    /// Weight for geometric centering in subject scoring.
+    /// Faces closer to center get higher scores.
+    /// Default: 0.15
+    pub weight_centering: f64,
+
+    // === Track Stability Parameters ===
+    /// Time window for computing track stability (seconds).
+    /// Default: 0.5
+    pub stability_window_sec: f64,
+
+    /// Maximum jitter (pixels) for full stability score.
+    /// Tracks with jitter below this get score 1.0.
+    /// Default: 30.0
+    pub max_stable_jitter_px: f64,
+
+    /// Minimum track age (seconds) for full stability score.
+    /// Default: 1.0
+    pub min_stable_age_sec: f64,
 
     // === Scene Change Detection ===
     /// Enable scene change detection for faster adaptation.
@@ -89,8 +126,23 @@ pub struct PremiumSpeakerConfig {
 
     /// Smoothing reset factor on scene change (0.0-1.0).
     /// 1.0 = full reset, 0.0 = no reset.
-    /// Default: 0.7
+    /// Default: 0.8 (strong reset for quick adaptation)
     pub scene_change_reset_factor: f64,
+
+    /// Reacquisition window after scene change (seconds).
+    /// During this period, dwell/margin requirements are relaxed.
+    /// Default: 0.4
+    pub reacquisition_window_sec: f64,
+
+    /// Dwell time multiplier during reacquisition (0.0-1.0).
+    /// Lower = faster subject locking after scene change.
+    /// Default: 0.3
+    pub reacquisition_dwell_factor: f64,
+
+    // === Detection Dropout Handling ===
+    /// Maximum time to hold last known position during detection dropout (seconds).
+    /// Default: 1.5
+    pub max_dropout_hold_sec: f64,
 
     // === Aspect Ratio Framing ===
     /// Minimum horizontal padding as fraction of crop width.
@@ -110,6 +162,11 @@ pub struct PremiumSpeakerConfig {
     /// Safe margin from crop edge as fraction of crop size.
     /// Default: 0.05
     pub safe_margin: f64,
+
+    // === Debug/Telemetry ===
+    /// Enable detailed debug logging for camera behavior analysis.
+    /// Default: false
+    pub enable_debug_logging: bool,
 }
 
 impl Default for PremiumSpeakerConfig {
@@ -118,6 +175,10 @@ impl Default for PremiumSpeakerConfig {
             // Camera motion
             max_pan_speed_px_per_sec: 400.0,
             max_acceleration_px_per_sec2: 800.0,
+
+            // Zoom dynamics
+            max_zoom_speed_per_sec: 0.5,
+            max_zoom_accel_per_sec2: 1.0,
 
             // Temporal smoothing
             smoothing_time_window_ms: 400,
@@ -131,23 +192,38 @@ impl Default for PremiumSpeakerConfig {
             vertical_bias_fraction: 0.15,
             headroom_ratio: 0.12,
 
-            // Subject selection
+            // Subject selection (visual-only weights)
             primary_subject_dwell_ms: 1200,
             switch_activity_margin: 0.25,
-            weight_face_size: 0.4,
-            weight_confidence: 0.3,
-            weight_mouth_activity: 0.3,
+            weight_size: 0.25,
+            weight_confidence: 0.15,
+            weight_mouth_activity: 0.30,
+            weight_track_stability: 0.15,
+            weight_centering: 0.15,
+
+            // Track stability
+            stability_window_sec: 0.5,
+            max_stable_jitter_px: 30.0,
+            min_stable_age_sec: 1.0,
 
             // Scene change
             enable_scene_detection: true,
             scene_change_threshold: 0.6,
-            scene_change_reset_factor: 0.7,
+            scene_change_reset_factor: 0.8,
+            reacquisition_window_sec: 0.4,
+            reacquisition_dwell_factor: 0.3,
+
+            // Dropout handling
+            max_dropout_hold_sec: 1.5,
 
             // Aspect ratio framing
             min_horizontal_padding: 0.08,
             max_zoom_factor: 2.5,
             min_zoom_factor: 1.0,
             safe_margin: 0.05,
+
+            // Debug
+            enable_debug_logging: false,
         }
     }
 }
@@ -158,6 +234,7 @@ impl PremiumSpeakerConfig {
     pub fn podcast() -> Self {
         Self {
             max_pan_speed_px_per_sec: 300.0,
+            max_zoom_speed_per_sec: 0.3,
             smoothing_time_window_ms: 500,
             ema_alpha: 0.12,
             dead_zone_fraction_x: 0.07,
@@ -173,6 +250,7 @@ impl PremiumSpeakerConfig {
     pub fn dynamic() -> Self {
         Self {
             max_pan_speed_px_per_sec: 500.0,
+            max_zoom_speed_per_sec: 0.7,
             smoothing_time_window_ms: 300,
             ema_alpha: 0.20,
             dead_zone_fraction_x: 0.04,
@@ -188,6 +266,7 @@ impl PremiumSpeakerConfig {
     pub fn single_speaker() -> Self {
         Self {
             max_pan_speed_px_per_sec: 250.0,
+            max_zoom_speed_per_sec: 0.25,
             smoothing_time_window_ms: 600,
             ema_alpha: 0.10,
             dead_zone_fraction_x: 0.08,
@@ -200,9 +279,13 @@ impl PremiumSpeakerConfig {
 
     /// Compute EMA alpha from smoothing time window and frame rate.
     pub fn compute_ema_alpha(&self, fps: f64) -> f64 {
-        // EMA alpha = 1 - exp(-dt / tau)
-        // where tau = smoothing_time_window_ms / 1000
         let dt = 1.0 / fps;
+        let tau = self.smoothing_time_window_ms as f64 / 1000.0;
+        1.0 - (-dt / tau).exp()
+    }
+
+    /// Compute EMA alpha for a specific dt (real timestamp-based).
+    pub fn compute_ema_alpha_for_dt(&self, dt: f64) -> f64 {
         let tau = self.smoothing_time_window_ms as f64 / 1000.0;
         1.0 - (-dt / tau).exp()
     }
@@ -215,9 +298,34 @@ impl PremiumSpeakerConfig {
         )
     }
 
+    /// Get zoom-aware dead-zone in pixels.
+    /// At higher zoom (tighter framing), dead-zone shrinks for more responsiveness.
+    /// At lower zoom (wider shot), dead-zone expands for more stability.
+    pub fn dead_zone_for_zoom(
+        &self,
+        frame_width: u32,
+        frame_height: u32,
+        zoom: f64,
+    ) -> (f64, f64) {
+        let base = self.dead_zone_pixels(frame_width, frame_height);
+        // Scale inversely with sqrt of zoom: higher zoom = smaller dead-zone
+        let scale = 1.0 / zoom.sqrt().max(1.0);
+        (base.0 * scale, base.1 * scale)
+    }
+
     /// Get primary subject dwell time in seconds.
     pub fn dwell_time_seconds(&self) -> f64 {
         self.primary_subject_dwell_ms as f64 / 1000.0
+    }
+
+    /// Get effective dwell time during reacquisition period.
+    pub fn reacquisition_dwell_time_seconds(&self) -> f64 {
+        self.dwell_time_seconds() * self.reacquisition_dwell_factor
+    }
+
+    /// Check if we're in reacquisition window after a scene change.
+    pub fn is_in_reacquisition(&self, time_since_scene_change: f64) -> bool {
+        time_since_scene_change < self.reacquisition_window_sec
     }
 }
 
@@ -232,6 +340,14 @@ mod tests {
         assert!(config.ema_alpha > 0.0 && config.ema_alpha < 1.0);
         assert!(config.dead_zone_fraction_x > 0.0);
         assert!(config.primary_subject_dwell_ms > 0);
+        
+        // Verify visual weights sum to ~1.0
+        let weight_sum = config.weight_size
+            + config.weight_confidence
+            + config.weight_mouth_activity
+            + config.weight_track_stability
+            + config.weight_centering;
+        assert!((weight_sum - 1.0).abs() < 0.01, "Weights should sum to 1.0: {}", weight_sum);
     }
 
     #[test]
@@ -240,9 +356,17 @@ mod tests {
         let alpha_30fps = config.compute_ema_alpha(30.0);
         let alpha_60fps = config.compute_ema_alpha(60.0);
 
-        // Higher FPS should have lower alpha per frame
         assert!(alpha_60fps < alpha_30fps);
         assert!(alpha_30fps > 0.0 && alpha_30fps < 1.0);
+    }
+
+    #[test]
+    fn test_ema_alpha_for_dt() {
+        let config = PremiumSpeakerConfig::default();
+        let alpha_short = config.compute_ema_alpha_for_dt(0.01);
+        let alpha_long = config.compute_ema_alpha_for_dt(0.1);
+
+        assert!(alpha_long > alpha_short, "Longer dt should have higher alpha");
     }
 
     #[test]
@@ -257,12 +381,37 @@ mod tests {
     }
 
     #[test]
+    fn test_zoom_aware_dead_zone() {
+        let config = PremiumSpeakerConfig::default();
+        
+        let (dz_x_1x, _) = config.dead_zone_for_zoom(1920, 1080, 1.0);
+        let (dz_x_2x, _) = config.dead_zone_for_zoom(1920, 1080, 2.0);
+        let (dz_x_4x, _) = config.dead_zone_for_zoom(1920, 1080, 4.0);
+
+        // Higher zoom should have smaller dead-zone
+        assert!(dz_x_2x < dz_x_1x, "2x zoom should have smaller dead-zone");
+        assert!(dz_x_4x < dz_x_2x, "4x zoom should have smaller dead-zone");
+    }
+
+    #[test]
     fn test_presets() {
         let podcast = PremiumSpeakerConfig::podcast();
         let dynamic = PremiumSpeakerConfig::dynamic();
 
-        // Podcast should be slower/more stable
         assert!(podcast.max_pan_speed_px_per_sec < dynamic.max_pan_speed_px_per_sec);
         assert!(podcast.primary_subject_dwell_ms > dynamic.primary_subject_dwell_ms);
+    }
+
+    #[test]
+    fn test_reacquisition_window() {
+        let config = PremiumSpeakerConfig::default();
+        
+        assert!(config.is_in_reacquisition(0.1));
+        assert!(config.is_in_reacquisition(0.3));
+        assert!(!config.is_in_reacquisition(0.5));
+        
+        let reacq_dwell = config.reacquisition_dwell_time_seconds();
+        let normal_dwell = config.dwell_time_seconds();
+        assert!(reacq_dwell < normal_dwell, "Reacquisition dwell should be shorter");
     }
 }
