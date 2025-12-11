@@ -44,9 +44,6 @@ services:
       - API_HOST=0.0.0.0
       - API_PORT=8000
 
-      # Firebase (credentials file mounted)
-      - GOOGLE_APPLICATION_CREDENTIALS=/secrets/firebase-credentials.json
-
       # Redis (internal network)
       - REDIS_URL=redis://redis:6379
 
@@ -69,8 +66,6 @@ services:
       - cargo-target:/app/target
       # Cargo registry cache - speeds up dependency fetches
       - cargo-registry:/usr/local/cargo/registry
-      # Firebase credentials (read-only)
-      - ./firebase-credentials.json:/secrets/firebase-credentials.json:ro
 
     networks:
       - vclip-dev
@@ -126,9 +121,6 @@ services:
       # Worker config
       - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-2}
 
-      # Firebase
-      - GOOGLE_APPLICATION_CREDENTIALS=/secrets/firebase-credentials.json
-
       # Redis
       - REDIS_URL=redis://redis:6379
 
@@ -148,8 +140,6 @@ services:
       # Shared target volume with API (same build artifacts)
       - cargo-target:/app/target
       - cargo-registry:/usr/local/cargo/registry
-      # Firebase credentials
-      - ./firebase-credentials.json:/secrets/firebase-credentials.json:ro
       # Temp storage for video processing
       - worker-temp:/tmp/videos
 
