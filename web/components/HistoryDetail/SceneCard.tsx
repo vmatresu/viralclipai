@@ -104,12 +104,6 @@ export function SceneCard({
             {highlight.reason && (
               <p className="text-xs text-muted-foreground">{highlight.reason}</p>
             )}
-            {/* Show description if present */}
-            {highlight.description && (
-              <p className="text-xs text-muted-foreground/80 italic">
-                {highlight.description}
-              </p>
-            )}
             {/* Copy button for social media */}
             <Button
               variant="outline"

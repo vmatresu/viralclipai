@@ -72,7 +72,8 @@ export default function PricingPage() {
             key={plan.name}
             className={cn(
               "relative rounded-2xl border bg-white p-6 shadow-lg shadow-brand-500/10 ring-1 ring-brand-50/60 transition-transform duration-300 hover:-translate-y-1 hover:shadow-xl dark:border-white/10 dark:bg-slate-900/80 dark:ring-0 h-full flex flex-col gap-6",
-              plan.tone === "primary" && "border-brand-300 ring-brand-200/80",
+              plan.tone === "primary" &&
+                "border-brand-300 ring-brand-200/80 dark:border-brand-400/80",
               plan.tone === "custom" &&
                 "border-brand-200 bg-gradient-to-br from-brand-50 via-white to-brand-100 text-foreground"
             )}
