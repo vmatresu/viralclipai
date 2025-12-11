@@ -75,7 +75,7 @@ export default function PricingPage() {
               plan.tone === "primary" &&
                 "border-brand-300 ring-brand-200/80 dark:border-brand-400/80",
               plan.tone === "custom" &&
-                "border-brand-200 bg-gradient-to-br from-brand-50 via-white to-brand-100 text-foreground"
+                "border-brand-200 bg-gradient-to-br from-brand-50 via-white to-brand-100 text-foreground dark:border-white/20 dark:from-slate-900/40 dark:via-slate-900/80 dark:to-slate-950"
             )}
           >
             {plan.badge && (
