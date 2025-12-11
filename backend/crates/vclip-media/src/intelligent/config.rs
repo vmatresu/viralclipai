@@ -221,4 +221,26 @@ impl IntelligentCropConfig {
             ..Default::default()
         }
     }
+
+    /// Premium configuration for intelligent_speaker style.
+    /// Uses the enhanced premium camera planner with:
+    /// - Dead-zone hysteresis for stability
+    /// - Vertical bias for eye placement
+    /// - Multi-speaker dwell time to prevent ping-ponging
+    pub fn premium_speaker() -> Self {
+        Self {
+            fps_sample: 8.0,               // Good balance of responsiveness and stability
+            analysis_resolution: 480,
+            detection_resolution: 320,
+            smoothing_window: 0.4,         // Moderate smoothing
+            max_pan_speed: 400.0,          // Balanced pan speed
+            min_switch_duration: 1.2,      // Longer dwell time for stability
+            switch_margin: 0.25,           // Higher margin to prevent rapid switching
+            headroom_ratio: 0.12,          // Good headroom for vertical framing
+            subject_padding: 0.15,         // Moderate padding around subject
+            render_preset: "fast".to_string(),
+            render_crf: 22,
+            ..Default::default()
+        }
+    }
 }

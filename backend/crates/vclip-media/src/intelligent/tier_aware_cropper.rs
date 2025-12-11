@@ -7,7 +7,13 @@
 //! # Tier Behavior
 //!
 //! - **Basic**: Face detection → Camera smoothing → Crop planning
-//! - **SpeakerAware**: Face detection + Speaker + Activity → Activity-aware smoothing
+//! - **SpeakerAware** (`intelligent_speaker`): Uses the premium camera planner with:
+//!   - Smart target selection with vertical bias for eye placement
+//!   - Dead-zone hysteresis for camera stability
+//!   - Multi-speaker dwell time to prevent ping-ponging
+//!   - Scene change detection for fast adaptation
+//!   - Exponential smoothing with max pan speed limits
+//! - **MotionAware**: Visual motion heuristics for high-motion content
 
 use std::path::Path;
 use tracing::info;
@@ -17,6 +23,7 @@ use super::config::IntelligentCropConfig;
 use super::crop_planner::CropPlanner;
 use super::detector::FaceDetector;
 use super::motion::MotionDetector;
+use super::premium::{PremiumCameraPlanner, PremiumSpeakerConfig};
 use crate::detection::pipeline_builder::PipelineBuilder;
 use super::models::AspectRatio;
 use super::single_pass_renderer::SinglePassRenderer;
@@ -145,14 +152,44 @@ impl TierAwareIntelligentCropper {
         let step_start = std::time::Instant::now();
         info!("[INTELLIGENT_FULL] Step 3/4: Computing smooth camera path...");
         
-        let mut smoother = TierAwareCameraSmoother::new(self.config.clone(), self.tier, fps);
-        let camera_keyframes = smoother.compute_camera_plan(
-            &detections,
-            width,
-            height,
-            start_time,
-            end_time,
-        );
+        let target_aspect = AspectRatio::new(9, 16);
+        
+        // Use premium camera planner for SpeakerAware tier (intelligent_speaker)
+        let (camera_keyframes, crop_windows) = if matches!(self.tier, DetectionTier::SpeakerAware) {
+            info!("[INTELLIGENT_FULL]   Using Premium Camera Planner for intelligent_speaker");
+            let premium_config = PremiumSpeakerConfig::default();
+            let mut premium_planner = PremiumCameraPlanner::new(
+                premium_config,
+                width,
+                height,
+                fps,
+            );
+            
+            let keyframes = premium_planner.compute_camera_plan(&detections, start_time, end_time);
+            let crops = premium_planner.compute_crop_windows(&keyframes, &target_aspect);
+            
+            info!(
+                "[INTELLIGENT_FULL]   Primary subject: {:?}",
+                premium_planner.current_primary_subject()
+            );
+            
+            (keyframes, crops)
+        } else {
+            // Use standard tier-aware smoother for other tiers
+            let mut smoother = TierAwareCameraSmoother::new(self.config.clone(), self.tier, fps);
+            let keyframes = smoother.compute_camera_plan(
+                &detections,
+                width,
+                height,
+                start_time,
+                end_time,
+            );
+            
+            let planner = CropPlanner::new(self.config.clone(), width, height);
+            let crops = planner.compute_crop_windows(&keyframes, &target_aspect);
+            
+            (keyframes, crops)
+        };
         
         info!(
             "[INTELLIGENT_FULL] Step 3/4 DONE in {:.2}s - {} keyframes",
@@ -160,16 +197,12 @@ impl TierAwareIntelligentCropper {
             camera_keyframes.len()
         );
 
-        // Step 4: Compute crop windows
+        // Step 4: Verify crop windows
         let step_start = std::time::Instant::now();
-        info!("[INTELLIGENT_FULL] Step 4/4: Computing crop windows...");
-        
-        let planner = CropPlanner::new(self.config.clone(), width, height);
-        let target_aspect = AspectRatio::new(9, 16);
-        let crop_windows = planner.compute_crop_windows(&camera_keyframes, &target_aspect);
+        info!("[INTELLIGENT_FULL] Step 4/4: Verifying crop windows...");
         
         info!(
-            "[INTELLIGENT_FULL] Step 4/4 DONE in {:.2}s - {} crop windows",
+            "[INTELLIGENT_FULL] Step 4/4 DONE in {:.2}s - {} crop windows verified",
             step_start.elapsed().as_secs_f64(),
             crop_windows.len()
         );

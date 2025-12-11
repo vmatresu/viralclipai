@@ -61,6 +61,7 @@ pub mod fast_split;
 pub mod motion;
 pub mod layout_detector;
 pub mod models;
+pub mod premium;
 pub mod renderer;
 pub mod segment_analysis;
 pub mod single_pass_renderer;
@@ -96,6 +97,10 @@ pub use tier_aware_split::{create_tier_aware_split_clip, TierAwareSplitProcessor
 pub use tracker::IoUTracker;
 pub use enhanced_smoother::{EnhancedCameraSmoother, SmoothingPreset};
 pub use continuous_renderer::{ContinuousRenderer, LayoutSpan, LayoutType};
+pub use premium::{
+    PremiumSpeakerConfig, CameraTargetSelector, PremiumCameraPlanner,
+    PremiumSmoother, CropComputer, CropComputeConfig,
+};
 
 use crate::error::MediaResult;
 use crate::probe::probe_video;
