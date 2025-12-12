@@ -35,16 +35,10 @@ import { analyticsEvents } from "@/lib/analytics";
 import { apiFetch, bulkDeleteClips, deleteAllClips, deleteClip } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { invalidateClipsCache } from "@/lib/cache";
-import { copyShareUrl } from "@/lib/clipDelivery";
+import { copyShareUrl, downloadClip, getPlaybackUrl } from "@/lib/clipDelivery";
 import { frontendLogger } from "@/lib/logger";
 import { getStyleLabel, getStyleTier, getTierBadgeClasses } from "@/lib/styleTiers";
 import { cn } from "@/lib/utils";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
-
-function cacheBustToken(clip: Clip): string {
-  return clip.completed_at ?? clip.updated_at ?? clip.name ?? Date.now().toString();
-}
 
 /**
  * Get a unique key for a clip using its clip_id.
@@ -54,39 +48,21 @@ function getClipKey(clip: Clip): string {
   return clip.clip_id;
 }
 
-function buildDownloadUrl(clip: Clip): string {
-  // Build the base URL (absolute) then append cache-busting param
-  const baseUrl = clip.url.startsWith("/")
-    ? API_BASE_URL.replace(/\/$/, "") // Remove trailing slash if present
-    : "";
-
-  const raw = clip.url.startsWith("/") && baseUrl ? `${baseUrl}${clip.url}` : clip.url;
-
-  const token = cacheBustToken(clip);
-
-  try {
-    const url = new URL(
-      raw,
-      typeof window !== "undefined" ? window.location.origin : undefined
-    );
-    url.searchParams.set("t", token);
-    return url.toString();
-  } catch {
-    const sep = raw.includes("?") ? "&" : "?";
-    return `${raw}${sep}t=${encodeURIComponent(token)}`;
-  }
-}
-
 interface VideoPlayerProps {
   id: string;
-  clip: Clip;
-  videoId: string;
   onRef: (el: HTMLVideoElement | null) => void;
   onPlay: () => void;
-  getVideoUrl: (clip: Clip) => Promise<string>;
+  getVideoUrl: () => Promise<string>;
+  thumbnailUrl?: string;
 }
 
-function VideoPlayer({ id, clip, onRef, onPlay, getVideoUrl }: VideoPlayerProps) {
+function VideoPlayer({
+  id,
+  onRef,
+  onPlay,
+  getVideoUrl,
+  thumbnailUrl,
+}: VideoPlayerProps) {
   const [videoUrl, setVideoUrl] = useState<string>("");
   const [loading, setLoading] = useState(true);
 
@@ -96,14 +72,14 @@ function VideoPlayer({ id, clip, onRef, onPlay, getVideoUrl }: VideoPlayerProps)
     async function loadVideo() {
       try {
         setLoading(true);
-        const url = await getVideoUrl(clip);
+        const url = await getVideoUrl();
         if (!cancelled) {
           setVideoUrl(url);
         }
       } catch (error) {
         frontendLogger.error("Failed to load video URL", error);
         if (!cancelled) {
-          setVideoUrl(""); // Set empty to show error state
+          setVideoUrl("");
         }
       } finally {
         if (!cancelled) {
@@ -117,7 +93,7 @@ function VideoPlayer({ id, clip, onRef, onPlay, getVideoUrl }: VideoPlayerProps)
     return () => {
       cancelled = true;
     };
-  }, [clip, getVideoUrl]);
+  }, [getVideoUrl]);
 
   if (loading) {
     return (
@@ -142,7 +118,7 @@ function VideoPlayer({ id, clip, onRef, onPlay, getVideoUrl }: VideoPlayerProps)
       controls
       preload="metadata"
       className="w-full h-full object-contain"
-      poster={clip.thumbnail ?? undefined}
+      poster={thumbnailUrl}
       src={videoUrl}
       onPlay={onPlay}
     >
@@ -152,15 +128,13 @@ function VideoPlayer({ id, clip, onRef, onPlay, getVideoUrl }: VideoPlayerProps)
 }
 
 export interface Clip {
-  clip_id: string; // Primary identifier
-  name: string; // Filename for legacy endpoints
+  clip_id: string;
+  name: string;
   title: string;
   description: string;
-  url: string;
-  direct_url?: string | null; // Presigned R2 URL for faster loading
-  thumbnail?: string | null;
   size: string;
   style?: string;
+  has_thumbnail?: boolean;
   completed_at?: string | null;
   updated_at?: string | null;
 }
@@ -180,7 +154,7 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [clipToDelete, setClipToDelete] = useState<Clip | null>(null);
   const videoRefs = useRef<{ [key: string]: HTMLVideoElement | null }>({});
-  const blobUrls = useRef<{ [key: string]: string }>({});
+  const [downloading, setDownloading] = useState<string | null>(null);
 
   // Bulk selection state
   const [selectedClips, setSelectedClips] = useState<Set<string>>(new Set());
@@ -188,65 +162,40 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
   const [bulkDeleteAllDialogOpen, setBulkDeleteAllDialogOpen] = useState(false);
 
-  // Cleanup blob URLs on unmount
-  useEffect(() => {
-    const currentBlobUrls = blobUrls.current;
-    return () => {
-      Object.values(currentBlobUrls).forEach((url) => {
-        URL.revokeObjectURL(url);
-      });
-    };
-  }, []);
+  // Function to get video URL via delivery endpoint
+  const getVideoUrl = async (clipId: string): Promise<string> => {
+    const token = await getIdToken();
+    if (!token) {
+      throw new Error("Authentication required");
+    }
+    const response = await getPlaybackUrl(clipId, token);
+    return response.url;
+  };
 
-  // Function to get video URL - prefer direct_url (presigned R2) for faster loading
-  const getVideoUrl = async (clip: Clip): Promise<string> => {
+  // Function to handle download via delivery endpoint
+  const handleDownload = async (clip: Clip) => {
     const clipKey = getClipKey(clip);
-
-    // If it's already a blob URL, return it
-    if (blobUrls.current[clipKey]) {
-      return blobUrls.current[clipKey];
-    }
-
-    // Prefer direct_url (presigned R2 URL) for much faster loading
-    if (clip.direct_url) {
-      return clip.direct_url;
-    }
-
-    // Fallback: fetch through backend proxy with auth (slower but works)
-    if (clip.url.startsWith("/")) {
-      try {
-        const token = await getIdToken();
-        if (!token) {
-          throw new Error("Authentication required");
-        }
-
-        const baseUrl = API_BASE_URL.endsWith("/")
-          ? API_BASE_URL.slice(0, -1)
-          : API_BASE_URL;
-        const fullUrl = baseUrl ? `${baseUrl}${clip.url}` : clip.url;
-
-        const response = await fetch(fullUrl, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-
-        if (!response.ok) {
-          throw new Error(`Failed to load video: ${response.statusText}`);
-        }
-
-        const blob = await response.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        blobUrls.current[clipKey] = blobUrl;
-        return blobUrl;
-      } catch (error) {
-        frontendLogger.error("Failed to load video", error);
-        throw error;
+    setDownloading(clipKey);
+    try {
+      const token = await getIdToken();
+      if (!token) {
+        toast.error("Please sign in to download clips.");
+        return;
       }
+      await downloadClip(clip.clip_id, token, clip.name);
+      const styleMatch = clip.name.match(/_([^_]+)\.(mp4|jpg)$/);
+      const clipStyle = styleMatch?.[1] ?? "unknown";
+      void analyticsEvents.clipDownloaded({
+        clipId: clip.clip_id,
+        clipName: clip.name,
+        style: clipStyle,
+      });
+    } catch (error) {
+      frontendLogger.error("Download failed", error);
+      toast.error("Failed to download clip");
+    } finally {
+      setDownloading(null);
     }
-
-    // If it's already a full URL (presigned URL), return as-is
-    return clip.url;
   };
 
   const handlePlay = (clipKey: string) => {
@@ -315,15 +264,6 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
       // Invalidate cache since clips have changed
       void invalidateClipsCache(videoId);
 
-      // Clean up blob URLs for deleted clips
-      selectedClips.forEach((clipKey) => {
-        const blobUrl = blobUrls.current[clipKey];
-        if (blobUrl) {
-          URL.revokeObjectURL(blobUrl);
-          delete blobUrls.current[clipKey];
-        }
-      });
-
       // Stop playing if any selected clip was playing
       if (playingClip && selectedClips.has(playingClip)) {
         const video = videoRefs.current[playingClip];
@@ -387,16 +327,6 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
 
       // Invalidate cache since clips have changed
       void invalidateClipsCache(videoId);
-
-      // Clean up blob URLs for all clips
-      clips.forEach((clip) => {
-        const clipKey = getClipKey(clip);
-        const blobUrl = blobUrls.current[clipKey];
-        if (blobUrl) {
-          URL.revokeObjectURL(blobUrl);
-          delete blobUrls.current[clipKey];
-        }
-      });
 
       // Stop playing if any clip was playing
       if (playingClip) {
@@ -467,13 +397,6 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
 
       // Invalidate cache since clips have changed (fire and forget)
       void invalidateClipsCache(videoId);
-
-      // Clean up blob URL if it exists
-      const blobUrl = blobUrls.current[clipKey];
-      if (blobUrl) {
-        URL.revokeObjectURL(blobUrl);
-        delete blobUrls.current[clipKey];
-      }
 
       // Stop playing if this clip was playing
       if (playingClip === clipKey) {
@@ -633,13 +556,11 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
               <div className="relative aspect-[9/16] bg-black group-hover:opacity-100 transition-opacity">
                 <VideoPlayer
                   id={uniqueId}
-                  clip={clip}
-                  videoId={videoId}
                   onRef={(el) => {
-                    videoRefs.current[getClipKey(clip)] = el;
+                    videoRefs.current[clipKey] = el;
                   }}
-                  onPlay={() => handlePlay(getClipKey(clip))}
-                  getVideoUrl={getVideoUrl}
+                  onPlay={() => handlePlay(clipKey)}
+                  getVideoUrl={() => getVideoUrl(clip.clip_id)}
                 />
 
                 {/* Custom Play Button Overlay (only visible when paused) */}
@@ -761,68 +682,13 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
                 {/* Action Buttons */}
                 <div className="mt-auto pt-2 flex gap-3">
                   <Button
-                    asChild
                     variant="outline"
                     className="flex-1 gap-2 hover:bg-primary hover:text-primary-foreground transition-colors"
-                    onClick={() => {
-                      const styleMatch = clip.name.match(/_([^_]+)\.(mp4|jpg)$/);
-                      const clipStyle = styleMatch?.[1] ?? "unknown";
-                      void analyticsEvents.clipDownloaded({
-                        clipId: clip.clip_id,
-                        clipName: clip.name,
-                        style: clipStyle,
-                      });
-                    }}
+                    onClick={() => handleDownload(clip)}
+                    disabled={downloading === clipKey}
                   >
-                    <a
-                      href={buildDownloadUrl(clip)}
-                      download
-                      onClick={async (e) => {
-                        // For relative URLs, we need to fetch with auth first
-                        if (clip.url.startsWith("/")) {
-                          e.preventDefault();
-                          try {
-                            const token = await getIdToken();
-                            if (!token) {
-                              toast.error("Please sign in to download clips.");
-                              return;
-                            }
-                            const baseUrl = API_BASE_URL.endsWith("/")
-                              ? API_BASE_URL.slice(0, -1)
-                              : API_BASE_URL;
-                            const fullUrl = baseUrl
-                              ? `${baseUrl}${clip.url}`
-                              : clip.url;
-                            const response = await fetch(
-                              buildDownloadUrl({ ...clip, url: fullUrl }),
-                              {
-                                headers: {
-                                  Authorization: `Bearer ${token}`,
-                                },
-                              }
-                            );
-                            if (!response.ok) {
-                              throw new Error("Failed to download");
-                            }
-                            const blob = await response.blob();
-                            const blobUrl = URL.createObjectURL(blob);
-                            const a = document.createElement("a");
-                            a.href = blobUrl;
-                            a.download = clip.name;
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                            URL.revokeObjectURL(blobUrl);
-                          } catch (error) {
-                            frontendLogger.error("Download failed", error);
-                            toast.error("Failed to download clip");
-                          }
-                        }
-                      }}
-                    >
-                      <Download className="h-4 w-4" />
-                      Download
-                    </a>
+                    <Download className="h-4 w-4" />
+                    {downloading === clipKey ? "Downloading..." : "Download"}
                   </Button>
 
                   <Button
@@ -830,32 +696,20 @@ export function ClipGrid({ videoId, clips, log, onClipDeleted }: ClipGridProps) 
                     size="icon"
                     className="shrink-0"
                     onClick={async () => {
-                      // Use share URL (persistent) if clip_id is available, otherwise fallback to direct URL
-                      const clipId = clip.clip_id;
                       try {
                         const token = await getIdToken();
-                        if (token && clipId) {
-                          // Create share link and copy to clipboard
-                          await copyShareUrl(clipId, token);
-                          void analyticsEvents.clipCopiedLink({
-                            clipId,
-                            clipName: clip.name,
-                          });
-                        } else {
-                          // Fallback: copy direct URL
-                          const urlToCopy = buildDownloadUrl(clip);
-                          await navigator.clipboard.writeText(urlToCopy);
-                          toast.success("Direct link copied to clipboard");
+                        if (token) {
+                          await copyShareUrl(clip.clip_id, token);
                           void analyticsEvents.clipCopiedLink({
                             clipId: clip.clip_id,
                             clipName: clip.name,
                           });
+                        } else {
+                          toast.error("Please sign in to share clips.");
                         }
-                      } catch {
-                        // Fallback: copy direct URL on error
-                        const urlToCopy = buildDownloadUrl(clip);
-                        await navigator.clipboard.writeText(urlToCopy);
-                        toast.success("Direct link copied to clipboard");
+                      } catch (error) {
+                        frontendLogger.error("Failed to copy share link", error);
+                        toast.error("Failed to create share link");
                       }
                     }}
                     title="Copy Share Link"

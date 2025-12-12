@@ -3,18 +3,19 @@
  * API functions for the two-step video analysis workflow.
  */
 
-import { apiFetch } from '@/lib/apiClient';
+import { apiFetch } from "@/lib/apiClient";
+
 import type {
-    AnalysisStatusResponse,
-    DeleteDraftResponse,
-    DraftWithScenesResponse,
-    ListDraftsResponse,
-    ProcessDraftRequest,
-    ProcessDraftResponse,
-    ProcessingEstimate,
-    StartAnalysisRequest,
-    StartAnalysisResponse,
-} from './types';
+  AnalysisStatusResponse,
+  DeleteDraftResponse,
+  DraftWithScenesResponse,
+  ListDraftsResponse,
+  ProcessDraftRequest,
+  ProcessDraftResponse,
+  ProcessingEstimate,
+  StartAnalysisRequest,
+  StartAnalysisResponse,
+} from "./types";
 
 /**
  * Start a new video analysis.
@@ -24,8 +25,8 @@ export async function startAnalysis(
   request: StartAnalysisRequest,
   token: string
 ): Promise<StartAnalysisResponse> {
-  return apiFetch<StartAnalysisResponse>('/api/analyze', {
-    method: 'POST',
+  return apiFetch<StartAnalysisResponse>("/api/analyze", {
+    method: "POST",
     token,
     body: request,
   });
@@ -41,7 +42,7 @@ export async function getAnalysisStatus(
   return apiFetch<AnalysisStatusResponse>(
     `/api/analyze/${encodeURIComponent(draftId)}/status`,
     {
-      method: 'GET',
+      method: "GET",
       token,
     }
   );
@@ -51,8 +52,8 @@ export async function getAnalysisStatus(
  * List all drafts for the current user.
  */
 export async function listDrafts(token: string): Promise<ListDraftsResponse> {
-  return apiFetch<ListDraftsResponse>('/api/drafts', {
-    method: 'GET',
+  return apiFetch<ListDraftsResponse>("/api/drafts", {
+    method: "GET",
     token,
   });
 }
@@ -67,7 +68,7 @@ export async function getDraft(
   return apiFetch<DraftWithScenesResponse>(
     `/api/drafts/${encodeURIComponent(draftId)}`,
     {
-      method: 'GET',
+      method: "GET",
       token,
     }
   );
@@ -80,13 +81,10 @@ export async function deleteDraft(
   draftId: string,
   token: string
 ): Promise<DeleteDraftResponse> {
-  return apiFetch<DeleteDraftResponse>(
-    `/api/drafts/${encodeURIComponent(draftId)}`,
-    {
-      method: 'DELETE',
-      token,
-    }
-  );
+  return apiFetch<DeleteDraftResponse>(`/api/drafts/${encodeURIComponent(draftId)}`, {
+    method: "DELETE",
+    token,
+  });
 }
 
 /**
@@ -100,11 +98,11 @@ export async function processDraft(
 ): Promise<ProcessDraftResponse> {
   // Auto-generate idempotency key if not provided
   const idempotencyKey = request.idempotency_key || crypto.randomUUID();
-  
+
   return apiFetch<ProcessDraftResponse>(
     `/api/drafts/${encodeURIComponent(draftId)}/process`,
     {
-      method: 'POST',
+      method: "POST",
       token,
       body: {
         ...request,
@@ -125,7 +123,7 @@ export async function getProcessingEstimate(
   token: string
 ): Promise<ProcessingEstimate> {
   const params = new URLSearchParams({
-    scene_ids: sceneIds.join(','),
+    scene_ids: sceneIds.join(","),
     full_count: fullCount.toString(),
     split_count: splitCount.toString(),
   });
@@ -133,7 +131,7 @@ export async function getProcessingEstimate(
   return apiFetch<ProcessingEstimate>(
     `/api/drafts/${encodeURIComponent(draftId)}/estimate?${params}`,
     {
-      method: 'GET',
+      method: "GET",
       token,
     }
   );

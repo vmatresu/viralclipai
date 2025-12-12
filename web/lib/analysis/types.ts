@@ -7,20 +7,20 @@
 // Analysis Status
 // ============================================================================
 
-export type AnalysisStatus = 
-  | 'pending'
-  | 'downloading'
-  | 'analyzing'
-  | 'completed'
-  | 'failed'
-  | 'expired';
+export type AnalysisStatus =
+  | "pending"
+  | "downloading"
+  | "analyzing"
+  | "completed"
+  | "failed"
+  | "expired";
 
 export function isTerminalStatus(status: AnalysisStatus): boolean {
-  return status === 'completed' || status === 'failed' || status === 'expired';
+  return status === "completed" || status === "failed" || status === "expired";
 }
 
 export function isActiveStatus(status: AnalysisStatus): boolean {
-  return status === 'pending' || status === 'downloading' || status === 'analyzing';
+  return status === "pending" || status === "downloading" || status === "analyzing";
 }
 
 // ============================================================================

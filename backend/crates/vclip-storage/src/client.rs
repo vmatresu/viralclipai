@@ -26,9 +26,6 @@ pub struct R2Config {
     pub bucket_name: String,
     /// Region (usually "auto" for R2)
     pub region: String,
-    /// Public CDN URL for custom domain (e.g., https://cdn.viralclipai.io)
-    /// If set, public_url() will return direct CDN URLs instead of presigned URLs
-    pub public_url: Option<String>,
 }
 
 impl R2Config {
@@ -44,7 +41,6 @@ impl R2Config {
             bucket_name: std::env::var("R2_BUCKET_NAME")
                 .map_err(|_| StorageError::config_error("R2_BUCKET_NAME not set"))?,
             region: std::env::var("R2_REGION").unwrap_or_else(|_| "auto".to_string()),
-            public_url: std::env::var("R2_PUBLIC_URL").ok().filter(|s| !s.is_empty()),
         })
     }
 }
@@ -54,8 +50,6 @@ impl R2Config {
 pub struct R2Client {
     client: Client,
     bucket: String,
-    /// Public CDN base URL (e.g., https://cdn.viralclipai.io)
-    public_url: Option<String>,
 }
 
 impl R2Client {
@@ -82,7 +76,6 @@ impl R2Client {
         Ok(Self {
             client,
             bucket: config.bucket_name,
-            public_url: config.public_url,
         })
     }
 
@@ -246,32 +239,6 @@ impl R2Client {
             .map_err(|e| StorageError::PresignFailed(e.to_string()))?;
 
         Ok(presigned.uri().to_string())
-    }
-
-    /// Get public CDN URL for an object (permanent, no signature).
-    /// Returns None if R2_PUBLIC_URL is not configured.
-    /// Use this for public assets that don't need authentication.
-    pub fn public_url(&self, key: &str) -> Option<String> {
-        self.public_url.as_ref().map(|base| {
-            let base = base.trim_end_matches('/');
-            let key = key.trim_start_matches('/');
-            format!("{}/{}", base, key)
-        })
-    }
-
-    /// Get the best available URL for an object.
-    /// Prefers public CDN URL if configured, otherwise falls back to presigned URL.
-    pub async fn get_url(&self, key: &str, presign_expiry: Duration) -> StorageResult<String> {
-        if let Some(url) = self.public_url(key) {
-            Ok(url)
-        } else {
-            self.presign_get(key, presign_expiry).await
-        }
-    }
-
-    /// Check if public CDN URL is configured.
-    pub fn has_public_url(&self) -> bool {
-        self.public_url.is_some()
     }
 
     /// Delete an object.

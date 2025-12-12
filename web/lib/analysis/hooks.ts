@@ -3,20 +3,23 @@
  * React hooks for fetching and mutating analysis data.
  */
 
-import { useAuth } from '@/lib/auth';
-import useSWR from 'swr';
-import useSWRMutation from 'swr/mutation';
-import * as api from './api';
+import useSWR from "swr";
+import useSWRMutation from "swr/mutation";
+
+import { useAuth } from "@/lib/auth";
+
+import * as api from "./api";
+
 import type {
-    AnalysisStatusResponse,
-    DraftWithScenesResponse,
-    ListDraftsResponse,
-    ProcessDraftRequest,
-    ProcessDraftResponse,
-    ProcessingEstimate,
-    StartAnalysisRequest,
-    StartAnalysisResponse,
-} from './types';
+  AnalysisStatusResponse,
+  DraftWithScenesResponse,
+  ListDraftsResponse,
+  ProcessDraftRequest,
+  ProcessDraftResponse,
+  ProcessingEstimate,
+  StartAnalysisRequest,
+  StartAnalysisResponse,
+} from "./types";
 
 /**
  * Hook for starting a new analysis.
@@ -25,10 +28,10 @@ export function useStartAnalysis() {
   const { getIdToken } = useAuth();
 
   return useSWRMutation<StartAnalysisResponse, Error, string, StartAnalysisRequest>(
-    'start-analysis',
+    "start-analysis",
     async (_key, { arg }) => {
       const token = await getIdToken();
-      if (!token) throw new Error('Authentication required');
+      if (!token) throw new Error("Authentication required");
       return api.startAnalysis(arg, token);
     }
   );
@@ -45,13 +48,13 @@ export function useAnalysisStatus(draftId: string | null, enabled = true) {
     enabled && draftId ? [`analysis-status`, draftId] : null,
     async () => {
       const token = await getIdToken();
-      if (!token || !draftId) throw new Error('Missing token or draftId');
+      if (!token || !draftId) throw new Error("Missing token or draftId");
       return api.getAnalysisStatus(draftId, token);
     },
     {
       refreshInterval: (data) => {
         // Refresh every 2 seconds while analysis is in progress
-        if (data && ['pending', 'downloading', 'analyzing'].includes(data.status)) {
+        if (data && ["pending", "downloading", "analyzing"].includes(data.status)) {
           return 2000;
         }
         return 0; // Stop refreshing when complete
@@ -75,10 +78,10 @@ export function useDrafts() {
   const { getIdToken, user } = useAuth();
 
   const { data, error, isLoading, mutate } = useSWR<ListDraftsResponse>(
-    user ? 'drafts' : null,
+    user ? "drafts" : null,
     async () => {
       const token = await getIdToken();
-      if (!token) throw new Error('Authentication required');
+      if (!token) throw new Error("Authentication required");
       return api.listDrafts(token);
     }
   );
@@ -101,7 +104,7 @@ export function useDraft(draftId: string | null) {
     draftId && user ? [`draft`, draftId] : null,
     async () => {
       const token = await getIdToken();
-      if (!token || !draftId) throw new Error('Missing token or draftId');
+      if (!token || !draftId) throw new Error("Missing token or draftId");
       return api.getDraft(draftId, token);
     }
   );
@@ -123,10 +126,10 @@ export function useDeleteDraft() {
   const { getIdToken } = useAuth();
 
   return useSWRMutation<void, Error, string, string>(
-    'delete-draft',
+    "delete-draft",
     async (_key, { arg: draftId }) => {
       const token = await getIdToken();
-      if (!token) throw new Error('Authentication required');
+      if (!token) throw new Error("Authentication required");
       await api.deleteDraft(draftId, token);
     }
   );
@@ -143,14 +146,11 @@ export function useProcessDraft() {
     Error,
     string,
     { draftId: string; request: ProcessDraftRequest }
-  >(
-    'process-draft',
-    async (_key, { arg }) => {
-      const token = await getIdToken();
-      if (!token) throw new Error('Authentication required');
-      return api.processDraft(arg.draftId, arg.request, token);
-    }
-  );
+  >("process-draft", async (_key, { arg }) => {
+    const token = await getIdToken();
+    if (!token) throw new Error("Authentication required");
+    return api.processDraft(arg.draftId, arg.request, token);
+  });
 }
 
 /**
@@ -164,19 +164,16 @@ export function useProcessingEstimate(
 ) {
   const { getIdToken, user } = useAuth();
 
-  const shouldFetch = 
-    draftId && 
-    user && 
-    sceneIds.length > 0 && 
-    (fullCount > 0 || splitCount > 0);
+  const shouldFetch =
+    draftId && user && sceneIds.length > 0 && (fullCount > 0 || splitCount > 0);
 
   const { data, error, isLoading } = useSWR<ProcessingEstimate>(
     shouldFetch
-      ? [`estimate`, draftId, sceneIds.join(','), fullCount, splitCount]
+      ? [`estimate`, draftId, sceneIds.join(","), fullCount, splitCount]
       : null,
     async () => {
       const token = await getIdToken();
-      if (!token || !draftId) throw new Error('Missing token or draftId');
+      if (!token || !draftId) throw new Error("Missing token or draftId");
       return api.getProcessingEstimate(draftId, sceneIds, fullCount, splitCount, token);
     },
     {

@@ -22,4 +22,4 @@ pub use neural_cache::{
     load_neural_analysis, neural_analysis_exists, neural_cache_key, store_neural_analysis,
     StoreResult as NeuralCacheStoreResult,
 };
-pub use operations::{ClipInfo, HighlightsData};
+pub use operations::HighlightsData;

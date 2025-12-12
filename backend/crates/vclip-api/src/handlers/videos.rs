@@ -1,7 +1,6 @@
 //! Video API handlers.
 
 use std::collections::HashMap;
-use std::time::Duration;
 
 use axum::body::Body;
 use axum::extract::{Path, Query, State};
@@ -38,14 +37,11 @@ pub struct ClipInfo {
     pub name: String,
     pub title: String,
     pub description: String,
-    pub url: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub direct_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub thumbnail: Option<String>,
     pub size: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub style: Option<String>,
+    /// Whether this clip has a thumbnail available
+    pub has_thumbnail: bool,
     /// When the clip was completed (for cache busting)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
@@ -221,15 +217,6 @@ pub async fn get_video_info(
             .cloned()
             .unwrap_or_else(|| (clip_meta.scene_title.clone(), "Generated clip".to_string()));
 
-        // Generate URLs using the r2_key stored in Firestore metadata
-        let api_url = format!("/api/videos/{}/clips/{}", video_id, clip_meta.filename);
-        let direct_url = state.storage.get_url(&clip_meta.r2_key, Duration::from_secs(3600)).await.ok();
-        let thumbnail_url = if let Some(ref key) = clip_meta.thumbnail_r2_key {
-            state.storage.get_url(key, Duration::from_secs(3600)).await.ok()
-        } else {
-            None
-        };
-
         // Format file size
         let size_mb = clip_meta.file_size_bytes as f64 / (1024.0 * 1024.0);
         let size_str = format!("{:.1} MB", size_mb);
@@ -239,11 +226,9 @@ pub async fn get_video_info(
             name: clip_meta.filename,
             title,
             description,
-            url: api_url,
-            direct_url,
-            thumbnail: thumbnail_url,
             size: size_str,
             style: Some(clip_meta.style),
+            has_thumbnail: clip_meta.thumbnail_r2_key.is_some(),
             completed_at: clip_meta.completed_at.map(|dt| dt.to_rfc3339()),
             updated_at: clip_meta.updated_at.map(|dt| dt.to_rfc3339()),
         });

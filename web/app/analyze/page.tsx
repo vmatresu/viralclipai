@@ -1,14 +1,21 @@
 "use client";
 
+import { ArrowRight, Film, Loader2, Sparkles, Zap } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useStartAnalysis } from "@/lib/analysis";
 import { useAuth } from "@/lib/auth";
-import { ArrowRight, Film, Loader2, Sparkles, Zap } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
 
 export default function AnalyzePage() {
   const router = useRouter();
@@ -70,11 +77,14 @@ export default function AnalyzePage() {
           </div>
           <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-4 tracking-tight">
             Turn Videos Into
-            <span className="bg-gradient-to-r from-violet-400 via-blue-400 to-emerald-400 text-transparent bg-clip-text"> Viral Clips</span>
+            <span className="bg-gradient-to-r from-violet-400 via-blue-400 to-emerald-400 text-transparent bg-clip-text">
+              {" "}
+              Viral Clips
+            </span>
           </h1>
           <p className="text-slate-400 text-lg md:text-xl max-w-2xl mx-auto">
-            Paste a YouTube URL and let AI find the most engaging moments.
-            Then choose exactly which clips to create.
+            Paste a YouTube URL and let AI find the most engaging moments. Then choose
+            exactly which clips to create.
           </p>
         </div>
 

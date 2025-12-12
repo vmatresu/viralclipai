@@ -12,8 +12,7 @@ import {
   Trash,
   Trash2,
 } from "lucide-react";
-import Image from "next/image";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Accordion, AccordionContent, AccordionItem } from "@/components/ui/accordion";
@@ -32,6 +31,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/auth";
+import { copyShareUrl, downloadClip, getPlaybackUrl } from "@/lib/clipDelivery";
 import {
   getStyleLabel,
   getStyleTier,
@@ -45,8 +45,6 @@ import { formatBytes, parseSizeToBytes } from "../../types/storage";
 
 import { buildHighlightCopyText, type Highlight } from "./SceneCard";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
-
 export type HistoryClip = {
   id: string;
   sceneId: number;
@@ -54,10 +52,7 @@ export type HistoryClip = {
   startSec: number;
   endSec: number;
   style: string;
-  thumbnailUrl: string;
-  videoUrl: string;
   clipName?: string;
-  directUrl?: string | null;
   title?: string;
   size?: string;
 };
@@ -153,54 +148,47 @@ export function HistorySceneExplorer({
   onDeleteScene,
 }: HistorySceneExplorerProps) {
   const { getIdToken } = useAuth();
-  const blobUrls = useRef<Record<string, string>>({});
-
-  useEffect(() => {
-    const current = blobUrls.current;
-    return () => {
-      Object.values(current).forEach((url) => URL.revokeObjectURL(url));
-    };
-  }, []);
 
   const resolvePlaybackUrl = useCallback(
     async (clip: HistoryClip): Promise<string> => {
-      const cached = blobUrls.current[clip.id];
-      if (cached !== undefined) {
-        return cached;
-      }
-
-      const rawUrl = clip.directUrl ?? clip.videoUrl;
-      if (!rawUrl) throw new Error("Missing video URL");
-
-      // If already an absolute URL, return as-is
-      if (/^https?:\/\//.test(rawUrl)) {
-        return rawUrl;
-      }
-
       const token = await getIdToken();
-      const baseUrl = API_BASE_URL.endsWith("/")
-        ? API_BASE_URL.slice(0, -1)
-        : API_BASE_URL;
-      const fullUrl = rawUrl.startsWith("/")
-        ? `${baseUrl}${rawUrl}`
-        : `${baseUrl}/${rawUrl}`;
+      if (!token) throw new Error("Authentication required");
+      const response = await getPlaybackUrl(clip.id, token);
+      return response.url;
+    },
+    [getIdToken]
+  );
 
+  const handleDownload = useCallback(
+    async (clip: HistoryClip) => {
       try {
-        const response = await fetch(fullUrl, {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        });
-
-        if (!response.ok) {
-          throw new Error(`Failed to load video (${response.status})`);
+        const token = await getIdToken();
+        if (!token) {
+          toast.error("Please sign in to download clips.");
+          return;
         }
-
-        const blob = await response.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        blobUrls.current[clip.id] = blobUrl;
-        return blobUrl;
+        await downloadClip(clip.id, token, clip.clipName);
+        toast.success("Download started");
       } catch (error) {
-        console.error("Failed to resolve playback URL", error);
-        return fullUrl;
+        console.error("Download failed", error);
+        toast.error("Failed to download clip");
+      }
+    },
+    [getIdToken]
+  );
+
+  const handleCopyShareLink = useCallback(
+    async (clip: HistoryClip) => {
+      try {
+        const token = await getIdToken();
+        if (!token) {
+          toast.error("Please sign in to share clips.");
+          return;
+        }
+        await copyShareUrl(clip.id, token);
+      } catch (error) {
+        console.error("Failed to copy share link", error);
+        toast.error("Failed to create share link");
       }
     },
     [getIdToken]
@@ -234,6 +222,8 @@ export function HistorySceneExplorer({
               scene={scene}
               index={index}
               resolvePlaybackUrl={resolvePlaybackUrl}
+              onDownload={handleDownload}
+              onCopyShareLink={handleCopyShareLink}
               onDeleteClip={onDeleteClip}
               onDeleteScene={onDeleteScene}
             />
@@ -248,6 +238,8 @@ interface HistorySceneItemProps {
   scene: SceneGroup;
   index: number;
   resolvePlaybackUrl: (clip: HistoryClip) => Promise<string>;
+  onDownload: (clip: HistoryClip) => Promise<void>;
+  onCopyShareLink: (clip: HistoryClip) => Promise<void>;
   onDeleteClip?: (clip: HistoryClip) => Promise<void>;
   onDeleteScene?: (sceneId: number) => Promise<void>;
 }
@@ -256,6 +248,8 @@ function HistorySceneItem({
   scene,
   index,
   resolvePlaybackUrl,
+  onDownload,
+  onCopyShareLink,
   onDeleteClip,
   onDeleteScene,
 }: HistorySceneItemProps) {
@@ -342,7 +336,7 @@ function HistorySceneItem({
     }
   }, [onDeleteScene, scene.sceneId]);
 
-  const firstThumbnail = scene.clips.find((c) => c.thumbnailUrl)?.thumbnailUrl;
+  // Thumbnails are now fetched via delivery endpoints, not stored in clip data
 
   return (
     <Dialog open={sceneDeleteOpen} onOpenChange={setSceneDeleteOpen}>
@@ -390,17 +384,7 @@ function HistorySceneItem({
               </div>
 
               <div className="flex items-center gap-3 sm:gap-4">
-                {firstThumbnail ? (
-                  <div className="hidden sm:block">
-                    <Image
-                      src={firstThumbnail}
-                      alt={`Scene ${scene.sceneId} thumbnail`}
-                      width={112}
-                      height={64}
-                      className="h-16 w-28 rounded-md object-cover shadow-sm ring-1 ring-border"
-                    />
-                  </div>
-                ) : null}
+                {/* Thumbnails are fetched via delivery endpoints on demand */}
               </div>
             </div>
             <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
@@ -492,41 +476,29 @@ function HistorySceneItem({
                             <ActionButton
                               icon={<Download className="h-4 w-4" />}
                               label="Download"
-                              onClick={() => window.open(clip.videoUrl, "_blank")}
+                              onClick={() => onDownload(clip)}
                             />
                             <ActionButton
                               icon={<Link2 className="h-4 w-4" />}
                               label="Copy link"
-                              onClick={async () => {
-                                try {
-                                  await navigator.clipboard.writeText(clip.videoUrl);
-                                  toast.success("Clip link copied");
-                                } catch {
-                                  toast.error("Failed to copy link");
-                                }
-                              }}
+                              onClick={() => onCopyShareLink(clip)}
                             />
                             <ActionButton
                               icon={<ExternalLink className="h-4 w-4" />}
                               label="Open"
-                              onClick={() => window.open(clip.videoUrl, "_blank")}
+                              onClick={async () => {
+                                try {
+                                  const url = await resolvePlaybackUrl(clip);
+                                  window.open(url, "_blank");
+                                } catch {
+                                  toast.error("Failed to open clip");
+                                }
+                              }}
                             />
                             <ActionButton
                               icon={<Share2 className="h-4 w-4" />}
                               label="Share to Socials"
-                              onClick={async () => {
-                                try {
-                                  const url = await resolvePlaybackUrl(clip);
-                                  // For now, copy the URL to clipboard for social sharing
-                                  // TODO: Implement proper social sharing with TikTok API when configured
-                                  await navigator.clipboard.writeText(url);
-                                  toast.success(
-                                    "Video URL copied to clipboard for sharing!"
-                                  );
-                                } catch {
-                                  toast.error("Failed to prepare video for sharing");
-                                }
-                              }}
+                              onClick={() => onCopyShareLink(clip)}
                             />
                             {onDeleteClip ? (
                               <Dialog
@@ -609,21 +581,11 @@ function HistorySceneItem({
                                       : "hover:border-primary/50"
                                   )}
                                 >
-                                  {thumbClip.thumbnailUrl ? (
-                                    <Image
-                                      src={thumbClip.thumbnailUrl}
-                                      alt={`${getStyleLabel(s) ?? s} thumbnail`}
-                                      width={320}
-                                      height={180}
-                                      className="h-28 w-full object-cover"
-                                    />
-                                  ) : (
-                                    <div className="flex h-28 w-full items-center justify-center bg-muted">
-                                      <span className="text-xs text-muted-foreground">
-                                        No thumbnail
-                                      </span>
-                                    </div>
-                                  )}
+                                  <div className="flex h-28 w-full items-center justify-center bg-muted">
+                                    <span className="text-xs text-muted-foreground">
+                                      {getStyleLabel(s) ?? s}
+                                    </span>
+                                  </div>
                                   <div className="absolute left-2 top-2">
                                     <Badge
                                       className={cn(
@@ -762,7 +724,7 @@ function SceneClipPlayer({ clip, resolvePlaybackUrl }: SceneClipPlayerProps) {
         src={videoUrl}
         controls
         className="h-full w-full bg-black"
-        poster={clip.thumbnailUrl || undefined}
+        poster={undefined}
         preload="metadata"
       >
         <track kind="captions" />

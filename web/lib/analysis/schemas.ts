@@ -5,7 +5,7 @@
  * and fail gracefully with clear error messages.
  */
 
-import { z } from 'zod';
+import { z } from "zod";
 
 // ============================================================================
 // Base Schemas
@@ -13,12 +13,12 @@ import { z } from 'zod';
 
 /** Analysis status enum */
 export const AnalysisStatusSchema = z.enum([
-  'pending',
-  'downloading',
-  'analyzing',
-  'completed',
-  'failed',
-  'expired',
+  "pending",
+  "downloading",
+  "analyzing",
+  "completed",
+  "failed",
+  "expired",
 ]);
 
 /** Scene selection for processing */
@@ -154,8 +154,8 @@ export function validateResponse<T>(
   const result = schema.safeParse(data);
   if (!result.success) {
     const issues = result.error.issues
-      .map((i) => `${i.path.join('.')}: ${i.message}`)
-      .join(', ');
+      .map((i) => `${i.path.join(".")}: ${i.message}`)
+      .join(", ");
     console.error(`[Validation] ${context}: ${issues}`, data);
     throw new Error(`Invalid response from ${context}: ${issues}`);
   }

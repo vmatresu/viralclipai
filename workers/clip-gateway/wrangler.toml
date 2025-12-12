@@ -13,7 +13,7 @@ routes = [
 # R2 bucket binding
 [[r2_buckets]]
 binding = "CLIPS_BUCKET"
-bucket_name = "viralclipai-videos"
+bucket_name = "viralclipai-storage"
 
 # Environment variables (set via wrangler secret)
 # SIGNING_SECRET - HMAC signing secret (must match backend)

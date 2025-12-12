@@ -1,37 +1,44 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
-import {
-    useDeleteDraft,
-    useDraft,
-    useProcessDraft,
-    useProcessingEstimate,
-    type DraftScene,
-    type SceneSelection,
-} from "@/lib/analysis";
-import {
-    AlertCircle,
-    ArrowRight,
-    Clock,
-    ExternalLink,
-    Film,
-    Loader2,
-    Sparkles,
-    SplitSquareHorizontal,
-    Trash2
+  AlertCircle,
+  ArrowRight,
+  Clock,
+  ExternalLink,
+  Film,
+  Loader2,
+  Sparkles,
+  SplitSquareHorizontal,
+  Trash2,
 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  useDeleteDraft,
+  useDraft,
+  useProcessDraft,
+  useProcessingEstimate,
+  type DraftScene,
+  type SceneSelection,
+} from "@/lib/analysis";
 
 // Style options for Full format
 const FULL_STYLES = [
@@ -59,7 +66,9 @@ export default function DraftPage() {
   const { trigger: deleteDraftAction, isMutating: isDeleting } = useDeleteDraft();
 
   // Selection state: Map of sceneId -> { full: boolean, split: boolean }
-  const [selections, setSelections] = useState<Record<number, { full: boolean; split: boolean }>>({});
+  const [selections, setSelections] = useState<
+    Record<number, { full: boolean; split: boolean }>
+  >({});
   const [fullStyle, setFullStyle] = useState("intelligent_speaker");
   const [splitStyle, setSplitStyle] = useState("intelligent_split_speaker");
   const [processError, setProcessError] = useState<string | null>(null);
@@ -70,7 +79,10 @@ export default function DraftPage() {
       const initial: Record<number, { full: boolean; split: boolean }> = {};
       scenes.forEach((scene) => {
         // Auto-select high confidence scenes (or all if no confidence)
-        const autoSelect = scene.confidence === undefined || scene.confidence === null || scene.confidence >= 0.7;
+        const autoSelect =
+          scene.confidence === undefined ||
+          scene.confidence === null ||
+          scene.confidence >= 0.7;
         initial[scene.id] = { full: autoSelect, split: false };
       });
       setSelections(initial);
@@ -115,19 +127,22 @@ export default function DraftPage() {
     });
   }, []);
 
-  const selectAll = useCallback((format: "full" | "split") => {
-    setSelections((prev) => {
-      const updated: Record<number, { full: boolean; split: boolean }> = { ...prev };
-      scenes.forEach((scene) => {
-        const current = updated[scene.id] ?? { full: false, split: false };
-        updated[scene.id] = {
-          ...current,
-          [format]: true,
-        };
+  const selectAll = useCallback(
+    (format: "full" | "split") => {
+      setSelections((prev) => {
+        const updated: Record<number, { full: boolean; split: boolean }> = { ...prev };
+        scenes.forEach((scene) => {
+          const current = updated[scene.id] ?? { full: false, split: false };
+          updated[scene.id] = {
+            ...current,
+            [format]: true,
+          };
+        });
+        return updated;
       });
-      return updated;
-    });
-  }, [scenes]);
+    },
+    [scenes]
+  );
 
   const deselectAll = useCallback(() => {
     setSelections((prev) => {
@@ -167,12 +182,16 @@ export default function DraftPage() {
       // Redirect to history page for the new video
       router.push(`/history/${result.video_id}`);
     } catch (err) {
-      setProcessError(err instanceof Error ? err.message : "Failed to start processing");
+      setProcessError(
+        err instanceof Error ? err.message : "Failed to start processing"
+      );
     }
   };
 
   const handleDelete = async () => {
-    if (!confirm("Are you sure you want to delete this draft? This cannot be undone.")) {
+    if (
+      !confirm("Are you sure you want to delete this draft? This cannot be undone.")
+    ) {
       return;
     }
 
@@ -200,9 +219,7 @@ export default function DraftPage() {
             <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
             <h2 className="text-xl font-semibold text-white mb-2">Error</h2>
             <p className="text-slate-400 mb-4">{error?.message || "Draft not found"}</p>
-            <Button onClick={() => router.push("/analyze")}>
-              Start New Analysis
-            </Button>
+            <Button onClick={() => router.push("/analyze")}>Start New Analysis</Button>
           </CardContent>
         </Card>
       </div>
@@ -250,7 +267,11 @@ export default function DraftPage() {
                 disabled={isDeleting}
                 className="border-red-500/20 text-red-400 hover:bg-red-500/10"
               >
-                {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                {isDeleting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Trash2 className="w-4 h-4" />
+                )}
               </Button>
             </div>
           </div>
@@ -325,7 +346,11 @@ export default function DraftPage() {
                     </SelectTrigger>
                     <SelectContent className="bg-slate-900 border-slate-700">
                       {FULL_STYLES.map((style) => (
-                        <SelectItem key={style.value} value={style.value} className="text-white">
+                        <SelectItem
+                          key={style.value}
+                          value={style.value}
+                          className="text-white"
+                        >
                           {style.label}
                         </SelectItem>
                       ))}
@@ -345,7 +370,11 @@ export default function DraftPage() {
                     </SelectTrigger>
                     <SelectContent className="bg-slate-900 border-slate-700">
                       {SPLIT_STYLES.map((style) => (
-                        <SelectItem key={style.value} value={style.value} className="text-white">
+                        <SelectItem
+                          key={style.value}
+                          value={style.value}
+                          className="text-white"
+                        >
                           {style.label}
                         </SelectItem>
                       ))}
@@ -411,7 +440,9 @@ export default function DraftPage() {
             )}
             <Button
               onClick={handleProcess}
-              disabled={isProcessing || selectedSceneIds.length === 0 || estimate?.exceeds_quota}
+              disabled={
+                isProcessing || selectedSceneIds.length === 0 || estimate?.exceeds_quota
+              }
               className="w-full h-12 bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-500 hover:to-blue-500 text-white font-semibold shadow-lg shadow-violet-500/25"
             >
               {isProcessing ? (
@@ -451,9 +482,11 @@ function SceneCard({
   const isSelected = selection.full || selection.split;
 
   return (
-    <Card className={`bg-slate-900/50 border-slate-800/50 backdrop-blur-xl transition-all duration-200 ${
-      isSelected ? "ring-2 ring-violet-500/50" : ""
-    }`}>
+    <Card
+      className={`bg-slate-900/50 border-slate-800/50 backdrop-blur-xl transition-all duration-200 ${
+        isSelected ? "ring-2 ring-violet-500/50" : ""
+      }`}
+    >
       <CardContent className="p-4">
         <div className="flex flex-col md:flex-row md:items-center gap-4">
           {/* Scene Info */}
@@ -465,11 +498,17 @@ function SceneCard({
               <span className="text-xs text-slate-500">
                 {scene.start} → {scene.end}
               </span>
-              <Badge variant="outline" className="text-xs border-slate-700 text-slate-400">
+              <Badge
+                variant="outline"
+                className="text-xs border-slate-700 text-slate-400"
+              >
                 {formatDuration(scene.duration_secs)}
               </Badge>
               {scene.hook_category && (
-                <Badge variant="outline" className="text-xs border-violet-500/30 text-violet-400">
+                <Badge
+                  variant="outline"
+                  className="text-xs border-violet-500/30 text-violet-400"
+                >
                   {scene.hook_category}
                 </Badge>
               )}

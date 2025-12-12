@@ -220,17 +220,14 @@ export default function HistoryDetailPage() {
       const timing = highlightTimingById.get(parsed.sceneId);
       return [
         {
-          id: clip.clip_id, // Use clip_id as primary identifier
+          id: clip.clip_id,
           sceneId: parsed.sceneId,
           sceneTitle: sceneTitleById.get(parsed.sceneId),
           startSec: timing?.start ?? 0,
           endSec: timing?.end ?? 0,
           style: parsed.style,
-          thumbnailUrl: clip.thumbnail ?? "",
-          videoUrl: clip.direct_url ?? clip.url,
           size: clip.size,
-          clipName: clip.name, // Keep filename for API calls
-          directUrl: clip.direct_url,
+          clipName: clip.name,
           title: clip.title,
         },
       ];
