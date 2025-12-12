@@ -69,7 +69,7 @@ interface UserVideo {
   video_url?: string;
   created_at?: string;
   custom_prompt?: string;
-  status?: "processing" | "completed";
+  status?: "processing" | "analyzed" | "completed" | "failed";
   clips_count?: number;
   /** Total size of all clips in bytes. */
   total_size_bytes?: number;

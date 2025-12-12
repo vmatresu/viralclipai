@@ -29,9 +29,9 @@ image = "0.24"
 
 # ONNX Runtime for face mesh landmark refinement
 # - CUDA feature is optional; CPU-only still works when CUDA not present.
-# - download-binaries pulls the matching ORT runtime so linking succeeds without
-#   extra manual setup; disable if you manage ORT libs yourself.
-ort = { version = "2.0.0-rc.10", features = ["cuda", "half", "download-binaries"], default-features = false }
+# - We use pre-downloaded binaries in onnxruntime-artifacts/ and set ORT_LIB_LOCATION
+#   in the Dockerfile instead of download-binaries for reproducible builds.
+ort = { version = "2.0.0-rc.10", features = ["half"], default-features = false }
 
 # OpenCV for YuNet face detection (optional - falls back to FFmpeg if not available)
 # Include imgcodecs so debug rendering can write overlays when enabled.

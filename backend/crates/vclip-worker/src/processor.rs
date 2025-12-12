@@ -4,23 +4,20 @@
 //! clip task generation, and style routing using the new processor framework.
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tracing::info;
 
-use vclip_firestore::{types::ToFirestoreValue, FirestoreClient};
+use vclip_firestore::{types::ToFirestoreValue, AnalysisDraftRepository, FirestoreClient};
 use vclip_media::{
     core::{MetricsCollector, SecurityContext, StyleProcessorRegistry},
-    download_video,
     styles::StyleProcessorFactory as MediaStyleProcessorFactory,
 };
-use vclip_models::VideoMetadata;
-use vclip_queue::{ProcessVideoJob, ProgressChannel, RenderSceneStyleJob, ReprocessScenesJob};
+use vclip_models::{AnalysisStatus, DraftScene, VideoMetadata};
+use vclip_queue::{AnalyzeVideoJob, ProcessVideoJob, ProgressChannel, RenderSceneStyleJob, ReprocessScenesJob};
 use vclip_storage::R2Client;
 
-use crate::clip_pipeline::{self, ClipProcessingResults};
 use crate::config::WorkerConfig;
 use crate::error::{WorkerError, WorkerResult};
 use crate::gemini::GeminiClient;
@@ -122,6 +119,9 @@ impl VideoProcessor {
     }
 
     /// Process a video job using the enhanced architecture.
+    /// 
+    /// This now only performs analysis (transcript + AI scene detection).
+    /// Video download and clip processing happen later via ReprocessScenes or RenderSceneStyle jobs.
     pub async fn process_video_job(
         &self,
         ctx: &EnhancedProcessingContext,
@@ -129,44 +129,94 @@ impl VideoProcessor {
     ) -> WorkerResult<()> {
         let job_logger = JobLogger::new(&job.job_id, "video_processing");
 
-        job_logger.log_start("Starting video processing job");
+        job_logger.log_start("Starting video analysis job");
 
         // Create work directory
         let work_dir = PathBuf::from(&ctx.config.work_dir).join(job.video_id.as_str());
         tokio::fs::create_dir_all(&work_dir).await?;
 
         ctx.progress
-            .log(&job.job_id, "Starting video processing...")
+            .log(&job.job_id, "Starting video analysis...")
             .await
             .ok();
         ctx.progress.progress(&job.job_id, 5).await.ok();
 
-        // Get transcript and video metadata
+        // Get transcript and video metadata (NO video download)
         let transcript_data = self.fetch_transcript_and_metadata(ctx, job).await?;
-        ctx.progress.progress(&job.job_id, 10).await.ok();
+        ctx.progress.progress(&job.job_id, 20).await.ok();
 
-        // Download video and analyze in parallel
-        let analysis_data = self
-            .download_and_analyze(ctx, job, &work_dir, &transcript_data)
-            .await?;
-        ctx.progress.progress(&job.job_id, 35).await.ok();
+        // Analyze transcript with AI to get scenes (NO video download)
+        ctx.progress
+            .log(&job.job_id, "Analyzing content with AI...")
+            .await
+            .ok();
+        
+        let plan_path = work_dir.join("clip_plan.json");
+        
+        // Attempt to reuse a previously persisted plan to avoid non-determinism on retries.
+        let cached_plan = tokio::fs::read(&plan_path).await.ok().and_then(|bytes| {
+            serde_json::from_slice::<crate::gemini::HighlightsResponse>(&bytes).ok()
+        });
 
-        // Store video metadata
-        self.store_video_metadata(ctx, job, &transcript_data, &analysis_data)
+        let ai_response = if let Some(plan) = cached_plan {
+            plan
+        } else {
+            let analysis_result = self
+                .gemini_client
+                .analyze_transcript(
+                    &transcript_data.prompt,
+                    &job.video_url,
+                    &transcript_data.content,
+                )
+                .await?;
+            
+            // Persist the plan for deterministic retries.
+            match serde_json::to_vec_pretty(&analysis_result) {
+                Ok(bytes) => {
+                    if let Err(e) = tokio::fs::write(&plan_path, bytes).await {
+                        tracing::warn!(
+                            path = ?plan_path,
+                            error = %e,
+                            "Failed to persist clip plan for retry determinism"
+                        );
+                    }
+                }
+                Err(e) => tracing::warn!("Failed to serialize clip plan: {}", e),
+            }
+            
+            analysis_result
+        };
+
+        ctx.progress.progress(&job.job_id, 70).await.ok();
+
+        let scene_count = ai_response.highlights.len();
+        ctx.progress
+            .log(&job.job_id, &format!("Found {} scenes ready for processing", scene_count))
+            .await
+            .ok();
+
+        // Store video metadata and highlights (NO video file path needed)
+        self.store_video_metadata_analysis_only(ctx, job, &transcript_data, &ai_response)
             .await?;
 
-        // Generate and process clips
-        let clip_results = self
-            .process_clips(ctx, job, &work_dir, &analysis_data)
-            .await?;
+        ctx.progress.progress(&job.job_id, 90).await.ok();
 
-        // Finalize video
-        self.finalize_video(ctx, job, clip_results.total_processed as u32)
-            .await?;
+        // Mark video as ready for scene selection (not fully completed)
+        let video_repo = vclip_firestore::VideoRepository::new(ctx.firestore.clone(), &job.user_id);
+        video_repo
+            .update_status(&job.video_id, vclip_models::VideoStatus::Analyzed)
+            .await
+            .map_err(|e| WorkerError::Firestore(e))?;
+
+        ctx.progress.progress(&job.job_id, 100).await.ok();
+        ctx.progress
+            .done(&job.job_id, job.video_id.as_str())
+            .await
+            .ok();
 
         job_logger.log_completion(&format!(
-            "Processed {} clips successfully",
-            clip_results.completed_count
+            "Analysis complete: {} scenes found",
+            scene_count
         ));
 
         Ok(())
@@ -213,73 +263,13 @@ impl VideoProcessor {
         })
     }
 
-    /// Download video and analyze content in parallel.
-    async fn download_and_analyze(
-        &self,
-        ctx: &EnhancedProcessingContext,
-        job: &ProcessVideoJob,
-        work_dir: &Path,
-        transcript: &TranscriptData,
-    ) -> WorkerResult<AnalysisData> {
-        ctx.progress
-            .log(&job.job_id, "Downloading video and analyzing with AI...")
-            .await
-            .ok();
-
-        let video_file = work_dir.join("source.mp4");
-        let plan_path = work_dir.join("clip_plan.json");
-
-        // Attempt to reuse a previously persisted plan to avoid non-determinism on retries.
-        let cached_plan = tokio::fs::read(&plan_path).await.ok().and_then(|bytes| {
-            serde_json::from_slice::<crate::gemini::HighlightsResponse>(&bytes).ok()
-        });
-
-        let cached_present = cached_plan.is_some();
-        let ai_response = if let Some(plan) = cached_plan {
-            download_video(&job.video_url, &video_file).await?;
-            plan
-        } else {
-            let (download_result, analysis_result) = tokio::join!(
-                download_video(&job.video_url, &video_file),
-                self.gemini_client.analyze_transcript(
-                    &transcript.prompt,
-                    &job.video_url,
-                    &transcript.content
-                )
-            );
-            download_result?;
-            analysis_result?
-        };
-
-        // Persist the plan for deterministic retries.
-        if !cached_present {
-            match serde_json::to_vec_pretty(&ai_response) {
-                Ok(bytes) => {
-                    if let Err(e) = tokio::fs::write(&plan_path, bytes).await {
-                        tracing::warn!(
-                            path = ?plan_path,
-                            error = %e,
-                            "Failed to persist clip plan for retry determinism"
-                        );
-                    }
-                }
-                Err(e) => tracing::warn!("Failed to serialize clip plan: {}", e),
-            }
-        }
-
-        Ok(AnalysisData {
-            video_file,
-            highlights: ai_response,
-        })
-    }
-
-    /// Store video metadata in Firestore.
-    async fn store_video_metadata(
+    /// Store video metadata and highlights for analysis-only flow (no video file).
+    async fn store_video_metadata_analysis_only(
         &self,
         ctx: &EnhancedProcessingContext,
         job: &ProcessVideoJob,
         transcript: &TranscriptData,
-        analysis: &AnalysisData,
+        highlights: &crate::gemini::HighlightsResponse,
     ) -> WorkerResult<()> {
         let video_meta = VideoMetadata::new(
             job.video_id.clone(),
@@ -293,8 +283,7 @@ impl VideoProcessor {
         // Convert to VideoHighlights for Firestore
         let video_highlights = vclip_models::highlight::VideoHighlights {
             video_id: job.video_id.as_str().to_string(),
-            highlights: analysis
-                .highlights
+            highlights: highlights
                 .highlights
                 .iter()
                 .map(|h| vclip_models::Highlight {
@@ -339,12 +328,8 @@ impl VideoProcessor {
             .await
             .map_err(|e| WorkerError::Firestore(e))?;
 
-        // Create/update video record
-        if let Ok(Some(mut existing_video)) = video_repo.get(&job.video_id).await {
-            existing_video.video_title = transcript.title.clone();
-            existing_video.video_url = transcript.url.clone();
-            existing_video.status = vclip_models::VideoStatus::Processing;
-
+        // Create video record (or update if exists)
+        if let Ok(Some(_existing_video)) = video_repo.get(&job.video_id).await {
             let mut fields = HashMap::new();
             fields.insert(
                 "video_title".to_string(),
@@ -355,10 +340,8 @@ impl VideoProcessor {
                 transcript.url.clone().to_firestore_value(),
             );
             fields.insert(
-                "status".to_string(),
-                vclip_models::VideoStatus::Processing
-                    .as_str()
-                    .to_firestore_value(),
+                "highlights_count".to_string(),
+                (highlights.highlights.len() as u32).to_firestore_value(),
             );
 
             ctx.firestore
@@ -369,7 +352,7 @@ impl VideoProcessor {
                     Some(vec![
                         "video_title".to_string(),
                         "video_url".to_string(),
-                        "status".to_string(),
+                        "highlights_count".to_string(),
                     ]),
                 )
                 .await
@@ -381,70 +364,12 @@ impl VideoProcessor {
                 .map_err(|e| WorkerError::Firestore(e))?;
         }
 
-        Ok(())
-    }
-
-    /// Process all clips using the new architecture.
-    async fn process_clips(
-        &self,
-        ctx: &EnhancedProcessingContext,
-        job: &ProcessVideoJob,
-        work_dir: &Path,
-        analysis: &AnalysisData,
-    ) -> WorkerResult<ClipProcessingResults> {
-        clip_pipeline::process_clips(ctx, job, work_dir, analysis).await
-    }
-
-    /// Finalize video processing.
-    async fn finalize_video(
-        &self,
-        ctx: &EnhancedProcessingContext,
-        job: &ProcessVideoJob,
-        completed_clips: u32,
-    ) -> WorkerResult<()> {
-        let video_repo = vclip_firestore::VideoRepository::new(ctx.firestore.clone(), &job.user_id);
-        let clip_repo = vclip_firestore::ClipRepository::new(
-            ctx.firestore.clone(),
-            &job.user_id,
-            job.video_id.clone(),
-        );
-
-        // Reconcile actual completed clips from Firestore to avoid marking completed with zero.
-        let actual_completed = clip_repo
-            .list(Some(vclip_models::ClipStatus::Completed))
-            .await
-            .map(|clips| clips.len() as u32)
-            .unwrap_or(completed_clips);
-
-        if actual_completed == 0 {
-            return Err(WorkerError::job_failed(
-                "No completed clips found; refusing to mark video completed",
-            ));
-        }
-
-        match video_repo.complete(&job.video_id, actual_completed).await {
-            Ok(_) => {
-                info!(
-                    "Successfully marked video {} as completed with {} clips (actual={})",
-                    job.video_id, actual_completed, actual_completed
-                );
-            }
-            Err(e) => {
-                tracing::error!("Failed to mark video {} as completed: {}", job.video_id, e);
-                return Err(WorkerError::Firestore(e));
-            }
-        }
-
-        ctx.progress.progress(&job.job_id, 100).await.ok();
-        ctx.progress
-            .done(&job.job_id, job.video_id.as_str())
-            .await
-            .ok();
-
         info!(
-            "Completed video job: {} ({} clips)",
-            job.job_id, completed_clips
+            "Stored analysis results for video {}: {} highlights",
+            job.video_id,
+            highlights.highlights.len()
         );
+
         Ok(())
     }
 
@@ -468,6 +393,126 @@ impl VideoProcessor {
         job: &RenderSceneStyleJob,
     ) -> WorkerResult<()> {
         crate::render_job::process_render_job(ctx, job).await
+    }
+
+    /// Process an analyze video job (new two-step workflow).
+    ///
+    /// Downloads transcript, analyzes with AI, and stores results as an AnalysisDraft
+    /// with DraftScenes in Firestore. Does NOT render any clips.
+    pub async fn process_analyze_job(
+        &self,
+        ctx: &EnhancedProcessingContext,
+        job: &AnalyzeVideoJob,
+    ) -> WorkerResult<()> {
+        let job_logger = JobLogger::new(&job.job_id, "analyze_video");
+        job_logger.log_start("Starting video analysis job");
+
+        let draft_repo = AnalysisDraftRepository::new(ctx.firestore.clone(), &job.user_id);
+
+        // Update status to Downloading
+        draft_repo
+            .update_status(&job.draft_id, AnalysisStatus::Downloading, None)
+            .await
+            .map_err(|e| WorkerError::Firestore(e))?;
+
+        ctx.progress
+            .log(&job.job_id, "Fetching video details...")
+            .await
+            .ok();
+        ctx.progress.progress(&job.job_id, 10).await.ok();
+
+        // Get video metadata and transcript
+        let (video_title, _canonical_url) = self
+            .gemini_client
+            .get_video_metadata(&job.video_url)
+            .await
+            .map_err(|e| WorkerError::ai_failed(format!("Failed to get video metadata: {}", e)))?;
+
+        let work_dir = std::path::PathBuf::from(&ctx.config.work_dir).join(&job.draft_id);
+        tokio::fs::create_dir_all(&work_dir).await?;
+
+        let transcript = self
+            .gemini_client
+            .get_transcript_only(&job.video_url, &work_dir)
+            .await
+            .map_err(|e| WorkerError::ai_failed(format!("Failed to get transcript: {}", e)))?;
+
+        ctx.progress.progress(&job.job_id, 30).await.ok();
+
+        // Update status to Analyzing
+        draft_repo
+            .update_status(&job.draft_id, AnalysisStatus::Analyzing, None)
+            .await
+            .map_err(|e| WorkerError::Firestore(e))?;
+
+        ctx.progress
+            .log(&job.job_id, "Analyzing content with AI...")
+            .await
+            .ok();
+
+        // Build prompt
+        let base_prompt = job
+            .prompt_instructions
+            .clone()
+            .or_else(load_prompt_from_file)
+            .unwrap_or_else(|| DEFAULT_PROMPT.to_string());
+
+        // Analyze transcript
+        let analysis = self
+            .gemini_client
+            .analyze_transcript(&base_prompt, &job.video_url, &transcript)
+            .await?;
+
+        ctx.progress.progress(&job.job_id, 80).await.ok();
+
+        // Convert highlights to DraftScenes
+        let scenes: Vec<DraftScene> = analysis
+            .highlights
+            .iter()
+            .map(|h| DraftScene {
+                id: h.id,
+                analysis_draft_id: job.draft_id.clone(),
+                title: h.title.clone(),
+                description: h.description.clone(),
+                reason: h.reason.clone(),
+                start: h.start.clone(),
+                end: h.end.clone(),
+                duration_secs: h.duration,
+                pad_before: h.pad_before_seconds,
+                pad_after: h.pad_after_seconds,
+                confidence: None, // Confidence scoring not yet implemented in AI response
+                hook_category: h.hook_category.clone(),
+            })
+            .collect();
+
+        let scene_count = scenes.len() as u32;
+
+        // Store scenes in Firestore
+        draft_repo
+            .upsert_scenes(&job.draft_id, &scenes)
+            .await
+            .map_err(|e| WorkerError::Firestore(e))?;
+
+        // Update draft with completion info
+        draft_repo
+            .update_completion(&job.draft_id, Some(video_title.clone()), scene_count, 0)
+            .await
+            .map_err(|e| WorkerError::Firestore(e))?;
+
+        ctx.progress.progress(&job.job_id, 100).await.ok();
+        ctx.progress.done(&job.job_id, &job.draft_id).await.ok();
+
+        // Cleanup work directory
+        if let Err(e) = tokio::fs::remove_dir_all(&work_dir).await {
+            tracing::warn!("Failed to cleanup work directory {:?}: {}", work_dir, e);
+        }
+
+        job_logger.log_completion(&format!(
+            "Analyzed video '{}' with {} scenes",
+            video_title, scene_count
+        ));
+
+        Ok(())
     }
 }
 

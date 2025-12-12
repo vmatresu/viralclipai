@@ -430,17 +430,21 @@ export default function HistoryDetailPage() {
         // This allows monitoring to persist across refreshes for both initial processing and reprocessing.
         const statusIsProcessing = video?.status === "processing";
 
-        // Auto-refresh data when processing completes
-        if (isProcessing && !statusIsProcessing && video?.status === "completed") {
+        // Auto-refresh data when processing completes (either analyzed or fully completed)
+        if (
+          isProcessing &&
+          !statusIsProcessing &&
+          (video?.status === "completed" || video?.status === "analyzed")
+        ) {
           void loadData();
         }
 
         // Sync processing context with API status
-        // If API says completed/failed but context still says processing, update context
+        // If API says completed/failed/analyzed but context still says processing, update context
         // This handles the case where WebSocket disconnects before 'done' message is received
         const job = contextJob;
         if (job && (job.status === "pending" || job.status === "processing")) {
-          if (video?.status === "completed") {
+          if (video?.status === "completed" || video?.status === "analyzed") {
             contextCompleteJob(videoId);
           } else if (video?.status === "failed") {
             contextFailJob(videoId, "Processing failed");
@@ -895,7 +899,7 @@ export default function HistoryDetailPage() {
         >
           <CardTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-primary" />
-            Select Scenes to Reprocess
+            Select Scenes to Process
             <Button
               variant="ghost"
               size="sm"
@@ -952,7 +956,7 @@ export default function HistoryDetailPage() {
               </p>
               <Button onClick={handleReprocess} disabled={!canReprocess} size="lg">
                 <Play className="h-4 w-4 mr-2" />
-                Reprocess Selected
+                Process Selected Scenes
               </Button>
             </div>
           </CardContent>

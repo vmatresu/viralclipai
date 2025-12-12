@@ -77,7 +77,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Rust 1.87 via rustup (matches rust:1.87 toolchain)
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     sh -s -- -y --profile minimal --default-toolchain 1.87.0
-
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Copy and extract pre-built OpenCV 4.12.0 artifacts (AMD64 for production)
@@ -86,6 +85,16 @@ RUN cd /usr/local && \
     tar -xzf /tmp/opencv.tar.gz && \
     rm /tmp/opencv.tar.gz && \
     ldconfig
+
+# Copy and extract pre-built ONNX Runtime 1.22.0 (for ort crate - AMD64 for production)
+# Using pre-downloaded artifacts instead of download-binaries for reproducible builds
+COPY onnxruntime-artifacts/ort-linux-x64.tgz /tmp/ort.tgz
+RUN tar -xzf /tmp/ort.tgz -C /usr/local/lib --strip-components=1 && \
+    rm /tmp/ort.tgz && \
+    ldconfig
+
+# Set ORT_LIB_LOCATION for the ort-sys crate build script
+ENV ORT_LIB_LOCATION="/usr/local/lib"
 
 # Install cargo-chef
 RUN cargo install cargo-chef --locked
@@ -213,6 +222,12 @@ COPY opencv-artifacts/opencv-4.12.0-ubuntu24.04-amd64.tar.gz /tmp/opencv.tar.gz
 RUN cd /usr/local && \
     tar -xzf /tmp/opencv.tar.gz && \
     rm /tmp/opencv.tar.gz && \
+    ldconfig
+
+# Copy and extract pre-built ONNX Runtime 1.22.0 runtime libraries
+COPY onnxruntime-artifacts/ort-linux-x64.tgz /tmp/ort.tgz
+RUN tar -xzf /tmp/ort.tgz -C /usr/local/lib --strip-components=1 && \
+    rm /tmp/ort.tgz && \
     ldconfig
 
 # Copy YuNet face detection models

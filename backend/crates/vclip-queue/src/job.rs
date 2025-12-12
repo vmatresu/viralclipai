@@ -1,7 +1,58 @@
 //! Job types for the queue.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use vclip_models::{AspectRatio, CropMode, JobId, Style, VideoId};
+
+/// Job to analyze a video and create a draft with scenes.
+///
+/// This is the first step in the two-step workflow. The job downloads
+/// the transcript, analyzes it for highlights, and stores the results
+/// as an AnalysisDraft with DraftScenes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalyzeVideoJob {
+    /// Unique job ID
+    pub job_id: JobId,
+    /// User ID
+    pub user_id: String,
+    /// Pre-generated draft ID
+    pub draft_id: String,
+    /// Video URL to analyze
+    pub video_url: String,
+    /// Optional AI instructions from user
+    pub prompt_instructions: Option<String>,
+    /// When the job was created
+    pub created_at: DateTime<Utc>,
+}
+
+impl AnalyzeVideoJob {
+    /// Create a new analyze job.
+    pub fn new(
+        user_id: impl Into<String>,
+        draft_id: impl Into<String>,
+        video_url: impl Into<String>,
+    ) -> Self {
+        Self {
+            job_id: JobId::new(),
+            user_id: user_id.into(),
+            draft_id: draft_id.into(),
+            video_url: video_url.into(),
+            prompt_instructions: None,
+            created_at: Utc::now(),
+        }
+    }
+
+    /// Set prompt instructions.
+    pub fn with_prompt(mut self, prompt: impl Into<String>) -> Self {
+        self.prompt_instructions = Some(prompt.into());
+        self
+    }
+
+    /// Generate idempotency key for deduplication.
+    pub fn idempotency_key(&self) -> String {
+        format!("analyze:{}:{}", self.user_id, self.draft_id)
+    }
+}
 
 /// Job to process a new video.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -249,7 +300,9 @@ impl RenderSceneStyleJob {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum QueueJob {
-    /// Orchestration job: analyze video and fan out render jobs
+    /// Analysis job: download transcript, analyze, create draft with scenes
+    AnalyzeVideo(AnalyzeVideoJob),
+    /// Orchestration job: analyze video and fan out render jobs (legacy, being phased out)
     ProcessVideo(ProcessVideoJob),
     /// Orchestration job: load highlights and fan out render jobs for selected scenes
     ReprocessScenes(ReprocessScenesJob),
@@ -260,6 +313,7 @@ pub enum QueueJob {
 impl QueueJob {
     pub fn job_id(&self) -> &JobId {
         match self {
+            QueueJob::AnalyzeVideo(j) => &j.job_id,
             QueueJob::ProcessVideo(j) => &j.job_id,
             QueueJob::ReprocessScenes(j) => &j.job_id,
             QueueJob::RenderSceneStyle(j) => &j.job_id,
@@ -268,26 +322,44 @@ impl QueueJob {
 
     pub fn user_id(&self) -> &str {
         match self {
+            QueueJob::AnalyzeVideo(j) => &j.user_id,
             QueueJob::ProcessVideo(j) => &j.user_id,
             QueueJob::ReprocessScenes(j) => &j.user_id,
             QueueJob::RenderSceneStyle(j) => &j.user_id,
         }
     }
 
-    pub fn video_id(&self) -> &VideoId {
+    /// Returns the video_id if applicable.
+    /// AnalyzeVideo doesn't have a video_id yet (draft_id instead).
+    pub fn video_id(&self) -> Option<&VideoId> {
         match self {
-            QueueJob::ProcessVideo(j) => &j.video_id,
-            QueueJob::ReprocessScenes(j) => &j.video_id,
-            QueueJob::RenderSceneStyle(j) => &j.video_id,
+            QueueJob::AnalyzeVideo(_) => None,
+            QueueJob::ProcessVideo(j) => Some(&j.video_id),
+            QueueJob::ReprocessScenes(j) => Some(&j.video_id),
+            QueueJob::RenderSceneStyle(j) => Some(&j.video_id),
+        }
+    }
+
+    /// Returns the draft_id if this is an AnalyzeVideo job.
+    pub fn draft_id(&self) -> Option<&str> {
+        match self {
+            QueueJob::AnalyzeVideo(j) => Some(&j.draft_id),
+            _ => None,
         }
     }
 
     pub fn idempotency_key(&self) -> String {
         match self {
+            QueueJob::AnalyzeVideo(j) => j.idempotency_key(),
             QueueJob::ProcessVideo(j) => j.idempotency_key(),
             QueueJob::ReprocessScenes(j) => j.idempotency_key(),
             QueueJob::RenderSceneStyle(j) => j.idempotency_key(),
         }
+    }
+
+    /// Returns true if this is an analysis job.
+    pub fn is_analysis(&self) -> bool {
+        matches!(self, QueueJob::AnalyzeVideo(_))
     }
 
     /// Returns true if this is an orchestration job (ProcessVideo or ReprocessScenes).
@@ -300,3 +372,4 @@ impl QueueJob {
         matches!(self, QueueJob::RenderSceneStyle(_))
     }
 }
+

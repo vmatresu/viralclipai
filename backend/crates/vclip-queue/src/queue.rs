@@ -6,7 +6,7 @@ use redis::AsyncCommands;
 use tracing::{debug, info, warn};
 
 use crate::error::{QueueError, QueueResult};
-use crate::job::{ProcessVideoJob, QueueJob, RenderSceneStyleJob, ReprocessScenesJob};
+use crate::job::{AnalyzeVideoJob, ProcessVideoJob, QueueJob, RenderSceneStyleJob, ReprocessScenesJob};
 
 /// Queue configuration.
 #[derive(Debug, Clone)]
@@ -120,6 +120,57 @@ impl JobQueue {
     /// Enqueue a single render scene/style job.
     pub async fn enqueue_render(&self, job: RenderSceneStyleJob) -> QueueResult<String> {
         self.enqueue(QueueJob::RenderSceneStyle(job)).await
+    }
+
+    /// Enqueue an analyze video job.
+    pub async fn enqueue_analyze(&self, job: AnalyzeVideoJob) -> QueueResult<String> {
+        self.enqueue(QueueJob::AnalyzeVideo(job)).await
+    }
+
+    // ========================================================================
+    // API-Level Idempotency
+    // ========================================================================
+
+    /// Try to acquire an idempotency lock for an API operation.
+    ///
+    /// Returns `Ok(true)` if the lock was acquired (new request).
+    /// Returns `Ok(false)` if the lock already exists (duplicate request).
+    ///
+    /// The lock is automatically released after `ttl_secs`.
+    pub async fn try_acquire_idempotency(&self, key: &str, ttl_secs: u64) -> QueueResult<bool> {
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
+        let redis_key = format!("vclip:api_idempotency:{}", key);
+
+        // Use SETNX (SET if Not eXists) with TTL
+        let result: bool = redis::cmd("SET")
+            .arg(&redis_key)
+            .arg("1")
+            .arg("NX")
+            .arg("EX")
+            .arg(ttl_secs)
+            .query_async(&mut conn)
+            .await
+            .unwrap_or(false);
+
+        if result {
+            debug!("Acquired idempotency lock: {}", key);
+        } else {
+            warn!("Duplicate API request detected: {}", key);
+        }
+
+        Ok(result)
+    }
+
+    /// Release an idempotency lock (use on error to allow retry).
+    pub async fn release_idempotency(&self, key: &str) -> QueueResult<()> {
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
+        let redis_key = format!("vclip:api_idempotency:{}", key);
+        let _: () = redis::cmd("DEL")
+            .arg(&redis_key)
+            .query_async(&mut conn)
+            .await?;
+        debug!("Released idempotency lock: {}", key);
+        Ok(())
     }
 
     /// Enqueue multiple render jobs efficiently.

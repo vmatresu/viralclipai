@@ -29,7 +29,7 @@ pub async fn reprocess_scenes(
     job: &ReprocessScenesJob,
 ) -> WorkerResult<()> {
     let job_logger = JobLogger::new(&job.job_id, "reprocess_scenes");
-    job_logger.log_start("Starting scene reprocessing job");
+    job_logger.log_start("Starting scene processing job");
 
     ctx.progress
         .log(&job.job_id, "Loading video data...")

@@ -51,8 +51,7 @@ services:
 
       # Firebase/Firestore (service account)
       - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID:?FIREBASE_PROJECT_ID required}
-      - FIREBASE_PRIVATE_KEY=${FIREBASE_PRIVATE_KEY:?FIREBASE_PRIVATE_KEY required}
-      - FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL:?FIREBASE_CLIENT_EMAIL required}
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/firebase-credentials.json
 
       # Redis (internal network with auth)
       # NOTE: REDIS_PASSWORD must be set in production!
@@ -70,6 +69,9 @@ services:
 
       # JWT Authentication
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET required}
+
+    volumes:
+      - ./firebase-credentials.json:/app/firebase-credentials.json:ro
 
     ports:
       - "${API_PORT:-8000}:8000"
@@ -150,8 +152,7 @@ services:
 
       # Firebase/Firestore
       - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID}
-      - FIREBASE_PRIVATE_KEY=${FIREBASE_PRIVATE_KEY}
-      - FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL}
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/firebase-credentials.json
 
       # Redis (with auth)
       # NOTE: REDIS_PASSWORD must be set in production!
@@ -176,6 +177,7 @@ services:
     volumes:
       # Temp storage for video processing (use tmpfs in prod for speed)
       - worker-temp:/tmp/videos
+      - ./firebase-credentials.json:/app/firebase-credentials.json:ro
 
     depends_on:
       redis:
@@ -240,7 +242,15 @@ services:
       - vclip-network
 
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme}", "--no-auth-warning", "ping"]
+      test:
+        [
+          "CMD",
+          "redis-cli",
+          "-a",
+          "${REDIS_PASSWORD:-changeme}",
+          "--no-auth-warning",
+          "ping",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5

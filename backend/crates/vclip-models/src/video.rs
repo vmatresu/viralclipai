@@ -62,7 +62,9 @@ pub enum VideoStatus {
     /// Video is being processed
     #[default]
     Processing,
-    /// Processing completed successfully
+    /// Analysis completed, scenes ready for selection (no clips rendered yet)
+    Analyzed,
+    /// Processing completed successfully (clips rendered)
     Completed,
     /// Processing failed
     Failed,
@@ -72,6 +74,7 @@ impl VideoStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
             VideoStatus::Processing => "processing",
+            VideoStatus::Analyzed => "analyzed",
             VideoStatus::Completed => "completed",
             VideoStatus::Failed => "failed",
         }

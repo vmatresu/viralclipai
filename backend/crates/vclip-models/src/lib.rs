@@ -8,7 +8,9 @@
 //! - WebSocket message schemas
 //! - Plan configuration and storage limits
 //! - Share link configuration
+//! - Analysis workflow (drafts and scenes)
 
+pub mod analysis;
 pub mod clip;
 pub mod detection_tier;
 pub mod encoding;
@@ -38,4 +40,8 @@ pub use ws::{ClipProcessingStep, WsMessage, WsMessageType};
 pub use youtube_url_config::{
     analyze_youtube_url, analyze_youtube_url_json, LiveCaptureMode, LiveHandling, SubtitlePlan,
     UrlType, ValidationResult, VideoDownloadPlan, YoutubeUrlConfig, YoutubeUrlInput,
+};
+pub use analysis::{
+    AnalysisDraft, AnalysisStatus, AnalysisStatusResponse, DraftScene, ProcessDraftRequest,
+    ProcessingEstimate, SceneSelection, StartAnalysisResponse,
 };

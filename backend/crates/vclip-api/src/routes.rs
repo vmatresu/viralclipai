@@ -11,6 +11,10 @@ use crate::handlers::admin::{
     enqueue_synthetic_job, get_queue_status, get_system_info,
     get_user, list_users, recalculate_user_storage, update_user_plan, update_user_usage,
 };
+use crate::handlers::analysis::{
+    delete_draft, estimate_processing, get_analysis_status, get_draft,
+    list_drafts, process_draft, start_analysis,
+};
 use crate::handlers::clip_delivery::{
     create_share, get_download_url, get_playback_url, get_thumbnail_url,
     resolve_share, revoke_share,
@@ -28,6 +32,21 @@ use crate::ws::{ws_process, ws_reprocess};
 
 /// Create the API router.
 pub fn create_router(state: AppState, metrics_handle: Option<PrometheusHandle>) -> Router {
+    // Analysis workflow routes (new two-step flow)
+    let analysis_routes = Router::new()
+        // Start analysis
+        .route("/analyze", post(start_analysis))
+        // Poll analysis status
+        .route("/analyze/:draft_id/status", get(get_analysis_status))
+        // Draft management
+        .route("/drafts", get(list_drafts))
+        .route("/drafts/:draft_id", get(get_draft))
+        .route("/drafts/:draft_id", delete(delete_draft))
+        // Process draft (submit for rendering)
+        .route("/drafts/:draft_id/process", post(process_draft))
+        // Cost estimation
+        .route("/drafts/:draft_id/estimate", get(estimate_processing));
+
     let video_routes = Router::new()
         // Single video operations
         .route("/videos/:video_id", get(get_video_info))
@@ -92,6 +111,7 @@ pub fn create_router(state: AppState, metrics_handle: Option<PrometheusHandle>) 
     let share_rate_limiter = std::sync::Arc::new(RateLimiterCache::new(5));
 
     let api_routes = Router::new()
+        .merge(analysis_routes)
         .merge(video_routes)
         .merge(clip_routes)
         .merge(settings_routes)

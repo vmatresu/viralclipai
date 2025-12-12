@@ -2,15 +2,18 @@
 //!
 //! This crate provides:
 //! - Typed repositories for Videos and Clips
+//! - Analysis draft repository for video analysis workflow
 //! - Service account authentication via gcp_auth
 //! - Merge updates and retry logic
 
+pub mod analysis_draft_repo;
 pub mod client;
 pub mod error;
 pub mod repos;
 pub mod highlights_repo;
 pub mod types;
 
+pub use analysis_draft_repo::AnalysisDraftRepository;
 pub use client::FirestoreClient;
 pub use error::{FirestoreError, FirestoreResult};
 pub use repos::{ClipRepository, ShareRepository, ShareSlugIndex, VideoRepository};

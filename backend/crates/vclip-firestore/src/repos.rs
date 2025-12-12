@@ -638,6 +638,7 @@ fn document_to_video_metadata(
         youtube_id: get_string("youtube_id"),
         status: match get_string("status").as_str() {
             "completed" => VideoStatus::Completed,
+            "analyzed" => VideoStatus::Analyzed,
             "failed" => VideoStatus::Failed,
             _ => VideoStatus::Processing,
         },

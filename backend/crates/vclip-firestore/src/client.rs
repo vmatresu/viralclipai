@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use gcp_auth::TokenProvider;
+use gcp_auth::{CustomServiceAccount, TokenProvider};
 use reqwest::{Client, StatusCode};
 use tracing::{debug, warn};
 
@@ -61,9 +61,7 @@ impl Clone for FirestoreClient {
 impl FirestoreClient {
     /// Create a new Firestore client.
     pub async fn new(config: FirestoreConfig) -> FirestoreResult<Self> {
-        let auth = gcp_auth::provider()
-            .await
-            .map_err(|e| FirestoreError::auth_error(e.to_string()))?;
+        let auth = Self::create_auth_provider()?;
 
         let http = Client::builder()
             .timeout(config.timeout)
@@ -81,6 +79,20 @@ impl FirestoreClient {
             config,
             base_url,
         })
+    }
+
+    fn create_auth_provider() -> FirestoreResult<Arc<dyn TokenProvider>> {
+        // Single supported method: service account JSON file path in GOOGLE_APPLICATION_CREDENTIALS.
+        // gcp_auth will read the file and handle token caching/refresh.
+        let service_account = CustomServiceAccount::from_env()
+            .map_err(|e| FirestoreError::auth_error(e.to_string()))?;
+
+        match service_account {
+            Some(sa) => Ok(Arc::new(sa)),
+            None => Err(FirestoreError::auth_error(
+                "GOOGLE_APPLICATION_CREDENTIALS not set (required to access Firestore)",
+            )),
+        }
     }
 
     /// Create from environment variables.

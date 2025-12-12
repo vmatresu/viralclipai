@@ -47,6 +47,9 @@ services:
       # Redis (internal network)
       - REDIS_URL=redis://redis:6379
 
+      # GCP Credentials
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/firebase-credentials.json
+
       # R2 Storage (from env file)
       - R2_ENDPOINT_URL=${R2_ENDPOINT_URL:-}
       - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:-}
@@ -66,6 +69,8 @@ services:
       - cargo-target:/app/target
       # Cargo registry cache - speeds up dependency fetches
       - cargo-registry:/usr/local/cargo/registry
+      # Firebase credentials
+      - ./firebase-credentials.json:/app/firebase-credentials.json:ro
 
     networks:
       - vclip-dev
@@ -124,6 +129,9 @@ services:
       # Redis
       - REDIS_URL=redis://redis:6379
 
+      # GCP Credentials
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/firebase-credentials.json
+
       # R2 Storage
       - R2_ENDPOINT_URL=${R2_ENDPOINT_URL:-}
       - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:-}
@@ -142,6 +150,8 @@ services:
       - cargo-registry:/usr/local/cargo/registry
       # Temp storage for video processing
       - worker-temp:/tmp/videos
+      # Firebase credentials
+      - ./firebase-credentials.json:/app/firebase-credentials.json:ro
 
     networks:
       - vclip-dev

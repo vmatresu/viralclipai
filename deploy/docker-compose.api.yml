@@ -39,8 +39,6 @@ services:
 
       # Firebase/Firestore
       - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID:?FIREBASE_PROJECT_ID required}
-      - FIREBASE_PRIVATE_KEY=${FIREBASE_PRIVATE_KEY:?FIREBASE_PRIVATE_KEY required}
-      - FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL:?FIREBASE_CLIENT_EMAIL required}
 
       # Managed Valkey/Redis (Digital Ocean)
       # Format: rediss://:password@host:port (rediss:// for TLS)
@@ -60,11 +58,11 @@ services:
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET required}
 
       # GCP Auth (for Firestore) - requires service account JSON file
-      - GOOGLE_APPLICATION_CREDENTIALS=/app/firebase-service-account.json
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/firebase-credentials.json
 
     volumes:
       # Firebase service account for Firestore auth
-      - ../firebase-service-account.json:/app/firebase-service-account.json:ro
+      - ../firebase-credentials.json:/app/firebase-credentials.json:ro
 
     ports:
       - "127.0.0.1:8000:8000"

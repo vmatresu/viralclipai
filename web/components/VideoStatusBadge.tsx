@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 
 interface VideoStatusBadgeProps {
   videoId: string;
-  status?: "processing" | "completed" | "failed";
+  status?: "processing" | "analyzed" | "completed" | "failed";
   clipsCount?: number;
   style?: string;
   className?: string;
@@ -38,6 +38,18 @@ export function VideoStatusBadge({
   const styleBadgeClasses = style
     ? getTierBadgeClasses(getStyleTier(style)?.color)
     : "";
+
+  if (effectiveStatus === "analyzed") {
+    return (
+      <div
+        className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors border-blue-500/30 bg-blue-500/10 text-blue-500 ${className}`}
+      >
+        <CheckCircle2 className="h-3 w-3" />
+        Analyzed
+        <span className="text-blue-500/70">(ready to process)</span>
+      </div>
+    );
+  }
 
   if (effectiveStatus === "completed") {
     return (

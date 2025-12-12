@@ -302,24 +302,44 @@ impl JobExecutor {
                     }
 
                     // Update video status to "Failed" in Firestore so it doesn't stay stuck in "processing"
-                    let (user_id, video_id) = match &job {
-                        QueueJob::ProcessVideo(j) => (j.user_id.clone(), j.video_id.clone()),
-                        QueueJob::ReprocessScenes(j) => (j.user_id.clone(), j.video_id.clone()),
-                        QueueJob::RenderSceneStyle(j) => (j.user_id.clone(), j.video_id.clone()),
-                    };
-                    let video_repo =
-                        vclip_firestore::VideoRepository::new(ctx.firestore.clone(), &user_id);
-                    if let Err(fail_err) = video_repo
-                        .fail(
-                            &video_id,
-                            &format!("Job failed after {} retries: {}", max_retries, e),
-                        )
-                        .await
-                    {
-                        error!("Failed to mark video {} as failed: {}", video_id, fail_err);
-                    } else {
-                        info!("Marked video {} as failed after max retries", video_id);
+                    // Note: AnalyzeVideo jobs don't have a video_id, they use draft_id instead
+                    if let Some(video_id) = job.video_id() {
+                        let user_id = job.user_id();
+                        let video_repo =
+                            vclip_firestore::VideoRepository::new(ctx.firestore.clone(), user_id);
+                        if let Err(fail_err) = video_repo
+                            .fail(
+                                video_id,
+                                &format!("Job failed after {} retries: {}", max_retries, e),
+                            )
+                            .await
+                        {
+                            error!("Failed to mark video {} as failed: {}", video_id, fail_err);
+                        } else {
+                            info!("Marked video {} as failed after max retries", video_id);
+                        }
+                    } else if let Some(draft_id) = job.draft_id() {
+                        // For AnalyzeVideo jobs, mark the draft as failed
+                        let user_id = job.user_id();
+                        let draft_repo = vclip_firestore::AnalysisDraftRepository::new(
+                            ctx.firestore.clone(),
+                            user_id,
+                        );
+                        let error_msg = format!("Job failed after {} retries: {}", max_retries, e);
+                        if let Err(fail_err) = draft_repo
+                            .update_status(
+                                draft_id,
+                                vclip_models::AnalysisStatus::Failed,
+                                Some(error_msg),
+                            )
+                            .await
+                        {
+                            error!("Failed to mark draft {} as failed: {}", draft_id, fail_err);
+                        } else {
+                            info!("Marked draft {} as failed after max retries", draft_id);
+                        }
                     }
+
 
                     // Emit error to progress channel
                     ctx.progress
@@ -363,6 +383,10 @@ impl JobExecutor {
         video_processor: VideoProcessor,
     ) -> WorkerResult<()> {
         match job {
+            QueueJob::AnalyzeVideo(j) => {
+                // Analysis job: download transcript, analyze, create draft with scenes
+                video_processor.process_analyze_job(&ctx, &j).await
+            }
             QueueJob::ProcessVideo(j) => {
                 // Validate video URL is not empty
                 if j.video_url.trim().is_empty() {

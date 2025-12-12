@@ -15,7 +15,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -44,13 +43,8 @@ import {
 
 import { DetailedProcessingStatus } from "../shared/DetailedProcessingStatus";
 
-import {
-  AiAssistanceSlider,
-  getRequiredPlan,
-  isTierGated,
-  type AiLevel,
-} from "./AiAssistanceSlider";
-import { LayoutSelector, type LayoutOption } from "./LayoutSelector";
+import { getRequiredPlan, isTierGated, type AiLevel } from "./AiAssistanceSlider";
+import { type LayoutOption } from "./LayoutSelector";
 
 interface StorageInfo {
   used_bytes: number;
@@ -73,15 +67,16 @@ export function ProcessVideoInterface() {
   const { getIdToken, user, loading: authLoading } = useAuth();
 
   const [url, setUrl] = useState("");
-  const [layout, setLayout] = useState<LayoutOption>("split");
-  // Default to "motion" which is available for all users (free tier)
-  const [aiLevel, setAiLevel] = useState<AiLevel>("motion");
+  // Default layout and AI level - these are now fixed defaults since the UI was removed
+  // Users will select styles per-scene in the draft selection screen after analysis
+  const layout: LayoutOption = "split";
+  const aiLevel: AiLevel = "motion";
+  const staticCropSide: StaticFocusOption = "center";
   const [prompt, setPrompt] = useState("");
   const [exportOriginal, setExportOriginal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [shouldAnimateInput, setShouldAnimateInput] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [staticCropSide, setStaticCropSide] = useState<StaticFocusOption>("center");
   const [userPlan, setUserPlan] = useState<string | undefined>(undefined);
   const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
 
@@ -393,9 +388,9 @@ export function ProcessVideoInterface() {
         // onMessage
         (message: unknown) => {
           const callbacks: MessageHandlerCallbacks = {
-            onLog: (logMessage) => {
-              // Backend already includes timestamp in message, don't add another
-              log(logMessage, "info");
+            onLog: (logMessage, timestamp) => {
+              // Use timestamp from backend if provided
+              log(logMessage, "info", timestamp);
             },
             onProgress: (progressValue) => {
               setProgress(progressValue);
@@ -413,7 +408,7 @@ export function ProcessVideoInterface() {
             onDone: (videoId) => {
               ws.close();
               setIsProcessing(false);
-              toast.success("Video processed successfully!");
+              toast.success("Video analyzed! Scenes are ready for processing.");
 
               // Navigate to history page with video ID
               router.push(`/history/${videoId}`);
@@ -593,78 +588,6 @@ export function ProcessVideoInterface() {
         </div>
       </div>
 
-      <hr className="border-white/5" />
-
-      {/* Step 2: Options - Vertical Stack */}
-      <div className="space-y-12 relative">
-        {/* Row 1: Layout */}
-        <div className="space-y-6">
-          <div className="flex items-center gap-3 mb-2">
-            <span className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/20 text-primary text-sm font-bold border border-primary/20">
-              1
-            </span>
-            <h3 className="text-xl font-semibold tracking-tight">Choose your layout</h3>
-          </div>
-          <div className="pl-11">
-            <LayoutSelector selectedLayout={layout} onSelect={setLayout} />
-          </div>
-        </div>
-
-        {/* Row 2: AI Level */}
-        <div className="space-y-6">
-          <div className="flex items-center gap-3 mb-2">
-            <span className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/20 text-primary text-sm font-bold border border-primary/20">
-              2
-            </span>
-            <h3 className="text-xl font-semibold tracking-tight">
-              Select detection tier
-            </h3>
-          </div>
-          <div className="pl-11">
-            <AiAssistanceSlider
-              value={aiLevel}
-              onChange={setAiLevel}
-              userPlan={userPlan}
-            />
-            {layout === "full" && aiLevel === "static" && (
-              <div className="mt-4 flex flex-wrap items-center gap-3">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-                  Static focus
-                </Label>
-                <div className="inline-flex rounded-full border border-white/10 bg-white/5 p-1 shadow-sm">
-                  {(["left", "center", "right"] as StaticFocusOption[]).map((side) => {
-                    const isActive = staticCropSide === side;
-                    return (
-                      <button
-                        key={side}
-                        type="button"
-                        onClick={() => setStaticCropSide(side)}
-                        className={cn(
-                          "px-3 py-1.5 text-xs font-semibold rounded-full transition-colors",
-                          isActive
-                            ? "bg-primary text-white"
-                            : "text-muted-foreground hover:text-foreground"
-                        )}
-                      >
-                        {(() => {
-                          if (side === "left") {
-                            return "Left";
-                          }
-                          if (side === "right") {
-                            return "Right";
-                          }
-                          return "Center";
-                        })()}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
       {/* Progress Display */}
       {isProcessing && (
         <div className="mt-8">
@@ -680,20 +603,7 @@ export function ProcessVideoInterface() {
 
       {/* Footer Actions */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pt-4">
-        <div className="flex items-center space-x-3">
-          <Checkbox
-            id="export-orig"
-            checked={exportOriginal}
-            onCheckedChange={(c) => setExportOriginal(Boolean(c))}
-            className="w-5 h-5 border-white/20 data-[state=checked]:bg-primary data-[state=checked]:border-primary"
-          />
-          <Label
-            htmlFor="export-orig"
-            className="cursor-pointer text-muted-foreground hover:text-foreground transition-colors text-base"
-          >
-            Also export clipped segments in original landscape format (no cropping)
-          </Label>
-        </div>
+        <div className="flex items-center space-x-3" />
 
         <Button
           size="lg"
