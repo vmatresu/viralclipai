@@ -47,6 +47,7 @@ use crate::error::MediaResult;
 use crate::probe::probe_video;
 use crate::thumbnail::generate_thumbnail;
 use crate::intelligent::stacking::stack_halves;
+use crate::intelligent::output_format::{SPLIT_PANEL_WIDTH, SPLIT_PANEL_HEIGHT};
 use vclip_models::{ClipTask, DetectionTier, EncodingConfig};
 
 /// Layout mode for the output (kept for API compatibility).
@@ -276,11 +277,12 @@ impl IntelligentSplitProcessor {
             analysis.left_horizontal_center * 100.0
         );
         
-        // Left person: crop centered on face, then scale to 9:8
+        // Left person: crop centered on face, then scale to panel size
         let left_filter = format!(
-            "crop={}:{}:{}:0,crop={}:{}:0:{},scale=1080:960:flags=lanczos",
+            "crop={}:{}:{}:0,crop={}:{}:0:{},scale={}:{}:flags=lanczos",
             crop_width, height, left_crop_x,  // First: extract left portion centered on face
-            crop_width, tile_height, top_crop_y  // Then: crop to 9:8 vertically
+            crop_width, tile_height, top_crop_y,  // Then: crop to 9:8 vertically
+            SPLIT_PANEL_WIDTH, SPLIT_PANEL_HEIGHT  // Scale to panel dimensions
         );
         
         let cmd_left = FfmpegCommand::new(segment, &left_half)
@@ -300,11 +302,12 @@ impl IntelligentSplitProcessor {
             analysis.right_horizontal_center * 100.0
         );
         
-        // Right person: crop centered on face, then scale to 9:8
+        // Right person: crop centered on face, then scale to panel size
         let right_filter = format!(
-            "crop={}:{}:{}:0,crop={}:{}:0:{},scale=1080:960:flags=lanczos",
+            "crop={}:{}:{}:0,crop={}:{}:0:{},scale={}:{}:flags=lanczos",
             crop_width, height, right_crop_x,  // First: extract right portion centered on face
-            crop_width, tile_height, bottom_crop_y  // Then: crop to 9:8 vertically
+            crop_width, tile_height, bottom_crop_y,  // Then: crop to 9:8 vertically
+            SPLIT_PANEL_WIDTH, SPLIT_PANEL_HEIGHT  // Scale to panel dimensions
         );
 
         let cmd_right = FfmpegCommand::new(segment, &right_half)

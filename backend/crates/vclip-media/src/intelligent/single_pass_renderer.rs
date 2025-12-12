@@ -26,6 +26,7 @@ use tracing::{debug, info};
 
 use super::config::IntelligentCropConfig;
 use super::models::CropWindow;
+use super::output_format::{PORTRAIT_WIDTH, PORTRAIT_HEIGHT, SPLIT_PANEL_WIDTH, SPLIT_PANEL_HEIGHT};
 use crate::error::{MediaError, MediaResult};
 use vclip_models::EncodingConfig;
 
@@ -80,10 +81,11 @@ impl SinglePassRenderer {
             encoding.codec, encoding.preset, encoding.crf
         );
 
-        // Build filter: crop → scale to even dimensions → set SAR
+        // Build filter: crop → scale to exact 1080×1920 → set SAR for square pixels
         let filter = format!(
-            "crop={}:{}:{}:{},scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos,setsar=1",
-            crop.width, crop.height, crop.x, crop.y
+            "crop={}:{}:{}:{},scale={}:{}:flags=lanczos,setsar=1",
+            crop.width, crop.height, crop.x, crop.y,
+            PORTRAIT_WIDTH, PORTRAIT_HEIGHT
         );
 
         // Single FFmpeg command - THE ONLY ENCODE
@@ -192,16 +194,19 @@ impl SinglePassRenderer {
         );
 
         // Build combined filter graph - everything in ONE pass
+        // Uses centralized SPLIT_PANEL dimensions for consistent 9:16 output
         let filter_complex = format!(
             "[0:v]split=2[left_in][right_in];\
-             [left_in]crop={cw}:{ch}:0:{ly},scale=1080:960:flags=lanczos,setsar=1,format=yuv420p[top];\
-             [right_in]crop={cw}:{ch}:{rx}:{ry},scale=1080:960:flags=lanczos,setsar=1,format=yuv420p[bottom];\
+             [left_in]crop={cw}:{ch}:0:{ly},scale={pw}:{ph}:flags=lanczos,setsar=1,format=yuv420p[top];\
+             [right_in]crop={cw}:{ch}:{rx}:{ry},scale={pw}:{ph}:flags=lanczos,setsar=1,format=yuv420p[bottom];\
              [top][bottom]vstack=inputs=2[vout]",
             cw = crop_width,
             ch = tile_height,
             ly = left_crop_y,
             rx = right_start_x,
             ry = right_crop_y,
+            pw = SPLIT_PANEL_WIDTH,
+            ph = SPLIT_PANEL_HEIGHT,
         );
 
         debug!("Filter graph:\n{}", filter_complex);
@@ -265,7 +270,7 @@ impl SinglePassRenderer {
     /// Compute median crop from windows for static rendering.
     fn compute_median_crop(windows: &[CropWindow]) -> CropWindow {
         if windows.is_empty() {
-            return CropWindow::new(0.0, 0, 0, 1080, 1920);
+            return CropWindow::new(0.0, 0, 0, PORTRAIT_WIDTH as i32, PORTRAIT_HEIGHT as i32);
         }
 
         let mut x_vals: Vec<i32> = windows.iter().map(|w| w.x).collect();

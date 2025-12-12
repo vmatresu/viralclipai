@@ -11,6 +11,7 @@
 
 use super::config::IntelligentCropConfig;
 use super::models::CropWindow;
+use super::output_format::{PORTRAIT_WIDTH, PORTRAIT_HEIGHT, SPLIT_PANEL_WIDTH, SPLIT_PANEL_HEIGHT};
 use crate::error::{MediaError, MediaResult};
 use std::path::Path;
 use std::process::Stdio;
@@ -295,9 +296,9 @@ impl ContinuousRenderer {
         let left_crop = self.compute_median_crop(left_crops);
         let right_crop = self.compute_median_crop(right_crops);
 
-        // Panel dimensions (1080x960 each for 9:16 output)
-        let panel_width = 1080;
-        let panel_height = 960;
+        // Use centralized panel dimensions for consistent 9:16 output
+        let panel_width = SPLIT_PANEL_WIDTH;
+        let panel_height = SPLIT_PANEL_HEIGHT;
 
         format!(
             // Normalize input
@@ -435,9 +436,10 @@ impl ContinuousRenderer {
         let full_enable = self.build_enable_expression(layout_spans, LayoutType::Full);
         let split_enable = self.build_enable_expression(layout_spans, LayoutType::Split);
 
-        let panel_width = 1080;
-        let panel_height = 960;
-        let output_height = 1920;
+        // Use centralized dimensions for consistent output
+        let panel_width = SPLIT_PANEL_WIDTH;
+        let panel_height = SPLIT_PANEL_HEIGHT;
+        let output_height = PORTRAIT_HEIGHT;
 
         format!(
             // Input normalization with PTS reset
@@ -512,7 +514,7 @@ impl ContinuousRenderer {
     /// Compute median crop from windows.
     fn compute_median_crop(&self, windows: &[CropWindow]) -> CropWindow {
         if windows.is_empty() {
-            return CropWindow::new(0.0, 0, 0, 1080, 1920);
+            return CropWindow::new(0.0, 0, 0, PORTRAIT_WIDTH as i32, PORTRAIT_HEIGHT as i32);
         }
 
         if windows.len() == 1 {

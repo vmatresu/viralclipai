@@ -59,6 +59,7 @@ pub mod face_mesh;
 pub mod face_landmarks;
 pub mod fast_split;
 pub mod motion;
+pub mod output_format;
 pub mod layout_detector;
 pub mod models;
 pub mod premium;
@@ -95,6 +96,7 @@ pub use tier_aware_cropper::{create_tier_aware_intelligent_clip, TierAwareIntell
 pub use tier_aware_smoother::TierAwareCameraSmoother;
 pub use tier_aware_split::{create_tier_aware_split_clip, TierAwareSplitProcessor};
 pub use tracker::IoUTracker;
+pub use output_format::{PORTRAIT_WIDTH, PORTRAIT_HEIGHT, SPLIT_PANEL_WIDTH, SPLIT_PANEL_HEIGHT, portrait_scale_filter, split_panel_scale_filter, make_even, clamp_crop_to_frame};
 pub use enhanced_smoother::{EnhancedCameraSmoother, SmoothingPreset};
 pub use continuous_renderer::{ContinuousRenderer, LayoutSpan, LayoutType};
 pub use premium::{

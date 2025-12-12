@@ -5,6 +5,7 @@
 use super::config::IntelligentCropConfig;
 use super::crop_planner::is_static_crop;
 use super::models::CropWindow;
+use super::output_format::{PORTRAIT_WIDTH, PORTRAIT_HEIGHT};
 use crate::error::{MediaError, MediaResult};
 use std::path::Path;
 use std::process::Stdio;
@@ -74,9 +75,11 @@ impl IntelligentRenderer {
         let crop = self.compute_median_crop(crop_windows);
 
         // Build FFmpeg filter
+        // Crop to 9:16 region, then scale to exact 1080×1920 portrait output
         let vf = format!(
-            "crop={}:{}:{}:{},scale=trunc(iw/2)*2:trunc(ih/2)*2",
-            crop.width, crop.height, crop.x, crop.y
+            "crop={}:{}:{}:{},scale={}:{}:flags=lanczos,setsar=1",
+            crop.width, crop.height, crop.x, crop.y,
+            PORTRAIT_WIDTH, PORTRAIT_HEIGHT
         );
 
         let mut cmd = Command::new("ffmpeg");
@@ -197,16 +200,20 @@ impl IntelligentRenderer {
         // 2. setpts=PTS-STARTPTS - Reset timestamps to avoid discontinuities
         // 3. sendcmd - Dynamically update crop parameters
         // 4. format=yuv420p - Ensure compatible pixel format
+        // Build filter graph with sendcmd for dynamic crop updates
+        // Final scale ensures exact 1080×1920 portrait output
         let filter_complex = format!(
             "[0:v]setsar=1,setpts=PTS-STARTPTS,format=yuv420p,\
              sendcmd=f='{script}',\
              crop@dyncrop=w={w}:h={h}:x={x}:y={y}:exact=1,\
-             scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1[vout]",
+             scale={out_w}:{out_h}:flags=lanczos,setsar=1[vout]",
             script = sendcmd_script,
             w = initial.width,
             h = initial.height,
             x = initial.x,
             y = initial.y,
+            out_w = PORTRAIT_WIDTH,
+            out_h = PORTRAIT_HEIGHT,
         );
 
         debug!("Continuous crop filter:\n{}", filter_complex);
@@ -355,10 +362,11 @@ impl IntelligentRenderer {
         let duration = segment.end - segment.start;
 
         // Key fix: setpts=PTS-STARTPTS normalizes timestamps
-        // setsar=1 ensures consistent sample aspect ratio
+        // Scale to exact 1080×1920 portrait output with square pixels
         let vf = format!(
-            "crop={}:{}:{}:{},setpts=PTS-STARTPTS,setsar=1,scale=trunc(iw/2)*2:trunc(ih/2)*2",
-            crop.width, crop.height, crop.x, crop.y
+            "crop={}:{}:{}:{},setpts=PTS-STARTPTS,scale={}:{}:flags=lanczos,setsar=1",
+            crop.width, crop.height, crop.x, crop.y,
+            PORTRAIT_WIDTH, PORTRAIT_HEIGHT
         );
 
         let mut cmd = Command::new("ffmpeg");
@@ -454,9 +462,11 @@ impl IntelligentRenderer {
         let start = base_start + segment.start;
         let duration = segment.end - segment.start;
 
+        // Crop to 9:16 region, then scale to exact 1080×1920 portrait output
         let vf = format!(
-            "crop={}:{}:{}:{},scale=trunc(iw/2)*2:trunc(ih/2)*2",
-            crop.width, crop.height, crop.x, crop.y
+            "crop={}:{}:{}:{},scale={}:{}:flags=lanczos,setsar=1",
+            crop.width, crop.height, crop.x, crop.y,
+            PORTRAIT_WIDTH, PORTRAIT_HEIGHT
         );
 
         let mut cmd = Command::new("ffmpeg");
@@ -506,7 +516,7 @@ impl IntelligentRenderer {
     /// Compute median crop from windows.
     fn compute_median_crop(&self, windows: &[CropWindow]) -> CropWindow {
         if windows.is_empty() {
-            return CropWindow::new(0.0, 0, 0, 1080, 1920);
+            return CropWindow::new(0.0, 0, 0, PORTRAIT_WIDTH as i32, PORTRAIT_HEIGHT as i32);
         }
 
         let mut x_vals: Vec<i32> = windows.iter().map(|w| w.x).collect();

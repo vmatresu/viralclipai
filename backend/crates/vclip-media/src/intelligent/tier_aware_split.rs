@@ -16,6 +16,7 @@ use super::config::IntelligentCropConfig;
 use super::detector::FaceDetector;
 use super::motion::MotionDetector;
 use super::models::BoundingBox;
+use super::output_format::{SPLIT_PANEL_WIDTH, SPLIT_PANEL_HEIGHT};
 use super::single_pass_renderer::SinglePassRenderer;
 use crate::clip::extract_segment;
 use crate::detection::pipeline_builder::PipelineBuilder;
@@ -445,10 +446,11 @@ impl TierAwareSplitProcessor {
 
         // Build combined filter graph for SINGLE-PASS encoding
         // This is more complex than the standard split because each side has different crop dimensions
+        // Uses centralized SPLIT_PANEL dimensions for consistent 9:16 output
         let filter_complex = format!(
             "[0:v]split=2[left_in][right_in];\
-             [left_in]crop={lw}:{lh}:{lx}:0,crop={lw}:{lth}:0:{ly},scale=1080:960:flags=lanczos,setsar=1,format=yuv420p[top];\
-             [right_in]crop={rw}:{rh}:{rx}:0,crop={rw}:{rth}:0:{ry},scale=1080:960:flags=lanczos,setsar=1,format=yuv420p[bottom];\
+             [left_in]crop={lw}:{lh}:{lx}:0,crop={lw}:{lth}:0:{ly},scale={pw}:{ph}:flags=lanczos,setsar=1,format=yuv420p[top];\
+             [right_in]crop={rw}:{rh}:{rx}:0,crop={rw}:{rth}:0:{ry},scale={pw}:{ph}:flags=lanczos,setsar=1,format=yuv420p[bottom];\
              [top][bottom]vstack=inputs=2[vout]",
             lw = crop_width_left.round(),
             lh = height,
@@ -460,6 +462,8 @@ impl TierAwareSplitProcessor {
             rx = right_crop_x.round(),
             rth = tile_height_right.round(),
             ry = right_crop_y,
+            pw = SPLIT_PANEL_WIDTH,
+            ph = SPLIT_PANEL_HEIGHT,
         );
 
         use std::process::Stdio;
