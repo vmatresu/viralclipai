@@ -438,29 +438,46 @@ impl TierAwareSplitProcessor {
         let left_crop_y = (vertical_margin_left * left_bias).round();
         let right_crop_y = (vertical_margin_right * right_bias).round();
 
+        // Clamp crop coordinates to ensure validity
+        use super::output_format::clamp_crop_to_frame;
+        let (left_crop_x, left_crop_y, crop_width_left_u32, tile_height_left_u32) = clamp_crop_to_frame(
+            left_crop_x as i32,
+            left_crop_y as i32,
+            crop_width_left as i32,
+            tile_height_left as i32,
+            width,
+            height,
+        );
+        let (right_crop_x, right_crop_y, crop_width_right_u32, tile_height_right_u32) = clamp_crop_to_frame(
+            right_crop_x as i32,
+            right_crop_y as i32,
+            crop_width_right as i32,
+            tile_height_right as i32,
+            width,
+            height,
+        );
+
         info!("[SPEAKER_SPLIT] Using SINGLE-PASS encoding with custom speaker crops...");
         info!("[SPEAKER_SPLIT]   Left: crop {}x{} at ({}, {})", 
-            crop_width_left.round(), tile_height_left.round(), left_crop_x.round(), left_crop_y);
+            crop_width_left_u32, tile_height_left_u32, left_crop_x, left_crop_y);
         info!("[SPEAKER_SPLIT]   Right: crop {}x{} at ({}, {})",
-            crop_width_right.round(), tile_height_right.round(), right_crop_x.round(), right_crop_y);
+            crop_width_right_u32, tile_height_right_u32, right_crop_x, right_crop_y);
 
         // Build combined filter graph for SINGLE-PASS encoding
         // This is more complex than the standard split because each side has different crop dimensions
         // Uses centralized SPLIT_PANEL dimensions for consistent 9:16 output
         let filter_complex = format!(
             "[0:v]split=2[left_in][right_in];\
-             [left_in]crop={lw}:{lh}:{lx}:0,crop={lw}:{lth}:0:{ly},scale={pw}:{ph}:flags=lanczos,setsar=1,format=yuv420p[top];\
-             [right_in]crop={rw}:{rh}:{rx}:0,crop={rw}:{rth}:0:{ry},scale={pw}:{ph}:flags=lanczos,setsar=1,format=yuv420p[bottom];\
+             [left_in]crop={lw}:{lth}:{lx}:{ly},scale={pw}:{ph}:flags=lanczos:force_original_aspect_ratio=decrease,pad={pw}:{ph}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[top];\
+             [right_in]crop={rw}:{rth}:{rx}:{ry},scale={pw}:{ph}:flags=lanczos:force_original_aspect_ratio=decrease,pad={pw}:{ph}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[bottom];\
              [top][bottom]vstack=inputs=2[vout]",
-            lw = crop_width_left.round(),
-            lh = height,
-            lx = left_crop_x.round(),
-            lth = tile_height_left.round(),
+            lw = crop_width_left_u32,
+            lx = left_crop_x,
+            lth = tile_height_left_u32,
             ly = left_crop_y,
-            rw = crop_width_right.round(),
-            rh = height,
-            rx = right_crop_x.round(),
-            rth = tile_height_right.round(),
+            rw = crop_width_right_u32,
+            rx = right_crop_x,
+            rth = tile_height_right_u32,
             ry = right_crop_y,
             pw = SPLIT_PANEL_WIDTH,
             ph = SPLIT_PANEL_HEIGHT,

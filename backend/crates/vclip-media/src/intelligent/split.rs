@@ -47,7 +47,7 @@ use crate::error::MediaResult;
 use crate::probe::probe_video;
 use crate::thumbnail::generate_thumbnail;
 use crate::intelligent::stacking::stack_halves;
-use crate::intelligent::output_format::{SPLIT_PANEL_WIDTH, SPLIT_PANEL_HEIGHT};
+use crate::intelligent::output_format::{SPLIT_PANEL_WIDTH, SPLIT_PANEL_HEIGHT, clamp_crop_to_frame};
 use vclip_models::{ClipTask, DetectionTier, EncodingConfig};
 
 /// Layout mode for the output (kept for API compatibility).
@@ -252,6 +252,16 @@ impl IntelligentSplitProcessor {
         // Vertical bias
         let top_crop_y = (vertical_margin as f64 * analysis.left_vertical_bias).round() as u32;
 
+        // Clamp crop coordinates to ensure validity
+        let (left_crop_x, top_crop_y, crop_width, tile_height) = clamp_crop_to_frame(
+            left_crop_x as i32,
+            top_crop_y as i32,
+            crop_width as i32,
+            tile_height as i32,
+            width,
+            height,
+        );
+
         // === RIGHT HALF CROP ===
         // Center the crop on the detected face position
         // right_horizontal_center is 0.0-1.0 within the right half
@@ -266,6 +276,16 @@ impl IntelligentSplitProcessor {
         // Vertical bias
         let bottom_crop_y = (vertical_margin as f64 * analysis.right_vertical_bias).round() as u32;
 
+        // Clamp crop coordinates to ensure validity
+        let (right_crop_x, bottom_crop_y, crop_width, tile_height) = clamp_crop_to_frame(
+            right_crop_x as i32,
+            bottom_crop_y as i32,
+            crop_width as i32,
+            tile_height as i32,
+            width,
+            height,
+        );
+
         // Step 1: Extract left and right portions with face-centered crops
         let left_half = temp_dir.path().join("left.mp4");
         let right_half = temp_dir.path().join("right.mp4");
@@ -277,12 +297,12 @@ impl IntelligentSplitProcessor {
             analysis.left_horizontal_center * 100.0
         );
         
-        // Left person: crop centered on face, then scale to panel size
+        // Left person: single crop centered on face with proper aspect ratio
         let left_filter = format!(
-            "crop={}:{}:{}:0,crop={}:{}:0:{},scale={}:{}:flags=lanczos",
-            crop_width, height, left_crop_x,  // First: extract left portion centered on face
-            crop_width, tile_height, top_crop_y,  // Then: crop to 9:8 vertically
-            SPLIT_PANEL_WIDTH, SPLIT_PANEL_HEIGHT  // Scale to panel dimensions
+            "crop={}:{}:{}:{},scale={}:{}:force_original_aspect_ratio=decrease,pad={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1",
+            crop_width, tile_height, left_crop_x, top_crop_y,  // Single crop to panel aspect ratio
+            SPLIT_PANEL_WIDTH, SPLIT_PANEL_HEIGHT,  // Scale to panel dimensions
+            SPLIT_PANEL_WIDTH, SPLIT_PANEL_HEIGHT  // Pad to panel dimensions
         );
         
         let cmd_left = FfmpegCommand::new(segment, &left_half)
@@ -302,12 +322,12 @@ impl IntelligentSplitProcessor {
             analysis.right_horizontal_center * 100.0
         );
         
-        // Right person: crop centered on face, then scale to panel size
+        // Right person: single crop centered on face with proper aspect ratio
         let right_filter = format!(
-            "crop={}:{}:{}:0,crop={}:{}:0:{},scale={}:{}:flags=lanczos",
-            crop_width, height, right_crop_x,  // First: extract right portion centered on face
-            crop_width, tile_height, bottom_crop_y,  // Then: crop to 9:8 vertically
-            SPLIT_PANEL_WIDTH, SPLIT_PANEL_HEIGHT  // Scale to panel dimensions
+            "crop={}:{}:{}:{},scale={}:{}:force_original_aspect_ratio=decrease,pad={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1",
+            crop_width, tile_height, right_crop_x, bottom_crop_y,  // Single crop to panel aspect ratio
+            SPLIT_PANEL_WIDTH, SPLIT_PANEL_HEIGHT,  // Scale to panel dimensions
+            SPLIT_PANEL_WIDTH, SPLIT_PANEL_HEIGHT  // Pad to panel dimensions
         );
 
         let cmd_right = FfmpegCommand::new(segment, &right_half)

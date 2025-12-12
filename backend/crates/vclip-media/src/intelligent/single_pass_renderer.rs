@@ -195,10 +195,11 @@ impl SinglePassRenderer {
 
         // Build combined filter graph - everything in ONE pass
         // Uses centralized SPLIT_PANEL dimensions for consistent 9:16 output
+        // IMPORTANT: Use force_original_aspect_ratio=decrease + pad to avoid stretching/elongation
         let filter_complex = format!(
             "[0:v]split=2[left_in][right_in];\
-             [left_in]crop={cw}:{ch}:0:{ly},scale={pw}:{ph}:flags=lanczos,setsar=1,format=yuv420p[top];\
-             [right_in]crop={cw}:{ch}:{rx}:{ry},scale={pw}:{ph}:flags=lanczos,setsar=1,format=yuv420p[bottom];\
+             [left_in]crop={cw}:{ch}:0:{ly},scale={pw}:{ph}:flags=lanczos:force_original_aspect_ratio=decrease,pad={pw}:{ph}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[top];\
+             [right_in]crop={cw}:{ch}:{rx}:{ry},scale={pw}:{ph}:flags=lanczos:force_original_aspect_ratio=decrease,pad={pw}:{ph}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[bottom];\
              [top][bottom]vstack=inputs=2[vout]",
             cw = crop_width,
             ch = tile_height,
