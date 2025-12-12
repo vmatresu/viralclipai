@@ -74,7 +74,7 @@ export type ReprocessMessage =
 
 export interface ReprocessCallbacks {
   onProgress?: (value: number) => void;
-  onLog?: (message: string) => void;
+  onLog?: (message: string, timestamp?: string) => void;
   onDone?: (videoId: string) => void;
   onError?: (message: string, details?: string) => void;
   onClose?: () => void;
@@ -242,9 +242,20 @@ export function reprocessScenesWebSocket(
         callbacks.onProgress?.(data.value);
         break;
 
-      case "log":
-        callbacks.onLog?.(data.message);
+      case "log": {
+        // Format timestamp for display if present
+        const logTimestamp = (data as { timestamp?: string }).timestamp;
+        const formattedTs = logTimestamp
+          ? new Date(logTimestamp).toLocaleTimeString("en-US", {
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+              hour12: false,
+            })
+          : undefined;
+        callbacks.onLog?.(data.message, formattedTs);
         break;
+      }
 
       case "done":
         clearTimeout(timeoutId);

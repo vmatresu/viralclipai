@@ -61,11 +61,13 @@ export function useReprocessing({
   );
 
   const addLog = useCallback(
-    (message: string) => {
+    (message: string, timestamp?: string) => {
       setState((prev) => {
-        const nextLogs = [...prev.logs, message];
+        // Prepend timestamp if provided
+        const formattedMessage = timestamp ? `[${timestamp}] ${message}` : message;
+        const nextLogs = [...prev.logs, formattedMessage];
         // Persist logs + current step to global processing context for refresh resilience
-        deferUpdateJob({ logs: nextLogs, currentStep: message });
+        deferUpdateJob({ logs: nextLogs, currentStep: formattedMessage });
         return {
           ...prev,
           logs: nextLogs,
@@ -127,10 +129,11 @@ export function useReprocessing({
             // Update global processing context
             deferUpdateJob({ progress: value, status: "processing" });
           },
-          onLog: (message) => {
-            addLog(message);
+          onLog: (message, timestamp) => {
+            addLog(message, timestamp);
             // Update current step in global context
-            deferUpdateJob({ currentStep: message });
+            const formattedMessage = timestamp ? `[${timestamp}] ${message}` : message;
+            deferUpdateJob({ currentStep: formattedMessage });
           },
           onDone: () => {
             // Mark done received before any state updates to avoid stale closure issue in onClose

@@ -753,6 +753,86 @@ export default function HistoryDetailPage() {
         </div>
       </div>
 
+      {(isProcessing || isReprocessing) && (
+        <DetailedProcessingStatus
+          progress={effectiveProgress}
+          logs={effectiveLogs}
+          sceneProgress={isReprocessing ? reprocessSceneProgress : undefined}
+          isResuming={!isReprocessing && isProcessing}
+        />
+      )}
+
+      <Card className="glass">
+        <CardHeader
+          className="cursor-pointer hover:bg-accent/50 transition-colors"
+          onClick={() => setIsCollapsed(!isCollapsed)}
+        >
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-primary" />
+            Select Scenes to Process
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto h-6 w-6 p-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsCollapsed(!isCollapsed);
+              }}
+            >
+              {isCollapsed ? (
+                <ChevronRight className="h-4 w-4" />
+              ) : (
+                <ChevronDown className="h-4 w-4" />
+              )}
+            </Button>
+          </CardTitle>
+          <CardDescription>
+            Choose scenes and styles to generate new clips. Smart Face requires Pro,
+            Active Speaker requires Studio.
+          </CardDescription>
+        </CardHeader>
+        {!isCollapsed && (
+          <CardContent className="space-y-6">
+            <StyleQualitySelector
+              selectedStyles={selectedStyles}
+              onChange={handleStylesChange}
+              disabled={isProcessing || isReprocessing}
+              userPlan={userSettings?.plan}
+            />
+
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold">
+                Select Scenes ({selectedScenes.size} selected)
+              </h3>
+              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                {highlightsData.highlights.map((highlight) => (
+                  <SceneCard
+                    key={highlight.id}
+                    highlight={highlight}
+                    selected={selectedScenes.has(highlight.id)}
+                    disabled={isProcessing || isReprocessing}
+                    onToggle={handleSceneToggle}
+                    formatTime={formatTime}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-4 border-t">
+              <p className="text-sm text-muted-foreground">
+                {canReprocess
+                  ? `Will generate ${totalClipsToGenerate} new clip(s)`
+                  : "Select scenes and styles to reprocess"}
+              </p>
+              <Button onClick={handleReprocess} disabled={!canReprocess} size="lg">
+                <Play className="h-4 w-4 mr-2" />
+                Process Selected Scenes
+              </Button>
+            </div>
+          </CardContent>
+        )}
+      </Card>
+
       <Card className="shadow-sm">
         <CardHeader className="pb-4 space-y-3">
           <div className="flex items-start gap-3">
@@ -836,128 +916,50 @@ export default function HistoryDetailPage() {
               value={isProcessing || isReprocessing ? "Processing" : "Idle"}
             />
           </div>
-        </CardContent>
-      </Card>
 
-      {(isProcessing || isReprocessing) && (
-        <DetailedProcessingStatus
-          progress={effectiveProgress}
-          logs={effectiveLogs}
-          sceneProgress={isReprocessing ? reprocessSceneProgress : undefined}
-          isResuming={!isReprocessing && isProcessing}
-        />
-      )}
-
-      <div className="rounded-lg border bg-card shadow-sm">
-        <button
-          type="button"
-          onClick={() => setPromptOpen((prev) => !prev)}
-          className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-muted/50"
-        >
-          <div className="space-y-1">
-            <p className="text-sm font-semibold">Custom prompt used for this video</p>
-            <p className="text-xs text-muted-foreground line-clamp-1">
-              {customPrompt ? customPrompt : "No custom prompt was provided."}
-            </p>
-          </div>
-          {promptOpen ? (
-            <ChevronDown className="h-4 w-4" />
-          ) : (
-            <ChevronRight className="h-4 w-4" />
-          )}
-        </button>
-        {promptOpen && (
-          <div className="border-t">
-            <ScrollArea className="max-h-48 px-4 py-3">
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
-                {customPrompt || "No custom prompt was provided for this video."}
-              </p>
-            </ScrollArea>
-            <div className="flex justify-end gap-2 border-t bg-muted/40 px-4 py-3">
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={handleCopyPrompt}
-                disabled={!customPrompt}
-              >
-                <Copy className="h-4 w-4" />
-                Copy prompt
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <Card className="glass">
-        <CardHeader
-          className="cursor-pointer hover:bg-accent/50 transition-colors"
-          onClick={() => setIsCollapsed(!isCollapsed)}
-        >
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-primary" />
-            Select Scenes to Process
-            <Button
-              variant="ghost"
-              size="sm"
-              className="ml-auto h-6 w-6 p-0"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsCollapsed(!isCollapsed);
-              }}
+          <div className="rounded-lg border bg-card shadow-sm">
+            <button
+              type="button"
+              onClick={() => setPromptOpen((prev) => !prev)}
+              className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-muted/50"
             >
-              {isCollapsed ? (
-                <ChevronRight className="h-4 w-4" />
-              ) : (
-                <ChevronDown className="h-4 w-4" />
-              )}
-            </Button>
-          </CardTitle>
-          <CardDescription>
-            Choose scenes and styles to generate new clips. Smart Face requires Pro,
-            Active Speaker requires Studio.
-          </CardDescription>
-        </CardHeader>
-        {!isCollapsed && (
-          <CardContent className="space-y-6">
-            <StyleQualitySelector
-              selectedStyles={selectedStyles}
-              onChange={handleStylesChange}
-              disabled={isProcessing || isReprocessing}
-              userPlan={userSettings?.plan}
-            />
-
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold">
-                Select Scenes ({selectedScenes.size} selected)
-              </h3>
-              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                {highlightsData.highlights.map((highlight) => (
-                  <SceneCard
-                    key={highlight.id}
-                    highlight={highlight}
-                    selected={selectedScenes.has(highlight.id)}
-                    disabled={isProcessing || isReprocessing}
-                    onToggle={handleSceneToggle}
-                    formatTime={formatTime}
-                  />
-                ))}
+              <div className="space-y-1">
+                <p className="text-sm font-semibold">
+                  Custom prompt used for this video
+                </p>
+                <p className="text-xs text-muted-foreground line-clamp-1">
+                  {customPrompt ? customPrompt : "No custom prompt was provided."}
+                </p>
               </div>
-            </div>
-
-            <div className="flex items-center justify-between pt-4 border-t">
-              <p className="text-sm text-muted-foreground">
-                {canReprocess
-                  ? `Will generate ${totalClipsToGenerate} new clip(s)`
-                  : "Select scenes and styles to reprocess"}
-              </p>
-              <Button onClick={handleReprocess} disabled={!canReprocess} size="lg">
-                <Play className="h-4 w-4 mr-2" />
-                Process Selected Scenes
-              </Button>
-            </div>
-          </CardContent>
-        )}
+              {promptOpen ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
+            </button>
+            {promptOpen && (
+              <div className="border-t">
+                <ScrollArea className="max-h-48 px-4 py-3">
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                    {customPrompt || "No custom prompt was provided for this video."}
+                  </p>
+                </ScrollArea>
+                <div className="flex justify-end gap-2 border-t bg-muted/40 px-4 py-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={handleCopyPrompt}
+                    disabled={!customPrompt}
+                  >
+                    <Copy className="h-4 w-4" />
+                    Copy prompt
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </CardContent>
       </Card>
 
       <Card className="shadow-sm">

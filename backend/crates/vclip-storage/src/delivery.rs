@@ -59,12 +59,23 @@ impl Default for DeliveryConfig {
 impl DeliveryConfig {
     /// Create config from environment variables.
     pub fn from_env() -> Self {
+        let signing_secret = std::env::var("DELIVERY_SIGNING_SECRET").ok();
+        let worker_base_url = std::env::var("CDN_WORKER_URL").ok();
+        
+        // Default to using worker when both worker URL and signing secret are configured.
+        // This handles the case where R2 public access is disabled.
+        // Can be explicitly disabled with PREFER_WORKER_DELIVERY=false.
+        let prefer_worker = std::env::var("PREFER_WORKER_DELIVERY")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or_else(|_| {
+                // Default to true if worker is fully configured
+                worker_base_url.is_some() && signing_secret.is_some()
+            });
+        
         Self {
-            signing_secret: std::env::var("DELIVERY_SIGNING_SECRET").ok(),
-            worker_base_url: std::env::var("CDN_WORKER_URL").ok(),
-            prefer_worker: std::env::var("PREFER_WORKER_DELIVERY")
-                .map(|v| v == "true" || v == "1")
-                .unwrap_or(false),
+            signing_secret,
+            worker_base_url,
+            prefer_worker,
             playback_expiry: Duration::from_secs(
                 std::env::var("PLAYBACK_URL_EXPIRY_SECS")
                     .ok()

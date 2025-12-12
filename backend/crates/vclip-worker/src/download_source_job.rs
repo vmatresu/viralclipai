@@ -146,6 +146,19 @@ async fn execute_download(
     let video_repo = vclip_firestore::VideoRepository::new(ctx.firestore.clone(), &job.user_id);
     let r2_key = source_video_r2_key(&job.user_id, job.video_id.as_str());
 
+    // Check if source already exists in R2 (may have been uploaded by reprocessing job)
+    if ctx.storage.exists(&r2_key).await.unwrap_or(false) {
+        info!(
+            video_id = %job.video_id,
+            r2_key = %r2_key,
+            "Source video already exists in R2, skipping download"
+        );
+        // Update Firestore status if needed
+        let expires_at = Utc::now() + ChronoDuration::hours(SOURCE_VIDEO_TTL_HOURS);
+        video_repo.set_source_video_ready(&job.video_id, &r2_key, expires_at).await.ok();
+        return Ok(());
+    }
+
     // Mark as downloading
     if let Err(e) = video_repo.set_source_video_downloading(&job.video_id).await {
         warn!("Failed to set source video status to downloading: {}", e);

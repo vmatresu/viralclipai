@@ -157,23 +157,38 @@ pub async fn reprocess_scenes(
 /// Download source video from R2 (cached) or original URL (fallback).
 ///
 /// Priority:
-/// 1. Check Firestore for source_video_status == Ready and valid R2 key not expired
-/// 2. Try R2 download from cached source location
-/// 3. Fall back to original video URL
-/// 4. Optionally enqueue a new DownloadSourceJob for future requests
+/// 1. Check if source already exists in local work directory (from previous job)
+/// 2. Check Firestore for source_video_status == Ready and valid R2 key not expired
+/// 3. Try R2 download from cached source location
+/// 4. Fall back to original video URL and upload to R2 for future use
 async fn download_source_video(
     ctx: &EnhancedProcessingContext,
     job: &ReprocessScenesJob,
     work_dir: &PathBuf,
     highlights: &vclip_models::VideoHighlights,
 ) -> WorkerResult<PathBuf> {
+    let video_file = work_dir.join("source.mp4");
+
+    // Check if source already exists in local work directory (from previous/concurrent job)
+    if video_file.exists() {
+        if let Ok(metadata) = tokio::fs::metadata(&video_file).await {
+            if metadata.len() > 0 {
+                info!(
+                    video_id = %job.video_id,
+                    path = ?video_file,
+                    size_mb = metadata.len() as f64 / 1_048_576.0,
+                    "Using existing source video from local work directory"
+                );
+                return Ok(video_file);
+            }
+        }
+    }
+
     ctx.progress
         .log(&job.job_id, "Downloading source video...")
         .await
         .ok();
     ctx.progress.progress(&job.job_id, 15).await.ok();
-
-    let video_file = work_dir.join("source.mp4");
 
     // First, check Firestore for cached source video status
     let video_repo = vclip_firestore::VideoRepository::new(ctx.firestore.clone(), &job.user_id);
@@ -247,8 +262,8 @@ async fn download_source_video(
             Ok(_) => {
                 info!("Downloaded source video from original URL: {} (fallback path)", video_url);
 
-                // Optionally enqueue a background download for future requests
-                enqueue_background_download(ctx, job, video_url).await;
+                // Upload to R2 immediately for future requests (avoids duplicate download)
+                upload_source_to_r2_async(ctx, job, &video_file).await;
 
                 return Ok(video_file);
             }
@@ -268,39 +283,50 @@ async fn download_source_video(
     Err(WorkerError::job_failed(err_msg))
 }
 
-/// Enqueue a background download job for future requests.
-/// This is a fire-and-forget operation - failures are logged but don't fail the main job.
-async fn enqueue_background_download(
+/// Upload source video to R2 asynchronously (non-blocking for main job).
+/// This replaces the background download job - we upload immediately since we already have the file.
+async fn upload_source_to_r2_async(
     ctx: &EnhancedProcessingContext,
     job: &ReprocessScenesJob,
-    video_url: &str,
+    video_file: &std::path::Path,
 ) {
-    // Use shared queue client from context (avoids hot-path from_env() calls)
-    let Some(ref queue) = ctx.job_queue else {
-        tracing::debug!("No shared queue client available, skipping background download job");
-        return;
-    };
-
-    // Create a DownloadSourceJob
-    let download_job = vclip_queue::DownloadSourceJob {
-        job_id: vclip_models::JobId::new(),
-        user_id: job.user_id.clone(),
-        video_id: job.video_id.clone(),
-        video_url: video_url.to_string(),
-        created_at: chrono::Utc::now(),
-    };
-
-    // Try to enqueue - failures are not critical
-    match queue.enqueue_download_source(download_job).await {
-        Ok(msg_id) => {
+    use chrono::{Duration as ChronoDuration, Utc};
+    
+    let r2_key = format!("sources/{}/{}/source.mp4", job.user_id, job.video_id.as_str());
+    let video_repo = vclip_firestore::VideoRepository::new(ctx.firestore.clone(), &job.user_id);
+    
+    // Mark as uploading (non-critical)
+    video_repo.set_source_video_downloading(&job.video_id).await.ok();
+    
+    // Upload to R2
+    match ctx.storage.upload_file(video_file, &r2_key, "video/mp4").await {
+        Ok(_) => {
             info!(
-                "Enqueued background download job for video {} (message: {})",
-                job.video_id, msg_id
+                video_id = %job.video_id,
+                r2_key = %r2_key,
+                "Uploaded source video to R2 cache"
             );
+            
+            // Calculate expiration time (24 hours)
+            let expires_at = Utc::now() + ChronoDuration::hours(24);
+            
+            // Mark as ready in Firestore (non-critical)
+            if let Err(e) = video_repo.set_source_video_ready(&job.video_id, &r2_key, expires_at).await {
+                tracing::warn!(
+                    video_id = %job.video_id,
+                    error = %e,
+                    "Failed to update source video status in Firestore (non-critical)"
+                );
+            }
         }
         Err(e) => {
-            // Duplicate or other error - not critical
-            tracing::debug!("Failed to enqueue background download (non-critical): {}", e);
+            tracing::warn!(
+                video_id = %job.video_id,
+                error = %e,
+                "Failed to upload source video to R2 cache (non-critical)"
+            );
+            // Mark as failed (non-critical)
+            video_repo.set_source_video_failed(&job.video_id, Some(&e.to_string())).await.ok();
         }
     }
 }

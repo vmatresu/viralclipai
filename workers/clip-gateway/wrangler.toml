@@ -19,5 +19,5 @@ bucket_name = "viralclipai-storage"
 # SIGNING_SECRET - HMAC signing secret (must match backend)
 
 [vars]
-# Default CORS origins (comma-separated)
-ALLOWED_ORIGINS = "https://www.viralclipai.io,https://viralclipai.io,https://clips.viralclipai.io"
+# Default CORS origins (comma-separated) - includes localhost for development
+ALLOWED_ORIGINS = "https://www.viralclipai.io,https://viralclipai.io,https://clips.viralclipai.io,http://localhost:3000"
