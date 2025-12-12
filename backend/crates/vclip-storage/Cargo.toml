@@ -15,6 +15,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
+flate2 = { workspace = true }
 
 # AWS SDK (for R2)
 aws-config = { workspace = true }

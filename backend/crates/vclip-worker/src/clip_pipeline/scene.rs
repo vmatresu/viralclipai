@@ -4,7 +4,9 @@ use futures::future::join_all;
 use vclip_models::ClipTask;
 use vclip_queue::ProcessVideoJob;
 
-use crate::clip_pipeline::clip::{clip_id, compute_padded_timing, process_single_clip};
+use crate::clip_pipeline::clip::{
+    clip_id, compute_padded_timing, process_single_clip, process_single_clip_with_raw_key,
+};
 use crate::error::WorkerResult;
 use crate::processor::EnhancedProcessingContext;
 
@@ -23,6 +25,29 @@ pub async fn process_scene(
     scene_tasks: &[&ClipTask],
     existing_completed: &std::collections::HashSet<String>,
     total_clips: usize,
+) -> WorkerResult<SceneProcessingResults> {
+    process_scene_with_raw_key(
+        ctx,
+        job,
+        clips_dir,
+        video_file,
+        scene_tasks,
+        existing_completed,
+        total_clips,
+        None,
+    )
+    .await
+}
+
+pub async fn process_scene_with_raw_key(
+    ctx: &EnhancedProcessingContext,
+    job: &ProcessVideoJob,
+    clips_dir: &Path,
+    video_file: &Path,
+    scene_tasks: &[&ClipTask],
+    existing_completed: &std::collections::HashSet<String>,
+    total_clips: usize,
+    raw_r2_key: Option<String>,
 ) -> WorkerResult<SceneProcessingResults> {
     let first_task = scene_tasks[0];
     let scene_id = first_task.scene_id;
@@ -119,23 +144,43 @@ pub async fn process_scene(
             let user_id = &job.user_id;
             let video_file = video_file;
             let clips_dir = clips_dir;
+            let raw_r2_key = raw_r2_key.clone();
 
             async move {
                 if existing_completed.contains(&clip_id(video_id, task)) {
                     return Ok(());
                 }
-                process_single_clip(
-                    ctx,
-                    job_id,
-                    video_id,
-                    user_id,
-                    video_file,
-                    clips_dir,
-                    task,
-                    idx,
-                    total_clips,
-                )
-                .await
+                match &raw_r2_key {
+                    Some(key) => {
+                        process_single_clip_with_raw_key(
+                            ctx,
+                            job_id,
+                            video_id,
+                            user_id,
+                            video_file,
+                            clips_dir,
+                            task,
+                            idx,
+                            total_clips,
+                            Some(key.clone()),
+                        )
+                        .await
+                    }
+                    None => {
+                        process_single_clip(
+                            ctx,
+                            job_id,
+                            video_id,
+                            user_id,
+                            video_file,
+                            clips_dir,
+                            task,
+                            idx,
+                            total_clips,
+                        )
+                        .await
+                    }
+                }
             }
         })
         .collect();

@@ -15,7 +15,7 @@ use vclip_media::{
     styles::StyleProcessorFactory as MediaStyleProcessorFactory,
 };
 use vclip_models::{AnalysisStatus, DraftScene, VideoMetadata};
-use vclip_queue::{AnalyzeVideoJob, ProcessVideoJob, ProgressChannel, RenderSceneStyleJob, ReprocessScenesJob};
+use vclip_queue::{AnalyzeVideoJob, DownloadSourceJob, ProcessVideoJob, ProgressChannel, RenderSceneStyleJob, ReprocessScenesJob};
 use vclip_storage::R2Client;
 
 use crate::config::WorkerConfig;
@@ -59,6 +59,18 @@ pub struct EnhancedProcessingContext {
 
     // Source video lifecycle coordination
     pub source_coordinator: crate::source_video_coordinator::SourceVideoCoordinator,
+
+    // Neural analysis cache service
+    pub neural_cache: crate::neural_cache::NeuralCacheService,
+
+    // Raw segment cache service (Phase 4)
+    pub raw_cache: crate::raw_segment_cache::RawSegmentCacheService,
+
+    // Redis client for single-flight locks
+    pub redis: redis::Client,
+
+    // Shared job queue client (avoids repeated from_env() calls)
+    pub job_queue: Option<vclip_queue::JobQueue>,
 }
 
 impl EnhancedProcessingContext {
@@ -90,6 +102,30 @@ impl EnhancedProcessingContext {
             crate::source_video_coordinator::SourceVideoCoordinator::new(&redis_url)
                 .map_err(|e| WorkerError::Queue(vclip_queue::QueueError::Redis(e)))?;
 
+        // Initialize Redis client for single-flight locks
+        let redis = redis::Client::open(redis_url.as_str())
+            .map_err(|e| WorkerError::Queue(vclip_queue::QueueError::Redis(e)))?;
+
+        // Initialize neural cache service
+        let neural_cache =
+            crate::neural_cache::NeuralCacheService::new(storage.clone(), redis.clone());
+
+        // Initialize raw segment cache service (Phase 4)
+        let raw_cache =
+            crate::raw_segment_cache::RawSegmentCacheService::new(storage.clone(), redis.clone());
+
+        // Initialize shared job queue client (centralized, avoids hot-path from_env() calls)
+        let job_queue = match vclip_queue::JobQueue::from_env() {
+            Ok(q) => Some(q),
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "Failed to create shared job queue client (background jobs will be skipped)"
+                );
+                None
+            }
+        };
+
         Ok(Self {
             config,
             storage,
@@ -100,9 +136,14 @@ impl EnhancedProcessingContext {
             metrics,
             security,
             source_coordinator,
+            neural_cache,
+            raw_cache,
+            redis,
+            job_queue,
         })
     }
 }
+
 
 /// Video processing coordinator using the new architecture.
 #[derive(Clone)]
@@ -207,6 +248,36 @@ impl VideoProcessor {
             .update_status(&job.video_id, vclip_models::VideoStatus::Analyzed)
             .await
             .map_err(|e| WorkerError::Firestore(e))?;
+
+        // Enqueue background source download using shared queue client
+        if let Some(ref queue) = ctx.job_queue {
+            let download_job = DownloadSourceJob {
+                job_id: vclip_models::JobId::new(),
+                user_id: job.user_id.clone(),
+                video_id: job.video_id.clone(),
+                video_url: transcript_data.url.clone(),
+                created_at: chrono::Utc::now(),
+            };
+            let download_video_id = download_job.video_id.clone();
+
+            // Enqueue synchronously (non-blocking Redis call, fast enough for hot path)
+            match queue.enqueue_download_source(download_job).await {
+                Ok(message_id) => {
+                    tracing::info!(
+                        video_id = %download_video_id,
+                        message_id = %message_id,
+                        "Enqueued DownloadSourceJob after analysis"
+                    );
+                }
+                Err(e) => {
+                    tracing::debug!(
+                        video_id = %download_video_id,
+                        error = %e,
+                        "Failed to enqueue DownloadSourceJob after analysis (non-critical)"
+                    );
+                }
+            }
+        }
 
         ctx.progress.progress(&job.job_id, 100).await.ok();
         ctx.progress

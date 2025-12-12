@@ -177,18 +177,44 @@ impl R2Client {
         Ok(clips)
     }
 
-    /// Delete all files for a video.
+    /// Delete all files for a video, including cached data.
+    ///
+    /// This deletes:
+    /// - Styled clips: `{user_id}/{video_id}/clips/*.mp4`
+    /// - Neural cache: `{user_id}/{video_id}/neural/*.json.gz`
+    /// - Raw segments: `clips/{user_id}/{video_id}/raw/*.mp4`
+    /// - Source videos: `sources/{user_id}/{video_id}/source.mp4`
     pub async fn delete_video_files(&self, user_id: &str, video_id: &str) -> StorageResult<u32> {
-        let prefix = format!("{}/{}/", user_id, video_id);
-        let objects = self.list_objects(&prefix).await?;
+        let mut all_keys: Vec<String> = Vec::new();
 
-        if objects.is_empty() {
+        // 1. Styled clips and neural cache: {user_id}/{video_id}/
+        let main_prefix = format!("{}/{}/", user_id, video_id);
+        let main_objects = self.list_objects(&main_prefix).await?;
+        all_keys.extend(main_objects.into_iter().map(|o| o.key));
+
+        // 2. Raw segments: clips/{user_id}/{video_id}/raw/
+        let raw_prefix = format!("clips/{}/{}/raw/", user_id, video_id);
+        let raw_objects = self.list_objects(&raw_prefix).await?;
+        all_keys.extend(raw_objects.into_iter().map(|o| o.key));
+
+        // 3. Source video: sources/{user_id}/{video_id}/
+        let source_prefix = format!("sources/{}/{}/", user_id, video_id);
+        let source_objects = self.list_objects(&source_prefix).await?;
+        all_keys.extend(source_objects.into_iter().map(|o| o.key));
+
+        if all_keys.is_empty() {
             info!("No files found to delete for video {}/{}", user_id, video_id);
             return Ok(0);
         }
 
-        let keys: Vec<_> = objects.into_iter().map(|o| o.key).collect();
-        self.delete_objects(&keys).await
+        info!(
+            "Deleting {} files for video {}/{} (clips, neural cache, raw segments, source)",
+            all_keys.len(),
+            user_id,
+            video_id
+        );
+
+        self.delete_objects(&all_keys).await
     }
 
     /// Delete a single clip and its thumbnail.

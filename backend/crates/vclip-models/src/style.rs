@@ -133,6 +133,21 @@ impl Style {
         )
     }
 
+    /// Whether this style requires face detection (can benefit from neural cache).
+    ///
+    /// Returns true for styles that use YuNet/FaceMesh detection.
+    /// MotionAware styles use motion heuristics instead of face detection.
+    pub fn requires_face_detection(&self) -> bool {
+        matches!(
+            self,
+            Style::Intelligent
+                | Style::IntelligentSplit
+                | Style::IntelligentSpeaker
+                | Style::IntelligentSplitSpeaker
+                | Style::IntelligentSplitActivity
+        )
+    }
+
     /// Returns the detection tier for this style.
     pub fn detection_tier(&self) -> DetectionTier {
         match self {

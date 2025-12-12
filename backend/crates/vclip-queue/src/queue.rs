@@ -6,7 +6,7 @@ use redis::AsyncCommands;
 use tracing::{debug, info, warn};
 
 use crate::error::{QueueError, QueueResult};
-use crate::job::{AnalyzeVideoJob, ProcessVideoJob, QueueJob, RenderSceneStyleJob, ReprocessScenesJob};
+use crate::job::{AnalyzeVideoJob, DownloadSourceJob, NeuralAnalysisJob, ProcessVideoJob, QueueJob, RenderSceneStyleJob, ReprocessScenesJob};
 
 /// Queue configuration.
 #[derive(Debug, Clone)]
@@ -125,6 +125,16 @@ impl JobQueue {
     /// Enqueue an analyze video job.
     pub async fn enqueue_analyze(&self, job: AnalyzeVideoJob) -> QueueResult<String> {
         self.enqueue(QueueJob::AnalyzeVideo(job)).await
+    }
+
+    /// Enqueue a download source job.
+    pub async fn enqueue_download_source(&self, job: DownloadSourceJob) -> QueueResult<String> {
+        self.enqueue(QueueJob::DownloadSource(job)).await
+    }
+
+    /// Enqueue a neural analysis job.
+    pub async fn enqueue_neural_analysis(&self, job: NeuralAnalysisJob) -> QueueResult<String> {
+        self.enqueue(QueueJob::NeuralAnalysis(job)).await
     }
 
     // ========================================================================

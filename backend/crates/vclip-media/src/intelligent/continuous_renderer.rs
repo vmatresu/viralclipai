@@ -636,12 +636,10 @@ mod tests {
         let segments = vec![
             CropSegment {
                 start_time: 0.0,
-                end_time: 5.0,
                 crop: CropWindow::new(0.0, 100, 100, 500, 500),
             },
             CropSegment {
                 start_time: 5.0,
-                end_time: 10.0,
                 crop: CropWindow::new(5.0, 200, 200, 600, 600),
             },
         ];

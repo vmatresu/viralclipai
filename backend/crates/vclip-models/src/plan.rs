@@ -163,6 +163,136 @@ impl StorageUsage {
     }
 }
 
+/// Detailed storage accounting with per-category breakdown.
+///
+/// Phase 5 storage tracking split: only styled clips count toward quota.
+/// Source videos, raw segments, and neural cache are non-billable.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct StorageAccounting {
+    // === Billable Storage (counts toward quota) ===
+
+    /// Styled clip storage in bytes (the final rendered clips).
+    /// This is the only category that counts toward the user's quota.
+    pub styled_clips_bytes: u64,
+
+    /// Number of styled clips.
+    pub styled_clips_count: u32,
+
+    // === Non-Billable Storage (does not count toward quota) ===
+
+    /// Source video cache storage in bytes.
+    /// Temporary copies of original videos for faster reprocessing.
+    pub source_videos_bytes: u64,
+
+    /// Raw segment cache storage in bytes.
+    /// Extracted segments before style application.
+    pub raw_segments_bytes: u64,
+
+    /// Neural analysis cache storage in bytes.
+    /// Cached face detection/tracking results.
+    pub neural_cache_bytes: u64,
+
+    // === Metadata ===
+
+    /// Last updated timestamp.
+    #[serde(default)]
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl StorageAccounting {
+    /// Create a new empty storage accounting.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Get total billable storage (styled clips only).
+    pub fn billable_bytes(&self) -> u64 {
+        self.styled_clips_bytes
+    }
+
+    /// Get total non-billable storage (cache).
+    pub fn cache_bytes(&self) -> u64 {
+        self.source_videos_bytes
+            .saturating_add(self.raw_segments_bytes)
+            .saturating_add(self.neural_cache_bytes)
+    }
+
+    /// Get total storage across all categories.
+    pub fn total_bytes(&self) -> u64 {
+        self.billable_bytes().saturating_add(self.cache_bytes())
+    }
+
+    /// Check if adding bytes to styled clips would exceed the limit.
+    pub fn would_exceed_quota(&self, additional_bytes: u64, limit_bytes: u64) -> bool {
+        self.billable_bytes().saturating_add(additional_bytes) > limit_bytes
+    }
+
+    /// Convert to a StorageUsage (for backwards compatibility).
+    /// Only includes billable storage.
+    pub fn to_quota_usage(&self, limit_bytes: u64) -> StorageUsage {
+        StorageUsage::new(self.billable_bytes(), self.styled_clips_count, limit_bytes)
+    }
+
+    /// Add styled clip storage.
+    pub fn add_styled_clip(&mut self, bytes: u64) {
+        self.styled_clips_bytes = self.styled_clips_bytes.saturating_add(bytes);
+        self.styled_clips_count = self.styled_clips_count.saturating_add(1);
+        self.updated_at = Some(chrono::Utc::now());
+    }
+
+    /// Add source video storage.
+    pub fn add_source_video(&mut self, bytes: u64) {
+        self.source_videos_bytes = self.source_videos_bytes.saturating_add(bytes);
+        self.updated_at = Some(chrono::Utc::now());
+    }
+
+    /// Add raw segment storage.
+    pub fn add_raw_segment(&mut self, bytes: u64) {
+        self.raw_segments_bytes = self.raw_segments_bytes.saturating_add(bytes);
+        self.updated_at = Some(chrono::Utc::now());
+    }
+
+    /// Add neural cache storage.
+    pub fn add_neural_cache(&mut self, bytes: u64) {
+        self.neural_cache_bytes = self.neural_cache_bytes.saturating_add(bytes);
+        self.updated_at = Some(chrono::Utc::now());
+    }
+
+    /// Remove styled clip storage.
+    pub fn remove_styled_clip(&mut self, bytes: u64) {
+        self.styled_clips_bytes = self.styled_clips_bytes.saturating_sub(bytes);
+        self.styled_clips_count = self.styled_clips_count.saturating_sub(1);
+        self.updated_at = Some(chrono::Utc::now());
+    }
+
+    /// Remove source video storage.
+    pub fn remove_source_video(&mut self, bytes: u64) {
+        self.source_videos_bytes = self.source_videos_bytes.saturating_sub(bytes);
+        self.updated_at = Some(chrono::Utc::now());
+    }
+
+    /// Remove raw segment storage.
+    pub fn remove_raw_segment(&mut self, bytes: u64) {
+        self.raw_segments_bytes = self.raw_segments_bytes.saturating_sub(bytes);
+        self.updated_at = Some(chrono::Utc::now());
+    }
+
+    /// Remove neural cache storage.
+    pub fn remove_neural_cache(&mut self, bytes: u64) {
+        self.neural_cache_bytes = self.neural_cache_bytes.saturating_sub(bytes);
+        self.updated_at = Some(chrono::Utc::now());
+    }
+
+    /// Clear all non-billable storage for a video deletion.
+    /// This zeros out source, raw, and neural cache bytes.
+    pub fn clear_video_cache(&mut self) {
+        self.source_videos_bytes = 0;
+        self.raw_segments_bytes = 0;
+        self.neural_cache_bytes = 0;
+        self.updated_at = Some(chrono::Utc::now());
+    }
+}
+
 /// Format bytes as human-readable string (KB, MB, GB).
 pub fn format_bytes(bytes: u64) -> String {
     const KB: u64 = 1024;

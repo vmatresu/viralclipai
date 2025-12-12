@@ -87,6 +87,41 @@ impl fmt::Display for VideoStatus {
     }
 }
 
+/// Source video background download status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceVideoStatus {
+    /// Download not yet started
+    #[default]
+    Pending,
+    /// Download in progress
+    Downloading,
+    /// Downloaded and stored in R2
+    Ready,
+    /// Source video expired (past TTL)
+    Expired,
+    /// Download failed
+    Failed,
+}
+
+impl SourceVideoStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SourceVideoStatus::Pending => "pending",
+            SourceVideoStatus::Downloading => "downloading",
+            SourceVideoStatus::Ready => "ready",
+            SourceVideoStatus::Expired => "expired",
+            SourceVideoStatus::Failed => "failed",
+        }
+    }
+}
+
+impl fmt::Display for SourceVideoStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 /// Video metadata stored in Firestore.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct VideoMetadata {
@@ -165,6 +200,24 @@ pub struct VideoMetadata {
 
     /// Created by (user ID)
     pub created_by: String,
+
+    // === Source Video Fields (Phase 2.2) ===
+
+    /// R2 key for cached source video
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_video_r2_key: Option<String>,
+
+    /// Source video background download status
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_video_status: Option<SourceVideoStatus>,
+
+    /// Expiration timestamp for cached source video
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_video_expires_at: Option<DateTime<Utc>>,
+
+    /// Error message if source video download failed
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_video_error: Option<String>,
 }
 
 fn default_aspect() -> String {
@@ -205,6 +258,11 @@ impl VideoMetadata {
             clips_by_style: HashMap::new(),
             highlights_json_key: format!("{}/{}/highlights.json", user_id, video_id),
             created_by: user_id,
+            // Source video fields (Phase 2.2) - initialized as None
+            source_video_r2_key: None,
+            source_video_status: None,
+            source_video_expires_at: None,
+            source_video_error: None,
         }
     }
 

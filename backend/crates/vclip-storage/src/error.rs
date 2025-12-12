@@ -38,6 +38,9 @@ pub enum StorageError {
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
+    #[error("Serialization error: {0}")]
+    Serialization(String),
+
     #[error("AWS SDK error: {0}")]
     AwsSdk(String),
 }

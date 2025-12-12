@@ -24,6 +24,9 @@ pub enum WorkerError {
     #[error("Configuration error: {0}")]
     ConfigError(String),
 
+    #[error("Quota exceeded: {0}")]
+    QuotaExceeded(String),
+
     #[error("Storage error: {0}")]
     Storage(#[from] vclip_storage::StorageError),
 
@@ -57,6 +60,10 @@ impl WorkerError {
         Self::ConfigError(msg.into())
     }
 
+    pub fn quota_exceeded(msg: impl Into<String>) -> Self {
+        Self::QuotaExceeded(msg.into())
+    }
+
     /// Check if error is retryable.
     pub fn is_retryable(&self) -> bool {
         matches!(
@@ -67,5 +74,10 @@ impl WorkerError {
                 | WorkerError::Firestore(_)
                 | WorkerError::AiFailed(_)
         )
+    }
+
+    /// Check if error is a quota exceeded error (not retryable, user action needed).
+    pub fn is_quota_exceeded(&self) -> bool {
+        matches!(self, WorkerError::QuotaExceeded(_))
     }
 }

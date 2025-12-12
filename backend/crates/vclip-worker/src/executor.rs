@@ -397,6 +397,14 @@ impl JobExecutor {
                 }
                 video_processor.process_video_job(&ctx, &j).await
             }
+            QueueJob::DownloadSource(j) => {
+                // Background job: download source video to R2
+                crate::download_source_job::process_download_source_job(&ctx, &j).await
+            }
+            QueueJob::NeuralAnalysis(j) => {
+                // Background job: compute neural analysis for a scene
+                crate::neural_analysis_job::process_neural_analysis_job(&ctx, &j).await
+            }
             QueueJob::ReprocessScenes(j) => {
                 // Use the dedicated reprocess_scenes_job method which:
                 // 1. Loads existing highlights from storage (no re-analysis)

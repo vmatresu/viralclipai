@@ -92,7 +92,10 @@ pub use models::*;
 pub use renderer::IntelligentRenderer;
 pub use smoother::CameraSmoother;
 pub use split::{create_intelligent_split_clip, IntelligentSplitProcessor, SplitLayout};
-pub use tier_aware_cropper::{create_tier_aware_intelligent_clip, TierAwareIntelligentCropper};
+pub use tier_aware_cropper::{
+    create_tier_aware_intelligent_clip, create_tier_aware_intelligent_clip_with_cache,
+    TierAwareIntelligentCropper,
+};
 pub use tier_aware_smoother::TierAwareCameraSmoother;
 pub use tier_aware_split::{create_tier_aware_split_clip, TierAwareSplitProcessor};
 pub use tracker::IoUTracker;

@@ -14,7 +14,7 @@ pub mod clip;
 pub mod scene;
 pub mod tasks;
 
-pub use clip::process_single_clip;
+pub use clip::{process_single_clip, process_single_clip_with_raw_key};
 pub use scene::process_scene;
 pub use scene::SceneProcessingResults;
 

@@ -372,7 +372,7 @@ pub async fn delete_video(
     );
     let clip_count = clip_repo.list(None).await.map(|c| c.len() as u32).unwrap_or(0);
 
-    // Delete files from R2
+    // Delete files from R2 (includes styled clips, raw segments, source video, neural cache)
     let files_deleted = state
         .storage
         .delete_video_files(&user.uid, &video_id)
@@ -389,7 +389,22 @@ pub async fn delete_video(
         }
     }
 
-    info!("Deleted video {} for user {} ({} files, {} bytes)", video_id, user.uid, files_deleted, video_size);
+    // Clear non-billable cache storage accounting (source video, raw segments, neural cache)
+    let storage_repo = vclip_firestore::StorageAccountingRepository::new(
+        (*state.firestore).clone(),
+        &user.uid,
+    );
+    if let Err(e) = storage_repo.clear_video_cache().await {
+        warn!(
+            "Failed to clear cache storage accounting after deleting video {}: {}",
+            video_id, e
+        );
+    }
+
+    info!(
+        "Deleted video {} for user {} ({} files, {} bytes, including cached data)",
+        video_id, user.uid, files_deleted, video_size
+    );
 
     Ok(Json(DeleteVideoResponse {
         success: true,
@@ -482,7 +497,7 @@ pub async fn bulk_delete_videos(
                     files_deleted: Some(files_deleted),
                 });
                 deleted_count += 1;
-                info!("Deleted video {} for user {} ({} files)", video_id, user.uid, files_deleted);
+                info!("Deleted video {} for user {} ({} files, including cached data)", video_id, user.uid, files_deleted);
             }
             Err(e) => {
                 results.insert(video_id.clone(), BulkDeleteResult {
@@ -492,6 +507,22 @@ pub async fn bulk_delete_videos(
                 });
                 failed_count += 1;
             }
+        }
+    }
+
+    // Clear non-billable cache storage accounting after bulk delete
+    // Note: This clears ALL cache storage for the user, which is correct since
+    // delete_video_files already deleted all cached data for each video
+    if deleted_count > 0 {
+        let storage_repo = vclip_firestore::StorageAccountingRepository::new(
+            (*state.firestore).clone(),
+            &user.uid,
+        );
+        if let Err(e) = storage_repo.clear_video_cache().await {
+            warn!(
+                "Failed to clear cache storage accounting after bulk delete for user {}: {}",
+                user.uid, e
+            );
         }
     }
 

@@ -6,7 +6,7 @@ use chrono::Utc;
 use metrics::counter;
 use tracing::info;
 
-use vclip_models::{ClipMetadata, ClipStatus, VideoId, VideoMetadata, VideoStatus};
+use vclip_models::{ClipMetadata, ClipStatus, SourceVideoStatus, VideoId, VideoMetadata, VideoStatus};
 
 use crate::client::FirestoreClient;
 use crate::error::{FirestoreError, FirestoreResult};
@@ -221,7 +221,7 @@ impl VideoRepository {
     /// clips have been processed.
     pub async fn check_and_complete_if_ready(&self, video_id: &VideoId) -> FirestoreResult<bool> {
         let doc = self.client.get_document(&self.collection(), video_id.as_str()).await?;
-        
+
         let (expected, completed) = if let Some(ref d) = doc {
             let fields = d.fields.as_ref();
             let expected = fields
@@ -316,13 +316,13 @@ impl VideoRepository {
         size_delta: i64,
     ) -> FirestoreResult<u64> {
         use tracing::{debug, warn};
-        
+
         let mut last_error = None;
-        
+
         for attempt in 0..Self::MAX_SIZE_UPDATE_RETRIES {
             // Get current document with update_time
             let doc = self.client.get_document(&self.collection(), video_id.as_str()).await?;
-            
+
             let (current_size, update_time) = match &doc {
                 Some(d) => {
                     let size = d.fields.as_ref()
@@ -339,24 +339,24 @@ impl VideoRepository {
                     )));
                 }
             };
-            
+
             // Calculate new size with safe arithmetic
             let new_size = if size_delta >= 0 {
                 current_size.saturating_add(size_delta as u64)
             } else {
                 current_size.saturating_sub((-size_delta) as u64)
             };
-            
+
             // Build update fields
             let mut fields = HashMap::new();
             fields.insert("total_size_bytes".to_string(), new_size.to_firestore_value());
             fields.insert("updated_at".to_string(), Utc::now().to_firestore_value());
-            
+
             let update_mask = vec![
                 "total_size_bytes".to_string(),
                 "updated_at".to_string(),
             ];
-            
+
             // Attempt update with precondition
             match self.client
                 .update_document_with_precondition(
@@ -387,7 +387,7 @@ impl VideoRepository {
                 }
             }
         }
-        
+
         // All retries exhausted
         warn!(
             "Video size update failed after {} retries for {}: {:?}",
@@ -406,12 +406,12 @@ impl VideoRepository {
             &self.user_id,
             video_id.clone(),
         );
-        
+
         let clips = clip_repo.list(None).await?;
         let total_size: u64 = clips.iter().map(|c| c.file_size_bytes).sum();
-        
+
         self.update_total_size(video_id, total_size).await?;
-        
+
         Ok(total_size)
     }
 
@@ -441,6 +441,126 @@ impl VideoRepository {
         }
 
         Ok(videos)
+    }
+
+    // ========================================================================
+    // Source Video Status Methods (Phase 2.2)
+    // ========================================================================
+
+    /// Set source video status to Downloading.
+    /// Called when starting the background download.
+    pub async fn set_source_video_downloading(&self, video_id: &VideoId) -> FirestoreResult<()> {
+        let mut fields = HashMap::new();
+        fields.insert(
+            "source_video_status".to_string(),
+            SourceVideoStatus::Downloading.as_str().to_firestore_value(),
+        );
+        fields.insert("updated_at".to_string(), Utc::now().to_firestore_value());
+
+        self.client
+            .update_document(
+                &self.collection(),
+                video_id.as_str(),
+                fields,
+                Some(vec!["source_video_status".to_string(), "updated_at".to_string()]),
+            )
+            .await?;
+
+        info!("Set source video status to downloading: {}", video_id);
+        Ok(())
+    }
+
+    /// Set source video status to Ready with R2 key and expiration.
+    /// Called when background download completes successfully.
+    pub async fn set_source_video_ready(
+        &self,
+        video_id: &VideoId,
+        r2_key: &str,
+        expires_at: chrono::DateTime<Utc>,
+    ) -> FirestoreResult<()> {
+        let mut fields = HashMap::new();
+        fields.insert(
+            "source_video_status".to_string(),
+            SourceVideoStatus::Ready.as_str().to_firestore_value(),
+        );
+        fields.insert("source_video_r2_key".to_string(), r2_key.to_firestore_value());
+        fields.insert("source_video_expires_at".to_string(), expires_at.to_firestore_value());
+        fields.insert("updated_at".to_string(), Utc::now().to_firestore_value());
+
+        self.client
+            .update_document(
+                &self.collection(),
+                video_id.as_str(),
+                fields,
+                Some(vec![
+                    "source_video_status".to_string(),
+                    "source_video_r2_key".to_string(),
+                    "source_video_expires_at".to_string(),
+                    "updated_at".to_string(),
+                ]),
+            )
+            .await?;
+
+        info!("Set source video status to ready: {} (key: {})", video_id, r2_key);
+        Ok(())
+    }
+
+    /// Set source video status to Failed with error message.
+    /// Called when background download fails.
+    pub async fn set_source_video_failed(
+        &self,
+        video_id: &VideoId,
+        error_message: Option<&str>,
+    ) -> FirestoreResult<()> {
+        let mut fields = HashMap::new();
+        fields.insert(
+            "source_video_status".to_string(),
+            SourceVideoStatus::Failed.as_str().to_firestore_value(),
+        );
+        if let Some(msg) = error_message {
+            fields.insert("source_video_error".to_string(), msg.to_firestore_value());
+        }
+        fields.insert("updated_at".to_string(), Utc::now().to_firestore_value());
+
+        let mut update_mask = vec!["source_video_status".to_string(), "updated_at".to_string()];
+        if error_message.is_some() {
+            update_mask.push("source_video_error".to_string());
+        }
+
+        self.client
+            .update_document(
+                &self.collection(),
+                video_id.as_str(),
+                fields,
+                Some(update_mask),
+            )
+            .await?;
+
+        info!("Set source video status to failed: {}", video_id);
+        Ok(())
+    }
+
+    /// Set source video status to Expired.
+    /// Called when cached source video is past its TTL.
+    pub async fn set_source_video_expired(&self, video_id: &VideoId) -> FirestoreResult<()> {
+        let mut fields = HashMap::new();
+        fields.insert(
+            "source_video_status".to_string(),
+            SourceVideoStatus::Expired.as_str().to_firestore_value(),
+        );
+        fields.insert("updated_at".to_string(), Utc::now().to_firestore_value());
+
+        self.client
+            .update_document(
+                &self.collection(),
+                video_id.as_str(),
+                fields,
+                Some(vec!["source_video_status".to_string(), "updated_at".to_string()]),
+            )
+            .await?;
+
+        info!("Set source video status to expired: {}", video_id);
+        Ok(())
     }
 }
 
@@ -543,7 +663,7 @@ impl ClipRepository {
     pub async fn delete_by_filename(&self, filename: &str) -> FirestoreResult<bool> {
         // First, list all clips to find the one with matching filename
         let clips = self.list(None).await?;
-        
+
         // Find the clip with the matching filename
         if let Some(clip) = clips.into_iter().find(|c| c.filename == filename) {
             // Delete the document using the clip_id as document ID
@@ -580,6 +700,25 @@ impl ClipRepository {
 
         Ok(clips)
     }
+
+    /// Set the raw segment R2 key for a clip.
+    /// Called when a raw segment is extracted and uploaded to R2.
+    pub async fn set_raw_r2_key(&self, clip_id: &str, raw_r2_key: &str) -> FirestoreResult<()> {
+        let mut fields = HashMap::new();
+        fields.insert("raw_r2_key".to_string(), raw_r2_key.to_firestore_value());
+        fields.insert("updated_at".to_string(), Utc::now().to_firestore_value());
+
+        self.client
+            .update_document(
+                &self.collection(),
+                clip_id,
+                fields,
+                Some(vec!["raw_r2_key".to_string(), "updated_at".to_string()]),
+            )
+            .await?;
+        info!("Set raw R2 key for clip {}: {}", clip_id, raw_r2_key);
+        Ok(())
+    }
 }
 
 // Helper functions for conversion
@@ -594,10 +733,34 @@ fn video_metadata_to_fields(video: &VideoMetadata) -> HashMap<String, Value> {
     fields.insert("status".to_string(), video.status.as_str().to_firestore_value());
     fields.insert("created_at".to_string(), video.created_at.to_firestore_value());
     fields.insert("updated_at".to_string(), video.updated_at.to_firestore_value());
+    fields.insert("completed_at".to_string(), video.completed_at.to_firestore_value());
+    fields.insert("failed_at".to_string(), video.failed_at.to_firestore_value());
+    fields.insert("error_message".to_string(), video.error_message.to_firestore_value());
+    fields.insert("highlights_count".to_string(), video.highlights_count.to_firestore_value());
+    fields.insert("custom_prompt".to_string(), video.custom_prompt.to_firestore_value());
+    fields.insert("styles_processed".to_string(), video.styles_processed.to_firestore_value());
+    fields.insert("crop_mode".to_string(), video.crop_mode.to_firestore_value());
+    fields.insert("target_aspect".to_string(), video.target_aspect.to_firestore_value());
     fields.insert("clips_count".to_string(), video.clips_count.to_firestore_value());
     fields.insert("total_size_bytes".to_string(), video.total_size_bytes.to_firestore_value());
+    fields.insert("clips_by_style".to_string(), video.clips_by_style.to_firestore_value());
     fields.insert("highlights_json_key".to_string(), video.highlights_json_key.to_firestore_value());
     fields.insert("created_by".to_string(), video.created_by.to_firestore_value());
+
+    // Source video fields (Phase 2.2)
+    if let Some(ref key) = video.source_video_r2_key {
+        fields.insert("source_video_r2_key".to_string(), key.to_firestore_value());
+    }
+    if let Some(status) = video.source_video_status {
+        fields.insert("source_video_status".to_string(), status.as_str().to_firestore_value());
+    }
+    if let Some(expires_at) = video.source_video_expires_at {
+        fields.insert("source_video_expires_at".to_string(), expires_at.to_firestore_value());
+    }
+    if let Some(ref error) = video.source_video_error {
+        fields.insert("source_video_error".to_string(), error.to_firestore_value());
+    }
+
     fields
 }
 
@@ -663,14 +826,57 @@ fn document_to_video_metadata(
         custom_prompt: fields
             .get("custom_prompt")
             .and_then(|v| String::from_firestore_value(v)),
-        styles_processed: Vec::new(), // TODO: parse array
+        styles_processed: fields
+            .get("styles_processed")
+            .and_then(|v| match v {
+                Value::ArrayValue(arr) => arr.values.as_ref().map(|vals| {
+                    vals.iter()
+                        .filter_map(|vv| String::from_firestore_value(vv))
+                        .collect::<Vec<String>>()
+                }),
+                _ => None,
+            })
+            .unwrap_or_default(),
         crop_mode: get_string("crop_mode"),
         target_aspect: get_string("target_aspect"),
         clips_count: get_u32("clips_count"),
         total_size_bytes: get_u64("total_size_bytes"),
-        clips_by_style: HashMap::new(), // TODO: parse map
+        clips_by_style: fields
+            .get("clips_by_style")
+            .and_then(|v| match v {
+                Value::MapValue(map) => map.fields.as_ref().map(|m| {
+                    m.iter()
+                        .filter_map(|(k, vv)| {
+                            u32::from_firestore_value(vv).map(|n| (k.clone(), n))
+                        })
+                        .collect::<HashMap<String, u32>>()
+                }),
+                _ => None,
+            })
+            .unwrap_or_default(),
         highlights_json_key: get_string("highlights_json_key"),
         created_by: get_string("created_by"),
+        // Source video fields (Phase 2.2)
+        source_video_r2_key: fields
+            .get("source_video_r2_key")
+            .and_then(|v| String::from_firestore_value(v)),
+        source_video_status: fields
+            .get("source_video_status")
+            .and_then(|v| String::from_firestore_value(v))
+            .and_then(|s| match s.as_str() {
+                "pending" => Some(SourceVideoStatus::Pending),
+                "downloading" => Some(SourceVideoStatus::Downloading),
+                "ready" => Some(SourceVideoStatus::Ready),
+                "expired" => Some(SourceVideoStatus::Expired),
+                "failed" => Some(SourceVideoStatus::Failed),
+                _ => None,
+            }),
+        source_video_expires_at: fields
+            .get("source_video_expires_at")
+            .and_then(|v| chrono::DateTime::from_firestore_value(v)),
+        source_video_error: fields
+            .get("source_video_error")
+            .and_then(|v| String::from_firestore_value(v)),
     })
 }
 
@@ -696,6 +902,9 @@ fn clip_metadata_to_fields(clip: &ClipMetadata) -> HashMap<String, Value> {
     fields.insert("r2_key".to_string(), clip.r2_key.to_firestore_value());
     if let Some(ref thumb_key) = clip.thumbnail_r2_key {
         fields.insert("thumbnail_r2_key".to_string(), thumb_key.to_firestore_value());
+    }
+    if let Some(ref raw_key) = clip.raw_r2_key {
+        fields.insert("raw_r2_key".to_string(), raw_key.to_firestore_value());
     }
     fields.insert("status".to_string(), clip.status.as_str().to_firestore_value());
     fields.insert("created_at".to_string(), clip.created_at.to_firestore_value());
@@ -763,6 +972,9 @@ fn document_to_clip_metadata(doc: &crate::types::Document) -> FirestoreResult<Cl
         thumbnail_r2_key: fields
             .get("thumbnail_r2_key")
             .and_then(|v| String::from_firestore_value(v)),
+        raw_r2_key: fields
+            .get("raw_r2_key")
+            .and_then(|v| String::from_firestore_value(v)),
         status: match get_string("status").as_str() {
             "completed" => ClipStatus::Completed,
             "failed" => ClipStatus::Failed,
@@ -827,7 +1039,7 @@ impl ShareRepository {
     }
 
     /// Create or update a share config with atomic dual-write pattern.
-    /// 
+    ///
     /// This performs an atomic batch write of two documents:
     /// 1. Config doc at users/{uid}/videos/{vid}/clips/{cid}/shares/config
     /// 2. Slug index at share_slugs/{slug}
@@ -951,7 +1163,7 @@ impl ShareRepository {
     /// Get share config by looking up the slug index.
     pub async fn get_by_slug(&self, slug: &str) -> FirestoreResult<Option<ShareSlugIndex>> {
         let doc = self.client.get_document(Self::slug_collection(), slug).await?;
-        
+
         match doc {
             Some(d) => {
                 let index = document_to_share_slug_index(&d)?;
@@ -990,7 +1202,7 @@ fn share_config_to_fields(config: &ShareConfig) -> HashMap<String, Value> {
     fields.insert("access_level".to_string(), config.access_level.as_str().to_firestore_value());
     fields.insert("watermark_enabled".to_string(), config.watermark_enabled.to_firestore_value());
     fields.insert("created_at".to_string(), config.created_at.to_firestore_value());
-    
+
     if let Some(expires) = config.expires_at {
         fields.insert("expires_at".to_string(), expires.to_firestore_value());
     }
@@ -1000,7 +1212,7 @@ fn share_config_to_fields(config: &ShareConfig) -> HashMap<String, Value> {
     if let Some(disabled) = config.disabled_at {
         fields.insert("disabled_at".to_string(), disabled.to_firestore_value());
     }
-    
+
     fields
 }
 
@@ -1012,14 +1224,14 @@ fn share_slug_index_to_fields(config: &ShareConfig) -> HashMap<String, Value> {
     fields.insert("clip_id".to_string(), config.clip_id.to_firestore_value());
     fields.insert("access_level".to_string(), config.access_level.as_str().to_firestore_value());
     fields.insert("created_at".to_string(), config.created_at.to_firestore_value());
-    
+
     if let Some(expires) = config.expires_at {
         fields.insert("expires_at".to_string(), expires.to_firestore_value());
     }
     if let Some(disabled) = config.disabled_at {
         fields.insert("disabled_at".to_string(), disabled.to_firestore_value());
     }
-    
+
     fields
 }
 
@@ -1099,6 +1311,7 @@ mod tests {
             has_thumbnail: true,
             r2_key: "r2/key".to_string(),
             thumbnail_r2_key: Some("r2/thumb".to_string()),
+            raw_r2_key: None,
             status: ClipStatus::Completed,
             created_at: Utc::now(),
             completed_at: None,

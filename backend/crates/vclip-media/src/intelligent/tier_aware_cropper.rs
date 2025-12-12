@@ -77,6 +77,26 @@ impl TierAwareIntelligentCropper {
         output: P,
         encoding: &EncodingConfig,
     ) -> MediaResult<()> {
+        self.process_with_cached_detections(segment, output, encoding, None).await
+    }
+
+    /// Process a pre-cut video segment with optional cached neural analysis.
+    ///
+    /// This is the Phase 3 entry point that allows skipping expensive ML inference
+    /// when cached detections are available.
+    ///
+    /// # Arguments
+    /// * `segment` - Pre-extracted segment (stream copy from source)
+    /// * `output` - Final output path
+    /// * `encoding` - Encoding config from API
+    /// * `cached_analysis` - Optional pre-computed neural analysis from cache
+    pub async fn process_with_cached_detections<P: AsRef<Path>>(
+        &self,
+        segment: P,
+        output: P,
+        encoding: &EncodingConfig,
+        cached_analysis: Option<&vclip_models::SceneNeuralAnalysis>,
+    ) -> MediaResult<()> {
         let segment = segment.as_ref();
         let output = output.as_ref();
         let pipeline_start = std::time::Instant::now();
@@ -84,6 +104,7 @@ impl TierAwareIntelligentCropper {
         info!("[INTELLIGENT_FULL] ========================================");
         info!("[INTELLIGENT_FULL] START: {:?}", segment);
         info!("[INTELLIGENT_FULL] Tier: {:?}", self.tier);
+        info!("[INTELLIGENT_FULL] Cached analysis: {}", cached_analysis.is_some());
 
         // Step 1: Get video metadata
         let step_start = std::time::Instant::now();
@@ -104,49 +125,64 @@ impl TierAwareIntelligentCropper {
         let start_time = 0.0;
         let end_time = duration;
 
-        // Step 2: Face detection
+        // Step 2: Face detection (or use cached)
         let step_start = std::time::Instant::now();
-        info!("[INTELLIGENT_FULL] Step 2/4: Face detection (tier: {:?})...", self.tier);
         
-        let (detections, _speaker_segments) = match self.tier {
-            DetectionTier::SpeakerAware => {
-                info!("[INTELLIGENT_FULL]   Using SpeakerAware pipeline (face mesh + activity)");
-                let pipeline = PipelineBuilder::for_tier(DetectionTier::SpeakerAware).build()?;
-                let res = pipeline.analyze(segment, start_time, end_time).await?;
-                let frames: Vec<_> = res.frames.iter().map(|f| f.faces.clone()).collect();
-                let segments = res.speaker_segments.unwrap_or_default();
-                (frames, segments)
-            }
-            DetectionTier::MotionAware => {
-                info!("[INTELLIGENT_FULL]   Using MotionAware pipeline (motion heuristics)");
-                let motion_frames = Self::detect_motion_tracks(
-                    segment,
-                    start_time,
-                    end_time,
-                    width,
-                    height,
-                    fps,
-                    self.config.fps_sample,
-                )?;
-                (motion_frames, Vec::new())
-            }
-            _ => {
-                info!("[INTELLIGENT_FULL]   Using Basic pipeline (YuNet face detection)");
-                let detections = self
-                    .detector
-                    .detect_in_video(segment, start_time, end_time, width, height, fps)
-                    .await?;
-                (detections, Vec::new())
-            }
-        };
+        let (detections, _speaker_segments) = if let Some(analysis) = cached_analysis {
+            // Phase 3: Use cached neural analysis - skip expensive ML inference!
+            info!("[INTELLIGENT_FULL] Step 2/4: Using CACHED neural analysis ({} frames)", analysis.frames.len());
+            let cached_dets = self.convert_cached_to_detections(analysis, width, height);
+            info!(
+                "[INTELLIGENT_FULL] Step 2/4 DONE in {:.2}s - {} cached detections (SKIPPED ML)",
+                step_start.elapsed().as_secs_f64(),
+                cached_dets.iter().map(|d| d.len()).sum::<usize>()
+            );
+            (cached_dets, Vec::new())
+        } else {
+            // No cache - run detection as normal
+            info!("[INTELLIGENT_FULL] Step 2/4: Face detection (tier: {:?})...", self.tier);
+            
+            let (dets, segs) = match self.tier {
+                DetectionTier::SpeakerAware => {
+                    info!("[INTELLIGENT_FULL]   Using SpeakerAware pipeline (face mesh + activity)");
+                    let pipeline = PipelineBuilder::for_tier(DetectionTier::SpeakerAware).build()?;
+                    let res = pipeline.analyze(segment, start_time, end_time).await?;
+                    let frames: Vec<_> = res.frames.iter().map(|f| f.faces.clone()).collect();
+                    let segments = res.speaker_segments.unwrap_or_default();
+                    (frames, segments)
+                }
+                DetectionTier::MotionAware => {
+                    info!("[INTELLIGENT_FULL]   Using MotionAware pipeline (motion heuristics)");
+                    let motion_frames = Self::detect_motion_tracks(
+                        segment,
+                        start_time,
+                        end_time,
+                        width,
+                        height,
+                        fps,
+                        self.config.fps_sample,
+                    )?;
+                    (motion_frames, Vec::new())
+                }
+                _ => {
+                    info!("[INTELLIGENT_FULL]   Using Basic pipeline (YuNet face detection)");
+                    let detections = self
+                        .detector
+                        .detect_in_video(segment, start_time, end_time, width, height, fps)
+                        .await?;
+                    (detections, Vec::new())
+                }
+            };
 
-        let total_detections: usize = detections.iter().map(|d| d.len()).sum();
-        info!(
-            "[INTELLIGENT_FULL] Step 2/4 DONE in {:.2}s - {} detections in {} frames",
-            step_start.elapsed().as_secs_f64(),
-            total_detections,
-            detections.len()
-        );
+            let total_detections: usize = dets.iter().map(|d| d.len()).sum();
+            info!(
+                "[INTELLIGENT_FULL] Step 2/4 DONE in {:.2}s - {} detections in {} frames",
+                step_start.elapsed().as_secs_f64(),
+                total_detections,
+                dets.len()
+            );
+            (dets, segs)
+        };
 
         // Step 3: Camera path smoothing
         let step_start = std::time::Instant::now();
@@ -236,6 +272,44 @@ impl TierAwareIntelligentCropper {
         );
 
         Ok(())
+    }
+
+    /// Convert cached neural analysis to the detection format used by the cropper.
+    fn convert_cached_to_detections(
+        &self,
+        analysis: &vclip_models::SceneNeuralAnalysis,
+        width: u32,
+        height: u32,
+    ) -> Vec<Vec<super::models::Detection>> {
+        let fw = width as f32;
+        let fh = height as f32;
+
+        analysis
+            .frames
+            .iter()
+            .map(|frame| {
+                frame
+                    .faces
+                    .iter()
+                    .map(|face| {
+                        let (x, y, w, h) = face.bbox.to_pixels(fw, fh);
+                        let bbox = super::models::BoundingBox::new(
+                            x as f64,
+                            y as f64,
+                            w as f64,
+                            h as f64,
+                        );
+                        super::models::Detection::with_mouth(
+                            frame.time,
+                            bbox,
+                            face.score as f64,
+                            face.track_id.unwrap_or(0),
+                            face.mouth_openness.map(|m| m as f64),
+                        )
+                    })
+                    .collect()
+            })
+            .collect()
     }
 
     /// Detect motion centers for MotionAware tier, producing synthetic detections.
@@ -345,6 +419,51 @@ pub async fn create_tier_aware_intelligent_clip<P, F>(
     task: &ClipTask,
     tier: DetectionTier,
     encoding: &EncodingConfig,
+    progress_callback: F,
+) -> MediaResult<()>
+where
+    P: AsRef<Path>,
+    F: Fn(crate::progress::FfmpegProgress) + Send + 'static,
+{
+    // Delegate to the cache-aware version with no cache
+    create_tier_aware_intelligent_clip_with_cache(
+        input,
+        output,
+        task,
+        tier,
+        encoding,
+        None,
+        progress_callback,
+    )
+    .await
+}
+
+/// Create a tier-aware intelligent clip with optional cached neural analysis.
+///
+/// This is the Phase 3 entry point that allows skipping expensive ML inference
+/// when cached detections are available.
+///
+/// # Pipeline (SINGLE ENCODE)
+/// 1. `extract_segment()` - Stream copy from source (NO encode)
+/// 2. Face detection on segment (SKIPPED if cache provided)
+/// 3. Camera path smoothing
+/// 4. `SinglePassRenderer` - ONE encode with crop filter
+///
+/// # Arguments
+/// * `input` - Path to the input video file (full source video)
+/// * `output` - Path for the output file
+/// * `task` - Clip task with timing and style information
+/// * `tier` - Detection tier controlling which providers are used
+/// * `encoding` - Encoding configuration (CRF, preset, etc.)
+/// * `cached_analysis` - Optional pre-computed neural analysis from cache
+/// * `progress_callback` - Callback for progress updates
+pub async fn create_tier_aware_intelligent_clip_with_cache<P, F>(
+    input: P,
+    output: P,
+    task: &ClipTask,
+    tier: DetectionTier,
+    encoding: &EncodingConfig,
+    cached_analysis: Option<&vclip_models::SceneNeuralAnalysis>,
     _progress_callback: F,
 ) -> MediaResult<()>
 where
@@ -360,6 +479,7 @@ where
     info!("[PIPELINE] Source: {:?}", input);
     info!("[PIPELINE] Output: {:?}", output);
     info!("[PIPELINE] Tier: {:?}", tier);
+    info!("[PIPELINE] Cached analysis: {}", cached_analysis.is_some());
     info!("[PIPELINE] Encoding: {} crf={}", encoding.codec, encoding.crf);
 
     // Parse timestamps and apply padding
@@ -376,11 +496,14 @@ where
     extract_segment(input, &segment_path, start_secs, duration).await?;
 
     // Step 2: Process with single-pass render (THE ONLY ENCODE)
+    // Pass cached analysis to skip ML inference if available
     info!("[PIPELINE] Step 2/2: Process segment (SINGLE ENCODE)...");
     
     let config = IntelligentCropConfig::default();
     let cropper = TierAwareIntelligentCropper::new(config, tier);
-    let result = cropper.process(segment_path.as_path(), output, encoding).await;
+    let result = cropper
+        .process_with_cached_detections(segment_path.as_path(), output, encoding, cached_analysis)
+        .await;
 
     // Step 3: Cleanup temporary segment file
     if segment_path.exists() {

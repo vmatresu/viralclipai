@@ -113,20 +113,23 @@ impl StyleProcessor for IntelligentProcessor {
 
         logger.log_start(&request.input_path, &request.output_path);
 
+        let has_cache = request.has_cached_analysis();
         info!(
-            "Processing with {} tier (detection: {:?})",
-            tier_name, self.tier
+            "Processing with {} tier (detection: {:?}, cached: {})",
+            tier_name, self.tier, has_cache
         );
 
-        // Use tier-aware intelligent cropper for tier-specific behavior
+        // Use tier-aware intelligent cropper with optional cached neural analysis
         // - Basic: Follows most prominent face (largest × confidence)
         // - SpeakerAware: Full activity tracking with hysteresis
-        let _result = crate::intelligent::create_tier_aware_intelligent_clip(
+        // - With cache: Skips ML inference entirely, uses pre-computed detections
+        let _result = crate::intelligent::create_tier_aware_intelligent_clip_with_cache(
             request.input_path.as_ref(),
             request.output_path.as_ref(),
             &request.task,
             self.tier,
             &request.encoding,
+            request.cached_neural_analysis.as_deref(),
             |_progress| {
                 // Could emit progress updates
             },

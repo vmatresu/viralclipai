@@ -11,6 +11,6 @@ pub mod progress;
 pub mod queue;
 
 pub use error::{QueueError, QueueResult};
-pub use job::{AnalyzeVideoJob, ProcessVideoJob, QueueJob, RenderSceneStyleJob, ReprocessScenesJob};
+pub use job::{AnalyzeVideoJob, DownloadSourceJob, NeuralAnalysisJob, ProcessVideoJob, QueueJob, RenderSceneStyleJob, ReprocessScenesJob};
 pub use progress::{ProgressChannel, ProgressEvent};
 pub use queue::{JobQueue, QueueConfig};

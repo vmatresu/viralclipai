@@ -33,6 +33,9 @@ pub struct ProcessingRequest {
     pub encoding: EncodingConfig,
     pub request_id: String,
     pub user_id: String,
+    /// Optional cached neural analysis for intelligent styles.
+    /// When present, the intelligent cropper will skip ML inference and use these detections.
+    pub cached_neural_analysis: Option<Arc<vclip_models::SceneNeuralAnalysis>>,
 }
 
 impl ProcessingRequest {
@@ -71,7 +74,15 @@ impl ProcessingRequest {
             encoding,
             request_id,
             user_id,
+            cached_neural_analysis: None,
         })
+    }
+
+    /// Set cached neural analysis for this request.
+    /// When set, intelligent styles will skip ML inference and use cached detections.
+    pub fn with_cached_neural_analysis(mut self, analysis: vclip_models::SceneNeuralAnalysis) -> Self {
+        self.cached_neural_analysis = Some(Arc::new(analysis));
+        self
     }
 
     /// Get the style for this request.
@@ -82,6 +93,11 @@ impl ProcessingRequest {
     /// Check if this is an intelligent style requiring face detection.
     pub fn requires_intelligence(&self) -> bool {
         self.task.style.requires_intelligent_crop()
+    }
+
+    /// Check if cached neural analysis is available.
+    pub fn has_cached_analysis(&self) -> bool {
+        self.cached_neural_analysis.is_some()
     }
 }
 

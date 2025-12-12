@@ -4287,6 +4287,7 @@ dependencies = [
  "aws-types",
  "base64 0.22.1",
  "chrono",
+ "flate2",
  "hmac",
  "serde",
  "serde_json",

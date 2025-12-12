@@ -228,6 +228,18 @@ impl<T: ToFirestoreValue> ToFirestoreValue for Vec<T> {
     }
 }
 
+impl<T: ToFirestoreValue> ToFirestoreValue for HashMap<String, T> {
+    fn to_firestore_value(&self) -> Value {
+        Value::MapValue(MapValue {
+            fields: Some(
+                self.iter()
+                    .map(|(k, v)| (k.clone(), v.to_firestore_value()))
+                    .collect(),
+            ),
+        })
+    }
+}
+
 /// Convert Firestore Value to Rust type.
 pub trait FromFirestoreValue: Sized {
     fn from_firestore_value(value: &Value) -> Option<Self>;

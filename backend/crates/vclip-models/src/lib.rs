@@ -16,6 +16,7 @@ pub mod detection_tier;
 pub mod encoding;
 pub mod highlight;
 pub mod job;
+pub mod neural_analysis;
 pub mod plan;
 pub mod share;
 pub mod style;
@@ -30,12 +31,12 @@ pub use detection_tier::DetectionTier;
 pub use encoding::EncodingConfig;
 pub use highlight::{Highlight, HighlightCategory, HighlightsData, VideoHighlights};
 pub use job::{Job, JobId, JobState, JobType};
-pub use plan::{format_bytes, PlanLimits, PlanTier, StorageUsage};
+pub use plan::{format_bytes, PlanLimits, PlanTier, StorageAccounting, StorageUsage};
 pub use plan::{FREE_STORAGE_LIMIT_BYTES, PRO_STORAGE_LIMIT_BYTES, STUDIO_STORAGE_LIMIT_BYTES};
 pub use share::{CreateShareRequest, ShareAccessLevel, ShareConfig, ShareResponse, is_valid_share_slug, MAX_SHARE_EXPIRY_HOURS};
 pub use style::{AspectRatio, CropMode, Style};
 pub use utils::{extract_youtube_id, extract_youtube_id_legacy, YoutubeIdError, YoutubeIdResult};
-pub use video::{VideoId, VideoMetadata, VideoStatus};
+pub use video::{SourceVideoStatus, VideoId, VideoMetadata, VideoStatus};
 pub use ws::{ClipProcessingStep, WsMessage, WsMessageType};
 pub use youtube_url_config::{
     analyze_youtube_url, analyze_youtube_url_json, LiveCaptureMode, LiveHandling, SubtitlePlan,
@@ -44,4 +45,8 @@ pub use youtube_url_config::{
 pub use analysis::{
     AnalysisDraft, AnalysisStatus, AnalysisStatusResponse, DraftScene, ProcessDraftRequest,
     ProcessingEstimate, SceneSelection, StartAnalysisResponse,
+};
+pub use neural_analysis::{
+    BoundingBox, CropperDetection, FaceDetection, FrameAnalysis, SceneNeuralAnalysis,
+    NEURAL_ANALYSIS_VERSION,
 };

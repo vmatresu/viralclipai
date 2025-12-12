@@ -42,7 +42,7 @@ pub async fn reprocess_scenes(
         ctx.firestore.clone(),
         &job.user_id,
     );
-    
+
     let video_highlights = highlights_repo
         .get(&job.video_id)
         .await
@@ -80,8 +80,25 @@ pub async fn reprocess_scenes(
     let work_dir = PathBuf::from(&ctx.config.work_dir).join(job.video_id.as_str());
     tokio::fs::create_dir_all(&work_dir).await?;
 
-    // Download source video
-    let video_file = download_source_video(ctx, job, &work_dir, &video_highlights).await?;
+    // CACHE-FIRST: Check if all raw segments exist in R2 before downloading full source
+    let all_scenes_cached = check_all_raw_segments_cached(ctx, job, &job.scene_ids).await;
+    
+    // Only download full source if any scene is missing from cache
+    let video_file = if all_scenes_cached {
+        info!(
+            video_id = %job.video_id,
+            scenes = ?job.scene_ids,
+            "All raw segments cached in R2, skipping full source download"
+        );
+        // Return a placeholder path - process_selected_scenes will download raw segments directly
+        work_dir.join("source.mp4")
+    } else {
+        info!(
+            video_id = %job.video_id,
+            "Some raw segments not cached, downloading source video..."
+        );
+        download_source_video(ctx, job, &work_dir, &video_highlights).await?
+    };
 
     ctx.progress.progress(&job.job_id, 25).await.ok();
 
@@ -137,7 +154,13 @@ pub async fn reprocess_scenes(
     Ok(())
 }
 
-/// Download source video from R2 or original URL.
+/// Download source video from R2 (cached) or original URL (fallback).
+///
+/// Priority:
+/// 1. Check Firestore for source_video_status == Ready and valid R2 key not expired
+/// 2. Try R2 download from cached source location
+/// 3. Fall back to original video URL
+/// 4. Optionally enqueue a new DownloadSourceJob for future requests
 async fn download_source_video(
     ctx: &EnhancedProcessingContext,
     job: &ReprocessScenesJob,
@@ -152,53 +175,140 @@ async fn download_source_video(
 
     let video_file = work_dir.join("source.mp4");
 
-    // Try to get source video from R2 first
-    let source_key = format!("{}/{}/source.mp4", job.user_id, job.video_id.as_str());
-    match ctx.storage.download_file(&source_key, &video_file).await {
+    // First, check Firestore for cached source video status
+    let video_repo = vclip_firestore::VideoRepository::new(ctx.firestore.clone(), &job.user_id);
+    let use_cached_source = match video_repo.get(&job.video_id).await {
+        Ok(Some(video_meta)) => {
+            // Check if source video is ready and not expired
+            if let (Some(status), Some(ref r2_key), Some(expires_at)) = (
+                video_meta.source_video_status,
+                &video_meta.source_video_r2_key,
+                video_meta.source_video_expires_at,
+            ) {
+                if status == vclip_models::SourceVideoStatus::Ready
+                    && expires_at > chrono::Utc::now()
+                {
+                    info!(
+                        "Using cached source video from R2: {} (expires: {})",
+                        r2_key, expires_at
+                    );
+                    Some(r2_key.clone())
+                } else if status == vclip_models::SourceVideoStatus::Ready {
+                    // Expired - mark as expired and fall back
+                    info!("Cached source video expired at {}, falling back to origin", expires_at);
+                    video_repo.set_source_video_expired(&job.video_id).await.ok();
+                    None
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
+
+    // Try cached R2 source if available
+    if let Some(r2_key) = use_cached_source {
+        match ctx.storage.download_file(&r2_key, &video_file).await {
+            Ok(_) => {
+                info!("Downloaded source video from R2 cache: {}", r2_key);
+                return Ok(video_file);
+            }
+            Err(e) => {
+                info!("Failed to download from cached R2 key {}: {}, falling back to origin", r2_key, e);
+            }
+        }
+    }
+
+    // Try legacy R2 location for backwards compatibility
+    let legacy_source_key = format!("{}/{}/source.mp4", job.user_id, job.video_id.as_str());
+    match ctx.storage.download_file(&legacy_source_key, &video_file).await {
         Ok(_) => {
-            info!("Downloaded source video from R2: {}", source_key);
-            Ok(video_file)
+            info!("Downloaded source video from legacy R2 location: {}", legacy_source_key);
+            return Ok(video_file);
         }
         Err(r2_error) => {
             info!(
                 "Source video not found in R2 ({}), trying original URL from highlights",
                 r2_error
             );
+        }
+    }
 
-            // Fall back to original video URL from highlights data
-            if let Some(ref video_url) = highlights.video_url {
-                ctx.progress
-                    .log(&job.job_id, "Downloading original video from source URL...")
-                    .await
-                    .ok();
+    // Fall back to original video URL from highlights data
+    if let Some(ref video_url) = highlights.video_url {
+        ctx.progress
+            .log(&job.job_id, "Downloading original video from source URL...")
+            .await
+            .ok();
 
-                match download_video(video_url, &video_file).await {
-                    Ok(_) => {
-                        info!("Downloaded source video from original URL: {}", video_url);
-                        Ok(video_file)
-                    }
-                    Err(url_error) => {
-                        let err_msg = format!(
-                            "Source video not found in R2: {}. Failed to download from original URL {}: {}",
-                            r2_error, video_url, url_error
-                        );
-                        ctx.progress.error(&job.job_id, err_msg.clone()).await.ok();
-                        Err(WorkerError::job_failed(&err_msg))
-                    }
-                }
-            } else {
+        match download_video(video_url, &video_file).await {
+            Ok(_) => {
+                info!("Downloaded source video from original URL: {} (fallback path)", video_url);
+
+                // Optionally enqueue a background download for future requests
+                enqueue_background_download(ctx, job, video_url).await;
+
+                return Ok(video_file);
+            }
+            Err(url_error) => {
                 let err_msg = format!(
-                    "Source video not found in R2: {}. No original video URL available in highlights data.",
-                    r2_error
+                    "Failed to download from original URL {}: {}",
+                    video_url, url_error
                 );
                 ctx.progress.error(&job.job_id, err_msg.clone()).await.ok();
-                Err(WorkerError::job_failed(&err_msg))
+                return Err(WorkerError::job_failed(&err_msg));
             }
+        }
+    }
+
+    let err_msg = "No source video available: not in R2 cache and no original URL in highlights data.";
+    ctx.progress.error(&job.job_id, err_msg).await.ok();
+    Err(WorkerError::job_failed(err_msg))
+}
+
+/// Enqueue a background download job for future requests.
+/// This is a fire-and-forget operation - failures are logged but don't fail the main job.
+async fn enqueue_background_download(
+    ctx: &EnhancedProcessingContext,
+    job: &ReprocessScenesJob,
+    video_url: &str,
+) {
+    // Use shared queue client from context (avoids hot-path from_env() calls)
+    let Some(ref queue) = ctx.job_queue else {
+        tracing::debug!("No shared queue client available, skipping background download job");
+        return;
+    };
+
+    // Create a DownloadSourceJob
+    let download_job = vclip_queue::DownloadSourceJob {
+        job_id: vclip_models::JobId::new(),
+        user_id: job.user_id.clone(),
+        video_id: job.video_id.clone(),
+        video_url: video_url.to_string(),
+        created_at: chrono::Utc::now(),
+    };
+
+    // Try to enqueue - failures are not critical
+    match queue.enqueue_download_source(download_job).await {
+        Ok(msg_id) => {
+            info!(
+                "Enqueued background download job for video {} (message: {})",
+                job.video_id, msg_id
+            );
+        }
+        Err(e) => {
+            // Duplicate or other error - not critical
+            tracing::debug!("Failed to enqueue background download (non-critical): {}", e);
         }
     }
 }
 
 /// Process all selected scenes with parallel style processing.
+///
+/// Phase 4: Uses raw segment caching to avoid re-extracting segments
+/// when rendering multiple styles for the same scene.
 async fn process_selected_scenes(
     ctx: &EnhancedProcessingContext,
     job: &ReprocessScenesJob,
@@ -208,6 +318,8 @@ async fn process_selected_scenes(
     highlights: &vclip_models::VideoHighlights,
     total_clips: usize,
 ) -> WorkerResult<u32> {
+    use vclip_media::intelligent::parse_timestamp;
+    
     // Load existing completed clips for skip-on-resume.
     let existing_completed: std::collections::HashSet<String> =
         match vclip_firestore::ClipRepository::new(
@@ -235,12 +347,16 @@ async fn process_selected_scenes(
     let mut scene_ids: Vec<u32> = scene_groups.keys().copied().collect();
     scene_ids.sort();
 
+    // Get work_dir from clips_dir parent
+    let work_dir = clips_dir.parent().unwrap_or(clips_dir);
+
     // Process clips with parallel style processing within each scene
     let mut completed_clips = 0u32;
     let mut processed_count = 0usize;
 
     for scene_id in scene_ids {
         let scene_tasks = scene_groups.get(&scene_id).unwrap();
+        let first_task = scene_tasks[0];
 
         ctx.progress
             .log(
@@ -254,6 +370,81 @@ async fn process_selected_scenes(
             .await
             .ok();
 
+        // Phase 4: Get or create cached raw segment for this scene
+        // This avoids re-extracting the segment for each style
+        let pad_before = first_task.pad_before;
+        let pad_after = first_task.pad_after;
+        
+        let start_secs = parse_timestamp(&first_task.start).unwrap_or(0.0);
+        let end_secs = parse_timestamp(&first_task.end).unwrap_or(30.0);
+        let padded_start = (start_secs - pad_before).max(0.0);
+        let padded_end = end_secs + pad_after;
+        
+        let padded_start_ts = format_timestamp(padded_start);
+        let padded_end_ts = format_timestamp(padded_end);
+
+        let (raw_segment, raw_created) = ctx
+            .raw_cache
+            .get_or_create_with_outcome(
+                &job.user_id,
+                job.video_id.as_str(),
+                scene_id,
+                video_file,
+                &padded_start_ts,
+                &padded_end_ts,
+                work_dir,
+            )
+            .await?;
+
+        // Track storage accounting for newly created raw segments
+        if raw_created {
+            if let Ok(metadata) = tokio::fs::metadata(&raw_segment).await {
+                let file_size = metadata.len();
+                let storage_repo = vclip_firestore::StorageAccountingRepository::new(
+                    ctx.firestore.clone(),
+                    &job.user_id,
+                );
+                if let Err(e) = storage_repo.add_raw_segment(file_size).await {
+                    tracing::warn!(
+                        user_id = %job.user_id,
+                        size_bytes = file_size,
+                        error = %e,
+                        "Failed to update storage accounting for raw segment (non-critical)"
+                    );
+                }
+            }
+        }
+
+        info!(
+            scene_id = scene_id,
+            raw_segment = ?raw_segment,
+            raw_created = raw_created,
+            "Using raw segment for scene processing"
+        );
+
+        // Create modified tasks that use the raw segment (timestamps relative to segment start)
+        let segment_duration = padded_end - padded_start;
+        let modified_tasks: Vec<ClipTask> = scene_tasks
+            .iter()
+            .map(|task| ClipTask {
+                scene_id: task.scene_id,
+                scene_title: task.scene_title.clone(),
+                scene_description: task.scene_description.clone(),
+                // When using raw segment, timestamps are relative to segment start
+                start: "00:00:00".to_string(),
+                end: format_timestamp(segment_duration),
+                style: task.style,
+                crop_mode: task.crop_mode.clone(),
+                target_aspect: task.target_aspect.clone(),
+                priority: task.priority,
+                // Padding already applied in raw extraction
+                pad_before: 0.0,
+                pad_after: 0.0,
+            })
+            .collect();
+
+        let modified_task_refs: Vec<&ClipTask> = modified_tasks.iter().collect();
+
         // Create a temporary ProcessVideoJob for the scene processor
         let temp_job = vclip_queue::ProcessVideoJob {
             job_id: job.job_id.clone(),
@@ -266,15 +457,23 @@ async fn process_selected_scenes(
             custom_prompt: None,
         };
 
-        // Process scene using the shared scene processor
-        let scene_results = clip_pipeline::process_scene(
+        // Process scene using the raw segment instead of full source
+        // Phase 4 fix: set raw_r2_key atomically during clip creation
+        let raw_key = crate::raw_segment_cache::raw_segment_r2_key(
+            &job.user_id,
+            job.video_id.as_str(),
+            scene_id,
+        );
+
+        let scene_results = clip_pipeline::scene::process_scene_with_raw_key(
             ctx,
             &temp_job,
             clips_dir,
-            video_file,
-            scene_tasks,
+            &raw_segment, // Use raw segment instead of full video
+            &modified_task_refs,
             &existing_completed,
             total_clips,
+            Some(raw_key),
         )
         .await?;
 
@@ -290,6 +489,33 @@ async fn process_selected_scenes(
     }
 
     Ok(completed_clips)
+}
+
+/// Format seconds as HH:MM:SS.mmm timestamp for FFmpeg.
+fn format_timestamp(seconds: f64) -> String {
+    let hours = (seconds / 3600.0).floor() as u32;
+    let minutes = ((seconds % 3600.0) / 60.0).floor() as u32;
+    let secs = seconds % 60.0;
+    format!("{:02}:{:02}:{:06.3}", hours, minutes, secs)
+}
+
+/// Check if all raw segments for the given scene IDs are cached in R2.
+///
+/// Returns true only if ALL scenes have cached raw segments.
+async fn check_all_raw_segments_cached(
+    ctx: &EnhancedProcessingContext,
+    job: &ReprocessScenesJob,
+    scene_ids: &[u32],
+) -> bool {
+    use crate::raw_segment_cache::raw_segment_r2_key;
+    
+    for scene_id in scene_ids {
+        let r2_key = raw_segment_r2_key(&job.user_id, job.video_id.as_str(), *scene_id);
+        if !ctx.raw_cache.check_raw_exists(&r2_key).await {
+            return false;
+        }
+    }
+    true
 }
 
 /// Update video clip count in Firestore.

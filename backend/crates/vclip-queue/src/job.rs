@@ -2,7 +2,12 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use vclip_models::{AspectRatio, CropMode, JobId, Style, VideoId};
+use vclip_models::{AspectRatio, CropMode, DetectionTier, JobId, Style, VideoId};
+
+fn default_neural_detection_tier() -> DetectionTier {
+    // Backward compatibility: previously we always computed the highest tier.
+    DetectionTier::SpeakerAware
+}
 
 /// Job to analyze a video and create a draft with scenes.
 ///
@@ -296,6 +301,91 @@ impl RenderSceneStyleJob {
     }
 }
 
+/// Job to download the source video in the background.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DownloadSourceJob {
+    /// Unique job ID
+    pub job_id: JobId,
+    /// User ID
+    pub user_id: String,
+    /// Video ID
+    pub video_id: VideoId,
+    /// Video URL
+    pub video_url: String,
+    /// When the job was created
+    pub created_at: DateTime<Utc>,
+}
+
+impl DownloadSourceJob {
+    /// Generate idempotency key for deduplication.
+    pub fn idempotency_key(&self) -> String {
+        format!("download_source:{}:{}", self.user_id, self.video_id)
+    }
+}
+
+/// Job to compute and cache neural analysis for a scene.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NeuralAnalysisJob {
+    /// Unique job ID
+    pub job_id: JobId,
+    /// User ID
+    pub user_id: String,
+    /// Video ID
+    pub video_id: VideoId,
+    /// Scene ID to analyze
+    pub scene_id: u32,
+    /// Optional R2 key hint for source video
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_hint_r2_key: Option<String>,
+
+    /// Detection tier required for this analysis.
+    ///
+    /// Defaults to SpeakerAware for backward compatibility with older serialized jobs.
+    #[serde(default = "default_neural_detection_tier")]
+    pub detection_tier: DetectionTier,
+    /// When the job was created
+    pub created_at: DateTime<Utc>,
+}
+
+impl NeuralAnalysisJob {
+    /// Create a new neural analysis job.
+    pub fn new(
+        user_id: impl Into<String>,
+        video_id: VideoId,
+        scene_id: u32,
+    ) -> Self {
+        Self {
+            job_id: JobId::new(),
+            user_id: user_id.into(),
+            video_id,
+            scene_id,
+            source_hint_r2_key: None,
+            detection_tier: default_neural_detection_tier(),
+            created_at: Utc::now(),
+        }
+    }
+
+    /// Set detection tier.
+    pub fn with_detection_tier(mut self, tier: DetectionTier) -> Self {
+        self.detection_tier = tier;
+        self
+    }
+
+    /// Set source video R2 key hint.
+    pub fn with_source_hint(mut self, key: impl Into<String>) -> Self {
+        self.source_hint_r2_key = Some(key.into());
+        self
+    }
+
+    /// Generate idempotency key for deduplication.
+    pub fn idempotency_key(&self) -> String {
+        format!(
+            "neural:{}:{}:{}:{}",
+            self.user_id, self.video_id, self.scene_id, self.detection_tier
+        )
+    }
+}
+
 /// Generic job wrapper for queue storage.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -304,6 +394,10 @@ pub enum QueueJob {
     AnalyzeVideo(AnalyzeVideoJob),
     /// Orchestration job: analyze video and fan out render jobs (legacy, being phased out)
     ProcessVideo(ProcessVideoJob),
+    /// Background job: download source video
+    DownloadSource(DownloadSourceJob),
+    /// Background job: compute neural analysis for a scene
+    NeuralAnalysis(NeuralAnalysisJob),
     /// Orchestration job: load highlights and fan out render jobs for selected scenes
     ReprocessScenes(ReprocessScenesJob),
     /// Fine-grained job: render a single (scene, style) clip
@@ -315,6 +409,8 @@ impl QueueJob {
         match self {
             QueueJob::AnalyzeVideo(j) => &j.job_id,
             QueueJob::ProcessVideo(j) => &j.job_id,
+            QueueJob::DownloadSource(j) => &j.job_id,
+            QueueJob::NeuralAnalysis(j) => &j.job_id,
             QueueJob::ReprocessScenes(j) => &j.job_id,
             QueueJob::RenderSceneStyle(j) => &j.job_id,
         }
@@ -324,6 +420,8 @@ impl QueueJob {
         match self {
             QueueJob::AnalyzeVideo(j) => &j.user_id,
             QueueJob::ProcessVideo(j) => &j.user_id,
+            QueueJob::DownloadSource(j) => &j.user_id,
+            QueueJob::NeuralAnalysis(j) => &j.user_id,
             QueueJob::ReprocessScenes(j) => &j.user_id,
             QueueJob::RenderSceneStyle(j) => &j.user_id,
         }
@@ -335,6 +433,8 @@ impl QueueJob {
         match self {
             QueueJob::AnalyzeVideo(_) => None,
             QueueJob::ProcessVideo(j) => Some(&j.video_id),
+            QueueJob::DownloadSource(j) => Some(&j.video_id),
+            QueueJob::NeuralAnalysis(j) => Some(&j.video_id),
             QueueJob::ReprocessScenes(j) => Some(&j.video_id),
             QueueJob::RenderSceneStyle(j) => Some(&j.video_id),
         }
@@ -352,6 +452,8 @@ impl QueueJob {
         match self {
             QueueJob::AnalyzeVideo(j) => j.idempotency_key(),
             QueueJob::ProcessVideo(j) => j.idempotency_key(),
+            QueueJob::DownloadSource(j) => j.idempotency_key(),
+            QueueJob::NeuralAnalysis(j) => j.idempotency_key(),
             QueueJob::ReprocessScenes(j) => j.idempotency_key(),
             QueueJob::RenderSceneStyle(j) => j.idempotency_key(),
         }
@@ -373,3 +475,33 @@ impl QueueJob {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn queue_job_download_source_serde_roundtrip() {
+        let job = DownloadSourceJob {
+            job_id: JobId::new(),
+            user_id: "user_1".to_string(),
+            video_id: VideoId::new(),
+            video_url: "https://example.com/video".to_string(),
+            created_at: Utc::now(),
+        };
+
+        let wrapper = QueueJob::DownloadSource(job.clone());
+        let json = serde_json::to_string(&wrapper).expect("serialize QueueJob");
+        let decoded: QueueJob = serde_json::from_str(&json).expect("deserialize QueueJob");
+
+        match decoded {
+            QueueJob::DownloadSource(j) => {
+                assert_eq!(j.job_id, job.job_id);
+                assert_eq!(j.user_id, job.user_id);
+                assert_eq!(j.video_id, job.video_id);
+                assert_eq!(j.video_url, job.video_url);
+                assert_eq!(j.created_at, job.created_at);
+            }
+            other => panic!("unexpected variant: {other:?}"),
+        }
+    }
+}

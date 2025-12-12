@@ -1,17 +1,17 @@
-use std::collections::HashMap;
 use std::path::Path;
 
-use chrono::Utc;
-use tracing::{debug, info, warn};
-use vclip_firestore::{ClipRepository, FromFirestoreValue, ToFirestoreValue};
+use tracing::{debug, info};
+use vclip_firestore::{ClipRepository, FromFirestoreValue, StorageAccountingRepository};
 use vclip_media::core::{ProcessingContext as MediaProcessingContext, ProcessingRequest};
 use vclip_media::intelligent::parse_timestamp;
 use vclip_models::{
-    ClipMetadata, ClipProcessingStep, ClipTask, EncodingConfig, JobId, Style, VideoId,
+    ClipMetadata, ClipProcessingStep, ClipTask, EncodingConfig, JobId, PlanTier, Style, VideoId,
 };
 
 use crate::error::{WorkerError, WorkerResult};
 use crate::processor::EnhancedProcessingContext;
+
+const ESTIMATED_CLIP_SIZE_BYTES: u64 = 50 * 1024 * 1024;
 
 /// Deterministic clip id for a scene/style of a video.
 pub fn clip_id(video_id: &VideoId, task: &ClipTask) -> String {
@@ -47,6 +47,9 @@ pub(super) fn compute_padded_timing(task: &ClipTask) -> (f64, f64, f64) {
 }
 
 /// Process a single clip task with full error handling and progress reporting.
+///
+/// # Arguments
+/// * `raw_r2_key` - Optional pre-known raw segment R2 key for atomic clip creation
 pub async fn process_single_clip(
     ctx: &EnhancedProcessingContext,
     job_id: &JobId,
@@ -58,6 +61,40 @@ pub async fn process_single_clip(
     clip_index: usize,
     total_clips: usize,
 ) -> WorkerResult<()> {
+    process_single_clip_with_raw_key(
+        ctx,
+        job_id,
+        video_id,
+        user_id,
+        video_file,
+        clips_dir,
+        task,
+        clip_index,
+        total_clips,
+        None, // No pre-known raw key
+    )
+    .await
+}
+
+/// Process a single clip task with optional pre-known raw_r2_key.
+///
+/// This variant allows setting raw_r2_key atomically during clip creation,
+/// avoiding the consistency gap where clips exist without raw linkage.
+pub async fn process_single_clip_with_raw_key(
+    ctx: &EnhancedProcessingContext,
+    job_id: &JobId,
+    video_id: &VideoId,
+    user_id: &str,
+    video_file: &Path,
+    clips_dir: &Path,
+    task: &ClipTask,
+    clip_index: usize,
+    total_clips: usize,
+    raw_r2_key: Option<String>,
+) -> WorkerResult<()> {
+    // Phase 5: Enforce quota BEFORE processing (fail fast)
+    enforce_quota(ctx, user_id).await?;
+
     let scene_id = task.scene_id;
     let style_name = task.style.to_string();
     let filename = task.output_filename();
@@ -117,7 +154,7 @@ pub async fn process_single_clip(
     );
 
     // Create processing request with error context
-    let request = ProcessingRequest::new(
+    let mut request = ProcessingRequest::new(
         task.clone(),
         video_file,
         &output_path,
@@ -135,6 +172,42 @@ pub async fn process_single_clip(
         e
     })?;
 
+    // Phase 3: Fetch cached neural analysis for intelligent styles
+    // This allows skipping expensive ML inference when cache is available
+    if task.style.requires_face_detection() {
+        let required_tier = task.style.detection_tier();
+        match ctx
+            .neural_cache
+            .get_cached_for_tier(user_id, video_id.as_str(), scene_id, required_tier)
+            .await
+        {
+            Ok(Some(analysis)) => {
+                info!(
+                    scene_id = scene_id,
+                    style = %style_name,
+                    frames = analysis.frames.len(),
+                    "Using cached neural analysis (SKIPPING ML inference)"
+                );
+                request = request.with_cached_neural_analysis(analysis);
+            }
+            Ok(None) => {
+                debug!(
+                    scene_id = scene_id,
+                    style = %style_name,
+                    "No cached neural analysis available, will run ML inference"
+                );
+            }
+            Err(e) => {
+                debug!(
+                    scene_id = scene_id,
+                    style = %style_name,
+                    error = %e,
+                    "Failed to check neural cache (will run ML inference)"
+                );
+            }
+        }
+    }
+
     // Create processing context (dependency injection pattern)
     let proc_ctx = MediaProcessingContext::new(
         request.request_id.clone(),
@@ -148,7 +221,7 @@ pub async fn process_single_clip(
     // Stage 2: Rendering
     emit_progress!(
         ClipProcessingStep::Rendering,
-        Some(format!("Style: {}", style_name))
+        Some(format!("Style: {} (cached: {})", style_name, request.has_cached_analysis()))
     );
 
     // Get style processor and process (strategy pattern)
@@ -275,6 +348,7 @@ pub async fn process_single_clip(
     emit_progress!(ClipProcessingStep::Complete, None);
 
     // Create clip metadata with all processing results
+    // Phase 4 fix: Set raw_r2_key atomically during creation when available
     let clip_meta = ClipMetadata {
         clip_id: format!("{}_{}_{}", video_id, task.scene_id, task.style),
         video_id: video_id.clone(),
@@ -293,6 +367,7 @@ pub async fn process_single_clip(
         has_thumbnail: result.thumbnail_path.is_some(),
         r2_key,
         thumbnail_r2_key: thumb_key,
+        raw_r2_key, // Set atomically during creation when provided
         status: vclip_models::ClipStatus::Completed,
         created_at: chrono::Utc::now(),
         completed_at: Some(chrono::Utc::now()),
@@ -328,99 +403,24 @@ pub async fn process_single_clip(
         );
     }
 
-    // Update user's total storage (fire and forget) using optimistic concurrency to avoid lost updates.
-    let firestore = ctx.firestore.clone();
-    let uid = user_id.to_string();
-    let clip_size = result.file_size_bytes;
-    let _ = tokio::spawn(async move {
-        const MAX_ATTEMPTS: u8 = 5;
-        let mut attempt: u8 = 0;
+    // Phase 5: Update storage accounting (billable styled clip)
+    // StorageAccounting is the CANONICAL source of truth for quota tracking
+    let storage_repo = vclip_firestore::StorageAccountingRepository::new(
+        ctx.firestore.clone(),
+        user_id,
+    );
+    if let Err(e) = storage_repo.add_styled_clip(result.file_size_bytes).await {
+        tracing::warn!(
+            user_id = %user_id,
+            size_bytes = result.file_size_bytes,
+            error = %e,
+            "Failed to update storage accounting for styled clip (non-critical)"
+        );
+    }
 
-        loop {
-            attempt += 1;
-            match firestore.get_document("users", &uid).await {
-                Ok(Some(doc)) => {
-                    let update_time = doc.update_time.clone();
-                    let fields = doc.fields.unwrap_or_default();
-                    let current_bytes = fields
-                        .get("total_storage_bytes")
-                        .and_then(|v| u64::from_firestore_value(v))
-                        .unwrap_or(0);
-                    let current_clips = fields
-                        .get("total_clips_count")
-                        .and_then(|v| u32::from_firestore_value(v))
-                        .unwrap_or(0);
-
-                    let mut update_fields = HashMap::new();
-                    update_fields.insert(
-                        "total_storage_bytes".to_string(),
-                        current_bytes.saturating_add(clip_size).to_firestore_value(),
-                    );
-                    update_fields.insert(
-                        "total_clips_count".to_string(),
-                        current_clips.saturating_add(1).to_firestore_value(),
-                    );
-                    update_fields.insert("updated_at".to_string(), Utc::now().to_firestore_value());
-
-                    let update_mask = vec![
-                        "total_storage_bytes".to_string(),
-                        "total_clips_count".to_string(),
-                        "updated_at".to_string(),
-                    ];
-
-                    match firestore
-                        .update_document_with_precondition(
-                            "users",
-                            &uid,
-                            update_fields,
-                            Some(update_mask),
-                            update_time.as_deref(),
-                        )
-                        .await
-                    {
-                        Ok(_) => break,
-                        Err(e)
-                            if e.is_precondition_failed() && attempt < MAX_ATTEMPTS =>
-                        {
-                            debug!(
-                                user_id = %uid,
-                                attempt,
-                                "Concurrent storage update detected, retrying"
-                            );
-                            continue;
-                        }
-                        Err(e) => {
-                            warn!(
-                                user_id = %uid,
-                                size_bytes = clip_size,
-                                error = %e,
-                                attempt,
-                                "Failed to update user storage totals after clip creation"
-                            );
-                            break;
-                        }
-                    }
-                }
-                Ok(None) => {
-                    warn!(
-                        user_id = %uid,
-                        size_bytes = clip_size,
-                        "User not found when updating storage totals after clip creation"
-                    );
-                    break;
-                }
-                Err(e) => {
-                    warn!(
-                        user_id = %uid,
-                        size_bytes = clip_size,
-                        error = %e,
-                        "Failed to fetch user for storage update after clip creation"
-                    );
-                    break;
-                }
-            }
-        }
-    });
+    // NOTE: Legacy users.total_storage_bytes and users.total_clips_count updates removed.
+    // StorageAccounting ({storage_accounting}/{user_id}) is now the canonical source.
+    // See Phase 5 quota tracking documentation.
 
     // Structured success log
     info!(
@@ -433,4 +433,40 @@ pub async fn process_single_clip(
     );
 
     Ok(())
+}
+
+async fn enforce_quota(ctx: &EnhancedProcessingContext, user_id: &str) -> WorkerResult<()> {
+    let mut tier = PlanTier::Free;
+
+    if let Ok(Some(doc)) = ctx.firestore.get_document("users", user_id).await {
+        if let Some(fields) = doc.fields {
+            let plan = fields
+                .get("plan_tier")
+                .and_then(|v| String::from_firestore_value(v))
+                .or_else(|| fields.get("plan").and_then(|v| String::from_firestore_value(v)));
+
+            if let Some(plan) = plan {
+                tier = PlanTier::from_str(&plan);
+            }
+        }
+    }
+
+    let limit_bytes = tier.storage_limit_bytes();
+    let repo = StorageAccountingRepository::new(ctx.firestore.clone(), user_id);
+    match repo
+        .would_exceed_quota(ESTIMATED_CLIP_SIZE_BYTES, limit_bytes)
+        .await
+    {
+        Ok(true) => Err(WorkerError::quota_exceeded(format!(
+            "Storage quota exceeded (plan: {}, limit_bytes: {}, estimated_clip_bytes: {})",
+            tier.as_str(),
+            limit_bytes,
+            ESTIMATED_CLIP_SIZE_BYTES
+        ))),
+        Ok(false) => Ok(()),
+        Err(e) => {
+            tracing::warn!(user_id = %user_id, error = %e, "Failed to enforce quota (allowing clip)");
+            Ok(())
+        }
+    }
 }

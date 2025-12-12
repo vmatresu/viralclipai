@@ -89,6 +89,11 @@ pub struct ClipMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thumbnail_r2_key: Option<String>,
 
+    /// R2 key for the raw (unstyled) segment before styling is applied.
+    /// Multiple styled clips for the same scene can reference the same raw segment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_r2_key: Option<String>,
+
     /// Processing status
     #[serde(default)]
     pub status: ClipStatus,
