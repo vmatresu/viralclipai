@@ -300,7 +300,7 @@ impl VideoProcessor {
         job: &ProcessVideoJob,
     ) -> WorkerResult<TranscriptData> {
         ctx.progress
-            .log(&job.job_id, "Fetching video transcript...")
+            .log(&job.job_id, "Fetching video information...")
             .await
             .ok();
 
