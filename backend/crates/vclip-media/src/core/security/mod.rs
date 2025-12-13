@@ -216,7 +216,7 @@ impl SecurityContext {
 
             // For non-filter arguments, check for dangerous shell metacharacters
             // Note: `:` is allowed as it's common in timestamps and codec options
-            let dangerous_chars = ['&', '|', '`', '$', '<', '>', '\n', '\r'];
+            let dangerous_chars = [';', '&', '|', '`', '$', '<', '>', '\n', '\r'];
             if arg.chars().any(|c| dangerous_chars.contains(&c)) {
                 return Err(MediaError::SecurityViolation(
                     format!("Dangerous character in argument: {}", arg)

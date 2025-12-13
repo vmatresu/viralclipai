@@ -41,8 +41,14 @@ pub async fn render_speaker_split(
     let center_x = width as f64 / 2.0;
 
     // Width tuned to keep single speaker per panel
-    let crop_width_left = left_box.width.min(width as f64 * 0.55).max(width as f64 * 0.25);
-    let crop_width_right = right_box.width.min(width as f64 * 0.55).max(width as f64 * 0.25);
+    let crop_width_left = left_box
+        .width
+        .min(width as f64 * 0.55)
+        .max(width as f64 * 0.25);
+    let crop_width_right = right_box
+        .width
+        .min(width as f64 * 0.55)
+        .max(width as f64 * 0.25);
 
     let left_cx = left_box.cx();
     let right_cx = right_box.cx();
@@ -94,19 +100,53 @@ pub async fn render_speaker_split(
         crop_width_right_u32, tile_height_right_u32, right_crop_x, right_crop_y
     );
 
+    // Adjust crop dimensions to exactly match 9:8 panel aspect ratio (zoom to fill)
+    let panel_ratio = SPLIT_PANEL_WIDTH as f64 / SPLIT_PANEL_HEIGHT as f64; // 9:8 = 1.125
+
+    // Left panel: adjust to 9:8
+    let left_source_ratio = crop_width_left_u32 as f64 / tile_height_left_u32 as f64;
+    let (final_left_w, final_left_h, left_x_adj, left_y_adj) = if left_source_ratio > panel_ratio {
+        // Source is wider - crop width
+        let h = tile_height_left_u32;
+        let w = (h as f64 * panel_ratio).round() as i32;
+        let x_adj = (crop_width_left_u32 as i32 - w) / 2;
+        (w, h as i32, x_adj, 0)
+    } else {
+        // Source is taller - crop height
+        let w = crop_width_left_u32;
+        let h = (w as f64 / panel_ratio).round() as i32;
+        let y_adj = (tile_height_left_u32 as i32 - h) / 2;
+        (w as i32, h, 0, y_adj)
+    };
+
+    // Right panel: adjust to 9:8
+    let right_source_ratio = crop_width_right_u32 as f64 / tile_height_right_u32 as f64;
+    let (final_right_w, final_right_h, right_x_adj, right_y_adj) =
+        if right_source_ratio > panel_ratio {
+            let h = tile_height_right_u32;
+            let w = (h as f64 * panel_ratio).round() as i32;
+            let x_adj = (crop_width_right_u32 as i32 - w) / 2;
+            (w, h as i32, x_adj, 0)
+        } else {
+            let w = crop_width_right_u32;
+            let h = (w as f64 / panel_ratio).round() as i32;
+            let y_adj = (tile_height_right_u32 as i32 - h) / 2;
+            (w as i32, h, 0, y_adj)
+        };
+
     let filter_complex = format!(
         "[0:v]split=2[left_in][right_in];\
-         [left_in]crop={lw}:{lth}:{lx}:{ly},scale={pw}:{ph}:flags=lanczos:force_original_aspect_ratio=decrease,pad={pw}:{ph}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[top];\
-         [right_in]crop={rw}:{rth}:{rx}:{ry},scale={pw}:{ph}:flags=lanczos:force_original_aspect_ratio=decrease,pad={pw}:{ph}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[bottom];\
+         [left_in]crop={lw}:{lth}:{lx}:{ly},scale={pw}:{ph}:flags=lanczos,setsar=1,format=yuv420p[top];\
+         [right_in]crop={rw}:{rth}:{rx}:{ry},scale={pw}:{ph}:flags=lanczos,setsar=1,format=yuv420p[bottom];\
          [top][bottom]vstack=inputs=2[vout]",
-        lw = crop_width_left_u32,
-        lx = left_crop_x,
-        lth = tile_height_left_u32,
-        ly = left_crop_y,
-        rw = crop_width_right_u32,
-        rx = right_crop_x,
-        rth = tile_height_right_u32,
-        ry = right_crop_y,
+        lw = final_left_w,
+        lx = left_crop_x + left_x_adj,
+        lth = final_left_h,
+        ly = left_crop_y + left_y_adj,
+        rw = final_right_w,
+        rx = right_crop_x + right_x_adj,
+        rth = final_right_h,
+        ry = right_crop_y + right_y_adj,
         pw = SPLIT_PANEL_WIDTH,
         ph = SPLIT_PANEL_HEIGHT,
     );
@@ -144,7 +184,9 @@ pub async fn render_standard_split(
         super::config::IntelligentCropConfig::default(),
     );
     renderer
-        .render_split(segment, output, width, height, left_bias, right_bias, encoding)
+        .render_split(
+            segment, output, width, height, left_bias, right_bias, encoding,
+        )
         .await
 }
 

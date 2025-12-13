@@ -12,18 +12,12 @@
 //!
 //! ## Intelligent Styles (see `intelligent` module)
 //! - `create_intelligent_clip()` - Face tracking on full frame
-//! - `create_intelligent_split_clip()` - Face detection with smart layout
+//! - `create_tier_aware_split_clip_with_cache()` - Face detection with smart layout
 //!
 //! ## Style Routing Pattern
 //!
-//! **Caller Responsibility**: The processor must route to the correct function:
-//! ```rust,ignore
-//! match task.style {
-//!     Style::Intelligent => create_intelligent_clip(...),
-//!     Style::IntelligentSplit => create_intelligent_split_clip(...),
-//!     _ => create_clip(...),
-//! }
-//! ```
+//! **Note**: Style routing is now handled by the `StyleProcessorFactory` in `styles/mod.rs`.
+//! Direct function calls are deprecated in favor of the processor pattern.
 
 use std::path::Path;
 use tracing::info;
@@ -138,8 +132,8 @@ pub async fn extract_segment<P: AsRef<Path>>(
 /// - `RightFocus`: Right half expanded to portrait
 ///
 /// # Not Supported
-/// - `Intelligent`: Use `create_intelligent_clip()` instead (TODO)
-/// - `IntelligentSplit`: Use `create_intelligent_split_clip()` instead
+/// - `Intelligent`: Use `create_intelligent_clip()` instead
+/// - `IntelligentSplit`: Use `create_tier_aware_split_clip_with_cache()` instead
 ///
 /// # Errors
 /// Returns error if called with `Intelligent`, `IntelligentSplit` style or `Intelligent` crop mode.
@@ -191,7 +185,7 @@ where
         // Intelligent split uses special processing - should be handled by caller
         (Style::IntelligentSplit, _) => {
             return Err(MediaError::UnsupportedFormat(
-                "IntelligentSplit must be processed using create_intelligent_split_clip - this is a caller error".to_string(),
+                "IntelligentSplit must be processed using create_tier_aware_split_clip_with_cache - this is a caller error".to_string(),
             ));
         }
 

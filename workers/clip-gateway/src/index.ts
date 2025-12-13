@@ -63,7 +63,7 @@ export default {
 async function handleVideo(
   request: Request,
   env: Env,
-  ctx: ExecutionContext,
+  _ctx: ExecutionContext,
   clipId: string
 ): Promise<Response> {
   const url = new URL(request.url);
@@ -158,7 +158,7 @@ async function handleVideo(
 async function handleThumbnail(
   request: Request,
   env: Env,
-  ctx: ExecutionContext,
+  _ctx: ExecutionContext,
   clipId: string
 ): Promise<Response> {
   const url = new URL(request.url);
@@ -243,8 +243,15 @@ function resolveR2Key(token: DeliveryToken, thumbnail = false): string | null {
     return null;
   }
 
-  // For thumbnails, derive the thumbnail key from the video key
+  // For thumbnails with scope "thumb", the backend already provides the correct
+  // thumbnail R2 key directly in the token. Only derive the key for legacy tokens
+  // or when the scope is "play" (video playback that also needs thumbnail).
   if (thumbnail) {
+    // If scope is "thumb", the r2_key IS the thumbnail key (backend provides it directly)
+    if (token.scope === "thumb") {
+      return token.r2_key;
+    }
+    // For "play" scope tokens requesting thumbnail, derive from video key
     // Strip any extension (handles .mp4, .mov, .mkv, etc.) and append _thumb.jpg
     // e.g., users/uid/video/clips/clip.mp4 -> users/uid/video/clips/clip_thumb.jpg
     // e.g., users/uid/video/clips/clip.MOV -> users/uid/video/clips/clip_thumb.jpg

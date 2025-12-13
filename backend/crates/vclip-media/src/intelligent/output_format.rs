@@ -42,18 +42,17 @@ pub fn portrait_scale_filter() -> String {
 
 /// Builds an FFmpeg scale filter for split-view panels (1080×960 each).
 ///
-/// Uses force_original_aspect_ratio=decrease to avoid stretching,
-/// then pads to exact dimensions with centered content.
+/// Uses direct scaling since the crop region is computed with exact 9:8 aspect ratio
+/// (zoom-to-fill), eliminating the need for padding.
 ///
 /// # Example Output  
 /// ```text
-/// scale=1080:960:flags=lanczos:force_original_aspect_ratio=decrease,pad=1080:960:(ow-iw)/2:(oh-ih)/2,setsar=1
+/// scale=1080:960:flags=lanczos,setsar=1
 /// ```
 #[inline]
 pub fn split_panel_scale_filter() -> String {
     format!(
-        "scale={}:{}:flags=lanczos:force_original_aspect_ratio=decrease,pad={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1",
-        SPLIT_PANEL_WIDTH, SPLIT_PANEL_HEIGHT,
+        "scale={}:{}:flags=lanczos,setsar=1",
         SPLIT_PANEL_WIDTH, SPLIT_PANEL_HEIGHT
     )
 }
@@ -82,11 +81,11 @@ pub fn clamp_crop_to_frame(
     // Ensure even dimensions
     let w = make_even(width.min(frame_width as i32));
     let h = make_even(height.min(frame_height as i32));
-    
+
     // Clamp position to keep crop within frame
     let x = x.max(0).min((frame_width as i32) - w);
     let y = y.max(0).min((frame_height as i32) - h);
-    
+
     (x.max(0), y.max(0), w.max(2), h.max(2))
 }
 
@@ -160,7 +159,8 @@ mod tests {
     fn test_split_panel_scale_filter() {
         let filter = split_panel_scale_filter();
         assert!(filter.contains("scale=1080:960"));
-        assert!(filter.contains("pad=1080:960"));
         assert!(filter.contains("setsar=1"));
+        // No padding - zoom-to-fill ensures exact aspect ratio
+        assert!(!filter.contains("pad="));
     }
 }

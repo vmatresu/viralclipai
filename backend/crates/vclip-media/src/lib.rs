@@ -41,7 +41,10 @@ pub use clip::{create_clip, extract_segment};
 pub use command::{FfmpegCommand, FfmpegRunner};
 pub use download::{download_video, is_supported_url};
 pub use error::{MediaError, MediaResult};
-pub use intelligent::{create_intelligent_clip, create_intelligent_split_clip};
+pub use intelligent::create_intelligent_clip;
+// Note: create_intelligent_split_clip is deprecated - use create_tier_aware_split_clip_with_cache instead
+#[deprecated(since = "0.1.0", note = "Use create_tier_aware_split_clip_with_cache from intelligent module instead")]
+pub use intelligent::create_intelligent_split_clip;
 pub use probe::{probe_video, VideoInfo};
 pub use progress::{FfmpegProgress, ProgressCallback};
 pub use thumbnail::generate_thumbnail;

@@ -27,7 +27,7 @@
 //! ```ignore
 //! // Before processing styles for a scene, ensure analysis is cached
 //! let analysis_service = SceneAnalysisService::new(ctx);
-//! 
+//!
 //! // This runs detection ONCE if not cached, or returns immediately if cached
 //! analysis_service.ensure_analysis_cached(
 //!     user_id,
@@ -96,31 +96,25 @@ impl<'a> SceneAnalysisService<'a> {
     ) -> WorkerResult<SceneNeuralAnalysis> {
         // Use get_or_compute which handles locking and caching atomically
         let video_path = video_path.to_path_buf();
-        
+
         let (analysis, stored_bytes) = self
             .ctx
             .neural_cache
-            .get_or_compute(
-                user_id,
-                video_id,
-                scene_id,
-                required_tier,
-                || {
-                    let video_path = video_path.clone();
-                    async move {
-                        run_detection(
-                            &video_path,
-                            user_id,
-                            video_id,
-                            scene_id,
-                            start_time,
-                            end_time,
-                            required_tier,
-                        )
-                        .await
-                    }
-                },
-            )
+            .get_or_compute(user_id, video_id, scene_id, required_tier, || {
+                let video_path = video_path.clone();
+                async move {
+                    run_detection(
+                        &video_path,
+                        user_id,
+                        video_id,
+                        scene_id,
+                        start_time,
+                        end_time,
+                        required_tier,
+                    )
+                    .await
+                }
+            })
             .await?;
 
         // Track storage accounting if we stored new data
@@ -176,6 +170,57 @@ impl<'a> SceneAnalysisService<'a> {
     pub fn any_style_uses_cache(styles: &[vclip_models::Style]) -> bool {
         styles.iter().any(|s| s.can_use_cached_analysis())
     }
+
+    /// Determine if split layout is appropriate for this scene.
+    ///
+    /// Split is appropriate when:
+    /// - At least 2 distinct face tracks are detected
+    /// - Faces appear simultaneously for at least 3 seconds
+    ///
+    /// When split is NOT appropriate, the split style would fall back to
+    /// full-frame rendering, producing identical output to the non-split style.
+    pub fn is_split_appropriate(analysis: &SceneNeuralAnalysis) -> bool {
+        const MIN_SIMULTANEOUS_SECONDS: f64 = 3.0;
+
+        if analysis.frames.is_empty() {
+            return false;
+        }
+
+        // Estimate sample interval from frame count and typical duration
+        let duration = analysis
+            .frames
+            .last()
+            .map(|f| f.time)
+            .unwrap_or(0.0)
+            .max(1.0);
+        let sample_interval = duration / analysis.frames.len().max(1) as f64;
+
+        let mut simultaneous_time = 0.0;
+        let mut distinct_tracks = std::collections::HashSet::new();
+
+        for frame in &analysis.frames {
+            if frame.faces.len() >= 2 {
+                simultaneous_time += sample_interval;
+            }
+            for face in &frame.faces {
+                if let Some(track_id) = face.track_id {
+                    distinct_tracks.insert(track_id);
+                }
+            }
+        }
+
+        let should_split =
+            distinct_tracks.len() >= 2 && simultaneous_time >= MIN_SIMULTANEOUS_SECONDS;
+
+        tracing::debug!(
+            distinct_tracks = distinct_tracks.len(),
+            simultaneous_time = simultaneous_time,
+            should_split = should_split,
+            "Split appropriateness check"
+        );
+
+        should_split
+    }
 }
 
 /// Run detection pipeline and convert results to SceneNeuralAnalysis.
@@ -206,7 +251,9 @@ async fn run_detection(
 
     let pipeline = PipelineBuilder::for_tier(detection_tier)
         .build()
-        .map_err(|e| WorkerError::job_failed(format!("Failed to build detection pipeline: {}", e)))?;
+        .map_err(|e| {
+            WorkerError::job_failed(format!("Failed to build detection pipeline: {}", e))
+        })?;
 
     match pipeline.analyze(video_path, start_time, end_time).await {
         Ok(result) => {
@@ -272,7 +319,7 @@ async fn run_detection(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vclip_models::Style;
+    use vclip_models::{FaceDetection, Style};
 
     #[test]
     fn test_highest_required_tier() {
@@ -308,10 +355,80 @@ mod tests {
     fn test_any_style_uses_cache() {
         assert!(!SceneAnalysisService::any_style_uses_cache(&[]));
         assert!(!SceneAnalysisService::any_style_uses_cache(&[Style::Split]));
-        assert!(SceneAnalysisService::any_style_uses_cache(&[Style::Intelligent]));
+        assert!(SceneAnalysisService::any_style_uses_cache(&[
+            Style::Intelligent
+        ]));
         assert!(SceneAnalysisService::any_style_uses_cache(&[
             Style::Split,
             Style::IntelligentSpeaker
         ]));
+    }
+
+    fn create_test_face(track_id: u32) -> FaceDetection {
+        use vclip_models::BoundingBox;
+        FaceDetection::new(
+            BoundingBox::from_pixels(100.0, 100.0, 50.0, 50.0, 1920.0, 1080.0),
+            0.9,
+        )
+        .with_track_id(track_id)
+    }
+
+    #[test]
+    fn test_is_split_appropriate_empty_analysis() {
+        let analysis = SceneNeuralAnalysis::new("test", 1);
+        assert!(!SceneAnalysisService::is_split_appropriate(&analysis));
+    }
+
+    #[test]
+    fn test_is_split_appropriate_single_face() {
+        let mut analysis = SceneNeuralAnalysis::new("test", 1);
+        for i in 0..10 {
+            let mut frame = FrameAnalysis::new(i as f64 * 0.5);
+            frame.add_face(create_test_face(1));
+            analysis.add_frame(frame);
+        }
+        // Single face track - should NOT split
+        assert!(!SceneAnalysisService::is_split_appropriate(&analysis));
+    }
+
+    #[test]
+    fn test_is_split_appropriate_alternating_faces() {
+        let mut analysis = SceneNeuralAnalysis::new("test", 1);
+        for i in 0..10 {
+            let mut frame = FrameAnalysis::new(i as f64 * 0.5);
+            // Alternating faces - never simultaneous
+            frame.add_face(create_test_face(if i % 2 == 0 { 1 } else { 2 }));
+            analysis.add_frame(frame);
+        }
+        // Alternating faces - should NOT split (no simultaneous presence)
+        assert!(!SceneAnalysisService::is_split_appropriate(&analysis));
+    }
+
+    #[test]
+    fn test_is_split_appropriate_simultaneous_faces() {
+        let mut analysis = SceneNeuralAnalysis::new("test", 1);
+        // 10 frames at 0.5s intervals = 5 seconds of simultaneous faces
+        for i in 0..10 {
+            let mut frame = FrameAnalysis::new(i as f64 * 0.5);
+            frame.add_face(create_test_face(1));
+            frame.add_face(create_test_face(2));
+            analysis.add_frame(frame);
+        }
+        // Two faces simultaneously for 5 seconds - SHOULD split
+        assert!(SceneAnalysisService::is_split_appropriate(&analysis));
+    }
+
+    #[test]
+    fn test_is_split_appropriate_brief_simultaneous() {
+        let mut analysis = SceneNeuralAnalysis::new("test", 1);
+        // Only 2 seconds of simultaneous faces (below 3s threshold)
+        for i in 0..4 {
+            let mut frame = FrameAnalysis::new(i as f64 * 0.5);
+            frame.add_face(create_test_face(1));
+            frame.add_face(create_test_face(2));
+            analysis.add_frame(frame);
+        }
+        // Brief simultaneous presence - should NOT split
+        assert!(!SceneAnalysisService::is_split_appropriate(&analysis));
     }
 }

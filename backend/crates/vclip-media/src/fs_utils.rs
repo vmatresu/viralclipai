@@ -34,6 +34,13 @@ pub async fn move_file(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> MediaRes
     let src = src.as_ref();
     let dst = dst.as_ref();
 
+    // Create parent directory if needed before attempting rename
+    if let Some(parent) = dst.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent).await?;
+        }
+    }
+
     match fs::rename(src, dst).await {
         Ok(()) => Ok(()),
         Err(e) if is_cross_device_error(&e) => {

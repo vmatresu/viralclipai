@@ -26,7 +26,9 @@ use tracing::{debug, info};
 
 use super::config::IntelligentCropConfig;
 use super::models::CropWindow;
-use super::output_format::{PORTRAIT_WIDTH, PORTRAIT_HEIGHT, SPLIT_PANEL_WIDTH, SPLIT_PANEL_HEIGHT};
+use super::output_format::{
+    PORTRAIT_HEIGHT, PORTRAIT_WIDTH, SPLIT_PANEL_HEIGHT, SPLIT_PANEL_WIDTH,
+};
 use crate::error::{MediaError, MediaResult};
 use vclip_models::EncodingConfig;
 
@@ -63,10 +65,16 @@ impl SinglePassRenderer {
         let output = output.as_ref();
         let start_time = std::time::Instant::now();
 
-        info!("[RENDER_FULL] START: {} -> {}", segment.display(), output.display());
+        info!(
+            "[RENDER_FULL] START: {} -> {}",
+            segment.display(),
+            output.display()
+        );
 
         if crop_windows.is_empty() {
-            return Err(MediaError::InvalidVideo("No crop windows provided".to_string()));
+            return Err(MediaError::InvalidVideo(
+                "No crop windows provided".to_string(),
+            ));
         }
 
         // Use median crop for static rendering (most common case)
@@ -81,14 +89,12 @@ impl SinglePassRenderer {
             encoding.codec, encoding.preset, encoding.crf
         );
 
-        // Build filter: crop → scale with aspect ratio preservation → pad to exact 1080×1920 → set SAR
-        // IMPORTANT: Use force_original_aspect_ratio=decrease + pad to avoid stretching/elongation
-        // This ensures faces maintain their natural proportions regardless of crop window aspect ratio
+        // Build filter: crop → scale to exact output dimensions → set SAR
+        // The crop window is computed with exact 9:16 aspect ratio (zoom-to-fill),
+        // so we can scale directly without padding - no black bars, no stretching
         let filter = format!(
-            "crop={}:{}:{}:{},scale={}:{}:flags=lanczos:force_original_aspect_ratio=decrease,pad={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1",
-            crop.width, crop.height, crop.x, crop.y,
-            PORTRAIT_WIDTH, PORTRAIT_HEIGHT,
-            PORTRAIT_WIDTH, PORTRAIT_HEIGHT
+            "crop={}:{}:{}:{},scale={}:{}:flags=lanczos,setsar=1",
+            crop.width, crop.height, crop.x, crop.y, PORTRAIT_WIDTH, PORTRAIT_HEIGHT
         );
 
         // Single FFmpeg command - THE ONLY ENCODE
@@ -96,21 +102,31 @@ impl SinglePassRenderer {
         cmd.args([
             "-y",
             "-hide_banner",
-            "-loglevel", "error",
+            "-loglevel",
+            "error",
             // Input is the pre-extracted segment
-            "-i", segment.to_str().unwrap_or(""),
+            "-i",
+            segment.to_str().unwrap_or(""),
             // Video filter
-            "-vf", &filter,
+            "-vf",
+            &filter,
             // Video encoding - SINGLE ENCODE using API config
-            "-c:v", &encoding.codec,
-            "-preset", &encoding.preset,
-            "-crf", &encoding.crf.to_string(),
-            "-pix_fmt", "yuv420p",
+            "-c:v",
+            &encoding.codec,
+            "-preset",
+            &encoding.preset,
+            "-crf",
+            &encoding.crf.to_string(),
+            "-pix_fmt",
+            "yuv420p",
             // Audio encoding
-            "-c:a", "aac",
-            "-b:a", &encoding.audio_bitrate,
+            "-c:a",
+            "aac",
+            "-b:a",
+            &encoding.audio_bitrate,
             // Output options
-            "-movflags", "+faststart",
+            "-movflags",
+            "+faststart",
             output.to_str().unwrap_or(""),
         ])
         .stdout(Stdio::piped())
@@ -172,7 +188,11 @@ impl SinglePassRenderer {
         let output = output.as_ref();
         let start_time = std::time::Instant::now();
 
-        info!("[RENDER_SPLIT] START: {} -> {}", segment.display(), output.display());
+        info!(
+            "[RENDER_SPLIT] START: {} -> {}",
+            segment.display(),
+            output.display()
+        );
 
         // Calculate crop dimensions (45% from each side)
         let crop_fraction = 0.45;
@@ -198,17 +218,41 @@ impl SinglePassRenderer {
 
         // Build combined filter graph - everything in ONE pass
         // Uses centralized SPLIT_PANEL dimensions for consistent 9:16 output
-        // IMPORTANT: Use force_original_aspect_ratio=decrease + pad to avoid stretching/elongation
+        // Each panel is cropped to 9:8 aspect ratio (1080x960) to fill without black bars
+        // Calculate crop dimensions that exactly match 9:8 aspect ratio for each panel
+        let panel_ratio = SPLIT_PANEL_WIDTH as f64 / SPLIT_PANEL_HEIGHT as f64; // 9:8 = 1.125
+        let source_ratio = crop_width as f64 / tile_height as f64;
+
+        // Adjust crop to match panel aspect ratio (zoom to fill)
+        let (final_crop_w, final_crop_h) = if source_ratio > panel_ratio {
+            // Source is wider - crop width to match
+            let h = tile_height;
+            let w = (h as f64 * panel_ratio).round() as u32;
+            (w.min(crop_width), h)
+        } else {
+            // Source is taller - crop height to match
+            let w = crop_width;
+            let h = (w as f64 / panel_ratio).round() as u32;
+            (w, h.min(tile_height))
+        };
+
+        // Recalculate positions for the adjusted crop size
+        let left_crop_x = (crop_width.saturating_sub(final_crop_w)) / 2;
+        let right_crop_x = right_start_x + (crop_width.saturating_sub(final_crop_w)) / 2;
+        let left_crop_y_adj = left_crop_y + (tile_height.saturating_sub(final_crop_h)) / 2;
+        let right_crop_y_adj = right_crop_y + (tile_height.saturating_sub(final_crop_h)) / 2;
+
         let filter_complex = format!(
             "[0:v]split=2[left_in][right_in];\
-             [left_in]crop={cw}:{ch}:0:{ly},scale={pw}:{ph}:flags=lanczos:force_original_aspect_ratio=decrease,pad={pw}:{ph}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[top];\
-             [right_in]crop={cw}:{ch}:{rx}:{ry},scale={pw}:{ph}:flags=lanczos:force_original_aspect_ratio=decrease,pad={pw}:{ph}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[bottom];\
+             [left_in]crop={cw}:{ch}:{lx}:{ly},scale={pw}:{ph}:flags=lanczos,setsar=1,format=yuv420p[top];\
+             [right_in]crop={cw}:{ch}:{rx}:{ry},scale={pw}:{ph}:flags=lanczos,setsar=1,format=yuv420p[bottom];\
              [top][bottom]vstack=inputs=2[vout]",
-            cw = crop_width,
-            ch = tile_height,
-            ly = left_crop_y,
-            rx = right_start_x,
-            ry = right_crop_y,
+            cw = final_crop_w,
+            ch = final_crop_h,
+            lx = left_crop_x,
+            ly = left_crop_y_adj,
+            rx = right_crop_x,
+            ry = right_crop_y_adj,
             pw = SPLIT_PANEL_WIDTH,
             ph = SPLIT_PANEL_HEIGHT,
         );
@@ -220,24 +264,36 @@ impl SinglePassRenderer {
         cmd.args([
             "-y",
             "-hide_banner",
-            "-loglevel", "error",
+            "-loglevel",
+            "error",
             // Input is the pre-extracted segment
-            "-i", segment.to_str().unwrap_or(""),
+            "-i",
+            segment.to_str().unwrap_or(""),
             // Filter graph
-            "-filter_complex", &filter_complex,
+            "-filter_complex",
+            &filter_complex,
             // Map outputs
-            "-map", "[vout]",
-            "-map", "0:a?",
+            "-map",
+            "[vout]",
+            "-map",
+            "0:a?",
             // Video encoding - SINGLE ENCODE using API config
-            "-c:v", &encoding.codec,
-            "-preset", &encoding.preset,
-            "-crf", &encoding.crf.to_string(),
-            "-pix_fmt", "yuv420p",
+            "-c:v",
+            &encoding.codec,
+            "-preset",
+            &encoding.preset,
+            "-crf",
+            &encoding.crf.to_string(),
+            "-pix_fmt",
+            "yuv420p",
             // Audio
-            "-c:a", "aac",
-            "-b:a", &encoding.audio_bitrate,
+            "-c:a",
+            "aac",
+            "-b:a",
+            &encoding.audio_bitrate,
             // Output
-            "-movflags", "+faststart",
+            "-movflags",
+            "+faststart",
             output.to_str().unwrap_or(""),
         ])
         .stdout(Stdio::piped())

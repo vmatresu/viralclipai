@@ -105,23 +105,45 @@ impl CropComputer {
         CropWindow::new(keyframe.time, x, y, width.max(2), height.max(2))
     }
 
-    /// Compute crop position with headroom adjustment.
+    /// Compute crop position with face centering AFTER zoom.
+    ///
+    /// CRITICAL: This positions the crop so the face is in the upper-third
+    /// of the output frame (rule of thirds / TikTok style), and ensures
+    /// the face is never cut off by the crop boundaries.
     fn compute_crop_position(
         &self,
         keyframe: &CameraKeyframe,
         crop_width: f64,
         crop_height: f64,
     ) -> (i32, i32) {
+        // Target: place face center at ~35% from top of crop (upper third)
+        // This gives natural headroom above the face
+        let target_face_y_ratio = 0.35;
+
+        // Compute where the crop should be positioned to achieve this framing
         let mut x = keyframe.cx - crop_width / 2.0;
-        let mut y = keyframe.cy - crop_height / 2.0;
+        let mut y = keyframe.cy - crop_height * target_face_y_ratio;
 
-        // Apply headroom adjustment (shift crop up to give headroom above face)
-        let headroom_shift = crop_height * self.config.headroom_ratio * 0.15;
-        y -= headroom_shift;
-
-        // Clamp to frame boundaries
+        // Clamp to frame boundaries FIRST
         x = x.max(0.0).min(self.frame_width as f64 - crop_width);
         y = y.max(0.0).min(self.frame_height as f64 - crop_height);
+
+        // After clamping, verify the face is still within the crop
+        // If the face would be cut off, adjust the crop to include it
+        let face_top = keyframe.cy - keyframe.height / 2.0;
+        let face_bottom = keyframe.cy + keyframe.height / 2.0;
+        let crop_top = y;
+        let crop_bottom = y + crop_height;
+
+        // Ensure face is not cut off at top
+        if face_top < crop_top {
+            y = (face_top - crop_height * 0.05).max(0.0); // 5% margin
+        }
+        // Ensure face is not cut off at bottom
+        if face_bottom > crop_bottom {
+            y = (face_bottom - crop_height + crop_height * 0.05)
+                .min(self.frame_height as f64 - crop_height);
+        }
 
         (x.round() as i32, y.round() as i32)
     }
@@ -134,14 +156,15 @@ impl CropComputer {
         let required_height = focus_height * (1.0 + 2.0 * min_margin);
         let required_width = required_height * target_ratio;
 
-        let (crop_width, crop_height) = self.clamp_to_frame(required_width, required_height, target_ratio);
+        let (_, crop_height) =
+            self.clamp_to_frame(required_width, required_height, target_ratio);
 
-        // Apply zoom limits
-        let zoom_factor = self.frame_width as f64 / crop_width;
+        // Apply zoom limits (for narrow crops, limit by height)
+        let zoom_factor = self.frame_height as f64 / crop_height;
         if zoom_factor > self.config.max_zoom_factor {
-            let w = self.frame_width as f64 / self.config.max_zoom_factor;
-            let h = w / target_ratio;
-            return (w, h.min(self.frame_height as f64));
+            let h = self.frame_height as f64 / self.config.max_zoom_factor;
+            let w = h * target_ratio;
+            return (w.min(self.frame_width as f64), h);
         }
 
         let final_height = crop_height.min(self.frame_height as f64);
@@ -202,7 +225,11 @@ mod tests {
 
         // Should be 9:16 aspect ratio
         let ratio = crop.width as f64 / crop.height as f64;
-        assert!((ratio - 0.5625).abs() < 0.02, "Aspect ratio wrong: {}", ratio);
+        assert!(
+            (ratio - 0.5625).abs() < 0.02,
+            "Aspect ratio wrong: {}",
+            ratio
+        );
     }
 
     #[test]
@@ -243,7 +270,69 @@ mod tests {
         let keyframe = CameraKeyframe::new(0.0, 960.0, 540.0, 50.0, 50.0);
         let crop = computer.keyframe_to_crop(&keyframe, &AspectRatio::PORTRAIT);
 
-        let zoom = 1920.0 / crop.width as f64;
+        let zoom = 1080.0 / crop.height as f64; // For narrow crops, zoom is based on height usage
         assert!(zoom <= 2.1, "Zoom {} exceeds limit", zoom);
+    }
+
+    #[test]
+    fn test_face_not_cut_off_at_top() {
+        let config = CropComputeConfig::default();
+        let computer = CropComputer::new(config, 1920, 1080);
+
+        // Face near top of frame
+        let keyframe = CameraKeyframe::new(0.0, 960.0, 100.0, 200.0, 150.0);
+        let crop = computer.keyframe_to_crop(&keyframe, &AspectRatio::PORTRAIT);
+
+        // Face top should be within crop
+        let face_top = keyframe.cy - keyframe.height / 2.0;
+        let crop_top = crop.y as f64;
+        assert!(
+            face_top >= crop_top,
+            "Face top ({}) should be >= crop top ({})",
+            face_top,
+            crop_top
+        );
+    }
+
+    #[test]
+    fn test_face_not_cut_off_at_bottom() {
+        let config = CropComputeConfig::default();
+        let computer = CropComputer::new(config, 1920, 1080);
+
+        // Face near bottom of frame
+        let keyframe = CameraKeyframe::new(0.0, 960.0, 950.0, 200.0, 150.0);
+        let crop = computer.keyframe_to_crop(&keyframe, &AspectRatio::PORTRAIT);
+
+        // Face bottom should be within crop
+        let face_bottom = keyframe.cy + keyframe.height / 2.0;
+        let crop_bottom = (crop.y + crop.height) as f64;
+        assert!(
+            face_bottom <= crop_bottom,
+            "Face bottom ({}) should be <= crop bottom ({})",
+            face_bottom,
+            crop_bottom
+        );
+    }
+
+    #[test]
+    fn test_face_in_upper_third() {
+        let config = CropComputeConfig::default();
+        let computer = CropComputer::new(config, 1920, 1080);
+
+        // Face in center of frame
+        let keyframe = CameraKeyframe::new(0.0, 960.0, 540.0, 200.0, 200.0);
+        let crop = computer.keyframe_to_crop(&keyframe, &AspectRatio::PORTRAIT);
+
+        // Face center should be in upper portion of crop (20-50% from top)
+        let face_cy = keyframe.cy;
+        let crop_top = crop.y as f64;
+        let crop_height = crop.height as f64;
+        let face_position_ratio = (face_cy - crop_top) / crop_height;
+
+        assert!(
+            face_position_ratio >= 0.2 && face_position_ratio <= 0.5,
+            "Face should be in upper third, but position ratio is {}",
+            face_position_ratio
+        );
     }
 }

@@ -7,11 +7,13 @@ import {
   Copy,
   Download,
   ExternalLink,
+  ImageIcon,
   Link2,
   Share2,
   Trash,
   Trash2,
 } from "lucide-react";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -31,7 +33,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/auth";
-import { copyShareUrl, downloadClip, getPlaybackUrl } from "@/lib/clipDelivery";
+import { copyShareUrl, downloadClip, getPlaybackUrl, getThumbnailUrl } from "@/lib/clipDelivery";
 import {
   getStyleLabel,
   getStyleTier,
@@ -581,11 +583,11 @@ function HistorySceneItem({
                                       : "hover:border-primary/50"
                                   )}
                                 >
-                                  <div className="flex h-28 w-full items-center justify-center bg-muted">
-                                    <span className="text-xs text-muted-foreground">
-                                      {getStyleLabel(s) ?? s}
-                                    </span>
-                                  </div>
+                                  <ClipThumbnail
+                                    clipId={thumbClip.id}
+                                    alt={`${getStyleLabel(s) ?? s} thumbnail`}
+                                    className="h-28 w-full"
+                                  />
                                   <div className="absolute left-2 top-2">
                                     <Badge
                                       className={cn(
@@ -788,5 +790,78 @@ function ActionButton({ icon, label, onClick }: ActionButtonProps) {
       {icon}
       <span>{label}</span>
     </Button>
+  );
+}
+
+interface ClipThumbnailProps {
+  clipId: string;
+  alt: string;
+  className?: string;
+}
+
+/**
+ * Displays a clip thumbnail, fetching the URL on mount.
+ * Shows a placeholder while loading or on error.
+ */
+function ClipThumbnail({ clipId, alt, className }: ClipThumbnailProps) {
+  const { getIdToken } = useAuth();
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadThumbnail() {
+      try {
+        const token = await getIdToken();
+        if (!token || cancelled) return;
+
+        const response = await getThumbnailUrl(clipId, token);
+        if (!cancelled) {
+          setThumbnailUrl(response.url);
+          setError(false);
+        }
+      } catch (err) {
+        console.error("Failed to load thumbnail:", err);
+        if (!cancelled) {
+          setError(true);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void loadThumbnail();
+    return () => {
+      cancelled = true;
+    };
+  }, [clipId, getIdToken]);
+
+  if (loading) {
+    return (
+      <div className={cn("flex items-center justify-center bg-muted animate-pulse", className)}>
+        <ImageIcon className="h-6 w-6 text-muted-foreground/50" />
+      </div>
+    );
+  }
+
+  if (error || !thumbnailUrl) {
+    return (
+      <div className={cn("flex items-center justify-center bg-muted", className)}>
+        <ImageIcon className="h-6 w-6 text-muted-foreground/50" />
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={thumbnailUrl}
+      alt={alt}
+      className={cn("object-cover", className)}
+      loading="lazy"
+    />
   );
 }

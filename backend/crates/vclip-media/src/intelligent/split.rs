@@ -1,5 +1,12 @@
 //! Intelligent Split video processing.
 //!
+//! **DEPRECATED**: This module is superseded by `tier_aware_split.rs`.
+//! The `TierAwareSplitProcessor` in `tier_aware_split.rs` provides the same
+//! functionality with better tier support and cache integration.
+//!
+//! This module is kept for backward compatibility but should not be used
+//! for new code. Use `create_tier_aware_split_clip_with_cache` instead.
+//!
 //! This module implements the "intelligent split" style that:
 //! 1. Splits the video into left and right halves
 //! 2. Applies face-centered crop to each half (9:16 portrait)

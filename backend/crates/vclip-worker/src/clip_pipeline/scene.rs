@@ -2,12 +2,20 @@
 //!
 //! This module processes all styles for a scene, ensuring neural analysis
 //! runs ONCE and is cached before parallel style processing begins.
+//!
+//! # Split Style Optimization
+//!
+//! When both `intelligent_speaker` and `intelligent_split_speaker` are requested,
+//! we pre-compute whether split is appropriate. If split isn't appropriate (e.g.,
+//! alternating speakers, single face), the split style would fall back to full-frame
+//! rendering - producing identical output to `intelligent_speaker`. In this case,
+//! we skip the split style entirely to avoid redundant processing.
 
 use std::path::Path;
 
 use futures::future::join_all;
-use tracing::{debug, info};
-use vclip_models::ClipTask;
+use tracing::{debug, info, warn};
+use vclip_models::{ClipTask, Style};
 use vclip_queue::ProcessVideoJob;
 
 use crate::clip_pipeline::clip::{
@@ -161,12 +169,15 @@ pub async fn process_scene_with_raw_key(
     // PHASE 1: Pre-cache neural analysis BEFORE parallel processing
     // =========================================================================
     // This ensures detection runs ONCE, not once per style
-    
+
     let styles: Vec<_> = pending_tasks.iter().map(|t| t.style).collect();
-    
+
+    // Track whether split is appropriate (for optimization)
+    let mut split_is_appropriate: Option<bool> = None;
+
     if SceneAnalysisService::any_style_uses_cache(&styles) {
         let highest_tier = SceneAnalysisService::highest_required_tier(&styles);
-        
+
         if highest_tier.requires_yunet() {
             info!(
                 scene_id = scene_id,
@@ -176,7 +187,7 @@ pub async fn process_scene_with_raw_key(
             );
 
             let analysis_service = SceneAnalysisService::new(ctx);
-            
+
             // This will either:
             // - Return immediately if cache exists
             // - Run detection ONCE and cache results
@@ -200,6 +211,19 @@ pub async fn process_scene_with_raw_key(
                         tier = %highest_tier,
                         "Neural analysis cached, proceeding with parallel style processing"
                     );
+
+                    // Pre-compute split appropriateness for optimization
+                    // This allows us to skip redundant split processing when it would
+                    // produce identical output to full-frame processing
+                    if has_split_and_fullframe_pair(&styles) {
+                        split_is_appropriate =
+                            Some(SceneAnalysisService::is_split_appropriate(&analysis));
+                        info!(
+                            scene_id = scene_id,
+                            split_appropriate = split_is_appropriate.unwrap(),
+                            "Pre-computed split appropriateness for optimization"
+                        );
+                    }
                 }
                 Err(e) => {
                     // Non-fatal: styles will run detection inline if cache fails
@@ -222,8 +246,36 @@ pub async fn process_scene_with_raw_key(
     // =========================================================================
     // PHASE 2: Process all styles in parallel (using cached analysis)
     // =========================================================================
-    
-    let futures: Vec<_> = scene_tasks
+
+    // Filter out redundant split styles when split isn't appropriate
+    // This optimization prevents duplicate full-frame rendering
+    let tasks_to_process: Vec<_> = scene_tasks
+        .iter()
+        .filter(|task| {
+            // If we determined split isn't appropriate and this is a split style
+            // that has a corresponding full-frame style also being processed,
+            // skip the split style to avoid redundant work
+            if let Some(false) = split_is_appropriate {
+                if is_intelligent_split_style(task.style) {
+                    let has_fullframe_counterpart = scene_tasks
+                        .iter()
+                        .any(|t| is_fullframe_counterpart(task.style, t.style));
+                    if has_fullframe_counterpart {
+                        warn!(
+                            scene_id = scene_id,
+                            style = %task.style,
+                            "Skipping split style (would produce identical output to full-frame)"
+                        );
+                        return false;
+                    }
+                }
+            }
+            true
+        })
+        .cloned()
+        .collect();
+
+    let futures: Vec<_> = tasks_to_process
         .iter()
         .enumerate()
         .map(|(idx, task)| {
@@ -325,4 +377,129 @@ pub async fn process_scene_with_raw_key(
         completed: completed as u32 + skipped_tasks.len() as u32,
         skipped: skipped_tasks.len(),
     })
+}
+
+// ============================================================================
+// Split Style Optimization Helpers
+// ============================================================================
+
+/// Check if a style is an intelligent split style.
+fn is_intelligent_split_style(style: Style) -> bool {
+    matches!(
+        style,
+        Style::IntelligentSplit
+            | Style::IntelligentSplitSpeaker
+            | Style::IntelligentSplitMotion
+            | Style::IntelligentSplitActivity
+    )
+}
+
+/// Check if the styles include both a split style and its full-frame counterpart.
+fn has_split_and_fullframe_pair(styles: &[Style]) -> bool {
+    let has_split = styles.iter().any(|s| is_intelligent_split_style(*s));
+    let has_fullframe = styles.iter().any(|s| {
+        matches!(
+            s,
+            Style::Intelligent | Style::IntelligentSpeaker | Style::IntelligentMotion
+        )
+    });
+    has_split && has_fullframe
+}
+
+/// Check if a full-frame style is the counterpart to a split style.
+fn is_fullframe_counterpart(split_style: Style, other_style: Style) -> bool {
+    match split_style {
+        Style::IntelligentSplit => other_style == Style::Intelligent,
+        Style::IntelligentSplitSpeaker => other_style == Style::IntelligentSpeaker,
+        Style::IntelligentSplitMotion => other_style == Style::IntelligentMotion,
+        Style::IntelligentSplitActivity => other_style == Style::IntelligentMotion, // Activity uses motion tier
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_intelligent_split_style() {
+        assert!(is_intelligent_split_style(Style::IntelligentSplit));
+        assert!(is_intelligent_split_style(Style::IntelligentSplitSpeaker));
+        assert!(is_intelligent_split_style(Style::IntelligentSplitMotion));
+        assert!(is_intelligent_split_style(Style::IntelligentSplitActivity));
+
+        assert!(!is_intelligent_split_style(Style::Intelligent));
+        assert!(!is_intelligent_split_style(Style::IntelligentSpeaker));
+        assert!(!is_intelligent_split_style(Style::Split));
+        assert!(!is_intelligent_split_style(Style::Original));
+    }
+
+    #[test]
+    fn test_has_split_and_fullframe_pair() {
+        // Has both split and fullframe
+        assert!(has_split_and_fullframe_pair(&[
+            Style::IntelligentSpeaker,
+            Style::IntelligentSplitSpeaker
+        ]));
+        assert!(has_split_and_fullframe_pair(&[
+            Style::Intelligent,
+            Style::IntelligentSplit
+        ]));
+
+        // Only split styles
+        assert!(!has_split_and_fullframe_pair(&[
+            Style::IntelligentSplit,
+            Style::IntelligentSplitSpeaker
+        ]));
+
+        // Only fullframe styles
+        assert!(!has_split_and_fullframe_pair(&[
+            Style::Intelligent,
+            Style::IntelligentSpeaker
+        ]));
+
+        // Non-intelligent styles
+        assert!(!has_split_and_fullframe_pair(&[
+            Style::Split,
+            Style::Original
+        ]));
+
+        // Empty
+        assert!(!has_split_and_fullframe_pair(&[]));
+    }
+
+    #[test]
+    fn test_is_fullframe_counterpart() {
+        // Correct pairs
+        assert!(is_fullframe_counterpart(
+            Style::IntelligentSplit,
+            Style::Intelligent
+        ));
+        assert!(is_fullframe_counterpart(
+            Style::IntelligentSplitSpeaker,
+            Style::IntelligentSpeaker
+        ));
+        assert!(is_fullframe_counterpart(
+            Style::IntelligentSplitMotion,
+            Style::IntelligentMotion
+        ));
+        assert!(is_fullframe_counterpart(
+            Style::IntelligentSplitActivity,
+            Style::IntelligentMotion
+        ));
+
+        // Wrong pairs
+        assert!(!is_fullframe_counterpart(
+            Style::IntelligentSplit,
+            Style::IntelligentSpeaker
+        ));
+        assert!(!is_fullframe_counterpart(
+            Style::IntelligentSplitSpeaker,
+            Style::Intelligent
+        ));
+
+        // Non-split styles
+        assert!(!is_fullframe_counterpart(Style::Intelligent, Style::Split));
+        assert!(!is_fullframe_counterpart(Style::Split, Style::Intelligent));
+    }
 }

@@ -96,9 +96,12 @@ pub use layout_detector::{HeuristicGenerator, LayoutDetector, VideoLayout};
 pub use models::*;
 pub use renderer::IntelligentRenderer;
 pub use smoother::CameraSmoother;
+// Note: split.rs is deprecated - use tier_aware_split.rs instead
+// The old IntelligentSplitProcessor and create_intelligent_split_clip functions
+// are kept for backward compatibility but should not be used for new code.
 pub use split::{
     create_intelligent_split_clip, create_intelligent_split_clip_with_cache,
-    IntelligentSplitProcessor, SplitLayout,
+    IntelligentSplitProcessor as LegacyIntelligentSplitProcessor, SplitLayout,
 };
 pub use tier_aware_cropper::{
     create_tier_aware_intelligent_clip, create_tier_aware_intelligent_clip_with_cache,
