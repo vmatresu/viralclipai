@@ -1,6 +1,7 @@
 "use client";
 
 import { DollarSign, History, Home, LogOut, Menu, Settings } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import * as React from "react";
 
@@ -53,7 +54,7 @@ function MobileNav() {
       <SheetContent side="right" className="glass w-[280px] sm:w-[320px]">
         <SheetHeader className="text-left">
           <SheetTitle className="flex items-center gap-2">
-            <img
+            <Image
               src="/logo.svg"
               alt="Viral Clip AI"
               width={24}
@@ -85,7 +86,12 @@ function MobileNav() {
 
         <div className="absolute bottom-6 left-6 right-6 space-y-4">
           {!loading && !user && (
-            <div onClick={handleNavClick}>
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={handleNavClick}
+              onKeyDown={(e) => e.key === "Enter" && handleNavClick()}
+            >
               <SignInDialog />
             </div>
           )}
@@ -149,7 +155,7 @@ export function Navbar() {
               href="/"
               className="flex items-center gap-3 hover:opacity-80 transition-opacity"
             >
-              <img
+              <Image
                 src="/logo.svg"
                 alt="Viral Clip AI Logo"
                 width={32}

@@ -18,10 +18,9 @@ function AuthFinishContent() {
       if (isEmailLink(link)) {
         let email = window.localStorage.getItem("emailForSignIn");
 
-        if (!email) {
-          // User opened link on different device
-          email = window.prompt("Please provide your email for confirmation");
-        }
+        // User opened link on different device - prompt is necessary for cross-device sign-in
+        // eslint-disable-next-line no-alert, @typescript-eslint/prefer-nullish-coalescing
+        email ||= window.prompt("Please provide your email for confirmation");
 
         if (!email) {
           toast.error("Email is required to complete sign in.");
@@ -33,8 +32,10 @@ function AuthFinishContent() {
           await finishEmailSignIn(email, link);
           toast.success("Successfully signed in!");
           router.push("/"); // Redirect to dashboard
-        } catch (error: any) {
-          toast.error(error.message || "Failed to complete sign in.");
+        } catch (error: unknown) {
+          const message =
+            error instanceof Error ? error.message : "Failed to complete sign in.";
+          toast.error(message);
           setVerifying(false);
         }
       } else {

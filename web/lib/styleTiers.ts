@@ -78,27 +78,32 @@ export const TIER_BADGE_CLASSES: Record<TierColor, string> = {
 export function normalizeStyleForSelection(style?: string): string | undefined {
   if (!style) return undefined;
   const normalized = style.toLowerCase();
+  // Lookup in static constant object with normalized key - safe pattern
+  // eslint-disable-next-line security/detect-object-injection
   return STYLE_ALIASES[normalized] ?? normalized;
 }
 
 export function getStyleTier(style?: string): StyleMeta | undefined {
   if (!style) return undefined;
   const normalized = style.toLowerCase();
-  return (
-    STYLE_TIER_LABELS[normalized] ?? STYLE_TIER_LABELS[STYLE_ALIASES[normalized] ?? ""]
-  );
+  // Lookup in static constant objects with normalized keys - safe pattern
+  // eslint-disable-next-line security/detect-object-injection
+  const alias = STYLE_ALIASES[normalized] ?? "";
+  // eslint-disable-next-line security/detect-object-injection
+  return STYLE_TIER_LABELS[normalized] ?? STYLE_TIER_LABELS[alias];
 }
 
 export function getStyleLabel(style?: string): string | undefined {
   if (!style) return undefined;
   const normalized = style.toLowerCase();
-  return (
-    STYLE_DISPLAY_LABELS[normalized] ??
-    STYLE_DISPLAY_LABELS[STYLE_ALIASES[normalized] ?? ""] ??
-    normalized
-  );
+  // Lookup in static constant objects with normalized keys - safe pattern
+  // eslint-disable-next-line security/detect-object-injection
+  const alias = STYLE_ALIASES[normalized] ?? "";
+  // eslint-disable-next-line security/detect-object-injection
+  return STYLE_DISPLAY_LABELS[normalized] ?? STYLE_DISPLAY_LABELS[alias] ?? normalized;
 }
 
 export function getTierBadgeClasses(color: TierColor = "legacy"): string {
+  // eslint-disable-next-line security/detect-object-injection
   return TIER_BADGE_CLASSES[color] ?? TIER_BADGE_CLASSES.legacy;
 }

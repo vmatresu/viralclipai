@@ -149,9 +149,10 @@ export function stylesToSelection(
 ): LayoutQualitySelection {
   const normalized = (styles ?? []).map((s) => {
     const lowered = s.toLowerCase();
-    return (
-      STYLE_SELECTION_ALIASES[lowered] ?? normalizeStyleForSelection(lowered) ?? lowered
-    );
+    // Static constant lookup with normalized string key
+    // eslint-disable-next-line security/detect-object-injection
+    const alias = STYLE_SELECTION_ALIASES[lowered];
+    return alias ?? normalizeStyleForSelection(lowered) ?? lowered;
   });
 
   const splitStyle =
@@ -195,12 +196,12 @@ function QualitySlider({
     levels.findIndex((level) => level.value === value),
     0
   );
-  const columnsClass =
-    levels.length >= 6
-      ? "grid-cols-6"
-      : levels.length >= 5
-        ? "grid-cols-5"
-        : "grid-cols-4";
+  const getColumnsClass = () => {
+    if (levels.length >= 6) return "grid-cols-6";
+    if (levels.length >= 5) return "grid-cols-5";
+    return "grid-cols-4";
+  };
+  const columnsClass = getColumnsClass();
 
   return (
     <div className={cn("space-y-3", disabled && "opacity-50 pointer-events-none")}>
@@ -255,17 +256,25 @@ function QualitySlider({
           const isStudioLocked = isStudioOnly && !hasStudioPlan;
           const isProLocked = isProOnly && !hasProPlan;
           const isLocked = isStudioLocked || isProLocked;
-          const planLabel = isStudioOnly ? "Studio" : isProOnly ? "Pro" : null;
-          const lockTitle = isStudioLocked
-            ? "Studio plan required"
-            : isProLocked
-              ? "Pro plan required"
-              : undefined;
+          const getPlanLabel = () => {
+            if (isStudioOnly) return "Studio";
+            if (isProOnly) return "Pro";
+            return null;
+          };
+          const getLockTitle = () => {
+            if (isStudioLocked) return "Studio plan required";
+            if (isProLocked) return "Pro plan required";
+            return undefined;
+          };
+          const planLabel = getPlanLabel();
+          const lockTitle = getLockTitle();
           return (
             <button
               key={level.value}
               type="button"
               onClick={() => !isLocked && onChange(level.value)}
+              // Using || for boolean OR is correct here - ?? would not work for false values
+              // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
               disabled={disabled || isLocked}
               className={cn(
                 "space-y-0.5 rounded-lg border border-transparent px-2 py-1 transition-colors relative",

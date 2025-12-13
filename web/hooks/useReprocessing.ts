@@ -269,7 +269,7 @@ export function useReprocessing({
       onComplete,
       onError,
       startJob,
-      updateJob,
+      deferUpdateJob,
       completeJob,
       failJob,
     ]

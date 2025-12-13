@@ -227,7 +227,9 @@ export class CacheManager {
     if (!this.eventListeners.has(eventType)) {
       this.eventListeners.set(eventType, new Set());
     }
-    this.eventListeners.get(eventType)!.add(listener);
+    // Map entry guaranteed to exist after the check/set above
+    const listeners = this.eventListeners.get(eventType);
+    listeners?.add(listener);
 
     // Return unsubscribe function
     return () => {
@@ -244,8 +246,11 @@ export class CacheManager {
       const keys = await this.storage.keys();
       const now = Date.now();
 
+      // Sequential processing to avoid memory spikes with large caches
+      // eslint-disable-next-line no-await-in-loop
       for (const key of keys) {
         try {
+          // eslint-disable-next-line no-await-in-loop
           const entry = await this.storage.get<CachedClipsData>(key);
           if (!entry) {
             continue;
@@ -253,12 +258,14 @@ export class CacheManager {
 
           const age = now - entry._metadata.cachedAt;
           if (age >= this.config.ttl) {
+            // eslint-disable-next-line no-await-in-loop
             await this.storage.remove(key);
             cleaned++;
           }
         } catch (error) {
           // Remove corrupted entries
           this.logger.warn("Removing corrupted cache entry", { key, error });
+          // eslint-disable-next-line no-await-in-loop
           await this.storage.remove(key).catch(() => {
             // Ignore removal errors
           });
@@ -340,8 +347,10 @@ export class CacheManager {
       const keys = await this.storage.keys();
       const entries: Array<{ key: string; lastAccessed: number }> = [];
 
+      // Sequential to avoid memory spikes
       for (const key of keys) {
         try {
+          // eslint-disable-next-line no-await-in-loop
           const entry = await this.storage.get<CachedClipsData>(key);
           if (entry) {
             entries.push({
@@ -360,6 +369,7 @@ export class CacheManager {
       // Evict oldest entries
       const toEvict = entries.slice(0, count);
       for (const { key } of toEvict) {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.remove(key);
         this.stats.evictions++;
       }
@@ -379,9 +389,12 @@ export class CacheManager {
       const keys = await this.storage.keys();
       const entries: Array<{ key: string; size: number; lastAccessed: number }> = [];
 
+      // Sequential to avoid memory spikes
       for (const key of keys) {
         try {
+          // eslint-disable-next-line no-await-in-loop
           const size = await this.storage.size(key);
+          // eslint-disable-next-line no-await-in-loop
           const entry = await this.storage.get<CachedClipsData>(key);
           if (entry) {
             entries.push({
@@ -404,6 +417,7 @@ export class CacheManager {
         if (currentSize <= targetSize) {
           break;
         }
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.remove(key);
         currentSize -= size;
         this.stats.evictions++;
@@ -424,8 +438,10 @@ export class CacheManager {
       const keys = await this.storage.keys();
       let totalSize = 0;
 
+      // Sequential to avoid memory spikes
       for (const key of keys) {
         try {
+          // eslint-disable-next-line no-await-in-loop
           totalSize += await this.storage.size(key);
         } catch {
           // Skip errors for individual entries

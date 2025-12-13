@@ -30,8 +30,10 @@ export function SignInDialog({ children }: { children?: React.ReactNode }) {
       await signInWithGoogle();
       setIsDialogOpen(false);
       toast.success("Signed in with Google!");
-    } catch (error: any) {
-      toast.error(error.message || "Failed to sign in with Google");
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Failed to sign in with Google";
+      toast.error(message);
     } finally {
       setIsGoogleLoading(false);
     }
@@ -50,8 +52,10 @@ export function SignInDialog({ children }: { children?: React.ReactNode }) {
       toast.success("Sign-in link sent! Check your email.");
       setIsDialogOpen(false);
       setEmail("");
-    } catch (error: any) {
-      toast.error(error.message || "Failed to send sign-in link");
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Failed to send sign-in link";
+      toast.error(message);
     } finally {
       setIsEmailLoading(false);
     }
@@ -60,7 +64,7 @@ export function SignInDialog({ children }: { children?: React.ReactNode }) {
   return (
     <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
       <DialogTrigger asChild>
-        {children || (
+        {children ?? (
           <Button
             variant="brand"
             size="sm"

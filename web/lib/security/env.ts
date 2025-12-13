@@ -63,6 +63,8 @@ export function validateEnvironment(): void {
  * Throws an error if the variable is missing or empty
  */
 export function getRequiredEnv(name: string): string {
+  // Standard environment variable access pattern
+  // eslint-disable-next-line security/detect-object-injection
   const value = process.env[name];
   return requireEnv(value, name);
 }

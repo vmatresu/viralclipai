@@ -101,6 +101,8 @@ export function sanitizeParams(
       sanitizedValue = String(value).substring(0, MAX_PARAM_VALUE_LENGTH);
     }
 
+    // Key comes from Object.entries iteration - safe to use as index
+    // eslint-disable-next-line security/detect-object-injection
     sanitized[sanitizedKey] = sanitizedValue;
     paramCount++;
   }

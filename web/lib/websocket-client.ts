@@ -32,7 +32,7 @@ export function getWebSocketUrl(apiBaseUrl?: string): string {
 export function createWebSocketConnection(
   url: string,
   onOpen: () => void,
-  onMessage: (data: any) => void,
+  onMessage: (data: unknown) => void,
   onError: (error: Event) => void,
   onClose: () => void
 ): WebSocket {

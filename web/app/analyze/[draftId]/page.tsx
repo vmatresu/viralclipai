@@ -89,8 +89,9 @@ export default function AnalysisStatusPage() {
     return undefined;
   }, [status?.status, draftId, router]);
 
-  const currentStatus = status?.status || "pending";
-  const config = STATUS_CONFIG[currentStatus] || STATUS_CONFIG.pending;
+  const currentStatus = status?.status ?? "pending";
+  const config =
+    STATUS_CONFIG[currentStatus as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.pending;
   const StatusIcon = config.icon;
 
   if (isLoading && !status) {

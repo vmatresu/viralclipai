@@ -101,7 +101,8 @@ export function AiAssistanceSlider({
   const currentIndex = steps.findIndex((s) => s.value === normalizedValue);
   const defaultIndex = steps.findIndex((s) => s.value === "basic_face");
   const safeIndex = currentIndex !== -1 ? currentIndex : Math.max(defaultIndex, 0);
-  const currentStep = steps[safeIndex];
+  // steps is a trusted local constant; safeIndex is bounds-checked above
+  const currentStep = steps.at(safeIndex);
 
   if (!currentStep) return null;
 
@@ -109,7 +110,10 @@ export function AiAssistanceSlider({
   const handleSliderChange = (vals: number[]) => {
     const newIndex = vals[0];
     if (typeof newIndex === "number" && newIndex >= 0 && newIndex < steps.length) {
-      onChange(steps[newIndex]!.value);
+      const selectedStep = steps.at(newIndex);
+      if (selectedStep) {
+        onChange(selectedStep.value);
+      }
     }
   };
 

@@ -21,7 +21,7 @@ import type {
  * Start a new video analysis.
  * Returns a job_id for polling and draft_id for later access.
  */
-export async function startAnalysis(
+export function startAnalysis(
   request: StartAnalysisRequest,
   token: string
 ): Promise<StartAnalysisResponse> {
@@ -35,7 +35,7 @@ export async function startAnalysis(
 /**
  * Get the status of an analysis job.
  */
-export async function getAnalysisStatus(
+export function getAnalysisStatus(
   draftId: string,
   token: string
 ): Promise<AnalysisStatusResponse> {
@@ -51,7 +51,7 @@ export async function getAnalysisStatus(
 /**
  * List all drafts for the current user.
  */
-export async function listDrafts(token: string): Promise<ListDraftsResponse> {
+export function listDrafts(token: string): Promise<ListDraftsResponse> {
   return apiFetch<ListDraftsResponse>("/api/drafts", {
     method: "GET",
     token,
@@ -61,7 +61,7 @@ export async function listDrafts(token: string): Promise<ListDraftsResponse> {
 /**
  * Get a draft with all its scenes.
  */
-export async function getDraft(
+export function getDraft(
   draftId: string,
   token: string
 ): Promise<DraftWithScenesResponse> {
@@ -77,7 +77,7 @@ export async function getDraft(
 /**
  * Delete a draft.
  */
-export async function deleteDraft(
+export function deleteDraft(
   draftId: string,
   token: string
 ): Promise<DeleteDraftResponse> {
@@ -91,13 +91,13 @@ export async function deleteDraft(
  * Submit selected scenes from a draft for processing.
  * Auto-generates an idempotency key if not provided.
  */
-export async function processDraft(
+export function processDraft(
   draftId: string,
   request: ProcessDraftRequest,
   token: string
 ): Promise<ProcessDraftResponse> {
   // Auto-generate idempotency key if not provided
-  const idempotencyKey = request.idempotency_key || crypto.randomUUID();
+  const idempotencyKey = request.idempotency_key ?? crypto.randomUUID();
 
   return apiFetch<ProcessDraftResponse>(
     `/api/drafts/${encodeURIComponent(draftId)}/process`,
@@ -115,7 +115,7 @@ export async function processDraft(
 /**
  * Get cost/time estimates for processing.
  */
-export async function getProcessingEstimate(
+export function getProcessingEstimate(
   draftId: string,
   sceneIds: number[],
   fullCount: number,

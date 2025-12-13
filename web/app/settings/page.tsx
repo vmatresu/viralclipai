@@ -238,11 +238,9 @@ export default function SettingsPage() {
                     <div className="relative h-3 w-full overflow-hidden rounded-full bg-muted">
                       <div
                         className={`h-full transition-all duration-500 ${
-                          isNearLimit
-                            ? "bg-red-500"
-                            : isHighStorage
-                              ? "bg-orange-500"
-                              : "bg-brand-500"
+                          isNearLimit ? "bg-red-500" : ""
+                        }${!isNearLimit && isHighStorage ? "bg-orange-500" : ""}${
+                          !isNearLimit && !isHighStorage ? "bg-brand-500" : ""
                         }`}
                         style={{ width: `${Math.min(storagePercentage, 100)}%` }}
                       />
@@ -254,18 +252,23 @@ export default function SettingsPage() {
                       >
                         {isOverStorage
                           ? `${data.storage.remaining_formatted.replace("-", "")} over limit`
-                          : `${data.storage.remaining_formatted} remaining`}
+                          : null}
+                        {!isOverStorage &&
+                          `${data.storage.remaining_formatted} remaining`}
                       </span>
                     </div>
                     {(isHighStorage || isOverStorage) && (
                       <div
                         className={`text-xs ${isNearLimit || isOverStorage ? "text-red-500" : "text-orange-500"}`}
                       >
-                        {isOverStorage
-                          ? "🚨 Storage limit exceeded! Please upgrade your plan or delete clips to continue."
-                          : isNearLimit
-                            ? "⚠️ Storage almost full! Upgrade your plan or delete old clips."
-                            : "⚠️ Storage usage is high. Consider upgrading your plan."}
+                        {isOverStorage &&
+                          "🚨 Storage limit exceeded! Please upgrade your plan or delete clips to continue."}
+                        {!isOverStorage &&
+                          isNearLimit &&
+                          "⚠️ Storage almost full! Upgrade your plan or delete old clips."}
+                        {!isOverStorage &&
+                          !isNearLimit &&
+                          "⚠️ Storage usage is high. Consider upgrading your plan."}
                       </div>
                     )}
                   </div>

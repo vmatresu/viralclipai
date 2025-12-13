@@ -39,9 +39,9 @@ export function HowItWorks() {
           {/* Connector Line (Desktop) */}
           <div className="hidden md:block absolute top-[2.5rem] left-[16%] right-[16%] h-0.5 bg-gradient-to-r from-blue-500/50 via-indigo-500/50 to-purple-500/50" />
 
-          {steps.map((step, i) => (
+          {steps.map((step) => (
             <div
-              key={i}
+              key={step.title}
               className="relative flex flex-col items-center text-center space-y-6 group"
             >
               <div

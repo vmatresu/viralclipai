@@ -866,6 +866,8 @@ function ClipThumbnail({ clipId, alt, className }: ClipThumbnailProps) {
   }
 
   return (
+    // Using img for dynamic external thumbnails with presigned URLs
+    // eslint-disable-next-line @next/next/no-img-element
     <img
       src={thumbnailUrl}
       alt={alt}

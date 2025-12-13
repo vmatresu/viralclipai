@@ -132,8 +132,8 @@ export default function FAQPage() {
           </h1>
         </div>
         <p className="text-muted-foreground max-w-3xl text-lg">
-          Find answers to common questions about Viral Clip AI. Can't find what you're
-          looking for?{" "}
+          Find answers to common questions about Viral Clip AI. Can&apos;t find what
+          you&apos;re looking for?{" "}
           <Link href="/contact" className="text-primary hover:underline">
             Contact us
           </Link>
@@ -150,8 +150,8 @@ export default function FAQPage() {
               <h2 className="text-2xl font-bold">{category.title}</h2>
             </div>
             <div className="space-y-4">
-              {category.questions.map((item, idx) => (
-                <Card key={idx} className="glass">
+              {category.questions.map((item) => (
+                <Card key={item.q} className="glass">
                   <CardHeader>
                     <CardTitle className="text-lg">{item.q}</CardTitle>
                   </CardHeader>
@@ -168,7 +168,7 @@ export default function FAQPage() {
       <section className="space-y-4">
         <h2 className="text-2xl font-bold">Still Have Questions?</h2>
         <p className="text-muted-foreground">
-          We're here to help! Reach out through our{" "}
+          We&apos;re here to help! Reach out through our{" "}
           <Link href="/contact" className="text-primary hover:underline">
             Contact page
           </Link>{" "}

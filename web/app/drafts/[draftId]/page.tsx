@@ -116,11 +116,14 @@ export default function DraftPage() {
 
   const toggleScene = useCallback((sceneId: number, format: "full" | "split") => {
     setSelections((prev) => {
+      // Scene IDs are trusted numeric keys from API response
+      // eslint-disable-next-line security/detect-object-injection
       const current = prev[sceneId] ?? { full: false, split: false };
       return {
         ...prev,
         [sceneId]: {
           ...current,
+          // eslint-disable-next-line security/detect-object-injection
           [format]: !current[format],
         },
       };
@@ -162,9 +165,12 @@ export default function DraftPage() {
       return;
     }
 
+    // Scene IDs are trusted numeric keys from API response
     const sceneSelections: SceneSelection[] = selectedSceneIds.map((id) => ({
       scene_id: id,
+      // eslint-disable-next-line security/detect-object-injection
       render_full: selections[id]?.full ?? false,
+      // eslint-disable-next-line security/detect-object-injection
       render_split: selections[id]?.split ?? false,
     }));
 
@@ -189,9 +195,11 @@ export default function DraftPage() {
   };
 
   const handleDelete = async () => {
-    if (
-      !confirm("Are you sure you want to delete this draft? This cannot be undone.")
-    ) {
+    // eslint-disable-next-line no-alert
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this draft? This cannot be undone."
+    );
+    if (!confirmed) {
       return;
     }
 
@@ -218,7 +226,7 @@ export default function DraftPage() {
           <CardContent className="pt-6 text-center">
             <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
             <h2 className="text-xl font-semibold text-white mb-2">Error</h2>
-            <p className="text-slate-400 mb-4">{error?.message || "Draft not found"}</p>
+            <p className="text-slate-400 mb-4">{error?.message ?? "Draft not found"}</p>
             <Button onClick={() => router.push("/analyze")}>Start New Analysis</Button>
           </CardContent>
         </Card>
@@ -244,7 +252,7 @@ export default function DraftPage() {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <h1 className="text-2xl md:text-3xl font-bold text-white">
-                {draft.video_title || "Untitled Video"}
+                {draft.video_title ?? "Untitled Video"}
               </h1>
               <p className="text-slate-400 mt-1">
                 {scenes.length} scenes detected • Select scenes and styles to render
@@ -316,7 +324,7 @@ export default function DraftPage() {
                 <SceneCard
                   key={scene.id}
                   scene={scene}
-                  selection={selections[scene.id] || { full: false, split: false }}
+                  selection={selections[scene.id] ?? { full: false, split: false }}
                   onToggle={toggleScene}
                 />
               ))}
@@ -336,10 +344,10 @@ export default function DraftPage() {
               <CardContent className="space-y-4">
                 {/* Full Style */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                  <span className="text-sm font-medium text-slate-300 flex items-center gap-2">
                     <Film className="w-4 h-4 text-blue-400" />
                     Full Screen Style
-                  </label>
+                  </span>
                   <Select value={fullStyle} onValueChange={setFullStyle}>
                     <SelectTrigger className="bg-slate-800/50 border-slate-700 text-white">
                       <SelectValue />
@@ -360,10 +368,10 @@ export default function DraftPage() {
 
                 {/* Split Style */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                  <span className="text-sm font-medium text-slate-300 flex items-center gap-2">
                     <SplitSquareHorizontal className="w-4 h-4 text-emerald-400" />
                     Split Screen Style
-                  </label>
+                  </span>
                   <Select value={splitStyle} onValueChange={setSplitStyle}>
                     <SelectTrigger className="bg-slate-800/50 border-slate-700 text-white">
                       <SelectValue />
@@ -390,11 +398,12 @@ export default function DraftPage() {
                 <CardTitle className="text-lg text-white">Estimate</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {estimateLoading ? (
+                {estimateLoading && (
                   <div className="flex items-center justify-center py-4">
                     <Loader2 className="w-5 h-5 text-violet-400 animate-spin" />
                   </div>
-                ) : estimate ? (
+                )}
+                {!estimateLoading && estimate && (
                   <>
                     <div className="grid grid-cols-2 gap-4 text-center">
                       <div className="p-3 rounded-lg bg-slate-800/50">
@@ -424,7 +433,8 @@ export default function DraftPage() {
                       </div>
                     )}
                   </>
-                ) : (
+                )}
+                {!estimateLoading && !estimate && (
                   <p className="text-slate-500 text-sm text-center py-4">
                     Select scenes to see estimate
                   </p>
@@ -521,7 +531,11 @@ function SceneCard({
 
           {/* Format toggles */}
           <div className="flex items-center gap-4 shrink-0">
-            <label className="flex items-center gap-2 cursor-pointer group">
+            <button
+              type="button"
+              onClick={() => onToggle(scene.id, "full")}
+              className="flex items-center gap-2 cursor-pointer group"
+            >
               <Checkbox
                 checked={selection.full}
                 onCheckedChange={() => onToggle(scene.id, "full")}
@@ -531,8 +545,12 @@ function SceneCard({
                 <Film className="w-4 h-4" />
                 Full
               </span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer group">
+            </button>
+            <button
+              type="button"
+              onClick={() => onToggle(scene.id, "split")}
+              className="flex items-center gap-2 cursor-pointer group"
+            >
               <Checkbox
                 checked={selection.split}
                 onCheckedChange={() => onToggle(scene.id, "split")}
@@ -542,7 +560,7 @@ function SceneCard({
                 <SplitSquareHorizontal className="w-4 h-4" />
                 Split
               </span>
-            </label>
+            </button>
           </div>
         </div>
       </CardContent>

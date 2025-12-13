@@ -32,14 +32,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -66,57 +58,15 @@ import { invalidateClipsCache, invalidateClipsCacheMany } from "@/lib/cache";
 import { usePageView } from "@/lib/usePageView";
 import { cn } from "@/lib/utils";
 
-type SortField = "title" | "status" | "size" | "date";
-type SortDirection = "asc" | "desc";
-
-interface UserVideo {
-  id?: string;
-  video_id?: string;
-  video_title?: string;
-  video_url?: string;
-  created_at?: string;
-  custom_prompt?: string;
-  status?: "processing" | "analyzed" | "completed" | "failed";
-  clips_count?: number;
-  /** Total size of all clips in bytes. */
-  total_size_bytes?: number;
-  /** Human-readable total size. */
-  total_size_formatted?: string;
-}
-
-interface StorageInfo {
-  used_bytes: number;
-  limit_bytes: number;
-  total_clips: number;
-  percentage: number;
-  used_formatted: string;
-  limit_formatted: string;
-  remaining_formatted: string;
-}
-
-interface PlanUsage {
-  plan: string;
-  max_clips_per_month: number;
-  clips_used_this_month: number;
-  storage?: StorageInfo;
-}
-
-// Helper to parse size string to bytes for sorting
-function parseSizeToBytes(sizeStr?: string): number {
-  if (!sizeStr) return 0;
-  const match = sizeStr.match(/^([\d.]+)\s*(B|KB|MB|GB|TB)?$/i);
-  if (!match) return 0;
-  const value = parseFloat(match[1] ?? "0");
-  const unit = (match[2] ?? "B").toUpperCase();
-  const multipliers: Record<string, number> = {
-    B: 1,
-    KB: 1024,
-    MB: 1024 * 1024,
-    GB: 1024 * 1024 * 1024,
-    TB: 1024 * 1024 * 1024 * 1024,
-  };
-  return value * (multipliers[unit] ?? 1);
-}
+import { DeleteConfirmDialog } from "./components";
+import {
+  type DeleteTarget,
+  type PlanUsage,
+  type SortDirection,
+  type SortField,
+  type UserVideo,
+  parseSizeToBytes,
+} from "./types";
 
 export default function HistoryList() {
   usePageView("history");
@@ -126,10 +76,7 @@ export default function HistoryList() {
   const [error, setError] = useState<string | null>(null);
   const [selectedVideos, setSelectedVideos] = useState<Set<string>>(new Set());
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<{
-    type: "single" | "bulk" | "all";
-    videoId?: string;
-  } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [planUsage, setPlanUsage] = useState<PlanUsage | null>(null);
@@ -199,15 +146,11 @@ export default function HistoryList() {
           )}
         >
           {children}
-          {isActive ? (
-            sortDirection === "asc" ? (
-              <ArrowUp className="h-3.5 w-3.5" />
-            ) : (
-              <ArrowDown className="h-3.5 w-3.5" />
-            )
-          ) : (
-            <ArrowUpDown className="h-3.5 w-3.5 opacity-50" />
+          {isActive && sortDirection === "asc" && <ArrowUp className="h-3.5 w-3.5" />}
+          {isActive && sortDirection === "desc" && (
+            <ArrowDown className="h-3.5 w-3.5" />
           )}
+          {!isActive && <ArrowUpDown className="h-3.5 w-3.5 opacity-50" />}
         </button>
       );
     },
@@ -508,30 +451,6 @@ export default function HistoryList() {
       </div>
     );
   }
-
-  const getDeleteDialogContent = () => {
-    if (!deleteTarget) return { title: "", description: "" };
-
-    if (deleteTarget.type === "single") {
-      return {
-        title: "Delete Video",
-        description:
-          "Are you sure you want to delete this video? This action cannot be undone and will delete all associated clips and files.",
-      };
-    } else if (deleteTarget.type === "bulk") {
-      return {
-        title: `Delete ${selectedVideos.size} Video${selectedVideos.size > 1 ? "s" : ""}`,
-        description: `Are you sure you want to delete ${selectedVideos.size} selected video${selectedVideos.size > 1 ? "s" : ""}? This action cannot be undone and will delete all associated clips and files.`,
-      };
-    } else {
-      return {
-        title: `Delete All Videos (${videos.length})`,
-        description: `Are you sure you want to delete all ${videos.length} videos? This action cannot be undone and will delete all associated clips and files.`,
-      };
-    }
-  };
-
-  const dialogContent = getDeleteDialogContent();
 
   const usagePercentage = planUsage
     ? Math.min(
@@ -985,33 +904,15 @@ export default function HistoryList() {
         </Table>
       </div>
 
-      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{dialogContent.title}</DialogTitle>
-            <DialogDescription>{dialogContent.description}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setDeleteDialogOpen(false);
-                setDeleteTarget(null);
-              }}
-              disabled={deleting}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDeleteConfirm}
-              disabled={deleting}
-            >
-              {deleting ? "Deleting..." : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        target={deleteTarget}
+        deleting={deleting}
+        selectedCount={selectedVideos.size}
+        totalCount={videos.length}
+        onConfirm={handleDeleteConfirm}
+      />
     </div>
   );
 }

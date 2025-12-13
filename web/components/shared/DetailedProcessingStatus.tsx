@@ -66,7 +66,7 @@ export function DetailedProcessingStatus({
           </div>
 
           {/* Scene Progress Section */}
-          {hasSceneProgress ? (
+          {hasSceneProgress && (
             <div className="space-y-3">
               <h4 className="text-sm font-medium text-foreground">Scene Progress</h4>
               <div className="grid gap-2 max-h-48 overflow-y-auto">
@@ -75,25 +75,28 @@ export function DetailedProcessingStatus({
                 ))}
               </div>
             </div>
-          ) : isResuming ? (
+          )}
+          {!hasSceneProgress && isResuming && (
             <div className="text-sm text-muted-foreground italic">
               Connecting to processing stream or waiting for updates...
             </div>
-          ) : null}
+          )}
 
           {/* Logs Section */}
           <div className="bg-muted/50 rounded-xl p-4 font-mono text-sm h-48 overflow-y-auto border space-y-1">
-            {logs.length === 0 ? (
+            {logs.length === 0 && (
               <div className="text-muted-foreground italic">
                 {isResuming ? "Retrieving logs..." : "Waiting for task..."}
               </div>
-            ) : (
+            )}
+            {/* Log entries don't have unique IDs, using content+index as key */}
+            {logs.length > 0 &&
               logs.map((l, idx) => (
+                // eslint-disable-next-line react/no-array-index-key
                 <div key={`log-${idx}`} className="text-foreground">
                   {l}
                 </div>
-              ))
-            )}
+              ))}
           </div>
         </CardContent>
       </Card>
