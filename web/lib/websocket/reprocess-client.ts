@@ -62,6 +62,13 @@ export interface ReprocessClipUploadedMessage {
   totalClips: number;
 }
 
+export interface ReprocessStyleOmittedMessage {
+  type: "style_omitted";
+  sceneId: number;
+  style: string;
+  reason: string;
+}
+
 export type ReprocessMessage =
   | ReprocessProgressMessage
   | ReprocessLogMessage
@@ -70,7 +77,8 @@ export type ReprocessMessage =
   | ReprocessSceneStartedMessage
   | ReprocessSceneCompletedMessage
   | ReprocessClipProgressMessage
-  | ReprocessClipUploadedMessage;
+  | ReprocessClipUploadedMessage
+  | ReprocessStyleOmittedMessage;
 
 export interface ReprocessCallbacks {
   onProgress?: (value: number) => void;
@@ -97,6 +105,7 @@ export interface ReprocessCallbacks {
     details?: string
   ) => void;
   onClipUploaded?: (videoId: string, clipCount: number, totalClips: number) => void;
+  onStyleOmitted?: (sceneId: number, style: string, reason: string) => void;
 }
 
 export interface ReprocessOptions {
@@ -109,7 +118,7 @@ export interface ReprocessOptions {
 }
 
 const MAX_MESSAGE_SIZE = 1024 * 1024; // 1MB
-const DEFAULT_TIMEOUT = 300000; // 5 minutes
+const DEFAULT_TIMEOUT = 1800000; // 30 minutes
 
 /**
  * Create WebSocket URL for reprocessing endpoint.
@@ -295,6 +304,10 @@ export function reprocessScenesWebSocket(
 
       case "clip_uploaded":
         callbacks.onClipUploaded?.(data.videoId, data.clipCount, data.totalClips);
+        break;
+
+      case "style_omitted":
+        callbacks.onStyleOmitted?.(data.sceneId, data.style, data.reason);
         break;
 
       default:

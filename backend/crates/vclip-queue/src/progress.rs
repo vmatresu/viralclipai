@@ -146,6 +146,24 @@ impl ProgressChannel {
         .await
     }
 
+    /// Publish style omitted notification.
+    ///
+    /// Used when a style is skipped because it would produce identical output
+    /// to another style (e.g., split style falling back to full-frame).
+    pub async fn style_omitted(
+        &self,
+        job_id: &JobId,
+        scene_id: u32,
+        style: &str,
+        reason: &str,
+    ) -> QueueResult<()> {
+        self.publish(&ProgressEvent {
+            job_id: job_id.clone(),
+            message: WsMessage::style_omitted(scene_id, style, reason),
+        })
+        .await
+    }
+
     /// Subscribe to progress events for a job.
     /// Returns a pinned stream that can be polled with `.next()`.
     pub async fn subscribe(

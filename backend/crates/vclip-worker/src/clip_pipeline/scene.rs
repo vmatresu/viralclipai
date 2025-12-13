@@ -249,29 +249,54 @@ pub async fn process_scene_with_raw_key(
 
     // Filter out redundant split styles when split isn't appropriate
     // This optimization prevents duplicate full-frame rendering
-    let tasks_to_process: Vec<_> = scene_tasks
-        .iter()
-        .filter(|task| {
-            // If we determined split isn't appropriate and this is a split style
-            // that has a corresponding full-frame style also being processed,
-            // skip the split style to avoid redundant work
-            if let Some(false) = split_is_appropriate {
-                if is_intelligent_split_style(task.style) {
-                    let has_fullframe_counterpart = scene_tasks
-                        .iter()
-                        .any(|t| is_fullframe_counterpart(task.style, t.style));
-                    if has_fullframe_counterpart {
-                        warn!(
-                            scene_id = scene_id,
-                            style = %task.style,
-                            "Skipping split style (would produce identical output to full-frame)"
-                        );
-                        return false;
-                    }
+    
+    // First pass: identify styles to omit and emit notifications
+    let mut omitted_styles: Vec<&ClipTask> = Vec::new();
+    if let Some(false) = split_is_appropriate {
+        for task in scene_tasks.iter() {
+            if is_intelligent_split_style(task.style) {
+                let has_fullframe_counterpart = scene_tasks
+                    .iter()
+                    .any(|t| is_fullframe_counterpart(task.style, t.style));
+                if has_fullframe_counterpart {
+                    omitted_styles.push(task);
                 }
             }
-            true
-        })
+        }
+    }
+    
+    // Emit style_omitted events for user visibility
+    for task in &omitted_styles {
+        let reason = "Would produce identical output to full-frame style";
+        
+        // Emit structured event for frontend
+        if let Err(e) = ctx
+            .progress
+            .style_omitted(&job.job_id, scene_id, &task.style.to_string(), reason)
+            .await
+        {
+            tracing::warn!(
+                scene_id = scene_id,
+                style = %task.style,
+                error = %e,
+                "Failed to emit style_omitted event"
+            );
+        }
+        
+        // Log for processing record
+        warn!(
+            scene_id = scene_id,
+            style = %task.style,
+            "Skipping split style (would produce identical output to full-frame)"
+        );
+    }
+    
+    // Second pass: filter out omitted styles
+    let omitted_style_set: std::collections::HashSet<_> = 
+        omitted_styles.iter().map(|t| t.style).collect();
+    let tasks_to_process: Vec<_> = scene_tasks
+        .iter()
+        .filter(|task| !omitted_style_set.contains(&task.style))
         .cloned()
         .collect();
 

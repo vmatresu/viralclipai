@@ -121,6 +121,17 @@ pub enum WsMessage {
         #[serde(rename = "clipsFailed")]
         clips_failed: u32,
     },
+
+    /// Style was omitted (skipped) for optimization
+    StyleOmitted {
+        /// Scene ID
+        #[serde(rename = "sceneId")]
+        scene_id: u32,
+        /// Style that was omitted
+        style: String,
+        /// Reason for omission
+        reason: String,
+    },
 }
 
 /// Detailed clip processing step.
@@ -271,6 +282,19 @@ impl WsMessage {
         }
     }
 
+    /// Create a style omitted message.
+    pub fn style_omitted(
+        scene_id: u32,
+        style: impl Into<String>,
+        reason: impl Into<String>,
+    ) -> Self {
+        WsMessage::StyleOmitted {
+            scene_id,
+            style: style.into(),
+            reason: reason.into(),
+        }
+    }
+
     /// Get the message type.
     pub fn message_type(&self) -> WsMessageType {
         match self {
@@ -282,6 +306,7 @@ impl WsMessage {
             WsMessage::ClipProgress { .. } => WsMessageType::Progress,
             WsMessage::SceneStarted { .. } => WsMessageType::Progress,
             WsMessage::SceneCompleted { .. } => WsMessageType::Progress,
+            WsMessage::StyleOmitted { .. } => WsMessageType::Progress,
         }
     }
 }
