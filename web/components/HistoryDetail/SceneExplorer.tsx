@@ -13,7 +13,6 @@ import {
   Trash,
   Trash2,
 } from "lucide-react";
-
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -33,7 +32,12 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/auth";
-import { copyShareUrl, downloadClip, getPlaybackUrl, getThumbnailUrl } from "@/lib/clipDelivery";
+import {
+  copyShareUrl,
+  downloadClip,
+  getPlaybackUrl,
+  getThumbnailUrl,
+} from "@/lib/clipDelivery";
 import {
   getStyleLabel,
   getStyleTier,
@@ -842,7 +846,12 @@ function ClipThumbnail({ clipId, alt, className }: ClipThumbnailProps) {
 
   if (loading) {
     return (
-      <div className={cn("flex items-center justify-center bg-muted animate-pulse", className)}>
+      <div
+        className={cn(
+          "flex items-center justify-center bg-muted animate-pulse",
+          className
+        )}
+      >
         <ImageIcon className="h-6 w-6 text-muted-foreground/50" />
       </div>
     );
