@@ -51,6 +51,18 @@ pub struct Document {
     pub update_time: Option<String>,
 }
 
+impl Document {
+    /// Create a new document with the given fields.
+    pub fn new(fields: HashMap<String, Value>) -> Self {
+        Self {
+            name: None,
+            fields: Some(fields),
+            create_time: None,
+            update_time: None,
+        }
+    }
+}
+
 /// Request to create a document.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateDocumentRequest {
@@ -150,6 +162,34 @@ pub struct BatchWriteResponse {
     pub write_results: Option<Vec<WriteResult>>,
     /// Status for each write, in order.
     pub status: Option<Vec<Status>>,
+}
+
+impl BatchWriteResponse {
+    /// Create an empty response for empty batch writes.
+    pub fn empty() -> Self {
+        Self {
+            write_results: Some(vec![]),
+            status: Some(vec![]),
+        }
+    }
+
+    /// Check for partial failures in the batch response.
+    pub fn check_for_errors(&self) -> crate::error::FirestoreResult<()> {
+        if let Some(statuses) = &self.status {
+            for (i, status) in statuses.iter().enumerate() {
+                if let Some(code) = status.code {
+                    if code != 0 {
+                        let msg = status.message.as_deref().unwrap_or("Unknown error");
+                        return Err(crate::error::FirestoreError::request_failed(format!(
+                            "Batch write failed at index {}: {} (code {})",
+                            i, msg, code
+                        )));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Convert a Rust value to Firestore Value.

@@ -10,7 +10,10 @@
       "Bash(ssh:*)",
       "Bash(chmod:*)",
       "Bash(git reset:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo build:*)"
     ],
     "deny": [],
     "ask": []

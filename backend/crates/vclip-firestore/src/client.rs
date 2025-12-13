@@ -1,15 +1,30 @@
 //! Firestore REST API client.
+//!
+//! Production-grade client with:
+//! - Token caching with refresh margin
+//! - HTTP client tuning (pooling, timeouts)
+//! - Exponential backoff with jitter
+//! - Observability (tracing spans, metrics)
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gcp_auth::{CustomServiceAccount, TokenProvider};
 use reqwest::{Client, StatusCode};
-use tracing::{debug, warn};
+use tracing::{debug, info_span, Instrument};
 
 use crate::error::{FirestoreError, FirestoreResult};
-use crate::types::{BatchWriteRequest, BatchWriteResponse, Document, ListDocumentsResponse, Value, Write};
+use crate::metrics::record_request;
+use crate::retry::RetryConfig;
+use crate::token_cache::TokenCache;
+use crate::types::{
+    BatchWriteRequest, BatchWriteResponse, Document, ListDocumentsResponse, Value, Write,
+};
+
+// =============================================================================
+// Configuration
+// =============================================================================
 
 /// Firestore client configuration.
 #[derive(Debug, Clone)]
@@ -20,40 +35,64 @@ pub struct FirestoreConfig {
     pub database_id: String,
     /// Request timeout
     pub timeout: Duration,
-    /// Max retries for transient errors
-    pub max_retries: u32,
+    /// Connect timeout
+    pub connect_timeout: Duration,
+    /// Retry configuration
+    pub retry: RetryConfig,
 }
 
 impl FirestoreConfig {
     /// Create config from environment variables.
     pub fn from_env() -> FirestoreResult<Self> {
+        let project_id = std::env::var("GCP_PROJECT_ID")
+            .or_else(|_| std::env::var("FIREBASE_PROJECT_ID"))
+            .map_err(|_| {
+                FirestoreError::auth_error(
+                    "GCP_PROJECT_ID or FIREBASE_PROJECT_ID must be set to access Firestore",
+                )
+            })?;
+
+        if project_id.is_empty() {
+            return Err(FirestoreError::auth_error(
+                "GCP_PROJECT_ID or FIREBASE_PROJECT_ID cannot be empty",
+            ));
+        }
+
+        let connect_timeout_secs: u64 = std::env::var("FIRESTORE_CONNECT_TIMEOUT_SECS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(5);
+
         Ok(Self {
-            project_id: std::env::var("GCP_PROJECT_ID")
-                .or_else(|_| std::env::var("FIREBASE_PROJECT_ID"))
-                .map_err(|_| FirestoreError::auth_error("GCP_PROJECT_ID not set"))?,
+            project_id,
             database_id: std::env::var("FIRESTORE_DATABASE_ID")
                 .unwrap_or_else(|_| "(default)".to_string()),
             timeout: Duration::from_secs(30),
-            max_retries: 3,
+            connect_timeout: Duration::from_secs(connect_timeout_secs),
+            retry: RetryConfig::from_env(),
         })
     }
 }
 
+// =============================================================================
+// Client
+// =============================================================================
+
 /// Firestore REST API client.
 pub struct FirestoreClient {
     http: Client,
-    auth: Arc<dyn TokenProvider>,
     config: FirestoreConfig,
     base_url: String,
+    token_cache: Arc<TokenCache>,
 }
 
 impl Clone for FirestoreClient {
     fn clone(&self) -> Self {
         Self {
             http: self.http.clone(),
-            auth: Arc::clone(&self.auth),
             config: self.config.clone(),
             base_url: self.base_url.clone(),
+            token_cache: Arc::clone(&self.token_cache),
         }
     }
 }
@@ -65,6 +104,10 @@ impl FirestoreClient {
 
         let http = Client::builder()
             .timeout(config.timeout)
+            .connect_timeout(config.connect_timeout)
+            .pool_idle_timeout(Duration::from_secs(90))
+            .pool_max_idle_per_host(10)
+            .user_agent(concat!("vclip-firestore/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(FirestoreError::Network)?;
 
@@ -75,22 +118,21 @@ impl FirestoreClient {
 
         Ok(Self {
             http,
-            auth,
             config,
             base_url,
+            token_cache: Arc::new(TokenCache::new(auth)),
         })
     }
 
     fn create_auth_provider() -> FirestoreResult<Arc<dyn TokenProvider>> {
-        // Single supported method: service account JSON file path in GOOGLE_APPLICATION_CREDENTIALS.
-        // gcp_auth will read the file and handle token caching/refresh.
         let service_account = CustomServiceAccount::from_env()
-            .map_err(|e| FirestoreError::auth_error(e.to_string()))?;
+            .map_err(|e| FirestoreError::auth_error(format!("Failed to load service account: {}", e)))?;
 
         match service_account {
             Some(sa) => Ok(Arc::new(sa)),
             None => Err(FirestoreError::auth_error(
-                "GOOGLE_APPLICATION_CREDENTIALS not set (required to access Firestore)",
+                "GOOGLE_APPLICATION_CREDENTIALS not set. \
+                 Set it to the path of your service account JSON file.",
             )),
         }
     }
@@ -103,17 +145,17 @@ impl FirestoreClient {
 
     /// Get an access token.
     async fn get_token(&self) -> FirestoreResult<String> {
-        let token = self.auth
-            .token(&["https://www.googleapis.com/auth/datastore"])
-            .await
-            .map_err(|e| FirestoreError::auth_error(e.to_string()))?;
-        Ok(token.as_str().to_string())
+        self.token_cache.get_token().await
     }
 
     /// Build document path.
     fn document_path(&self, collection: &str, doc_id: &str) -> String {
         format!("{}/{}/{}", self.base_url, collection, doc_id)
     }
+
+    // =========================================================================
+    // CRUD Operations
+    // =========================================================================
 
     /// Get a document.
     pub async fn get_document(
@@ -124,27 +166,20 @@ impl FirestoreClient {
         let url = self.document_path(collection, doc_id);
         let token = self.get_token().await?;
 
-        let response = self
-            .http
-            .get(&url)
-            .bearer_auth(&token)
-            .send()
-            .await?;
+        self.execute_request("get_document", collection, Some(doc_id), async {
+            let response = self.http.get(&url).bearer_auth(&token).send().await?;
+            let status = response.status();
 
-        match response.status() {
-            StatusCode::OK => {
-                let doc: Document = response.json().await?;
-                Ok(Some(doc))
+            match status {
+                StatusCode::OK => {
+                    let doc: Document = response.json().await?;
+                    Ok(Some(doc))
+                }
+                StatusCode::NOT_FOUND => Ok(None),
+                _ => Err(Self::handle_error_response(status, &url, response).await),
             }
-            StatusCode::NOT_FOUND => Ok(None),
-            status => {
-                let body = response.text().await.unwrap_or_default();
-                Err(FirestoreError::request_failed(format!(
-                    "GET {} failed with {}: {}",
-                    url, status, body
-                )))
-            }
-        }
+        })
+        .await
     }
 
     /// Create a document.
@@ -156,39 +191,25 @@ impl FirestoreClient {
     ) -> FirestoreResult<Document> {
         let url = format!("{}/{}?documentId={}", self.base_url, collection, doc_id);
         let token = self.get_token().await?;
+        let body = Document::new(fields);
 
-        let body = Document {
-            name: None,
-            fields: Some(fields),
-            create_time: None,
-            update_time: None,
-        };
+        self.execute_request("create_document", collection, Some(doc_id), async {
+            let response = self.http.post(&url).bearer_auth(&token).json(&body).send().await?;
+            let status = response.status();
 
-        let response = self
-            .http
-            .post(&url)
-            .bearer_auth(&token)
-            .json(&body)
-            .send()
-            .await?;
-
-        match response.status() {
-            StatusCode::OK | StatusCode::CREATED => {
-                let doc: Document = response.json().await?;
-                Ok(doc)
+            match status {
+                StatusCode::OK | StatusCode::CREATED => {
+                    let doc: Document = response.json().await?;
+                    Ok(doc)
+                }
+                StatusCode::CONFLICT => Err(FirestoreError::AlreadyExists(format!(
+                    "{}/{}",
+                    collection, doc_id
+                ))),
+                _ => Err(Self::handle_error_response(status, &url, response).await),
             }
-            StatusCode::CONFLICT => Err(FirestoreError::AlreadyExists(format!(
-                "{}/{}",
-                collection, doc_id
-            ))),
-            status => {
-                let body = response.text().await.unwrap_or_default();
-                Err(FirestoreError::request_failed(format!(
-                    "POST {} failed with {}: {}",
-                    url, status, body
-                )))
-            }
-        }
+        })
+        .await
     }
 
     /// Update a document (merge).
@@ -200,53 +221,31 @@ impl FirestoreClient {
         update_mask: Option<Vec<String>>,
     ) -> FirestoreResult<Document> {
         let mut url = self.document_path(collection, doc_id);
-
-        // Add update mask for merge semantics
         if let Some(mask) = update_mask {
-            let mask_params: Vec<String> = mask.iter().map(|f| format!("updateMask.fieldPaths={}", f)).collect();
-            url = format!("{}?{}", url, mask_params.join("&"));
+            let params: Vec<String> = mask.iter().map(|f| format!("updateMask.fieldPaths={}", f)).collect();
+            url = format!("{}?{}", url, params.join("&"));
         }
 
         let token = self.get_token().await?;
+        let body = Document::new(fields);
 
-        let body = Document {
-            name: None,
-            fields: Some(fields),
-            create_time: None,
-            update_time: None,
-        };
+        self.execute_request("update_document", collection, Some(doc_id), async {
+            let response = self.http.patch(&url).bearer_auth(&token).json(&body).send().await?;
+            let status = response.status();
 
-        let response = self
-            .http
-            .patch(&url)
-            .bearer_auth(&token)
-            .json(&body)
-            .send()
-            .await?;
-
-        match response.status() {
-            StatusCode::OK => {
-                let doc: Document = response.json().await?;
-                Ok(doc)
+            match status {
+                StatusCode::OK => {
+                    let doc: Document = response.json().await?;
+                    Ok(doc)
+                }
+                StatusCode::NOT_FOUND => Err(FirestoreError::not_found(format!("{}/{}", collection, doc_id))),
+                _ => Err(Self::handle_error_response(status, &url, response).await),
             }
-            StatusCode::NOT_FOUND => Err(FirestoreError::not_found(format!(
-                "{}/{}",
-                collection, doc_id
-            ))),
-            status => {
-                let body = response.text().await.unwrap_or_default();
-                Err(FirestoreError::request_failed(format!(
-                    "PATCH {} failed with {}: {}",
-                    url, status, body
-                )))
-            }
-        }
+        })
+        .await
     }
 
-    /// Update a document with an updateTime precondition to avoid lost updates.
-    ///
-    /// This is useful for optimistic concurrency control where concurrent writers
-    /// may contend on the same document.
+    /// Update with optimistic concurrency control.
     pub async fn update_document_with_precondition(
         &self,
         collection: &str,
@@ -259,88 +258,62 @@ impl FirestoreClient {
         let mut params: Vec<String> = Vec::new();
 
         if let Some(mask) = update_mask {
-            params.extend(
-                mask.iter()
-                    .map(|f| format!("updateMask.fieldPaths={}", f)),
-            );
+            params.extend(mask.iter().map(|f| format!("updateMask.fieldPaths={}", f)));
         }
-
         if let Some(ts) = update_time {
-            params.push(format!(
-                "currentDocument.updateTime={}",
-                urlencoding::encode(ts)
-            ));
+            params.push(format!("currentDocument.updateTime={}", urlencoding::encode(ts)));
         }
-
         if !params.is_empty() {
             url = format!("{}?{}", url, params.join("&"));
         }
 
         let token = self.get_token().await?;
+        let body = Document::new(fields);
 
-        let body = Document {
-            name: None,
-            fields: Some(fields),
-            create_time: None,
-            update_time: None,
-        };
+        self.execute_request("update_document_precondition", collection, Some(doc_id), async {
+            let response = self.http.patch(&url).bearer_auth(&token).json(&body).send().await?;
+            let status = response.status();
 
-        let response = self
-            .http
-            .patch(&url)
-            .bearer_auth(&token)
-            .json(&body)
-            .send()
-            .await?;
-
-        match response.status() {
-            StatusCode::OK => {
-                let doc: Document = response.json().await?;
-                Ok(doc)
+            match status {
+                StatusCode::OK => {
+                    let doc: Document = response.json().await?;
+                    Ok(doc)
+                }
+                StatusCode::PRECONDITION_FAILED | StatusCode::CONFLICT => {
+                    let body_text = response.text().await.unwrap_or_default();
+                    Err(FirestoreError::PreconditionFailed(format!(
+                        "Precondition failed: {}",
+                        body_text
+                    )))
+                }
+                StatusCode::NOT_FOUND => Err(FirestoreError::not_found(format!("{}/{}", collection, doc_id))),
+                _ => Err(Self::handle_error_response(status, &url, response).await),
             }
-            StatusCode::PRECONDITION_FAILED | StatusCode::CONFLICT => {
-                let body = response.text().await.unwrap_or_default();
-                Err(FirestoreError::PreconditionFailed(format!(
-                    "PATCH {} precondition failed: {}",
-                    url, body
-                )))
-            }
-            StatusCode::NOT_FOUND => Err(FirestoreError::not_found(format!(
-                "{}/{}",
-                collection, doc_id
-            ))),
-            status => {
-                let body = response.text().await.unwrap_or_default();
-                Err(FirestoreError::request_failed(format!(
-                    "PATCH {} failed with {}: {}",
-                    url, status, body
-                )))
-            }
-        }
+        })
+        .await
     }
 
     /// Delete a document.
     pub async fn delete_document(&self, collection: &str, doc_id: &str) -> FirestoreResult<()> {
         let url = self.document_path(collection, doc_id);
         let token = self.get_token().await?;
+        let coll = collection.to_string();
+        let id = doc_id.to_string();
 
-        let response = self.http.delete(&url).bearer_auth(&token).send().await?;
+        self.execute_request("delete_document", collection, Some(doc_id), async {
+            let response = self.http.delete(&url).bearer_auth(&token).send().await?;
+            let status = response.status();
 
-        match response.status() {
-            StatusCode::OK | StatusCode::NO_CONTENT => Ok(()),
-            StatusCode::NOT_FOUND => {
-                // Idempotent delete
-                debug!("Document {}/{} already deleted", collection, doc_id);
-                Ok(())
+            match status {
+                StatusCode::OK | StatusCode::NO_CONTENT => Ok(()),
+                StatusCode::NOT_FOUND => {
+                    debug!("Document {}/{} already deleted (idempotent)", coll, id);
+                    Ok(())
+                }
+                _ => Err(Self::handle_error_response(status, &url, response).await),
             }
-            status => {
-                let body = response.text().await.unwrap_or_default();
-                Err(FirestoreError::request_failed(format!(
-                    "DELETE {} failed with {}: {}",
-                    url, status, body
-                )))
-            }
-        }
+        })
+        .await
     }
 
     /// List documents in a collection.
@@ -351,7 +324,6 @@ impl FirestoreClient {
         page_token: Option<&str>,
     ) -> FirestoreResult<ListDocumentsResponse> {
         let mut url = format!("{}/{}", self.base_url, collection);
-
         let mut params = Vec::new();
         if let Some(size) = page_size {
             params.push(format!("pageSize={}", size));
@@ -365,55 +337,24 @@ impl FirestoreClient {
 
         let token = self.get_token().await?;
 
-        let response = self.http.get(&url).bearer_auth(&token).send().await?;
+        self.execute_request("list_documents", collection, None, async {
+            let response = self.http.get(&url).bearer_auth(&token).send().await?;
+            let status = response.status();
 
-        match response.status() {
-            StatusCode::OK => {
-                let list: ListDocumentsResponse = response.json().await?;
-                Ok(list)
-            }
-            status => {
-                let body = response.text().await.unwrap_or_default();
-                Err(FirestoreError::request_failed(format!(
-                    "LIST {} failed with {}: {}",
-                    url, status, body
-                )))
-            }
-        }
-    }
-
-    /// Execute with retry.
-    pub async fn with_retry<T, F, Fut>(&self, operation: F) -> FirestoreResult<T>
-    where
-        F: Fn() -> Fut,
-        Fut: std::future::Future<Output = FirestoreResult<T>>,
-    {
-        let mut last_error = None;
-
-        for attempt in 0..=self.config.max_retries {
-            match operation().await {
-                Ok(result) => return Ok(result),
-                Err(e) if e.is_retryable() && attempt < self.config.max_retries => {
-                    let delay = Duration::from_millis(100 * 2u64.pow(attempt));
-                    warn!(
-                        "Firestore operation failed (attempt {}), retrying in {:?}: {}",
-                        attempt + 1,
-                        delay,
-                        e
-                    );
-                    tokio::time::sleep(delay).await;
-                    last_error = Some(e);
+            match status {
+                StatusCode::OK => {
+                    let list: ListDocumentsResponse = response.json().await?;
+                    Ok(list)
                 }
-                Err(e) => return Err(e),
+                _ => Err(Self::handle_error_response(status, &url, response).await),
             }
-        }
-
-        Err(last_error.unwrap_or_else(|| FirestoreError::request_failed("Unknown error")))
+        })
+        .await
     }
 
-    // ========================================================================
-    // Batch Write Operations (Atomic multi-document writes)
-    // ========================================================================
+    // =========================================================================
+    // Batch Operations
+    // =========================================================================
 
     /// Build full document name for batch operations.
     pub fn full_document_name(&self, collection: &str, doc_id: &str) -> String {
@@ -424,28 +365,12 @@ impl FirestoreClient {
     }
 
     /// Execute a batch write (atomic multi-document operation).
-    ///
-    /// All writes in the batch either succeed or fail together.
-    /// Maximum 500 writes per batch (Firestore limit).
-    ///
-    /// # Arguments
-    /// * `writes` - Vector of Write operations to execute atomically
-    ///
-    /// # Returns
-    /// * `Ok(BatchWriteResponse)` - All writes succeeded
-    /// * `Err(FirestoreError)` - One or more writes failed (all rolled back)
     pub async fn batch_write(&self, writes: Vec<Write>) -> FirestoreResult<BatchWriteResponse> {
         if writes.is_empty() {
-            return Ok(BatchWriteResponse {
-                write_results: Some(vec![]),
-                status: Some(vec![]),
-            });
+            return Ok(BatchWriteResponse::empty());
         }
-
         if writes.len() > 500 {
-            return Err(FirestoreError::request_failed(
-                "Batch write exceeds 500 document limit",
-            ));
+            return Err(FirestoreError::request_failed("Batch write exceeds 500 document limit"));
         }
 
         let url = format!(
@@ -453,51 +378,99 @@ impl FirestoreClient {
             self.config.project_id, self.config.database_id
         );
         let token = self.get_token().await?;
-
         let request = BatchWriteRequest { writes };
 
-        let response = self
-            .http
-            .post(&url)
-            .bearer_auth(&token)
-            .json(&request)
-            .send()
-            .await?;
+        self.execute_request("batch_write", "batch", None, async {
+            let response = self.http.post(&url).bearer_auth(&token).json(&request).send().await?;
+            let status = response.status();
 
-        match response.status() {
-            StatusCode::OK => {
-                let batch_response: BatchWriteResponse = response.json().await?;
-
-                // Check for partial failures in the response
-                if let Some(statuses) = &batch_response.status {
-                    for (i, status) in statuses.iter().enumerate() {
-                        if let Some(code) = status.code {
-                            if code != 0 {
-                                let msg = status.message.as_deref().unwrap_or("Unknown error");
-                                return Err(FirestoreError::request_failed(format!(
-                                    "Batch write failed at index {}: {} (code {})",
-                                    i, msg, code
-                                )));
-                            }
-                        }
-                    }
+            match status {
+                StatusCode::OK => {
+                    let batch_response: BatchWriteResponse = response.json().await?;
+                    batch_response.check_for_errors()?;
+                    Ok(batch_response)
                 }
+                StatusCode::CONFLICT => Err(FirestoreError::AlreadyExists("Batch write conflict".to_string())),
+                StatusCode::PRECONDITION_FAILED => Err(FirestoreError::PreconditionFailed("Batch precondition failed".to_string())),
+                _ => Err(Self::handle_error_response(status, &url, response).await),
+            }
+        })
+        .await
+    }
 
-                Ok(batch_response)
-            }
-            StatusCode::CONFLICT => Err(FirestoreError::AlreadyExists(
-                "Batch write conflict: document already exists".to_string(),
-            )),
-            StatusCode::PRECONDITION_FAILED => Err(FirestoreError::PreconditionFailed(
-                "Batch write precondition failed".to_string(),
-            )),
-            status => {
-                let body = response.text().await.unwrap_or_default();
-                Err(FirestoreError::request_failed(format!(
-                    "Batch write failed with {}: {}",
-                    status, body
-                )))
-            }
-        }
+    /// Execute with retry.
+    pub async fn with_retry<T, F, Fut>(&self, operation: &str, op: F) -> FirestoreResult<T>
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = FirestoreResult<T>>,
+    {
+        crate::retry::with_retry(&self.config.retry, operation, op).await
+    }
+
+    // =========================================================================
+    // Internal Helpers
+    // =========================================================================
+
+    /// Execute a request with tracing and metrics.
+    async fn execute_request<T, F>(
+        &self,
+        operation: &str,
+        collection: &str,
+        doc_id: Option<&str>,
+        fut: F,
+    ) -> FirestoreResult<T>
+    where
+        F: std::future::Future<Output = FirestoreResult<T>>,
+    {
+        let span = if let Some(id) = doc_id {
+            info_span!("firestore_request", operation = %operation, collection = %collection, doc_id = %id)
+        } else {
+            info_span!("firestore_request", operation = %operation, collection = %collection)
+        };
+
+        let start = Instant::now();
+        let result = fut.instrument(span).await;
+        let latency_ms = start.elapsed().as_millis() as f64;
+
+        let status = match &result {
+            Ok(_) => 200,
+            Err(e) => e.http_status().unwrap_or(500),
+        };
+        record_request(operation, status, latency_ms);
+
+        result
+    }
+
+    async fn handle_error_response(status: StatusCode, url: &str, response: reqwest::Response) -> FirestoreError {
+        let body = response.text().await.unwrap_or_default();
+        FirestoreError::from_http_status(status.as_u16(), format!("{} failed: {}", url, body))
+    }
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+
+    #[test]
+    #[serial]
+    fn test_config_from_env_validates_project_id() {
+        std::env::remove_var("GCP_PROJECT_ID");
+        std::env::remove_var("FIREBASE_PROJECT_ID");
+        let result = FirestoreConfig::from_env();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_default_values() {
+        std::env::set_var("GCP_PROJECT_ID", "test-project");
+        std::env::remove_var("FIRESTORE_CONNECT_TIMEOUT_SECS");
+        let config = FirestoreConfig::from_env().unwrap();
+        assert_eq!(config.connect_timeout, Duration::from_secs(5));
     }
 }

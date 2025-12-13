@@ -479,6 +479,7 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
                                     WsMessage::ClipProgress { .. } => "clip_progress",
                                     WsMessage::SceneStarted { .. } => "scene_started",
                                     WsMessage::SceneCompleted { .. } => "scene_completed",
+                                    WsMessage::StyleOmitted { .. } => "style_omitted",
                                     WsMessage::Done { .. } => {
                                         done_sent = true;
                                         // Increment usage counter when job completes successfully
@@ -863,6 +864,7 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
                                     WsMessage::ClipProgress { .. } => "clip_progress",
                                     WsMessage::SceneStarted { .. } => "scene_started",
                                     WsMessage::SceneCompleted { .. } => "scene_completed",
+                                    WsMessage::StyleOmitted { .. } => "style_omitted",
                                 };
 
                                 metrics::record_ws_message_sent("reprocess", msg_type);
