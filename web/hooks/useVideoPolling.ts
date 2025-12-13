@@ -5,7 +5,7 @@
  * Uses exponential backoff to reduce server load.
  */
 
-import { useEffect, useRef, useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { apiFetch } from "@/lib/apiClient";
 import { invalidateClipsCache } from "@/lib/cache";
@@ -14,7 +14,7 @@ import { frontendLogger } from "@/lib/logger";
 export interface UserVideo {
   id?: string;
   video_id?: string;
-  status?: "processing" | "completed";
+  status?: "processing" | "analyzed" | "completed" | "failed";
   clips_count?: number;
 }
 
@@ -108,23 +108,24 @@ export function useVideoPolling({
   }, [videos, getIdToken, onVideosUpdate, pollInterval, maxInterval]);
 
   useEffect(() => {
-    if (!enabled) {
+    const cleanup = () => {
       if (intervalRef.current) {
         clearTimeout(intervalRef.current);
         intervalRef.current = null;
       }
-      return;
+    };
+
+    if (!enabled) {
+      cleanup();
+      return cleanup;
     }
 
     const hasProcessingVideos = videos.some((v) => v.status === "processing");
     if (!hasProcessingVideos) {
       // Reset backoff when no processing videos
       backoffRef.current = pollInterval;
-      if (intervalRef.current) {
-        clearTimeout(intervalRef.current);
-        intervalRef.current = null;
-      }
-      return;
+      cleanup();
+      return cleanup;
     }
 
     // Set up polling interval with exponential backoff
@@ -143,12 +144,7 @@ export function useVideoPolling({
     void poll();
     scheduleNextPoll();
 
-    return () => {
-      if (intervalRef.current) {
-        clearTimeout(intervalRef.current);
-        intervalRef.current = null;
-      }
-    };
+    return cleanup;
   }, [enabled, videos, poll, pollInterval]);
 
   return {
