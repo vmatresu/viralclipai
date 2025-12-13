@@ -69,11 +69,11 @@ export function ProcessVideoInterface() {
   const [url, setUrl] = useState("");
   // Default layout and AI level - these are now fixed defaults since the UI was removed
   // Users will select styles per-scene in the draft selection screen after analysis
-  const layout: LayoutOption = "split";
-  const aiLevel: AiLevel = "motion";
-  const staticCropSide: StaticFocusOption = "center";
+  const layout = "split" as LayoutOption;
+  const aiLevel = "motion" as AiLevel;
+  const staticCropSide = "center" as StaticFocusOption;
   const [prompt, setPrompt] = useState("");
-  const [exportOriginal, setExportOriginal] = useState(false);
+  const [exportOriginal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [shouldAnimateInput, setShouldAnimateInput] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
