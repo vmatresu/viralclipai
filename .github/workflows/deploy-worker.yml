@@ -2,12 +2,13 @@ name: Deploy Worker to DigitalOcean
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
     paths:
-      - 'backend/**'
-      - 'Dockerfile'
-      - 'deploy/docker-compose.worker.yml'
+    - 'backend/**'
+    - 'Dockerfile'
+    - 'deploy/docker-compose.worker.yml'
   workflow_dispatch:
+
 
 permissions:
   contents: read
@@ -21,35 +22,39 @@ jobs:
       cancel-in-progress: false
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+    - name: Checkout repository
+      uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 
-      - name: Deploy Worker via SSH
-        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262  # v1.0.3
-        with:
-          host: ${{ secrets.WORKER_HOST }}
-          username: ${{ secrets.DO_USER }}
-          port: ${{ secrets.DO_PORT }}
-          key: ${{ secrets.DO_SSH_KEY }}
-          command_timeout: 30m
-          script: |
-            set -euo pipefail
-            
-            APP_DIR=/var/www/viralclipai-backend
-            cd "$APP_DIR"
-            
-            echo "Pulling latest changes..."
-            git fetch origin main
-            git reset --hard origin/main
-            
-            echo "Starting Worker build in background..."
-            # Run build in background so GH Actions doesn't wait for full compile
-            nohup bash -c '
-              export DOCKER_BUILDKIT=1
-              export COMPOSE_DOCKER_CLI_BUILD=1
-              docker compose --env-file .env -f deploy/docker-compose.worker.yml up -d --build 2>&1 | tee /tmp/worker-deploy.log
-              docker image prune -f || true
-            ' > /tmp/worker-deploy-wrapper.log 2>&1 &
-            disown
-            
-            echo "✅ Build started in background. Check logs with: tail -f /tmp/worker-deploy.log"
+    - name: Deploy Worker via SSH
+      uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
+      with:
+        host: ${{ secrets.WORKER_HOST }}
+        username: ${{ secrets.DO_USER }}
+        port: ${{ secrets.DO_PORT }}
+        key: ${{ secrets.DO_SSH_KEY }}
+        command_timeout: 30m
+        script: |
+          set -euo pipefail
+
+          APP_DIR=/var/www/viralclipai-backend
+          cd "$APP_DIR"
+
+          test -f /var/www/viralclipai-backend/.env
+          test -f /var/www/viralclipai-backend/firebase-credentials.json
+          test -f /var/www/viralclipai-backend/youtube-cookies.txt
+
+          echo "Pulling latest changes..."
+          git fetch origin main
+          git reset --hard origin/main
+
+          echo "Starting Worker build in background..."
+          # Run build in background so GH Actions doesn't wait for full compile
+          nohup bash -c '
+            export DOCKER_BUILDKIT=1
+            export COMPOSE_DOCKER_CLI_BUILD=1
+            docker compose --env-file .env -f deploy/docker-compose.worker.yml up -d --build --force-recreate worker 2>&1 | tee /tmp/worker-deploy.log
+            docker image prune -f || true
+          ' > /tmp/worker-deploy-wrapper.log 2>&1 &
+          disown
+
+          echo "✅ Build started in background. Check logs with: tail -f /tmp/worker-deploy.log"

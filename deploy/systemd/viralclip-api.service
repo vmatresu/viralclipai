@@ -1,0 +1,63 @@
+# =============================================================================
+# ViralClip AI - API Service (systemd unit)
+# =============================================================================
+# Manages Docker Compose lifecycle for the API container.
+# Install: sudo deploy/install-systemd.sh api
+# =============================================================================
+
+[Unit]
+Description=ViralClip AI API Service
+Documentation=https://github.com/vmatresu/viralclipai
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+# Working directory and user
+WorkingDirectory=/var/www/viralclipai-backend
+User=deploy
+Group=deploy
+
+# Environment
+Environment=COMPOSE_PROJECT_NAME=viralclip-api
+
+# Timeouts (allow time for image pulls/builds on first run)
+TimeoutStartSec=600
+TimeoutStopSec=120
+
+# Start: bring up containers (no --wait to avoid healthcheck blocking)
+ExecStart=/usr/bin/docker compose \
+    --env-file .env \
+    --file deploy/docker-compose.api.yml \
+    up --detach --remove-orphans
+
+# Reload: recreate containers without full restart
+ExecReload=/usr/bin/docker compose \
+    --env-file .env \
+    --file deploy/docker-compose.api.yml \
+    up --detach --force-recreate --remove-orphans
+
+# Stop: graceful shutdown
+ExecStop=/usr/bin/docker compose \
+    --env-file .env \
+    --file deploy/docker-compose.api.yml \
+    down --timeout 30
+
+# Restart behavior (systemd-level, not Docker-level)
+Restart=on-failure
+RestartSec=30s
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/var/www/viralclipai-backend
+
+[Install]
+WantedBy=multi-user.target
