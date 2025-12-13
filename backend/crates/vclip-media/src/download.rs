@@ -114,39 +114,41 @@ mod tests {
 
     #[test]
     fn test_extract_youtube_id() {
+        use vclip_models::YoutubeIdError;
+
         // Standard youtube.com format
         assert_eq!(
             extract_youtube_id("https://youtube.com/watch?v=abc123def45"),
-            Some("abc123def45".to_string())
+            Ok("abc123def45".to_string())
         );
 
         // youtu.be format
         assert_eq!(
             extract_youtube_id("https://youtu.be/abc123def45"),
-            Some("abc123def45".to_string())
+            Ok("abc123def45".to_string())
         );
 
         // With query parameters
         assert_eq!(
             extract_youtube_id("https://youtube.com/watch?v=abc123def45&list=xyz"),
-            Some("abc123def45".to_string())
+            Ok("abc123def45".to_string())
         );
 
         // Embed format
         assert_eq!(
             extract_youtube_id("https://youtube.com/embed/abc123def45"),
-            Some("abc123def45".to_string())
+            Ok("abc123def45".to_string())
         );
 
         // Invalid formats
-        assert_eq!(extract_youtube_id("https://example.com"), None);
-        assert_eq!(extract_youtube_id("https://youtube.com/watch"), None);
-        assert_eq!(extract_youtube_id("https://youtu.be/"), None);
+        assert_eq!(extract_youtube_id("https://example.com"), Err(YoutubeIdError::InvalidYoutubeUrl));
+        assert_eq!(extract_youtube_id("https://youtube.com/watch"), Err(YoutubeIdError::VideoIdNotFound));
+        assert_eq!(extract_youtube_id("https://youtu.be/"), Err(YoutubeIdError::VideoIdNotFound));
 
         // Invalid video ID format (wrong length)
-        assert_eq!(extract_youtube_id("https://youtube.com/watch?v=abc123"), None);
+        assert_eq!(extract_youtube_id("https://youtube.com/watch?v=abc123"), Err(YoutubeIdError::InvalidVideoId));
 
         // Invalid video ID format (invalid characters)
-        assert_eq!(extract_youtube_id("https://youtube.com/watch?v=abc123def!!"), None);
+        assert_eq!(extract_youtube_id("https://youtube.com/watch?v=abc123def!!"), Err(YoutubeIdError::InvalidVideoId));
     }
 }

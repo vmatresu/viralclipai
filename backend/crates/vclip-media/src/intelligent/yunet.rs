@@ -137,7 +137,7 @@ pub async fn ensure_yunet_available() -> bool {
 ///
 /// IMPORTANT: 2023mar models require OpenCV 4.8+
 /// The 2022mar model is compatible with OpenCV 4.5+ and is used as a fallback
-const YUNET_MODEL_PATHS_2023: &[&str] = &[
+pub(crate) const YUNET_MODEL_PATHS_2023: &[&str] = &[
     // Backend models directory (committed to version control)
     "/app/backend/models/face_detection/yunet/face_detection_yunet_2023mar.onnx",
     "/app/backend/models/face_detection/yunet/face_detection_yunet_2023mar_int8.onnx",
@@ -162,7 +162,7 @@ const YUNET_MODEL_PATHS_2023: &[&str] = &[
 
 /// 2022mar model paths (compatible with OpenCV 4.5+)
 /// Used as fallback when 2023mar models fail due to OpenCV compatibility issues
-const YUNET_MODEL_PATHS_2022: &[&str] = &[
+pub(crate) const YUNET_MODEL_PATHS_2022: &[&str] = &[
     // Backend models directory
     "/app/backend/models/face_detection/yunet/face_detection_yunet_2022mar.onnx",
     // Container models directory
@@ -840,11 +840,12 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::intelligent::yunet::{YUNET_MODEL_PATHS_2023, YUNET_MODEL_PATHS_2022};
 
     #[test]
     fn test_model_paths() {
         // Just verify the paths are defined
-        assert!(!YUNET_MODEL_PATHS.is_empty());
+        assert!(!YUNET_MODEL_PATHS_2023.is_empty());
+        assert!(!YUNET_MODEL_PATHS_2022.is_empty());
     }
 }

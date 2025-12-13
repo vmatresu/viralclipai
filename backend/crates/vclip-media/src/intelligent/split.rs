@@ -38,17 +38,17 @@ use std::path::Path;
 use tracing::{info, warn};
 
 use super::config::IntelligentCropConfig;
-use super::detector::FaceDetector;
+use super::detection_adapter::{compute_vertical_bias, get_detections};
 use super::models::{BoundingBox, Detection};
 use super::TierAwareIntelligentCropper;
 use crate::clip::extract_segment;
 use crate::command::{FfmpegCommand, FfmpegRunner};
 use crate::error::MediaResult;
+use crate::intelligent::output_format::{clamp_crop_to_frame, SPLIT_PANEL_HEIGHT, SPLIT_PANEL_WIDTH};
+use crate::intelligent::stacking::stack_halves;
 use crate::probe::probe_video;
 use crate::thumbnail::generate_thumbnail;
-use crate::intelligent::stacking::stack_halves;
-use crate::intelligent::output_format::{SPLIT_PANEL_WIDTH, SPLIT_PANEL_HEIGHT, clamp_crop_to_frame};
-use vclip_models::{ClipTask, DetectionTier, EncodingConfig};
+use vclip_models::{ClipTask, DetectionTier, EncodingConfig, SceneNeuralAnalysis};
 
 /// Layout mode for the output (kept for API compatibility).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -120,10 +120,29 @@ impl IntelligentSplitProcessor {
         output_path: P,
         encoding: &EncodingConfig,
     ) -> MediaResult<SplitLayout> {
+        self.process_with_cached_detections(segment_path, output_path, encoding, None)
+            .await
+    }
+
+    /// Process a video segment with optional cached neural analysis.
+    ///
+    /// This is the cache-aware entry point that allows skipping expensive ML inference
+    /// when cached detections are available.
+    pub async fn process_with_cached_detections<P: AsRef<Path>>(
+        &self,
+        segment_path: P,
+        output_path: P,
+        encoding: &EncodingConfig,
+        cached_analysis: Option<&SceneNeuralAnalysis>,
+    ) -> MediaResult<SplitLayout> {
         let segment = segment_path.as_ref();
         let output = output_path.as_ref();
 
-        info!("Analyzing video for intelligent split: {:?}", segment);
+        info!(
+            "Analyzing video for intelligent split: {:?} (cached: {})",
+            segment,
+            cached_analysis.is_some()
+        );
 
         // 1. Get video metadata
         let video_info = probe_video(segment).await?;
@@ -137,66 +156,64 @@ impl IntelligentSplitProcessor {
             width, height, fps, duration
         );
 
-        // Analyze faces to decide between full-frame (single face) and split (2+ faces)
-        let detector = FaceDetector::new(self.config.clone());
-        let detections = detector
-            .detect_in_video(segment, 0.0, duration, width, height, fps)
-            .await?;
+        // Get detections from cache or run fallback detection
+        let detections = get_detections(
+            cached_analysis,
+            segment,
+            self.tier,
+            0.0,
+            duration,
+            width,
+            height,
+            fps,
+        )
+        .await?;
         let analysis = self.analyze_detections(&detections, width, height);
-        
+
         // KEY DECISION: Only use split mode for TRUE side-by-side podcasts.
         // Requirements:
         // 1. At least 2 distinct face tracks detected
         // 2. At least 3 seconds with BOTH faces visible SIMULTANEOUSLY
-        //
-        // This prevents split mode for videos that show one person at a time
-        // (e.g., switching between left and right camera framings).
         let min_simultaneous_time = 3.0; // seconds
-        let should_split = analysis.distinct_tracks >= 2 
+        let should_split = analysis.distinct_tracks >= 2
             && analysis.simultaneous_face_time >= min_simultaneous_time;
 
         if !should_split {
             info!(
                 "Using full-frame mode: {} tracks, {:.2}s simultaneous (need >= {:.1}s for split) → tier {:?}",
-                analysis.distinct_tracks, 
+                analysis.distinct_tracks,
                 analysis.simultaneous_face_time,
                 min_simultaneous_time,
                 self.tier
             );
             // Use full-frame intelligent crop which dynamically follows faces
             let cropper = TierAwareIntelligentCropper::new(self.config.clone(), self.tier);
-            cropper.process(segment, output, encoding).await?;
+            cropper
+                .process_with_cached_detections(segment, output, encoding, cached_analysis)
+                .await?;
             self.generate_thumbnail(output).await;
             info!("Intelligent split (full-frame path) complete: {:?}", output);
             return Ok(SplitLayout::FullFrame);
         }
-        
+
         info!(
             "Using split mode: {} tracks, {:.2}s simultaneous → splitting left/right",
-            analysis.distinct_tracks,
-            analysis.simultaneous_face_time
+            analysis.distinct_tracks, analysis.simultaneous_face_time
         );
 
         info!("Step 1/4: Splitting video into left/right halves...");
         info!("Step 2/4: Applying face-centered crop to each panel...");
         info!("Step 3/4: Stacking panels...");
         info!("Step 4/4: Scaling to portrait format...");
-        
-        self.process_split_view(
-            segment,
-            output,
-            width,
-            height,
-            &analysis,
-            encoding,
-        )
-        .await?;
+
+        self.process_split_view(segment, output, width, height, &analysis, encoding)
+            .await?;
 
         // 3. Generate thumbnail
         self.generate_thumbnail(output).await;
 
         info!("Intelligent split complete: {:?}", output);
-        Ok(SplitLayout::SplitTopBottom) // Always returns split layout now
+        Ok(SplitLayout::SplitTopBottom)
     }
 
     // NOTE: analyze_layout was removed - IntelligentSplit now always splits into
@@ -423,23 +440,10 @@ impl IntelligentSplitProcessor {
         height: u32,
     ) -> (f64, f64) {
         (
-            self.compute_vertical_bias(left_faces, height),
-            self.compute_vertical_bias(right_faces, height),
+            compute_vertical_bias(left_faces, height),
+            compute_vertical_bias(right_faces, height),
         )
     }
-
-    fn compute_vertical_bias(&self, faces: &[BoundingBox], height: u32) -> f64 {
-        if faces.is_empty() {
-            return 0.15;
-        }
-
-        let avg_cy: f64 = faces.iter().map(|f| f.cy()).sum::<f64>() / faces.len() as f64;
-        let normalized_y = avg_cy / height as f64;
-
-        (normalized_y - 0.3).max(0.0).min(0.4)
-    }
-
-    // Note: multi_face_threshold() removed - now using explicit 3.0s constant in process()
 
     async fn generate_thumbnail(&self, output: &Path) {
         info!("Step 3/3: Generating thumbnail...");
@@ -461,18 +465,31 @@ impl IntelligentSplitProcessor {
 /// 3. Applying intelligent face-tracking crop to the stacked result
 ///
 /// This is ideal for podcast-style videos with two people side by side.
-///
-/// # Arguments
-/// * `input` - Path to the input video file (full source video)
-/// * `output` - Path for the output file
-/// * `task` - Clip task with timing and style information
-/// * `encoding` - Encoding configuration
-/// * `progress_callback` - Callback for progress updates
 pub async fn create_intelligent_split_clip<P, F>(
     input: P,
     output: P,
     task: &ClipTask,
     encoding: &EncodingConfig,
+    progress_callback: F,
+) -> MediaResult<()>
+where
+    P: AsRef<Path>,
+    F: Fn(crate::progress::FfmpegProgress) + Send + 'static,
+{
+    create_intelligent_split_clip_with_cache(input, output, task, encoding, None, progress_callback)
+        .await
+}
+
+/// Create an intelligent split clip with optional cached neural analysis.
+///
+/// This is the cache-aware entry point that allows skipping expensive ML inference
+/// when cached detections are available.
+pub async fn create_intelligent_split_clip_with_cache<P, F>(
+    input: P,
+    output: P,
+    task: &ClipTask,
+    encoding: &EncodingConfig,
+    cached_analysis: Option<&SceneNeuralAnalysis>,
     _progress_callback: F,
 ) -> MediaResult<()>
 where
@@ -483,9 +500,10 @@ where
     let output = output.as_ref();
 
     info!(
-        "Creating intelligent split clip: {} -> {}",
+        "Creating intelligent split clip: {} -> {} (cached: {})",
         input.display(),
-        output.display()
+        output.display(),
+        cached_analysis.is_some()
     );
 
     // Parse timestamps and apply padding
@@ -502,10 +520,12 @@ where
 
     extract_segment(input, &segment_path, start_secs, duration).await?;
 
-    // Step 2: Process with intelligent split
+    // Step 2: Process with intelligent split (using cache if available)
     let config = IntelligentCropConfig::default();
     let processor = IntelligentSplitProcessor::new(config);
-    let result = processor.process(segment_path.as_path(), output, encoding).await;
+    let result = processor
+        .process_with_cached_detections(segment_path.as_path(), output, encoding, cached_analysis)
+        .await;
 
     // Step 3: Cleanup temporary segment file
     if segment_path.exists() {

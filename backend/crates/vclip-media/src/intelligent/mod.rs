@@ -48,17 +48,19 @@
 
 pub mod activity_scorer;
 pub mod activity_split;
+#[cfg(feature = "opencv")]
+pub mod motion;
 pub mod camera_constraints;
 pub mod config;
 pub mod continuous_renderer;
 pub mod crop_planner;
+pub mod detection_adapter;
 pub mod detector;
 pub mod enhanced_smoother;
 pub mod face_activity;
 pub mod face_mesh;
 pub mod face_landmarks;
 pub mod fast_split;
-pub mod motion;
 pub mod output_format;
 pub mod layout_detector;
 pub mod models;
@@ -70,11 +72,14 @@ pub mod smoother;
 pub mod smoothing_utils;
 pub mod split;
 pub mod split_evaluator;
+pub mod split_renderer;
 pub mod stacking;
 pub mod tier_aware_cropper;
 pub mod tier_aware_smoother;
 pub mod tier_aware_split;
 pub mod tracker;
+pub mod visual_activity_cropper;
+pub mod visual_activity_split;
 pub mod yunet;
 
 #[cfg(test)]
@@ -91,7 +96,10 @@ pub use layout_detector::{HeuristicGenerator, LayoutDetector, VideoLayout};
 pub use models::*;
 pub use renderer::IntelligentRenderer;
 pub use smoother::CameraSmoother;
-pub use split::{create_intelligent_split_clip, IntelligentSplitProcessor, SplitLayout};
+pub use split::{
+    create_intelligent_split_clip, create_intelligent_split_clip_with_cache,
+    IntelligentSplitProcessor, SplitLayout,
+};
 pub use tier_aware_cropper::{
     create_tier_aware_intelligent_clip, create_tier_aware_intelligent_clip_with_cache,
     TierAwareIntelligentCropper,

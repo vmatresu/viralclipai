@@ -17,7 +17,7 @@ mod tier_aware_smoother_tests {
     #[test]
     fn test_basic_tier_prefers_largest_face() {
         let config = test_config();
-        let smoother = TierAwareCameraSmoother::new(config, DetectionTier::Basic, 30.0);
+        let mut smoother = TierAwareCameraSmoother::new(config, DetectionTier::Basic, 30.0);
 
         let detections = vec![
             Detection::new(0.0, BoundingBox::new(100.0, 100.0, 150.0, 150.0), 0.9, 1),
@@ -34,7 +34,7 @@ mod tier_aware_smoother_tests {
     #[test]
     fn test_speaker_aware_prefers_mouth_activity() {
         let config = test_config();
-        let smoother = TierAwareCameraSmoother::new(config, DetectionTier::SpeakerAware, 30.0);
+        let mut smoother = TierAwareCameraSmoother::new(config, DetectionTier::SpeakerAware, 30.0);
 
         let detections = vec![
             Detection::with_mouth(0.0, BoundingBox::new(100.0, 100.0, 120.0, 120.0), 0.8, 1, Some(0.2)),
@@ -227,12 +227,12 @@ mod premium_speaker_tests {
         let focus1 = selector.select_focus(&det1, 0.0);
 
         // Short dropout - should hold position
-        let focus2 = selector.select_focus(&[], 0.5);
+        let focus2 = selector.select_focus(&vec![], 0.5);
         assert!((focus2.cx - focus1.cx).abs() < 1.0, "Should hold position during short dropout");
         assert_eq!(focus2.track_id, 1);
 
         // Long dropout - should fallback
-        let focus3 = selector.select_focus(&[], 2.0);
+        let focus3 = selector.select_focus(&vec![], 2.0);
         assert_eq!(focus3.track_id, 0, "Should fallback after long dropout");
     }
 

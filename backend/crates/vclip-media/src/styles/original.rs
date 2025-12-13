@@ -90,9 +90,9 @@ mod tests {
 
         let request = ProcessingRequest::new(
             ClipTask {
-                scene_id: "test".to_string(),
+                scene_id: 1,
                 scene_title: "Test".to_string(),
-                scene_description: "Test".to_string(),
+                scene_description: Some("Test".to_string()),
                 start: "0".to_string(),
                 end: "10".to_string(),
                 style: Style::Original,

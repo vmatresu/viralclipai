@@ -8,11 +8,12 @@ use analyzer::ActivityAnalyzer;
 use layout_planner::{LayoutMode, LayoutPlanner, LayoutSpan};
 use renderer::ActivitySplitRenderer;
 use tracing::info;
-use vclip_models::{ClipTask, EncodingConfig, Style};
+use vclip_models::{ClipTask, EncodingConfig, SceneNeuralAnalysis, Style};
 
 use crate::clip::extract_segment;
 use crate::error::{MediaError, MediaResult};
 use crate::intelligent::config::IntelligentCropConfig;
+use crate::intelligent::detection_adapter::get_detections;
 use crate::intelligent::detector::FaceDetector;
 use crate::intelligent::models::FrameDetections;
 use crate::probe::probe_video;
@@ -34,6 +35,27 @@ pub async fn create_activity_split_clip<P, F>(
     task: &ClipTask,
     tier: vclip_models::DetectionTier,
     encoding: &EncodingConfig,
+    progress_callback: F,
+) -> MediaResult<()>
+where
+    P: AsRef<Path>,
+    F: Fn(crate::progress::FfmpegProgress) + Send + 'static,
+{
+    create_activity_split_clip_with_cache(input, output, task, tier, encoding, None, progress_callback)
+        .await
+}
+
+/// Create a Smart Split (Activity) clip with optional cached neural analysis.
+///
+/// This is the cache-aware entry point that allows skipping expensive ML inference
+/// when cached detections are available.
+pub async fn create_activity_split_clip_with_cache<P, F>(
+    input: P,
+    output: P,
+    task: &ClipTask,
+    tier: vclip_models::DetectionTier,
+    encoding: &EncodingConfig,
+    cached_analysis: Option<&SceneNeuralAnalysis>,
     _progress_callback: F,
 ) -> MediaResult<()>
 where
@@ -56,8 +78,8 @@ where
 
     let segment_path = output.with_extension("segment.mp4");
     info!(
-        "Extracting segment for Smart Split (Activity): {:.2}s - {:.2}s",
-        start_secs, end_secs
+        "Extracting segment for Smart Split (Activity): {:.2}s - {:.2}s (cached: {})",
+        start_secs, end_secs, cached_analysis.is_some()
     );
     extract_segment(input, &segment_path, start_secs, duration).await?;
 
@@ -73,27 +95,19 @@ where
         0.125
     };
     let detector = FaceDetector::new(config.clone());
-    
-    // Tier-based detection dispatch
-    let mut detections = match tier {
-        vclip_models::DetectionTier::SpeakerAware => {
-            info!("Smart Split (Activity): Using SpeakerAware pipeline (face+mouth)");
-            let pipeline = crate::detection::pipeline_builder::PipelineBuilder::for_tier(
-                vclip_models::DetectionTier::SpeakerAware
-            ).build()?;
-            let res = pipeline.analyze(&segment_path, 0.0, duration).await?;
-            // Convert AnalysisFrame to pure Detections
-            res.frames.iter().map(|f| f.faces.clone()).collect()
-        }
-        vclip_models::DetectionTier::MotionAware => {
-            info!("Smart Split (Activity): Using MotionAware pipeline");
-            detector.detect_motion_tracks(&segment_path, 0.0, duration, width, height).await?
-        }
-        _ => {
-            info!("Smart Split (Activity): Using Basic pipeline (YuNet)");
-            detector.detect_in_video(&segment_path, 0.0, duration, width, height, fps).await?
-        }
-    };
+
+    // Get detections from cache or run fallback detection
+    let mut detections = get_detections(
+        cached_analysis,
+        &segment_path,
+        tier,
+        0.0,
+        duration,
+        width,
+        height,
+        fps,
+    )
+    .await?;
 
     // Log face detection statistics for debugging
     let max_faces_per_frame = detections.iter().map(|f| f.len()).max().unwrap_or(0);

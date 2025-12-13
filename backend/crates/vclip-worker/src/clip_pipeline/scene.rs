@@ -1,6 +1,12 @@
+//! Scene processing with centralized neural analysis caching.
+//!
+//! This module processes all styles for a scene, ensuring neural analysis
+//! runs ONCE and is cached before parallel style processing begins.
+
 use std::path::Path;
 
 use futures::future::join_all;
+use tracing::{debug, info};
 use vclip_models::ClipTask;
 use vclip_queue::ProcessVideoJob;
 
@@ -9,6 +15,7 @@ use crate::clip_pipeline::clip::{
 };
 use crate::error::WorkerResult;
 use crate::processor::EnhancedProcessingContext;
+use crate::scene_analysis::SceneAnalysisService;
 
 pub struct SceneProcessingResults {
     pub processed: usize,
@@ -39,6 +46,23 @@ pub async fn process_scene(
     .await
 }
 
+/// Process a single scene with optional raw segment R2 key.
+///
+/// # Architecture
+///
+/// This function implements a two-phase approach:
+///
+/// 1. **Pre-cache Phase**: Before processing any styles, we ensure neural analysis
+///    is cached at the highest tier required by any style. This runs detection
+///    ONCE and stores results for all styles to consume.
+///
+/// 2. **Parallel Processing Phase**: All styles process in parallel, each fetching
+///    the cached analysis. No duplicate detection occurs.
+///
+/// This architecture ensures:
+/// - Detection runs exactly ONCE per scene (not per style)
+/// - All styles benefit from cached analysis
+/// - Parallel processing is safe (no race conditions)
 pub async fn process_scene_with_raw_key(
     ctx: &EnhancedProcessingContext,
     job: &ProcessVideoJob,
@@ -52,10 +76,10 @@ pub async fn process_scene_with_raw_key(
     let first_task = scene_tasks[0];
     let scene_id = first_task.scene_id;
 
-    // Parse timing for scene started event (defensive: default to safe values)
-    let (start_sec, _end_sec, duration_sec) = compute_padded_timing(first_task);
+    // Parse timing for scene started event
+    let (start_sec, end_sec, duration_sec) = compute_padded_timing(first_task);
 
-    // Emit scene started event with structured data
+    // Emit scene started event
     if let Err(e) = ctx
         .progress
         .scene_started(
@@ -75,8 +99,7 @@ pub async fn process_scene_with_raw_key(
         );
     }
 
-    // Structured logging for observability
-    tracing::info!(
+    info!(
         scene_id = scene_id,
         scene_title = %first_task.scene_title,
         styles_count = scene_tasks.len(),
@@ -89,7 +112,7 @@ pub async fn process_scene_with_raw_key(
         .log(
             &job.job_id,
             format!(
-                "Processing scene {} '{}' ({} styles in parallel)...",
+                "Processing scene {} '{}' ({} styles)...",
                 scene_id,
                 first_task.scene_title,
                 scene_tasks.len()
@@ -98,14 +121,14 @@ pub async fn process_scene_with_raw_key(
         .await
         .ok();
 
-    // Partition tasks into pending (not yet completed) and skipped (already completed).
+    // Partition tasks into pending and skipped
     let (pending_tasks, skipped_tasks): (Vec<&ClipTask>, Vec<&ClipTask>) = scene_tasks
         .iter()
         .cloned()
         .partition(|task| !existing_completed.contains(&clip_id(&job.video_id, task)));
 
     if !skipped_tasks.is_empty() {
-        tracing::info!(
+        info!(
             scene_id = scene_id,
             skipped = skipped_tasks.len(),
             total = scene_tasks.len(),
@@ -113,7 +136,7 @@ pub async fn process_scene_with_raw_key(
         );
     }
 
-    // If all styles are already done, emit completion and return.
+    // If all styles are already done, return early
     if pending_tasks.is_empty() {
         if let Err(e) = ctx
             .progress
@@ -134,8 +157,74 @@ pub async fn process_scene_with_raw_key(
         });
     }
 
+    // =========================================================================
+    // PHASE 1: Pre-cache neural analysis BEFORE parallel processing
+    // =========================================================================
+    // This ensures detection runs ONCE, not once per style
+    
+    let styles: Vec<_> = pending_tasks.iter().map(|t| t.style).collect();
+    
+    if SceneAnalysisService::any_style_uses_cache(&styles) {
+        let highest_tier = SceneAnalysisService::highest_required_tier(&styles);
+        
+        if highest_tier.requires_yunet() {
+            info!(
+                scene_id = scene_id,
+                tier = %highest_tier,
+                styles = ?styles,
+                "Pre-caching neural analysis for scene (runs detection ONCE)"
+            );
+
+            let analysis_service = SceneAnalysisService::new(ctx);
+            
+            // This will either:
+            // - Return immediately if cache exists
+            // - Run detection ONCE and cache results
+            // - Use Redis lock to prevent duplicate computation
+            match analysis_service
+                .ensure_analysis_cached(
+                    &job.user_id,
+                    job.video_id.as_str(),
+                    scene_id,
+                    video_file,
+                    start_sec,
+                    end_sec,
+                    highest_tier,
+                )
+                .await
+            {
+                Ok(analysis) => {
+                    info!(
+                        scene_id = scene_id,
+                        frames = analysis.frames.len(),
+                        tier = %highest_tier,
+                        "Neural analysis cached, proceeding with parallel style processing"
+                    );
+                }
+                Err(e) => {
+                    // Non-fatal: styles will run detection inline if cache fails
+                    tracing::warn!(
+                        scene_id = scene_id,
+                        error = %e,
+                        "Failed to pre-cache neural analysis, styles will run detection inline"
+                    );
+                }
+            }
+        } else {
+            debug!(
+                scene_id = scene_id,
+                tier = %highest_tier,
+                "Skipping pre-cache: tier does not require YuNet"
+            );
+        }
+    }
+
+    // =========================================================================
+    // PHASE 2: Process all styles in parallel (using cached analysis)
+    // =========================================================================
+    
     let futures: Vec<_> = scene_tasks
-        .iter() // use original ordering for progress indexes
+        .iter()
         .enumerate()
         .map(|(idx, task)| {
             let ctx = ctx;
@@ -187,7 +276,7 @@ pub async fn process_scene_with_raw_key(
 
     let results = join_all(futures).await;
 
-    // Aggregate results with detailed error tracking
+    // Aggregate results
     let mut processed: usize = 0;
     let mut completed: usize = 0;
     let mut errors = Vec::new();
@@ -218,7 +307,7 @@ pub async fn process_scene_with_raw_key(
         );
     }
 
-    // Log errors with context
+    // Log errors
     if !errors.is_empty() {
         for (idx, err) in errors {
             tracing::error!(

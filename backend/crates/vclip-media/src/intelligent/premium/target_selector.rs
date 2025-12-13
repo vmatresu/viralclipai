@@ -694,7 +694,7 @@ mod tests {
         let config = PremiumSpeakerConfig::default();
         let mut selector = CameraTargetSelector::new(config, 1920, 1080);
 
-        let focus = selector.select_focus(&[], 0.0);
+        let focus = selector.select_focus(&vec![], 0.0);
 
         assert!(focus.cx > 0.0);
         assert!(focus.cy > 0.0);
@@ -711,12 +711,12 @@ mod tests {
         let focus1 = selector.select_focus(&detections, 0.0);
 
         // Short dropout - should hold position
-        let focus2 = selector.select_focus(&[], 0.5);
+        let focus2 = selector.select_focus(&vec![], 0.5);
         assert!((focus2.cx - focus1.cx).abs() < 1.0, "Should hold position during short dropout");
         assert_eq!(focus2.track_id, 1);
 
         // Long dropout - should fallback
-        let focus3 = selector.select_focus(&[], 2.0);
+        let focus3 = selector.select_focus(&vec![], 2.0);
         assert_eq!(focus3.track_id, 0, "Should fallback after long dropout");
     }
 

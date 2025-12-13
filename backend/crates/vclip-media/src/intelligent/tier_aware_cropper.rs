@@ -4,6 +4,13 @@
 //! It orchestrates face detection, speaker detection, activity analysis, and camera
 //! planning based on the detection tier.
 //!
+//! # Architecture (Refactored)
+//!
+//! Detection is now decoupled from rendering:
+//! 1. SceneAnalysisService runs detection ONCE per scene (in clip_pipeline)
+//! 2. Cached analysis is passed to this processor via `process_with_cached_detections`
+//! 3. This processor only handles rendering, not detection (when cache available)
+//!
 //! # Tier Behavior
 //!
 //! - **Basic**: Face detection → Camera smoothing → Crop planning
@@ -21,10 +28,9 @@ use vclip_models::{ClipTask, DetectionTier, EncodingConfig};
 
 use super::config::IntelligentCropConfig;
 use super::crop_planner::CropPlanner;
-use super::detector::FaceDetector;
-use super::premium::{PremiumCameraPlanner, PremiumSpeakerConfig};
-use crate::detection::pipeline_builder::PipelineBuilder;
+use super::detection_adapter::get_detections;
 use super::models::AspectRatio;
+use super::premium::{PremiumCameraPlanner, PremiumSpeakerConfig};
 use super::single_pass_renderer::SinglePassRenderer;
 use super::tier_aware_smoother::TierAwareCameraSmoother;
 use crate::clip::extract_segment;
@@ -38,17 +44,12 @@ use crate::thumbnail::generate_thumbnail;
 pub struct TierAwareIntelligentCropper {
     config: IntelligentCropConfig,
     tier: DetectionTier,
-    detector: FaceDetector,
 }
 
 impl TierAwareIntelligentCropper {
     /// Create a new tier-aware cropper.
     pub fn new(config: IntelligentCropConfig, tier: DetectionTier) -> Self {
-        Self {
-            detector: FaceDetector::new(config.clone()),
-            config,
-            tier,
-        }
+        Self { config, tier }
     }
 
     /// Create with default configuration.
@@ -124,58 +125,29 @@ impl TierAwareIntelligentCropper {
         let start_time = 0.0;
         let end_time = duration;
 
-        // Step 2: Face detection (or use cached)
+        // Step 2: Face detection (or use cached) - uses centralized detection adapter
         let step_start = std::time::Instant::now();
+        info!("[INTELLIGENT_FULL] Step 2/4: Getting detections (cached: {})...", cached_analysis.is_some());
         
-        let (detections, _speaker_segments) = if let Some(analysis) = cached_analysis {
-            // Phase 3: Use cached neural analysis - skip expensive ML inference!
-            info!("[INTELLIGENT_FULL] Step 2/4: Using CACHED neural analysis ({} frames)", analysis.frames.len());
-            let cached_dets = self.convert_cached_to_detections(analysis, width, height);
-            info!(
-                "[INTELLIGENT_FULL] Step 2/4 DONE in {:.2}s - {} cached detections (SKIPPED ML)",
-                step_start.elapsed().as_secs_f64(),
-                cached_dets.iter().map(|d| d.len()).sum::<usize>()
-            );
-            (cached_dets, Vec::new())
-        } else {
-            // No cache - run detection as normal
-            info!("[INTELLIGENT_FULL] Step 2/4: Face detection (tier: {:?})...", self.tier);
-            
-            let (dets, segs) = match self.tier {
-                DetectionTier::SpeakerAware => {
-                    info!("[INTELLIGENT_FULL]   Using SpeakerAware pipeline (face mesh + activity)");
-                    let pipeline = PipelineBuilder::for_tier(DetectionTier::SpeakerAware).build()?;
-                    let res = pipeline.analyze(segment, start_time, end_time).await?;
-                    let frames: Vec<_> = res.frames.iter().map(|f| f.faces.clone()).collect();
-                    let segments = res.speaker_segments.unwrap_or_default();
-                    (frames, segments)
-                }
-                DetectionTier::MotionAware => {
-                    info!("[INTELLIGENT_FULL]   Using MotionAware pipeline (motion heuristics)");
-                    let pipeline = PipelineBuilder::for_tier(DetectionTier::MotionAware).build()?;
-                    let res = pipeline.analyze(segment, start_time, end_time).await?;
-                    let frames: Vec<_> = res.frames.iter().map(|f| f.faces.clone()).collect();
-                    (frames, Vec::new())
-                }
-                _ => {
-                    info!("[INTELLIGENT_FULL]   Using Basic pipeline (YuNet face detection)");
-                    let detections = self
-                        .detector
-                        .detect_in_video(segment, start_time, end_time, width, height, fps)
-                        .await?;
-                    (detections, Vec::new())
-                }
-            };
+        let detections = get_detections(
+            cached_analysis,
+            segment,
+            self.tier,
+            start_time,
+            end_time,
+            width,
+            height,
+            fps,
+        )
+        .await?;
 
-            let total_detections: usize = dets.iter().map(|d| d.len()).sum();
-            info!(
-                "[INTELLIGENT_FULL] Step 2/4 DONE in {:.2}s - {} detections in {} frames",
-                step_start.elapsed().as_secs_f64(),
-                total_detections,
-                dets.len()
-            );
-            (dets, segs)
-        };
+        let total_detections: usize = detections.iter().map(|d| d.len()).sum();
+        info!(
+            "[INTELLIGENT_FULL] Step 2/4 DONE in {:.2}s - {} detections in {} frames",
+            step_start.elapsed().as_secs_f64(),
+            total_detections,
+            detections.len()
+        );
 
         // Step 3: Camera path smoothing
         let step_start = std::time::Instant::now();
@@ -265,44 +237,6 @@ impl TierAwareIntelligentCropper {
         );
 
         Ok(())
-    }
-
-    /// Convert cached neural analysis to the detection format used by the cropper.
-    fn convert_cached_to_detections(
-        &self,
-        analysis: &vclip_models::SceneNeuralAnalysis,
-        width: u32,
-        height: u32,
-    ) -> Vec<Vec<super::models::Detection>> {
-        let fw = width as f32;
-        let fh = height as f32;
-
-        analysis
-            .frames
-            .iter()
-            .map(|frame| {
-                frame
-                    .faces
-                    .iter()
-                    .map(|face| {
-                        let (x, y, w, h) = face.bbox.to_pixels(fw, fh);
-                        let bbox = super::models::BoundingBox::new(
-                            x as f64,
-                            y as f64,
-                            w as f64,
-                            h as f64,
-                        );
-                        super::models::Detection::with_mouth(
-                            frame.time,
-                            bbox,
-                            face.score as f64,
-                            face.track_id.unwrap_or(0),
-                            face.mouth_openness.map(|m| m as f64),
-                        )
-                    })
-                    .collect()
-            })
-            .collect()
     }
 
 }

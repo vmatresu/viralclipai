@@ -22,6 +22,7 @@ pub mod raw_segment_cache;
 pub mod render_job;
 pub mod reprocessing;
 pub mod retry;
+pub mod scene_analysis;
 pub mod source_video_coordinator;
 
 pub use config::WorkerConfig;
@@ -31,4 +32,5 @@ pub use logging::JobLogger;
 pub use neural_cache::NeuralCacheService;
 pub use processor::{EnhancedProcessingContext, VideoProcessor};
 pub use raw_segment_cache::RawSegmentCacheService;
+pub use scene_analysis::SceneAnalysisService;
 pub use source_video_coordinator::SourceVideoCoordinator;

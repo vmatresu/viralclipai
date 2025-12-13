@@ -127,12 +127,12 @@ mod tests {
         assert_eq!((x, y, w, h), (100, 100, 500, 800));
 
         // Crop extends beyond right edge
-        let (x, y, w, h) = clamp_crop_to_frame(1500, 100, 500, 800, 1920, 1080);
+        let (x, _y, w, _h) = clamp_crop_to_frame(1500, 100, 500, 800, 1920, 1080);
         assert_eq!(x, 1920 - 500); // Pushed left
         assert_eq!(w, 500);
 
         // Crop extends beyond bottom
-        let (x, y, w, h) = clamp_crop_to_frame(100, 500, 500, 800, 1920, 1080);
+        let (_x, y, _w, _h) = clamp_crop_to_frame(100, 500, 500, 800, 1920, 1080);
         assert_eq!(y, 1080 - 800); // Pushed up
 
         // Crop larger than frame
@@ -143,7 +143,7 @@ mod tests {
         assert_eq!(y, 0);
 
         // Odd dimensions should be made even
-        let (x, y, w, h) = clamp_crop_to_frame(0, 0, 501, 801, 1920, 1080);
+        let (_x, _y, w, h) = clamp_crop_to_frame(0, 0, 501, 801, 1920, 1080);
         assert_eq!(w, 500);
         assert_eq!(h, 800);
     }

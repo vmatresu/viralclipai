@@ -1,15 +1,18 @@
 //! Lightweight heuristic motion detection for Tier 1 (MotionAware).
 //! Uses frame differencing on a downscaled grid to find the center of motion.
 
+#[cfg(feature = "opencv")]
 use opencv::{
     core::{Point, Size},
     imgproc,
     prelude::*,
 };
 
+#[cfg(feature = "opencv")]
 use crate::error::{MediaError, MediaResult};
 
 /// Simple frame-diff motion detector.
+#[cfg(feature = "opencv")]
 pub struct MotionDetector {
     /// Previous frame (downscaled, gray) for differencing.
     prev_frame: Option<Mat>,
@@ -19,6 +22,7 @@ pub struct MotionDetector {
     threshold: f64,
 }
 
+#[cfg(feature = "opencv")]
 impl MotionDetector {
     /// Create a new detector sized to the source frame.
     pub fn new(width: i32, height: i32) -> Self {
