@@ -3,6 +3,7 @@
 //! Mirrors the Python IntelligentCropConfig.
 
 use serde::{Deserialize, Serialize};
+use vclip_models::DetectionTier;
 
 /// Configuration for the intelligent cropping pipeline.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,7 +165,7 @@ impl Default for IntelligentCropConfig {
             // Face Activity Detection
             enable_mouth_detection: true,
             face_activity_window: 0.5,
-            min_switch_duration: 1.0,
+            min_switch_duration: 0.5,  // Reduced from 1.0s for faster response to brief faces
             switch_margin: 0.2,
             activity_weight_mouth: 1.0,
             activity_weight_motion: 0.0,
@@ -243,4 +244,35 @@ impl IntelligentCropConfig {
             ..Default::default()
         }
     }
+
+    /// Configuration optimized for motion-aware styles (intelligent_motion, intelligent_split_motion).
+    /// Uses more conservative zoom to prevent over-tight crops.
+    pub fn motion_aware() -> Self {
+        Self {
+            max_zoom_factor: 2.0,          // Less aggressive zoom for more context
+            subject_padding: 0.25,         // More padding around subject
+            smoothing_window: 0.4,         // Smooth camera movement
+            max_pan_speed: 350.0,          // Moderate pan speed
+            ..Default::default()
+        }
+    }
+
+    /// Create configuration appropriate for the given detection tier.
+    ///
+    /// Different tiers have different optimal zoom and padding settings:
+    /// - **MotionAware**: Conservative zoom (2.0x) for split/motion styles
+    /// - **SpeakerAware**: Premium speaker config with moderate zoom (2.5x)
+    /// - **Basic/None**: Default config with max zoom (3.0x)
+    pub fn for_tier(tier: DetectionTier) -> Self {
+        match tier {
+            DetectionTier::MotionAware => Self::motion_aware(),
+            DetectionTier::SpeakerAware => Self {
+                max_zoom_factor: 2.5,      // Match premium config
+                subject_padding: 0.20,     // Moderate padding
+                ..Self::premium_speaker()
+            },
+            DetectionTier::Basic | DetectionTier::None => Self::default(),
+        }
+    }
 }
+

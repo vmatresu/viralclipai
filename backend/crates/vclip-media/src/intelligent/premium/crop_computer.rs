@@ -107,43 +107,42 @@ impl CropComputer {
 
     /// Compute crop position with face centering AFTER zoom.
     ///
-    /// CRITICAL: This positions the crop so the face is in the upper-third
+    /// CRITICAL: This positions the crop so the face is at ~40% from top
     /// of the output frame (rule of thirds / TikTok style), and ensures
-    /// the face is never cut off by the crop boundaries.
+    /// the face is NEVER cut off by using generous 15% margins.
     fn compute_crop_position(
         &self,
         keyframe: &CameraKeyframe,
         crop_width: f64,
         crop_height: f64,
     ) -> (i32, i32) {
-        // Target: place face center at ~35% from top of crop (upper third)
-        // This gives natural headroom above the face
-        let target_face_y_ratio = 0.35;
+        // Target: place face center at ~40% from top of crop
+        let target_face_y_ratio = 0.40;
 
-        // Compute where the crop should be positioned to achieve this framing
+        // Use generous margins (15%) to ensure face is NEVER cut off
+        let face_margin = crop_height * 0.15;
+        let face_top = keyframe.cy - keyframe.height / 2.0;
+        let face_bottom = keyframe.cy + keyframe.height / 2.0;
+
+        // Calculate required crop bounds to contain face with margins
+        let required_crop_top = face_top - face_margin;
+        let required_crop_bottom = face_bottom + face_margin;
+
+        // Start with ideal position (face at target ratio from top)
         let mut x = keyframe.cx - crop_width / 2.0;
         let mut y = keyframe.cy - crop_height * target_face_y_ratio;
 
-        // Clamp to frame boundaries FIRST
+        // Adjust y to ensure face fits with margins BEFORE clamping to frame
+        if y > required_crop_top {
+            y = required_crop_top;
+        }
+        if y + crop_height < required_crop_bottom {
+            y = required_crop_bottom - crop_height;
+        }
+
+        // Clamp to frame boundaries AFTER face adjustment
         x = x.max(0.0).min(self.frame_width as f64 - crop_width);
         y = y.max(0.0).min(self.frame_height as f64 - crop_height);
-
-        // After clamping, verify the face is still within the crop
-        // If the face would be cut off, adjust the crop to include it
-        let face_top = keyframe.cy - keyframe.height / 2.0;
-        let face_bottom = keyframe.cy + keyframe.height / 2.0;
-        let crop_top = y;
-        let crop_bottom = y + crop_height;
-
-        // Ensure face is not cut off at top
-        if face_top < crop_top {
-            y = (face_top - crop_height * 0.05).max(0.0); // 5% margin
-        }
-        // Ensure face is not cut off at bottom
-        if face_bottom > crop_bottom {
-            y = (face_bottom - crop_height + crop_height * 0.05)
-                .min(self.frame_height as f64 - crop_height);
-        }
 
         (x.round() as i32, y.round() as i32)
     }
@@ -323,14 +322,15 @@ mod tests {
         let keyframe = CameraKeyframe::new(0.0, 960.0, 540.0, 200.0, 200.0);
         let crop = computer.keyframe_to_crop(&keyframe, &AspectRatio::PORTRAIT);
 
-        // Face center should be in upper portion of crop (20-50% from top)
+        // Face center should be in upper portion of crop (25-55% from top)
+        // Target is 40% with 15% margin tolerance
         let face_cy = keyframe.cy;
         let crop_top = crop.y as f64;
         let crop_height = crop.height as f64;
         let face_position_ratio = (face_cy - crop_top) / crop_height;
 
         assert!(
-            face_position_ratio >= 0.2 && face_position_ratio <= 0.5,
+            face_position_ratio >= 0.25 && face_position_ratio <= 0.55,
             "Face should be in upper third, but position ratio is {}",
             face_position_ratio
         );

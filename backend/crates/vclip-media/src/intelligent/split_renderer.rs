@@ -173,10 +173,12 @@ pub async fn render_standard_split(
 ) -> MediaResult<()> {
     let left_bias = split_info.left_vertical_bias(height);
     let right_bias = split_info.right_vertical_bias(height);
+    let left_horizontal = split_info.left_horizontal_center(width);
+    let right_horizontal = split_info.right_horizontal_center(width);
 
     info!(
-        "[STANDARD_SPLIT] Rendering with biases: left={:.2}, right={:.2}",
-        left_bias, right_bias
+        "[STANDARD_SPLIT] Rendering with biases: L_vert={:.2}, R_vert={:.2}, L_horz={:.2}, R_horz={:.2}",
+        left_bias, right_bias, left_horizontal, right_horizontal
     );
 
     // Use SinglePassRenderer for standard split
@@ -185,7 +187,10 @@ pub async fn render_standard_split(
     );
     renderer
         .render_split(
-            segment, output, width, height, left_bias, right_bias, encoding,
+            segment, output, width, height, 
+            left_bias, right_bias, 
+            left_horizontal, right_horizontal,
+            encoding,
         )
         .await
 }

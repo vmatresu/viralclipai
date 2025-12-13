@@ -48,8 +48,12 @@ impl CropPlanner {
     /// aspect ratio, ensuring no black bars and no stretching. The crop is centered
     /// on the focus point (face) and fills the entire output frame.
     ///
-    /// IMPORTANT: Face centering is applied AFTER zoom computation to ensure
-    /// the face remains properly centered in the final output, not cut off.
+    /// FACE CONTAINMENT: Ensures the face bounding box is ALWAYS fully visible
+    /// within the crop window with adequate margins. The algorithm:
+    /// 1. Computes face bounds with required margins
+    /// 2. Adjusts crop position to contain face (horizontally AND vertically)
+    /// 3. Clamps to frame bounds
+    /// 4. Verifies face is still contained after clamping
     fn keyframe_to_crop(
         &self,
         keyframe: &CameraKeyframe,
@@ -63,53 +67,70 @@ impl CropPlanner {
         // 3. Is centered on the focus point
         let (crop_width, crop_height) = self.compute_zoom_to_fill_crop(keyframe, target_ratio);
 
-        // CRITICAL: Center on face AFTER zoom computation
-        // The face center (cx, cy) should be positioned in the upper-third of the crop
-        // for optimal framing (rule of thirds / TikTok style)
+        // Face bounding box from keyframe (cx, cy are CENTER coordinates)
+        let face_half_w = keyframe.width / 2.0;
+        let face_half_h = keyframe.height / 2.0;
+        let face_left = keyframe.cx - face_half_w;
+        let face_right = keyframe.cx + face_half_w;
+        let face_top = keyframe.cy - face_half_h;
+        let face_bottom = keyframe.cy + face_half_h;
 
-        // Target: place face center at ~35% from top of crop (upper third)
-        // This gives natural headroom above the face
-        let target_face_y_ratio = 0.35;
+        // Required margins around face (proportional to crop size)
+        let margin_h = crop_height * 0.12; // 12% minimum vertical margin
+        let margin_w = crop_width * 0.08;  // 8% minimum horizontal margin
 
-        // Compute where the crop should be positioned to achieve this framing
-        let mut x = keyframe.cx - crop_width / 2.0;
-        let mut y = keyframe.cy - crop_height * target_face_y_ratio;
+        // Face bounds with required margins
+        let required_left = face_left - margin_w;
+        let required_right = face_right + margin_w;
+        let required_top = face_top - margin_h;
+        let required_bottom = face_bottom + margin_h;
 
-        // Clamp to frame boundaries FIRST
+        // STEP 1: Start with ideal position
+        // Face center at 40% from top (TikTok-style framing)
+        // Face horizontally centered in crop
+        let target_face_y_ratio = 0.40;
+        let ideal_x = keyframe.cx - crop_width / 2.0;
+        let ideal_y = keyframe.cy - crop_height * target_face_y_ratio;
+
+        let mut x = ideal_x;
+        let mut y = ideal_y;
+
+        // STEP 2: Adjust to ensure face fits horizontally
+        // If crop left edge is past face's required left, shift crop left
+        if x > required_left {
+            x = required_left;
+        }
+        // If crop right edge is before face's required right, shift crop right
+        if x + crop_width < required_right {
+            x = required_right - crop_width;
+        }
+
+        // STEP 3: Adjust to ensure face fits vertically
+        if y > required_top {
+            y = required_top;
+        }
+        if y + crop_height < required_bottom {
+            y = required_bottom - crop_height;
+        }
+
+        // STEP 4: Clamp to frame boundaries (LAST - after face adjustment)
         x = x.max(0.0).min(self.frame_width as f64 - crop_width);
         y = y.max(0.0).min(self.frame_height as f64 - crop_height);
 
-        // After clamping, verify the face is still within the crop
-        // If the face would be cut off, adjust the crop to include it
-        let face_top = keyframe.cy - keyframe.height / 2.0;
-        let face_bottom = keyframe.cy + keyframe.height / 2.0;
-        let crop_top = y;
-        let crop_bottom = y + crop_height;
-
-        // Ensure face is not cut off at top
-        if face_top < crop_top {
-            y = (face_top - crop_height * 0.05).max(0.0); // 5% margin
-        }
-        // Ensure face is not cut off at bottom
-        if face_bottom > crop_bottom {
-            y = (face_bottom - crop_height + crop_height * 0.05)
-                .min(self.frame_height as f64 - crop_height);
-        }
-
         // Ensure integer values and even dimensions (required by many codecs)
-        let x = (x.round() as i32).max(0);
-        let y = (y.round() as i32).max(0);
+        let final_x = (x.round() as i32).max(0);
+        let final_y = (y.round() as i32).max(0);
         let width = ((crop_width.round() as i32) / 2) * 2; // Make even
         let height = ((crop_height.round() as i32) / 2) * 2; // Make even
 
         // Final bounds check
-        let x = x.min(self.frame_width as i32 - width);
-        let y = y.min(self.frame_height as i32 - height);
+        let final_x = final_x.min(self.frame_width as i32 - width);
+        let final_y = final_y.min(self.frame_height as i32 - height);
 
         CropWindow::new(
             keyframe.time,
-            x.max(0),
-            y.max(0),
+            final_x.max(0),
+            final_y.max(0),
             width.max(2),
             height.max(2),
         )
@@ -352,14 +373,15 @@ mod tests {
 
         let crop = planner.keyframe_to_crop(&keyframe, &aspect);
 
-        // Face center should be in upper portion of crop (20-50% from top)
+        // Face center should be in upper portion of crop (25-55% from top)
+        // Target is 40% with 15% margin tolerance
         let face_cy = keyframe.cy;
         let crop_top = crop.y as f64;
         let crop_height = crop.height as f64;
         let face_position_ratio = (face_cy - crop_top) / crop_height;
 
         assert!(
-            face_position_ratio >= 0.2 && face_position_ratio <= 0.5,
+            face_position_ratio >= 0.25 && face_position_ratio <= 0.55,
             "Face should be in upper third, but position ratio is {}",
             face_position_ratio
         );

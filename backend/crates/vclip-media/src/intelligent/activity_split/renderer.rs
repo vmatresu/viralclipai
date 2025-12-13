@@ -112,6 +112,8 @@ impl ActivitySplitRenderer {
                         self.frame_height,
                         0.0,  // left vertical bias
                         0.15, // right vertical bias
+                        0.5,  // left horizontal center (default, no face detection)
+                        0.5,  // right horizontal center (default, no face detection)
                         &self.encoding,
                     ).await?;
                 }

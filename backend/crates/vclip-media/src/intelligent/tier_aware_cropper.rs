@@ -52,9 +52,9 @@ impl TierAwareIntelligentCropper {
         Self { config, tier }
     }
 
-    /// Create with default configuration.
+    /// Create with tier-appropriate configuration.
     pub fn with_tier(tier: DetectionTier) -> Self {
-        Self::new(IntelligentCropConfig::default(), tier)
+        Self::new(IntelligentCropConfig::for_tier(tier), tier)
     }
 
     /// Get the detection tier.
@@ -229,9 +229,10 @@ impl TierAwareIntelligentCropper {
             .map(|m| m.len())
             .unwrap_or(0);
 
-        info!("[INTELLIGENT_FULL] ========================================");
+        info!("[INTELLIGENT_FULL:{:?}] ========================================", self.tier);
         info!(
-            "[INTELLIGENT_FULL] COMPLETE in {:.2}s - {:.2} MB",
+            "[INTELLIGENT_FULL:{:?}] COMPLETE in {:.2}s - {:.2} MB",
+            self.tier,
             pipeline_start.elapsed().as_secs_f64(),
             file_size as f64 / 1_000_000.0
         );
@@ -342,7 +343,7 @@ where
     // Pass cached analysis to skip ML inference if available
     info!("[PIPELINE] Step 2/2: Process segment (SINGLE ENCODE)...");
     
-    let config = IntelligentCropConfig::default();
+    let config = IntelligentCropConfig::for_tier(tier);
     let cropper = TierAwareIntelligentCropper::new(config, tier);
     let result = cropper
         .process_with_cached_detections(segment_path.as_path(), output, encoding, cached_analysis)

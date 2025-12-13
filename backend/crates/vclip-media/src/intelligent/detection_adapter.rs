@@ -204,17 +204,51 @@ impl SplitLayoutInfo {
     }
 }
 
-/// Compute vertical bias from face positions.
+/// Compute vertical bias from face positions, accounting for face size.
+///
+/// Returns a value from 0.0 (crop at top) to ~0.5 (crop at bottom).
+/// The bias positions the crop so faces are in the upper portion of the panel.
 pub fn compute_vertical_bias(faces: &[BoundingBox], height: u32) -> f64 {
     if faces.is_empty() {
         return 0.15; // Default: slight bias toward top
     }
 
-    let avg_cy: f64 = faces.iter().map(|f| f.cy()).sum::<f64>() / faces.len() as f64;
-    let normalized_y = avg_cy / height as f64;
+    let h = height as f64;
 
-    // Position crop so face is in upper portion
-    (normalized_y - 0.3).clamp(0.0, 0.4)
+    // Compute the bounding box that contains all faces
+    let min_top = faces.iter().map(|f| f.y).fold(f64::INFINITY, f64::min);
+    let max_bottom = faces.iter().map(|f| f.y2()).fold(0.0f64, f64::max);
+
+    // Face center and extent
+    let face_center_y = (min_top + max_bottom) / 2.0;
+    let face_extent = max_bottom - min_top;
+
+    // Target: face center at ~35% from top of crop
+    let target_y_ratio = 0.35;
+
+    // Compute bias that would place face center at target position
+    let face_y_ratio = face_center_y / h;
+
+    // Base bias: how much to shift crop downward
+    let mut bias = (face_y_ratio - target_y_ratio).clamp(0.0, 0.5);
+
+    // Safety check: ensure face won't be cut off at top or bottom
+    // If face is very tall, reduce bias to keep it in frame
+    let face_height_ratio = face_extent / h;
+    if face_height_ratio > 0.3 {
+        // Large face - center it more conservatively
+        bias = bias.min(0.25);
+    }
+
+    // Ensure minimum margin from edges
+    let min_margin = face_extent * 0.1;
+    let safe_top = min_top - min_margin;
+    if safe_top < 0.0 {
+        // Face is too close to top, reduce downward bias
+        bias = bias.max(0.0).min(0.2);
+    }
+
+    bias.clamp(0.0, 0.5)
 }
 
 /// Compute split layout info from raw detections.

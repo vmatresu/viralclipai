@@ -174,6 +174,9 @@ impl SinglePassRenderer {
     /// [right_in] → crop right → scale 1080x960 → [bottom]
     /// [top][bottom] → vstack → [out]
     /// ```
+    ///
+    /// # Face Centering
+    /// Uses horizontal and vertical bias to center the crop on detected faces.
     pub async fn render_split<P: AsRef<Path>>(
         &self,
         segment: P,
@@ -182,6 +185,8 @@ impl SinglePassRenderer {
         source_height: u32,
         left_vertical_bias: f64,
         right_vertical_bias: f64,
+        left_horizontal_center: f64,
+        right_horizontal_center: f64,
         encoding: &EncodingConfig,
     ) -> MediaResult<()> {
         let segment = segment.as_ref();
@@ -194,22 +199,43 @@ impl SinglePassRenderer {
             output.display()
         );
 
-        // Calculate crop dimensions (45% from each side)
-        let crop_fraction = 0.45;
-        let crop_width = (source_width as f64 * crop_fraction).round() as u32;
-        let right_start_x = source_width - crop_width;
+        let half_width = source_width / 2;
 
-        // Calculate 9:8 tile dimensions
-        let tile_height = ((crop_width as f64 * 8.0 / 9.0).round() as u32).min(source_height);
-        let vertical_margin = source_height.saturating_sub(tile_height);
+        // Calculate 9:8 tile dimensions (each panel is 1080x960)
+        let panel_ratio = SPLIT_PANEL_WIDTH as f64 / SPLIT_PANEL_HEIGHT as f64; // 9:8 = 1.125
 
-        // Apply vertical biases
+        // Compute crop dimensions for each panel
+        // We need to fit a 9:8 crop within each half of the frame
+        let max_crop_from_half = half_width;
+        let ideal_crop_height = (max_crop_from_half as f64 / panel_ratio).round() as u32;
+        let crop_height = ideal_crop_height.min(source_height);
+        let crop_width = (crop_height as f64 * panel_ratio).round() as u32;
+
+        // Vertical positioning based on bias
+        let vertical_margin = source_height.saturating_sub(crop_height);
         let left_crop_y = (vertical_margin as f64 * left_vertical_bias).round() as u32;
         let right_crop_y = (vertical_margin as f64 * right_vertical_bias).round() as u32;
 
+        // HORIZONTAL CENTERING on face positions
+        // left_horizontal_center is 0-1 within left half (0.5 = center of left half)
+        // right_horizontal_center is 0-1 within right half (0.5 = center of right half)
+
+        // Left panel: face at left_horizontal_center * half_width
+        let left_face_x = left_horizontal_center * half_width as f64;
+        let left_crop_x = (left_face_x - crop_width as f64 / 2.0)
+            .max(0.0)
+            .min((half_width - crop_width) as f64) as u32;
+
+        // Right panel: face at half_width + right_horizontal_center * half_width
+        let right_face_x = half_width as f64 + right_horizontal_center * half_width as f64;
+        let right_crop_x = (right_face_x - crop_width as f64 / 2.0)
+            .max(half_width as f64)
+            .min((source_width - crop_width) as f64) as u32;
+
         info!(
-            "[RENDER_SPLIT] Source: {}x{}, Crop: {}x{}, Left Y: {}, Right Y: {}",
-            source_width, source_height, crop_width, tile_height, left_crop_y, right_crop_y
+            "[RENDER_SPLIT] Source: {}x{}, Panel crop: {}x{}, Left: ({}, {}), Right: ({}, {})",
+            source_width, source_height, crop_width, crop_height,
+            left_crop_x, left_crop_y, right_crop_x, right_crop_y
         );
         info!(
             "[RENDER_SPLIT] Encoding: {} preset={} crf={}",
@@ -217,42 +243,17 @@ impl SinglePassRenderer {
         );
 
         // Build combined filter graph - everything in ONE pass
-        // Uses centralized SPLIT_PANEL dimensions for consistent 9:16 output
-        // Each panel is cropped to 9:8 aspect ratio (1080x960) to fill without black bars
-        // Calculate crop dimensions that exactly match 9:8 aspect ratio for each panel
-        let panel_ratio = SPLIT_PANEL_WIDTH as f64 / SPLIT_PANEL_HEIGHT as f64; // 9:8 = 1.125
-        let source_ratio = crop_width as f64 / tile_height as f64;
-
-        // Adjust crop to match panel aspect ratio (zoom to fill)
-        let (final_crop_w, final_crop_h) = if source_ratio > panel_ratio {
-            // Source is wider - crop width to match
-            let h = tile_height;
-            let w = (h as f64 * panel_ratio).round() as u32;
-            (w.min(crop_width), h)
-        } else {
-            // Source is taller - crop height to match
-            let w = crop_width;
-            let h = (w as f64 / panel_ratio).round() as u32;
-            (w, h.min(tile_height))
-        };
-
-        // Recalculate positions for the adjusted crop size
-        let left_crop_x = (crop_width.saturating_sub(final_crop_w)) / 2;
-        let right_crop_x = right_start_x + (crop_width.saturating_sub(final_crop_w)) / 2;
-        let left_crop_y_adj = left_crop_y + (tile_height.saturating_sub(final_crop_h)) / 2;
-        let right_crop_y_adj = right_crop_y + (tile_height.saturating_sub(final_crop_h)) / 2;
-
         let filter_complex = format!(
             "[0:v]split=2[left_in][right_in];\
              [left_in]crop={cw}:{ch}:{lx}:{ly},scale={pw}:{ph}:flags=lanczos,setsar=1,format=yuv420p[top];\
              [right_in]crop={cw}:{ch}:{rx}:{ry},scale={pw}:{ph}:flags=lanczos,setsar=1,format=yuv420p[bottom];\
              [top][bottom]vstack=inputs=2[vout]",
-            cw = final_crop_w,
-            ch = final_crop_h,
+            cw = crop_width,
+            ch = crop_height,
             lx = left_crop_x,
-            ly = left_crop_y_adj,
+            ly = left_crop_y,
             rx = right_crop_x,
-            ry = right_crop_y_adj,
+            ry = right_crop_y,
             pw = SPLIT_PANEL_WIDTH,
             ph = SPLIT_PANEL_HEIGHT,
         );

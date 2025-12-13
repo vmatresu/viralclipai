@@ -46,9 +46,9 @@ impl TierAwareSplitProcessor {
         Self { config, tier }
     }
 
-    /// Create with default configuration.
+    /// Create with tier-appropriate configuration.
     pub fn with_tier(tier: DetectionTier) -> Self {
-        Self::new(IntelligentCropConfig::default(), tier)
+        Self::new(IntelligentCropConfig::for_tier(tier), tier)
     }
 
     /// Get the detection tier.
@@ -171,9 +171,10 @@ impl TierAwareSplitProcessor {
                 warn!("[INTELLIGENT_SPLIT] Failed to generate thumbnail: {}", e);
             }
 
-            info!("[INTELLIGENT_SPLIT] ========================================");
+            info!("[INTELLIGENT_SPLIT:{:?}] ========================================", self.tier);
             info!(
-                "[INTELLIGENT_SPLIT] COMPLETE (full-frame) in {:.2}s",
+                "[INTELLIGENT_SPLIT:{:?}] COMPLETE (full-frame) in {:.2}s",
+                self.tier,
                 pipeline_start.elapsed().as_secs_f64()
             );
             return Ok(());
@@ -208,16 +209,20 @@ impl TierAwareSplitProcessor {
 
         // Step 4: Standard split with vertical positioning from cached analysis
         let step_start = std::time::Instant::now();
-        info!("[INTELLIGENT_SPLIT] Step 3/3: Computing vertical positioning...");
+        info!("[INTELLIGENT_SPLIT] Step 3/3: Computing face positioning...");
 
         let left_vertical_bias = split_info.left_vertical_bias(height);
         let right_vertical_bias = split_info.right_vertical_bias(height);
+        let left_horizontal_center = split_info.left_horizontal_center(width);
+        let right_horizontal_center = split_info.right_horizontal_center(width);
 
         info!(
-            "[INTELLIGENT_SPLIT] Step 3/3 DONE in {:.2}s - left={:.2}, right={:.2}",
+            "[INTELLIGENT_SPLIT] Step 3/3 DONE in {:.2}s - L_vert={:.2}, R_vert={:.2}, L_horz={:.2}, R_horz={:.2}",
             step_start.elapsed().as_secs_f64(),
             left_vertical_bias,
-            right_vertical_bias
+            right_vertical_bias,
+            left_horizontal_center,
+            right_horizontal_center
         );
 
         // Step 5: Single-pass render (THE ONLY ENCODE)
@@ -236,6 +241,8 @@ impl TierAwareSplitProcessor {
                 height,
                 left_vertical_bias,
                 right_vertical_bias,
+                left_horizontal_center,
+                right_horizontal_center,
                 encoding,
             )
             .await?;
@@ -256,9 +263,10 @@ impl TierAwareSplitProcessor {
             .map(|m| m.len())
             .unwrap_or(0);
 
-        info!("[INTELLIGENT_SPLIT] ========================================");
+        info!("[INTELLIGENT_SPLIT:{:?}] ========================================", self.tier);
         info!(
-            "[INTELLIGENT_SPLIT] COMPLETE in {:.2}s - {:.2} MB",
+            "[INTELLIGENT_SPLIT:{:?}] COMPLETE in {:.2}s - {:.2} MB",
+            self.tier,
             pipeline_start.elapsed().as_secs_f64(),
             file_size as f64 / 1_000_000.0
         );
@@ -347,7 +355,7 @@ where
     // Step 2: Process with single-pass render (THE ONLY ENCODE)
     info!("[PIPELINE] Step 2/2: Process segment (SINGLE ENCODE)...");
     
-    let config = IntelligentCropConfig::default();
+    let config = IntelligentCropConfig::for_tier(tier);
     let processor = TierAwareSplitProcessor::new(config, tier);
     let result = processor
         .process_with_cached_detections(segment_path.as_path(), output, encoding, cached_analysis)

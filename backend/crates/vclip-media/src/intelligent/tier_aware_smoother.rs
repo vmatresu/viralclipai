@@ -175,6 +175,9 @@ impl TierAwareCameraSmoother {
 
         let mut current_time = start_time;
         let mut frame_idx = 0;
+        
+        // Track last known good position - reuse when detection fails
+        let mut last_focus: Option<CameraKeyframe> = None;
 
         while current_time < end_time && frame_idx < detections.len() {
             let frame_dets = &detections[frame_idx];
@@ -184,7 +187,14 @@ impl TierAwareCameraSmoother {
             }
 
             let keyframe = if frame_dets.is_empty() {
-                self.create_fallback_keyframe(current_time, width, height)
+                // No face detected - use last known position if available
+                if let Some(ref last) = last_focus {
+                    // Reuse last known position with updated time
+                    CameraKeyframe::new(current_time, last.cx, last.cy, last.width, last.height)
+                } else {
+                    // No previous position - use fallback
+                    self.create_fallback_keyframe(current_time, width, height)
+                }
             } else {
                 // Use tier-specific focus computation
                 let focus = match self.tier {
@@ -202,13 +212,17 @@ impl TierAwareCameraSmoother {
                     }
                 };
 
-                CameraKeyframe::new(
+                let kf = CameraKeyframe::new(
                     current_time,
                     focus.cx(),
                     focus.cy(),
                     focus.width,
                     focus.height,
-                )
+                );
+                
+                // Update last known position
+                last_focus = Some(kf);
+                kf
             };
 
             keyframes.push(keyframe);

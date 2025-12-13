@@ -121,6 +121,8 @@ impl FastSplitEngine {
             height,
             self.config.top_vertical_bias,
             self.config.bottom_vertical_bias,
+            0.5,  // Default: center horizontally (no face detection)
+            0.5,  // Default: center horizontally (no face detection)
             encoding,
         ).await?;
 
