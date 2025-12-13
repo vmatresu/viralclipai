@@ -11,7 +11,7 @@ export function HowItWorks() {
     },
     {
       icon: <Layout className="w-8 h-8 text-white" />,
-      title: "2. Choose Layout",
+      title: "2. Choose Scenes & Layout",
       description:
         "Select Split View for reaction videos or Full View for immersive content.",
       color: "bg-indigo-500",

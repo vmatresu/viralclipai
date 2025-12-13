@@ -6,7 +6,11 @@
       "Bash(tree:*)",
       "Bash(cargo clean:*)",
       "Bash(cat:*)",
-      "Bash(docker compose:*)"
+      "Bash(docker compose:*)",
+      "Bash(ssh:*)",
+      "Bash(chmod:*)",
+      "Bash(git reset:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": []
