@@ -61,7 +61,7 @@ anyhow = "1.0"
 
 # Logging/Tracing
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "ansi"] }
 tracing-opentelemetry = "0.27"
 opentelemetry = "0.26"
 opentelemetry_sdk = { version = "0.26", features = ["rt-tokio"] }

@@ -148,6 +148,42 @@ impl Style {
         )
     }
 
+    /// Whether this style can benefit from cached analysis (face detection OR motion heuristics).
+    ///
+    /// Returns true for all intelligent styles that perform expensive per-frame analysis.
+    /// This includes both face detection styles and motion-aware styles.
+    /// 
+    /// Note: This only indicates the style CAN USE cache if available.
+    /// Use `should_generate_cached_analysis()` to check if this style should TRIGGER cache generation.
+    pub fn can_use_cached_analysis(&self) -> bool {
+        matches!(
+            self,
+            Style::Intelligent
+                | Style::IntelligentSplit
+                | Style::IntelligentSpeaker
+                | Style::IntelligentSplitSpeaker
+                | Style::IntelligentSplitActivity
+                | Style::IntelligentMotion
+                | Style::IntelligentSplitMotion
+        )
+    }
+
+    /// Whether this style should trigger neural analysis cache generation.
+    ///
+    /// Only premium tiers (SpeakerAware, MotionAware) should generate and cache analysis.
+    /// These are gated to Pro/Studio plans. Lower tiers (Basic) can consume cached
+    /// analysis if it exists, but should never trigger expensive cache generation.
+    pub fn should_generate_cached_analysis(&self) -> bool {
+        matches!(
+            self,
+            Style::IntelligentSpeaker
+                | Style::IntelligentSplitSpeaker
+                | Style::IntelligentMotion
+                | Style::IntelligentSplitMotion
+                | Style::IntelligentSplitActivity
+        )
+    }
+
     /// Returns the detection tier for this style.
     pub fn detection_tier(&self) -> DetectionTier {
         match self {
@@ -547,5 +583,29 @@ mod tests {
             Style::IntelligentSplitSpeaker
         );
         assert_eq!("center_focus".parse::<Style>().unwrap(), Style::CenterFocus);
+    }
+
+    #[test]
+    fn test_cache_generation_gating() {
+        // Premium tiers (Pro/Studio) should generate cache
+        assert!(Style::IntelligentSpeaker.should_generate_cached_analysis());
+        assert!(Style::IntelligentSplitSpeaker.should_generate_cached_analysis());
+        assert!(Style::IntelligentMotion.should_generate_cached_analysis());
+        assert!(Style::IntelligentSplitMotion.should_generate_cached_analysis());
+        assert!(Style::IntelligentSplitActivity.should_generate_cached_analysis());
+
+        // Lower tiers should NOT generate cache (but can consume if available)
+        assert!(!Style::Intelligent.should_generate_cached_analysis());
+        assert!(!Style::IntelligentSplit.should_generate_cached_analysis());
+
+        // All intelligent styles can USE cache if available
+        assert!(Style::Intelligent.can_use_cached_analysis());
+        assert!(Style::IntelligentSplit.can_use_cached_analysis());
+        assert!(Style::IntelligentSpeaker.can_use_cached_analysis());
+        assert!(Style::IntelligentMotion.can_use_cached_analysis());
+
+        // Non-intelligent styles cannot use cache
+        assert!(!Style::Split.can_use_cached_analysis());
+        assert!(!Style::Original.can_use_cached_analysis());
     }
 }

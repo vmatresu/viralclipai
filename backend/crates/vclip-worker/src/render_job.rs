@@ -168,8 +168,9 @@ async fn process_render_clip_inner(
     work_dir: &Path,
     clips_dir: &Path,
 ) -> WorkerResult<()> {
-    // For intelligent styles, trigger background neural analysis if not cached
-    if job.style.requires_face_detection() {
+    // Only premium tiers (SpeakerAware, MotionAware) should trigger cache generation.
+    // Lower tiers can consume cache if available but never trigger expensive generation.
+    if job.style.should_generate_cached_analysis() {
         let required_tier = job.style.detection_tier();
         if let Ok(None) = ctx
             .neural_cache
@@ -178,7 +179,8 @@ async fn process_render_clip_inner(
         {
             info!(
                 scene_id = job.scene_id,
-                "Neural cache miss - triggering background computation for future renders"
+                tier = %required_tier,
+                "Analysis cache miss (premium tier) - triggering background computation"
             );
             trigger_neural_analysis_job(ctx, job).await;
         }

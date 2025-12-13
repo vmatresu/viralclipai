@@ -17,11 +17,32 @@ async fn main() {
         .install_default()
         .expect("Failed to install rustls crypto provider");
 
-    // Initialize tracing
-    tracing_subscriber::registry()
-        .with(fmt::layer().json())
-        .with(EnvFilter::from_default_env().add_directive("vclip=info".parse().unwrap()))
-        .init();
+    // Initialize tracing with colored output for dev, JSON for production
+    let use_json = std::env::var("LOG_FORMAT")
+        .map(|v| v.to_lowercase() == "json")
+        .unwrap_or(false);
+
+    let env_filter = EnvFilter::from_default_env()
+        .add_directive("vclip=info".parse().unwrap());
+
+    if use_json {
+        tracing_subscriber::registry()
+            .with(fmt::layer().json())
+            .with(env_filter)
+            .init();
+    } else {
+        tracing_subscriber::registry()
+            .with(
+                fmt::layer()
+                    .with_ansi(true)
+                    .with_target(true)
+                    .with_thread_ids(false)
+                    .with_file(false)
+                    .with_line_number(false)
+            )
+            .with(env_filter)
+            .init();
+    }
 
     info!("Starting vclip-api");
 

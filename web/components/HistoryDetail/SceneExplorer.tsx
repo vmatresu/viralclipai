@@ -719,16 +719,18 @@ function SceneClipPlayer({ clip, resolvePlaybackUrl }: SceneClipPlayerProps) {
   }
 
   return (
-    <div className="relative overflow-hidden rounded-lg border">
-      <video
-        src={videoUrl}
-        controls
-        className="h-full w-full bg-black"
-        poster={undefined}
-        preload="metadata"
-      >
-        <track kind="captions" />
-      </video>
+    <div className="relative overflow-hidden rounded-lg border bg-black">
+      <div className="aspect-[9/16] max-h-[500px] mx-auto">
+        <video
+          src={videoUrl}
+          controls
+          className="h-full w-full object-contain"
+          poster={undefined}
+          preload="metadata"
+        >
+          <track kind="captions" />
+        </video>
+      </div>
     </div>
   );
 }

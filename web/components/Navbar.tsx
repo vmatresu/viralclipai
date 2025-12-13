@@ -1,6 +1,6 @@
 "use client";
 
-import { DollarSign, History, LogOut, Menu, Settings, Sparkles } from "lucide-react";
+import { DollarSign, History, Home, LogOut, Menu, Settings } from "lucide-react";
 import Link from "next/link";
 import * as React from "react";
 
@@ -18,7 +18,7 @@ import { useAuth } from "@/lib/auth";
 
 // Navigation configuration - DRY principle
 const NAV_LINKS = [
-  { href: "/analyze", label: "Analyze", icon: Sparkles },
+  { href: "/", label: "Home", icon: Home },
   { href: "/pricing", label: "Pricing", icon: DollarSign },
   { href: "/history", label: "History", icon: History },
   { href: "/settings", label: "Settings", icon: Settings },

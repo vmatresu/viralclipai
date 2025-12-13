@@ -81,10 +81,13 @@ impl SinglePassRenderer {
             encoding.codec, encoding.preset, encoding.crf
         );
 
-        // Build filter: crop → scale to exact 1080×1920 → set SAR for square pixels
+        // Build filter: crop → scale with aspect ratio preservation → pad to exact 1080×1920 → set SAR
+        // IMPORTANT: Use force_original_aspect_ratio=decrease + pad to avoid stretching/elongation
+        // This ensures faces maintain their natural proportions regardless of crop window aspect ratio
         let filter = format!(
-            "crop={}:{}:{}:{},scale={}:{}:flags=lanczos,setsar=1",
+            "crop={}:{}:{}:{},scale={}:{}:flags=lanczos:force_original_aspect_ratio=decrease,pad={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1",
             crop.width, crop.height, crop.x, crop.y,
+            PORTRAIT_WIDTH, PORTRAIT_HEIGHT,
             PORTRAIT_WIDTH, PORTRAIT_HEIGHT
         );
 

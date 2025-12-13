@@ -172,9 +172,9 @@ pub async fn process_single_clip_with_raw_key(
         e
     })?;
 
-    // Phase 3: Fetch cached neural analysis for intelligent styles
-    // This allows skipping expensive ML inference when cache is available
-    if task.style.requires_face_detection() {
+    // Phase 3: Fetch cached analysis for intelligent styles (face detection OR motion heuristics)
+    // This allows skipping expensive per-frame analysis when cache is available
+    if task.style.can_use_cached_analysis() {
         let required_tier = task.style.detection_tier();
         match ctx
             .neural_cache
@@ -186,7 +186,8 @@ pub async fn process_single_clip_with_raw_key(
                     scene_id = scene_id,
                     style = %style_name,
                     frames = analysis.frames.len(),
-                    "Using cached neural analysis (SKIPPING ML inference)"
+                    tier = %required_tier,
+                    "Using cached analysis (SKIPPING expensive detection)"
                 );
                 request = request.with_cached_neural_analysis(analysis);
             }
@@ -194,7 +195,8 @@ pub async fn process_single_clip_with_raw_key(
                 debug!(
                     scene_id = scene_id,
                     style = %style_name,
-                    "No cached neural analysis available, will run ML inference"
+                    tier = %required_tier,
+                    "No cached analysis available, will run detection"
                 );
             }
             Err(e) => {
@@ -202,7 +204,7 @@ pub async fn process_single_clip_with_raw_key(
                     scene_id = scene_id,
                     style = %style_name,
                     error = %e,
-                    "Failed to check neural cache (will run ML inference)"
+                    "Failed to check cache (will run detection)"
                 );
             }
         }

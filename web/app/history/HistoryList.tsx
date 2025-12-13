@@ -2,6 +2,9 @@
 
 import {
   AlertCircle,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   Check,
   CheckSquare,
   Clock,
@@ -15,7 +18,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { EditableTitle } from "@/components/EditableTitle";
@@ -61,6 +64,10 @@ import {
 import { useAuth } from "@/lib/auth";
 import { invalidateClipsCache, invalidateClipsCacheMany } from "@/lib/cache";
 import { usePageView } from "@/lib/usePageView";
+import { cn } from "@/lib/utils";
+
+type SortField = "title" | "status" | "size" | "date";
+type SortDirection = "asc" | "desc";
 
 interface UserVideo {
   id?: string;
@@ -94,6 +101,23 @@ interface PlanUsage {
   storage?: StorageInfo;
 }
 
+// Helper to parse size string to bytes for sorting
+function parseSizeToBytes(sizeStr?: string): number {
+  if (!sizeStr) return 0;
+  const match = sizeStr.match(/^([\d.]+)\s*(B|KB|MB|GB|TB)?$/i);
+  if (!match) return 0;
+  const value = parseFloat(match[1] ?? "0");
+  const unit = (match[2] ?? "B").toUpperCase();
+  const multipliers: Record<string, number> = {
+    B: 1,
+    KB: 1024,
+    MB: 1024 * 1024,
+    GB: 1024 * 1024 * 1024,
+    TB: 1024 * 1024 * 1024 * 1024,
+  };
+  return value * (multipliers[unit] ?? 1);
+}
+
 export default function HistoryList() {
   usePageView("history");
   const { getIdToken, user, loading: authLoading } = useAuth();
@@ -110,7 +134,85 @@ export default function HistoryList() {
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [planUsage, setPlanUsage] = useState<PlanUsage | null>(null);
   const [loadingUsage, setLoadingUsage] = useState(true);
+  const [sortField, setSortField] = useState<SortField>("date");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const router = useRouter();
+
+  // Sort videos based on current sort field and direction
+  const sortedVideos = useMemo(() => {
+    return [...videos].sort((a, b) => {
+      let comparison = 0;
+
+      switch (sortField) {
+        case "title": {
+          const titleA = (a.video_title ?? "").toLowerCase();
+          const titleB = (b.video_title ?? "").toLowerCase();
+          comparison = titleA.localeCompare(titleB);
+          break;
+        }
+        case "status": {
+          const statusOrder = { processing: 0, analyzed: 1, completed: 2, failed: 3 };
+          const statusA = statusOrder[a.status ?? "completed"] ?? 4;
+          const statusB = statusOrder[b.status ?? "completed"] ?? 4;
+          comparison = statusA - statusB;
+          break;
+        }
+        case "size": {
+          const sizeA = a.total_size_bytes ?? parseSizeToBytes(a.total_size_formatted);
+          const sizeB = b.total_size_bytes ?? parseSizeToBytes(b.total_size_formatted);
+          comparison = sizeA - sizeB;
+          break;
+        }
+        case "date":
+        default: {
+          const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+          comparison = dateA - dateB;
+          break;
+        }
+      }
+
+      return sortDirection === "asc" ? comparison : -comparison;
+    });
+  }, [videos, sortField, sortDirection]);
+
+  const handleSort = useCallback((field: SortField) => {
+    setSortField((currentField) => {
+      if (currentField === field) {
+        setSortDirection((dir) => (dir === "asc" ? "desc" : "asc"));
+        return field;
+      }
+      setSortDirection("desc");
+      return field;
+    });
+  }, []);
+
+  const SortableHeader = useCallback(
+    ({ field, children }: { field: SortField; children: React.ReactNode }) => {
+      const isActive = sortField === field;
+      return (
+        <button
+          onClick={() => handleSort(field)}
+          className={cn(
+            "flex items-center gap-1 hover:text-foreground transition-colors",
+            isActive ? "text-foreground" : "text-muted-foreground"
+          )}
+        >
+          {children}
+          {isActive ? (
+            sortDirection === "asc" ? (
+              <ArrowUp className="h-3.5 w-3.5" />
+            ) : (
+              <ArrowDown className="h-3.5 w-3.5" />
+            )
+          ) : (
+            <ArrowUpDown className="h-3.5 w-3.5 opacity-50" />
+          )}
+        </button>
+      );
+    },
+    [sortField, sortDirection, handleSort]
+  );
 
   const loadVideos = useCallback(async () => {
     if (authLoading || !user) {
@@ -709,15 +811,23 @@ export default function HistoryList() {
                   )}
                 </button>
               </TableHead>
-              <TableHead className="w-[400px]">Video Details</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Size</TableHead>
-              <TableHead>Date</TableHead>
+              <TableHead className="w-[400px]">
+                <SortableHeader field="title">Video Details</SortableHeader>
+              </TableHead>
+              <TableHead>
+                <SortableHeader field="status">Status</SortableHeader>
+              </TableHead>
+              <TableHead>
+                <SortableHeader field="size">Size</SortableHeader>
+              </TableHead>
+              <TableHead>
+                <SortableHeader field="date">Date</SortableHeader>
+              </TableHead>
               <TableHead className="w-[100px] text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {videos.map((v) => {
+            {sortedVideos.map((v) => {
               const id = v.video_id ?? v.id ?? "";
               const isSelected = selectedVideos.has(id);
               let dateStr = v.created_at ?? "";

@@ -678,8 +678,22 @@ pub async fn delete_clip(
         .delete_clip(&user.uid, &video_id, &clip_name)
         .await?;
 
+    // Get clip_id before deleting metadata (needed for share cleanup)
+    let clip_id = clip_repo.list(None).await
+        .ok()
+        .and_then(|clips| clips.into_iter().find(|c| c.filename == clip_name).map(|c| c.clip_id));
+
     // Delete clip metadata from Firestore
     let metadata_deleted = clip_repo.delete_by_filename(&clip_name).await?;
+
+    // Clean up share slug if this clip had a share link
+    if let Some(ref cid) = clip_id {
+        let share_repo = vclip_firestore::ShareRepository::new((*state.firestore).clone());
+        if let Err(e) = share_repo.delete_slug_for_clip(&user.uid, &video_id, cid).await {
+            // Non-fatal: share may not exist
+            warn!("Failed to delete share slug for clip {}: {}", cid, e);
+        }
+    }
 
     // Update storage counters
     if size_unknown {
@@ -770,22 +784,14 @@ pub struct DeleteAllClipsResponse {
     pub message: Option<String>,
 }
 
-/// Recompute clips_count for a video and persist to Firestore.
+/// Recompute clips_count and clips_by_style for a video and persist to Firestore.
 async fn refresh_clips_count(state: &AppState, user_id: &str, video_id: &str) -> ApiResult<()> {
     let video_id_obj = vclip_models::VideoId::from_string(video_id);
-    let clip_repo = vclip_firestore::ClipRepository::new(
-        (*state.firestore).clone(),
-        user_id,
-        video_id_obj.clone(),
-    );
-
     let video_repo = vclip_firestore::VideoRepository::new((*state.firestore).clone(), user_id);
 
-    let clips = clip_repo.list(None).await.map_err(ApiError::from)?;
-    let new_count = clips.len() as u32;
-
+    // This recalculates both clips_count and clips_by_style from actual clips
     video_repo
-        .update_clips_count(&video_id_obj, new_count)
+        .recalculate_clips_by_style(&video_id_obj)
         .await
         .map_err(ApiError::from)?;
 
@@ -1072,7 +1078,7 @@ pub async fn delete_all_clips(
         }
     }
 
-    // Refresh video clips_count to reflect deletions
+    // Refresh video clips_count and clips_by_style to reflect deletions
     if let Err(e) = refresh_clips_count(&state, &user.uid, &video_id).await {
         warn!("Failed to refresh clips_count after delete all: {}", e);
     }

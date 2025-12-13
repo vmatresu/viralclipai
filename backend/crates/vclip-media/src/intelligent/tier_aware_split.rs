@@ -69,6 +69,20 @@ impl TierAwareSplitProcessor {
         output: P,
         encoding: &EncodingConfig,
     ) -> MediaResult<()> {
+        self.process_with_cached_detections(segment, output, encoding, None).await
+    }
+
+    /// Process a video segment with optional cached neural analysis.
+    ///
+    /// This is the cache-aware entry point that allows skipping expensive ML inference
+    /// when cached detections are available.
+    pub async fn process_with_cached_detections<P: AsRef<Path>>(
+        &self,
+        segment: P,
+        output: P,
+        encoding: &EncodingConfig,
+        cached_analysis: Option<&vclip_models::SceneNeuralAnalysis>,
+    ) -> MediaResult<()> {
         let segment = segment.as_ref();
         let output = output.as_ref();
         let pipeline_start = std::time::Instant::now();
@@ -76,6 +90,7 @@ impl TierAwareSplitProcessor {
         info!("[INTELLIGENT_SPLIT] ========================================");
         info!("[INTELLIGENT_SPLIT] START: {:?}", segment);
         info!("[INTELLIGENT_SPLIT] Tier: {:?}", self.tier);
+        info!("[INTELLIGENT_SPLIT] Cached analysis: {}", cached_analysis.is_some());
 
         // Step 1: Get video metadata
         let step_start = std::time::Instant::now();
@@ -94,12 +109,16 @@ impl TierAwareSplitProcessor {
         );
 
         // Step 2: Check if split mode is appropriate (simultaneous faces detection)
-        // Only use split mode for TRUE side-by-side podcasts where both faces are visible together.
-        // For videos that switch between showing one person at a time, use full-frame tracking.
+        // Use cached analysis if available to avoid redundant detection
         let step_start = std::time::Instant::now();
         info!("[INTELLIGENT_SPLIT] Step 2/4: Checking for simultaneous face presence...");
         
-        let should_split = self.should_use_split_layout(segment, width, height, fps, duration).await;
+        let should_split = if let Some(analysis) = cached_analysis {
+            // Use cached analysis to determine split layout
+            self.should_use_split_layout_from_cache(analysis, width, height, duration)
+        } else {
+            self.should_use_split_layout(segment, width, height, fps, duration).await
+        };
         
         info!(
             "[INTELLIGENT_SPLIT] Step 2/4 DONE in {:.2}s - should_split: {}",
@@ -113,7 +132,7 @@ impl TierAwareSplitProcessor {
                 self.config.clone(),
                 self.tier,
             );
-            cropper.process(segment, output, encoding).await?;
+            cropper.process_with_cached_detections(segment, output, encoding, cached_analysis).await?;
             
             // Generate thumbnail
             let thumb_path = output.with_extension("jpg");
@@ -551,6 +570,51 @@ impl TierAwareSplitProcessor {
         bias
     }
 
+    /// Determine if split layout is appropriate using cached analysis.
+    ///
+    /// Uses pre-computed neural analysis to avoid redundant face detection.
+    fn should_use_split_layout_from_cache(
+        &self,
+        analysis: &vclip_models::SceneNeuralAnalysis,
+        _width: u32,
+        _height: u32,
+        duration: f64,
+    ) -> bool {
+        const MIN_SIMULTANEOUS_SECONDS: f64 = 3.0;
+        
+        if analysis.frames.is_empty() {
+            info!("[SPLIT_CHECK] No cached frames → using full-frame mode");
+            return false;
+        }
+        
+        let sample_interval = duration / analysis.frames.len().max(1) as f64;
+        let mut simultaneous_time = 0.0;
+        let mut distinct_tracks = std::collections::HashSet::new();
+        
+        for frame in &analysis.frames {
+            if frame.faces.len() >= 2 {
+                simultaneous_time += sample_interval;
+            }
+            for face in &frame.faces {
+                if let Some(track_id) = face.track_id {
+                    distinct_tracks.insert(track_id);
+                }
+            }
+        }
+        
+        let should_split = distinct_tracks.len() >= 2 && simultaneous_time >= MIN_SIMULTANEOUS_SECONDS;
+        
+        info!(
+            "[SPLIT_CHECK] (cached) {} tracks, {:.1}s simultaneous (need >= {:.1}s) → {}",
+            distinct_tracks.len(),
+            simultaneous_time,
+            MIN_SIMULTANEOUS_SECONDS,
+            if should_split { "SPLIT" } else { "FULL-FRAME" }
+        );
+        
+        should_split
+    }
+
     /// Determine if split layout is appropriate for this video.
     ///
     /// Split layout is only appropriate for TRUE side-by-side podcasts where
@@ -638,6 +702,41 @@ pub async fn create_tier_aware_split_clip<P, F>(
     task: &ClipTask,
     tier: DetectionTier,
     encoding: &EncodingConfig,
+    progress_callback: F,
+) -> MediaResult<()>
+where
+    P: AsRef<Path>,
+    F: Fn(crate::progress::FfmpegProgress) + Send + 'static,
+{
+    // Delegate to cache-aware version with no cache
+    create_tier_aware_split_clip_with_cache(
+        input,
+        output,
+        task,
+        tier,
+        encoding,
+        None,
+        progress_callback,
+    )
+    .await
+}
+
+/// Create a tier-aware intelligent split clip with optional cached neural analysis.
+///
+/// This is the cache-aware entry point that allows skipping expensive ML inference
+/// when cached detections are available.
+///
+/// # Pipeline (SINGLE ENCODE)
+/// 1. `extract_segment()` - Stream copy from source (NO encode)
+/// 2. Compute vertical positioning per tier (SKIPPED if cache provided)
+/// 3. `SinglePassRenderer::render_split()` - ONE encode with split filter graph
+pub async fn create_tier_aware_split_clip_with_cache<P, F>(
+    input: P,
+    output: P,
+    task: &ClipTask,
+    tier: DetectionTier,
+    encoding: &EncodingConfig,
+    cached_analysis: Option<&vclip_models::SceneNeuralAnalysis>,
     _progress_callback: F,
 ) -> MediaResult<()>
 where
@@ -653,6 +752,7 @@ where
     info!("[PIPELINE] Source: {:?}", input);
     info!("[PIPELINE] Output: {:?}", output);
     info!("[PIPELINE] Tier: {:?}", tier);
+    info!("[PIPELINE] Cached analysis: {}", cached_analysis.is_some());
     info!("[PIPELINE] Encoding: {} crf={}", encoding.codec, encoding.crf);
 
     // Parse timestamps and apply padding
@@ -673,7 +773,9 @@ where
     
     let config = IntelligentCropConfig::default();
     let processor = TierAwareSplitProcessor::new(config, tier);
-    let result = processor.process(segment_path.as_path(), output, encoding).await;
+    let result = processor
+        .process_with_cached_detections(segment_path.as_path(), output, encoding, cached_analysis)
+        .await;
 
     // Cleanup
     if segment_path.exists() {

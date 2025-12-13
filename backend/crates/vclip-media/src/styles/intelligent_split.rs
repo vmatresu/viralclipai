@@ -119,12 +119,13 @@ impl StyleProcessor for IntelligentSplitProcessor {
             tier_name, self.tier
         );
 
-        crate::intelligent::create_tier_aware_split_clip(
+        crate::intelligent::create_tier_aware_split_clip_with_cache(
             request.input_path.as_ref(),
             request.output_path.as_ref(),
             &request.task,
             self.tier,
             &request.encoding,
+            request.cached_neural_analysis.as_deref(),
             |_progress| {
                 // Could emit progress updates
             },

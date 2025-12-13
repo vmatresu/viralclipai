@@ -24,6 +24,9 @@ services:
     image: viralclipai-api:dev
     container_name: vclip-api-dev
 
+    # Enable TTY for colored logs
+    tty: true
+
     # Graceful shutdown
     stop_grace_period: 10s
 
@@ -39,6 +42,8 @@ services:
       - ENVIRONMENT=development
       - RUST_LOG=${RUST_LOG:-debug,hyper=info,tower_http=info,h2=warn}
       - RUST_BACKTRACE=full
+      # Colored logs (set to "json" for structured logs)
+      - LOG_FORMAT=pretty
 
       # API Server
       - API_HOST=0.0.0.0
@@ -99,6 +104,9 @@ services:
     image: viralclipai-worker:dev
     container_name: vclip-worker-dev
 
+    # Enable TTY for colored logs
+    tty: true
+
     # Override default CMD to run worker binary
     command: >
       cargo watch
@@ -122,6 +130,8 @@ services:
       - ENVIRONMENT=development
       - RUST_LOG=${RUST_LOG:-debug,hyper=info,tower_http=info,h2=warn}
       - RUST_BACKTRACE=full
+      # Colored logs (set to "json" for structured logs)
+      - LOG_FORMAT=pretty
 
       # Worker config
       - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-2}

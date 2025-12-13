@@ -22,7 +22,6 @@ use vclip_models::{ClipTask, DetectionTier, EncodingConfig};
 use super::config::IntelligentCropConfig;
 use super::crop_planner::CropPlanner;
 use super::detector::FaceDetector;
-use super::motion::MotionDetector;
 use super::premium::{PremiumCameraPlanner, PremiumSpeakerConfig};
 use crate::detection::pipeline_builder::PipelineBuilder;
 use super::models::AspectRatio;
@@ -153,16 +152,10 @@ impl TierAwareIntelligentCropper {
                 }
                 DetectionTier::MotionAware => {
                     info!("[INTELLIGENT_FULL]   Using MotionAware pipeline (motion heuristics)");
-                    let motion_frames = Self::detect_motion_tracks(
-                        segment,
-                        start_time,
-                        end_time,
-                        width,
-                        height,
-                        fps,
-                        self.config.fps_sample,
-                    )?;
-                    (motion_frames, Vec::new())
+                    let pipeline = PipelineBuilder::for_tier(DetectionTier::MotionAware).build()?;
+                    let res = pipeline.analyze(segment, start_time, end_time).await?;
+                    let frames: Vec<_> = res.frames.iter().map(|f| f.faces.clone()).collect();
+                    (frames, Vec::new())
                 }
                 _ => {
                     info!("[INTELLIGENT_FULL]   Using Basic pipeline (YuNet face detection)");
@@ -312,90 +305,6 @@ impl TierAwareIntelligentCropper {
             .collect()
     }
 
-    /// Detect motion centers for MotionAware tier, producing synthetic detections.
-    fn detect_motion_tracks(
-        segment: &Path,
-        start_time: f64,
-        end_time: f64,
-        width: u32,
-        height: u32,
-        _fps: f64,
-        sample_rate: f64,
-    ) -> MediaResult<Vec<Vec<super::models::Detection>>> {
-        use opencv::prelude::{MatTraitConst, VideoCaptureTrait, VideoCaptureTraitConst};
-        use opencv::videoio::{VideoCapture, CAP_ANY, CAP_PROP_POS_MSEC};
-
-        let mut cap = VideoCapture::from_file(segment.to_str().unwrap_or(""), CAP_ANY)
-            .map_err(|e| crate::error::MediaError::detection_failed(format!("Open video: {e}")))?;
-        if !cap.is_opened().unwrap_or(false) {
-            return Err(crate::error::MediaError::detection_failed(
-                "Failed to open video for motion analysis",
-            ));
-        }
-
-        let mut detector = MotionDetector::new(width as i32, height as i32);
-        let sample_interval = 1.0 / sample_rate.max(1e-3);
-        let mut frames = Vec::new();
-        let mut current_time = start_time;
-        let mut last_detection: Option<super::models::Detection> = None;
-        let mut last_seen_time: Option<f64> = None;
-        const DECAY_SECONDS: f64 = 2.0;
-
-        while current_time < end_time {
-            cap.set(CAP_PROP_POS_MSEC, current_time * 1000.0)
-                .map_err(|e| crate::error::MediaError::detection_failed(format!("Seek: {e}")))?;
-
-            let mut frame = opencv::core::Mat::default();
-            if !cap
-                .read(&mut frame)
-                .map_err(|e| crate::error::MediaError::detection_failed(format!("Read: {e}")))? || frame.empty() {
-                frames.push(Vec::new());
-                current_time += sample_interval;
-                continue;
-            }
-
-            let detection = detector
-                .detect_center(&frame)?
-                .map(|center| {
-                    // Use a moderate box size around the motion center.
-                    let size = (width.min(height) as f64 * 0.35).max(64.0);
-                    let bbox = super::models::BoundingBox::new(
-                        center.x as f64 - size / 2.0,
-                        center.y as f64 - size / 2.0,
-                        size,
-                        size,
-                    )
-                    .clamp(width, height);
-
-                    // Single synthetic track id
-                    super::models::Detection::new(current_time, bbox, 1.0, 1)
-                });
-
-            // Coasting: hold last valid motion target for a decay window.
-            let frame_dets = if let Some(det) = detection {
-                last_seen_time = Some(current_time);
-                last_detection = Some(det.clone());
-                vec![det]
-            } else if let (Some(last_det), Some(last_time)) = (&last_detection, last_seen_time) {
-                if current_time - last_time <= DECAY_SECONDS {
-                    let mut held = last_det.clone();
-                    held.time = current_time;
-                    vec![held]
-                } else {
-                    last_detection = None;
-                    last_seen_time = None;
-                    Vec::new()
-                }
-            } else {
-                Vec::new()
-            };
-
-            frames.push(frame_dets);
-            current_time += sample_interval;
-        }
-
-        Ok(frames)
-    }
 }
 
 /// Create a tier-aware intelligent clip from a video file.

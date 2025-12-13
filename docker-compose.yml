@@ -44,6 +44,8 @@ services:
       - RUST_LOG=${RUST_LOG:-info,tower_http=info}
       - RUST_BACKTRACE=${RUST_BACKTRACE:-1}
       - ENVIRONMENT=${ENVIRONMENT:-production}
+      # JSON logs for production log aggregation (set to "pretty" for colored output)
+      - LOG_FORMAT=${LOG_FORMAT:-json}
 
       # API Server
       - API_HOST=0.0.0.0
@@ -146,6 +148,8 @@ services:
       - RUST_LOG=${RUST_LOG:-info,tower_http=info}
       - RUST_BACKTRACE=${RUST_BACKTRACE:-1}
       - ENVIRONMENT=${ENVIRONMENT:-production}
+      # JSON logs for production log aggregation (set to "pretty" for colored output)
+      - LOG_FORMAT=${LOG_FORMAT:-json}
 
       # Worker config
       - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-4}
