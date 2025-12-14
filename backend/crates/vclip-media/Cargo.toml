@@ -9,6 +9,7 @@ description = "FFmpeg CLI wrapper for video processing"
 [features]
 default = ["opencv"]
 opencv = ["dep:opencv"]
+cuda = []  # Enables CUDA execution provider for GPU inference
 
 [dependencies]
 vclip-models = { workspace = true }

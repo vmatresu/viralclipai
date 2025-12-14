@@ -222,11 +222,10 @@ export function HistorySceneExplorer({
         </Card>
       ) : (
         <Accordion type="multiple" className="space-y-3">
-          {sortedScenes.map((scene, index) => (
+          {sortedScenes.map((scene) => (
             <HistorySceneItem
               key={scene.sceneId}
               scene={scene}
-              index={index}
               resolvePlaybackUrl={resolvePlaybackUrl}
               onDownload={handleDownload}
               onCopyShareLink={handleCopyShareLink}
@@ -242,7 +241,6 @@ export function HistorySceneExplorer({
 
 interface HistorySceneItemProps {
   scene: SceneGroup;
-  index: number;
   resolvePlaybackUrl: (clip: HistoryClip) => Promise<string>;
   onDownload: (clip: HistoryClip) => Promise<void>;
   onCopyShareLink: (clip: HistoryClip) => Promise<void>;
@@ -252,13 +250,14 @@ interface HistorySceneItemProps {
 
 function HistorySceneItem({
   scene,
-  index,
   resolvePlaybackUrl,
   onDownload,
   onCopyShareLink,
   onDeleteClip,
   onDeleteScene,
 }: HistorySceneItemProps) {
+  const sceneNumber = scene.sceneId;
+
   const canonicalizeStyle = useCallback((style?: string) => {
     const trimmed = style?.trim() ?? "";
     const normalized = normalizeStyleForSelection(trimmed);
@@ -355,7 +354,7 @@ function HistorySceneItem({
             <div className="flex w-full items-center gap-3 sm:gap-4">
               <div className="flex-1 space-y-2 text-left">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline">Scene {index + 1}</Badge>
+                  <Badge variant="outline">Scene {sceneNumber}</Badge>
                   <span className="text-sm text-muted-foreground">
                     {formatRange(scene)}
                   </span>
@@ -468,7 +467,7 @@ function HistorySceneItem({
                             <span className="font-medium text-foreground">
                               {getStyleLabel(style) ?? style}
                             </span>
-                            <span>• Scene {index + 1}</span>
+                            <span>• Scene {sceneNumber}</span>
                             <span>• {formatRange(scene)}</span>
                             {clip.size ? <span>• {clip.size}</span> : null}
                           </div>

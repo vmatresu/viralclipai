@@ -25,6 +25,7 @@ pub mod center_focus;
 pub mod intelligent;
 pub mod intelligent_split;
 pub mod intelligent_split_activity;
+pub mod intelligent_cinematic;
 
 /// Factory for creating style processors.
 /// Implements dependency injection for testing and flexibility.
@@ -73,6 +74,11 @@ impl StyleProcessorFactoryTrait for StyleProcessorFactory {
             // Intelligent activity-based split
             Style::IntelligentSplitActivity => Ok(Box::new(
                 intelligent_split_activity::IntelligentSplitActivityProcessor::new(style.detection_tier()),
+            )),
+
+            // Intelligent cinematic - AutoAI-inspired smooth camera motion
+            Style::IntelligentCinematic => Ok(Box::new(
+                intelligent_cinematic::IntelligentCinematicProcessor::new(),
             )),
         }
     }

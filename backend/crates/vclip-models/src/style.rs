@@ -42,6 +42,8 @@ pub enum Style {
     IntelligentSplitMotion,
     /// Intelligent split - dynamic activity-based split (2+ speakers = split)
     IntelligentSplitActivity,
+    /// Intelligent cinematic - AutoAI-inspired smooth camera with polynomial trajectory
+    IntelligentCinematic,
 }
 
 impl Style {
@@ -60,6 +62,7 @@ impl Style {
         Style::IntelligentMotion,
         Style::IntelligentSplitMotion,
         Style::IntelligentSplitActivity,
+        Style::IntelligentCinematic,
     ];
 
     /// Styles included when user requests "all".
@@ -116,6 +119,7 @@ impl Style {
             Style::IntelligentMotion => "intelligent_motion",
             Style::IntelligentSplitMotion => "intelligent_split_motion",
             Style::IntelligentSplitActivity => "intelligent_split_activity",
+            Style::IntelligentCinematic => "intelligent_cinematic",
         }
     }
 
@@ -130,6 +134,7 @@ impl Style {
                 | Style::IntelligentMotion
                 | Style::IntelligentSplitMotion
                 | Style::IntelligentSplitActivity
+                | Style::IntelligentCinematic
         )
     }
 
@@ -145,6 +150,7 @@ impl Style {
                 | Style::IntelligentSpeaker
                 | Style::IntelligentSplitSpeaker
                 | Style::IntelligentSplitActivity
+                | Style::IntelligentCinematic
         )
     }
 
@@ -152,7 +158,7 @@ impl Style {
     ///
     /// Returns true for all intelligent styles that perform expensive per-frame analysis.
     /// This includes both face detection styles and motion-aware styles.
-    /// 
+    ///
     /// Note: This only indicates the style CAN USE cache if available.
     /// Use `should_generate_cached_analysis()` to check if this style should TRIGGER cache generation.
     pub fn can_use_cached_analysis(&self) -> bool {
@@ -165,12 +171,13 @@ impl Style {
                 | Style::IntelligentSplitActivity
                 | Style::IntelligentMotion
                 | Style::IntelligentSplitMotion
+                | Style::IntelligentCinematic
         )
     }
 
     /// Whether this style should trigger neural analysis cache generation.
     ///
-    /// Only premium tiers (SpeakerAware, MotionAware) should generate and cache analysis.
+    /// Only premium tiers (SpeakerAware, MotionAware, Cinematic) should generate and cache analysis.
     /// These are gated to Pro/Studio plans. Lower tiers (Basic) can consume cached
     /// analysis if it exists, but should never trigger expensive cache generation.
     pub fn should_generate_cached_analysis(&self) -> bool {
@@ -181,6 +188,7 @@ impl Style {
                 | Style::IntelligentMotion
                 | Style::IntelligentSplitMotion
                 | Style::IntelligentSplitActivity
+                | Style::IntelligentCinematic
         )
     }
 
@@ -202,6 +210,8 @@ impl Style {
             // The tier is typically injected or determined at runtime, but here we can default to SpeakerAware
             // as it relies on activity signals.
             Style::IntelligentSplitActivity => DetectionTier::SpeakerAware,
+            // Cinematic tier uses polynomial trajectory optimization + adaptive zoom
+            Style::IntelligentCinematic => DetectionTier::Cinematic,
         }
     }
 
@@ -255,6 +265,7 @@ impl FromStr for Style {
             "intelligent_motion" => Ok(Style::IntelligentMotion),
             "intelligent_split_motion" => Ok(Style::IntelligentSplitMotion),
             "intelligent_split_activity" => Ok(Style::IntelligentSplitActivity),
+            "intelligent_cinematic" | "cinematic" => Ok(Style::IntelligentCinematic),
             _ => Err(StyleParseError(s.to_string())),
         }
     }
@@ -583,6 +594,15 @@ mod tests {
             Style::IntelligentSplitSpeaker
         );
         assert_eq!("center_focus".parse::<Style>().unwrap(), Style::CenterFocus);
+        // Cinematic style supports both full name and shorthand
+        assert_eq!(
+            "intelligent_cinematic".parse::<Style>().unwrap(),
+            Style::IntelligentCinematic
+        );
+        assert_eq!(
+            "cinematic".parse::<Style>().unwrap(),
+            Style::IntelligentCinematic
+        );
     }
 
     #[test]
@@ -593,6 +613,7 @@ mod tests {
         assert!(Style::IntelligentMotion.should_generate_cached_analysis());
         assert!(Style::IntelligentSplitMotion.should_generate_cached_analysis());
         assert!(Style::IntelligentSplitActivity.should_generate_cached_analysis());
+        assert!(Style::IntelligentCinematic.should_generate_cached_analysis());
 
         // Lower tiers should NOT generate cache (but can consume if available)
         assert!(!Style::Intelligent.should_generate_cached_analysis());
@@ -603,9 +624,24 @@ mod tests {
         assert!(Style::IntelligentSplit.can_use_cached_analysis());
         assert!(Style::IntelligentSpeaker.can_use_cached_analysis());
         assert!(Style::IntelligentMotion.can_use_cached_analysis());
+        assert!(Style::IntelligentCinematic.can_use_cached_analysis());
 
         // Non-intelligent styles cannot use cache
         assert!(!Style::Split.can_use_cached_analysis());
         assert!(!Style::Original.can_use_cached_analysis());
+    }
+
+    #[test]
+    fn test_cinematic_tier_mapping() {
+        use crate::detection_tier::DetectionTier;
+
+        assert_eq!(
+            Style::IntelligentCinematic.detection_tier(),
+            DetectionTier::Cinematic
+        );
+        assert!(Style::IntelligentCinematic.requires_intelligent_crop());
+        assert!(Style::IntelligentCinematic.requires_face_detection());
+        assert!(!Style::IntelligentCinematic.is_split_view());
+        assert!(!Style::IntelligentCinematic.is_fast());
     }
 }

@@ -9,7 +9,8 @@ use tower_http::limit::RequestBodyLimitLayer;
 use crate::handlers::{health, ready};
 use crate::handlers::admin::{
     enqueue_synthetic_job, get_queue_status, get_system_info,
-    get_user, list_users, recalculate_user_storage, update_user_plan, update_user_usage,
+    get_user, list_users, recalculate_user_storage, reset_video_status,
+    update_user_plan, update_user_usage,
 };
 use crate::handlers::analysis::{
     delete_draft, estimate_processing, get_analysis_status, get_draft,
@@ -101,7 +102,9 @@ pub fn create_router(state: AppState, metrics_handle: Option<PrometheusHandle>) 
         .route("/admin/users/:uid/plan", patch(update_user_plan))
         .route("/admin/users/:uid/usage", patch(update_user_usage))
         // Storage management
-        .route("/admin/users/:uid/storage/recalculate", post(recalculate_user_storage));
+        .route("/admin/users/:uid/storage/recalculate", post(recalculate_user_storage))
+        // Video recovery (for stuck jobs)
+        .route("/admin/users/:uid/videos/:video_id/reset", post(reset_video_status));
 
     // Create rate limiter for API routes
     let rate_limiter = std::sync::Arc::new(RateLimiterCache::new(state.config.rate_limit_rps));

@@ -9,8 +9,10 @@
 //! - Plan configuration and storage limits
 //! - Share link configuration
 //! - Analysis workflow (drafts and scenes)
+//! - Cinematic analysis status tracking
 
 pub mod analysis;
+pub mod cinematic_analysis;
 pub mod clip;
 pub mod detection_tier;
 pub mod encoding;
@@ -47,6 +49,9 @@ pub use analysis::{
     ProcessingEstimate, SceneSelection, StartAnalysisResponse,
 };
 pub use neural_analysis::{
-    BoundingBox, CropperDetection, FaceDetection, FrameAnalysis, SceneNeuralAnalysis,
-    NEURAL_ANALYSIS_VERSION,
+    BoundingBox, CinematicSignalsCache, CropperDetection, FaceDetection, FrameAnalysis,
+    SceneNeuralAnalysis, ShotBoundaryCache, CINEMATIC_SIGNALS_VERSION, NEURAL_ANALYSIS_VERSION,
+};
+pub use cinematic_analysis::{
+    CinematicAnalysisStatus, cinematic_analysis_key, CINEMATIC_ANALYSIS_TIMEOUT_SECS,
 };

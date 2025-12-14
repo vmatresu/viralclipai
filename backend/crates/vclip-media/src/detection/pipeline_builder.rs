@@ -60,6 +60,12 @@ impl PipelineBuilder {
                 info!("Building MotionAware tier pipeline (motion heuristics)");
                 Ok(Box::new(MotionAwarePipeline::new()))
             }
+            DetectionTier::Cinematic => {
+                // Cinematic uses SpeakerAware pipeline as base (YuNet + FaceMesh)
+                // The cinematic-specific processing happens in the CinematicProcessor
+                info!("Building Cinematic tier pipeline (SpeakerAware base + trajectory optimization)");
+                Ok(Box::new(SpeakerAwarePipeline::new()))
+            }
         }
     }
 }

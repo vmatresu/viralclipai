@@ -5,6 +5,7 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Serialize;
 use thiserror::Error;
+use tracing::error;
 
 pub type ApiResult<T> = Result<T, ApiError>;
 
@@ -94,6 +95,23 @@ struct ErrorResponse {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = self.status_code();
+
+        // Log internal errors for debugging
+        match &self {
+            ApiError::Internal(msg) => {
+                error!(error = %msg, "Internal API error");
+            }
+            ApiError::Storage(e) => {
+                error!(error = %e, "Storage error");
+            }
+            ApiError::Firestore(e) => {
+                error!(error = %e, "Firestore error");
+            }
+            ApiError::Queue(e) => {
+                error!(error = %e, "Queue error");
+            }
+            _ => {}
+        }
 
         // Don't expose internal error details in production
         let detail = match &self {

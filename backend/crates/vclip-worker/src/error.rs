@@ -27,6 +27,12 @@ pub enum WorkerError {
     #[error("Quota exceeded: {0}")]
     QuotaExceeded(String),
 
+    #[error("Queue operation failed: {0}")]
+    QueueFailed(String),
+
+    #[error("Reschedule: {0}")]
+    Reschedule(String),
+
     #[error("Storage error: {0}")]
     Storage(#[from] vclip_storage::StorageError),
 
@@ -64,6 +70,18 @@ impl WorkerError {
         Self::QuotaExceeded(msg.into())
     }
 
+    pub fn queue_failed(msg: impl Into<String>) -> Self {
+        Self::QueueFailed(msg.into())
+    }
+
+    /// Create a reschedule error - indicates the job should be retried later.
+    ///
+    /// Used for the analysis-first pattern where processing must wait
+    /// for analysis to complete.
+    pub fn reschedule(msg: impl Into<String>) -> Self {
+        Self::Reschedule(msg.into())
+    }
+
     /// Check if error is retryable.
     pub fn is_retryable(&self) -> bool {
         matches!(
@@ -74,6 +92,11 @@ impl WorkerError {
                 | WorkerError::Firestore(_)
                 | WorkerError::AiFailed(_)
         )
+    }
+
+    /// Check if error is a reschedule request (analysis pending).
+    pub fn is_reschedule(&self) -> bool {
+        matches!(self, WorkerError::Reschedule(_))
     }
 
     /// Check if error is a quota exceeded error (not retryable, user action needed).

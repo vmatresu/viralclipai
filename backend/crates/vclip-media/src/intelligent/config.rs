@@ -271,6 +271,17 @@ impl IntelligentCropConfig {
                 subject_padding: 0.20,     // Moderate padding
                 ..Self::premium_speaker()
             },
+            // Cinematic tier uses premium speaker as base, but with settings
+            // optimized for polynomial trajectory smoothing and conservative zoom
+            // to prevent faces from being cut off
+            DetectionTier::Cinematic => Self {
+                max_zoom_factor: 1.8,      // Reduced from 2.5 to prevent over-zoom
+                subject_padding: 0.25,     // Increased from 0.18 for better face margins
+                smoothing_window: 0.5,     // Longer smoothing for polynomial fitting
+                max_pan_speed: 300.0,      // Slower pan for cinematic feel
+                headroom_ratio: 0.18,      // More headroom than default
+                ..Self::premium_speaker()
+            },
             DetectionTier::Basic | DetectionTier::None => Self::default(),
         }
     }

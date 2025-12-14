@@ -204,7 +204,7 @@ impl TierAwareCameraSmoother {
                     DetectionTier::Basic => {
                         self.compute_focus_basic(frame_dets, width, height)
                     }
-                    DetectionTier::SpeakerAware => {
+                    DetectionTier::SpeakerAware | DetectionTier::Cinematic => {
                         self.compute_focus_speaker_aware(frame_dets, current_time, width, height)
                     }
                     DetectionTier::MotionAware => {

@@ -66,6 +66,12 @@ pub enum MediaError {
 
     #[error("Face detection failed: {0}")]
     DetectionFailed(String),
+
+    #[error("Model not found: {0}")]
+    ModelNotFound(String),
+
+    #[error("Internal error: {0}")]
+    Internal(String),
 }
 
 impl MediaError {
@@ -92,5 +98,15 @@ impl MediaError {
         Self::DownloadFailed {
             message: message.into(),
         }
+    }
+
+    /// Create a model not found error.
+    pub fn model_not_found(path: impl Into<String>) -> Self {
+        Self::ModelNotFound(path.into())
+    }
+
+    /// Create an internal error.
+    pub fn internal(message: impl Into<String>) -> Self {
+        Self::Internal(message.into())
     }
 }

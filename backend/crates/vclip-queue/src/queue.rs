@@ -122,6 +122,124 @@ impl JobQueue {
         self.enqueue(QueueJob::RenderSceneStyle(job)).await
     }
 
+    /// Enqueue a render job with a visibility delay.
+    ///
+    /// The job is stored in a Redis sorted set and will be moved to the main
+    /// queue after the delay. This is used for the analysis-first pattern
+    /// where render jobs must wait for analysis to complete.
+    ///
+    /// # Arguments
+    /// * `job` - The render job to enqueue
+    /// * `delay` - How long to wait before the job becomes visible
+    ///
+    /// # Returns
+    /// The job ID (not a message ID, since it's not in the stream yet)
+    pub async fn enqueue_render_with_delay(
+        &self,
+        job: RenderSceneStyleJob,
+        delay: Duration,
+    ) -> QueueResult<String> {
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
+
+        let job_id = job.job_id.to_string();
+        let queue_job = QueueJob::RenderSceneStyle(job);
+        let payload = serde_json::to_string(&queue_job)?;
+
+        // Calculate when the job should become visible
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let visible_at = now + delay.as_secs();
+
+        // Store in sorted set with score = visible_at timestamp
+        let scheduled_key = "vclip:scheduled_jobs";
+        redis::cmd("ZADD")
+            .arg(scheduled_key)
+            .arg(visible_at)
+            .arg(&payload)
+            .query_async::<()>(&mut conn)
+            .await?;
+
+        info!(
+            job_id = %job_id,
+            delay_secs = delay.as_secs(),
+            visible_at = visible_at,
+            "Scheduled render job with delay"
+        );
+
+        Ok(job_id)
+    }
+
+    /// Process scheduled jobs that are now due.
+    ///
+    /// This should be called periodically by the executor to move jobs
+    /// from the scheduled set to the main queue.
+    ///
+    /// # Returns
+    /// Number of jobs moved to the main queue.
+    pub async fn process_scheduled_jobs(&self) -> QueueResult<usize> {
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        let scheduled_key = "vclip:scheduled_jobs";
+
+        // Get all jobs with score <= now (i.e., due jobs)
+        let due_jobs: Vec<String> = redis::cmd("ZRANGEBYSCORE")
+            .arg(scheduled_key)
+            .arg(0)
+            .arg(now)
+            .query_async(&mut conn)
+            .await?;
+
+        if due_jobs.is_empty() {
+            return Ok(0);
+        }
+
+        let mut moved = 0;
+
+        for payload in &due_jobs {
+            // Try to parse and enqueue the job
+            match serde_json::from_str::<QueueJob>(payload) {
+                Ok(job) => {
+                    // Enqueue to main stream (ignores duplicates)
+                    match self.enqueue(job).await {
+                        Ok(_) => moved += 1,
+                        Err(QueueError::EnqueueFailed { .. }) => {
+                            // Duplicate - still remove from scheduled set
+                            debug!("Scheduled job was duplicate, removing from schedule");
+                        }
+                        Err(e) => {
+                            warn!("Failed to enqueue scheduled job: {}", e);
+                            continue; // Don't remove from scheduled set
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to parse scheduled job: {}", e);
+                }
+            }
+
+            // Remove from scheduled set
+            redis::cmd("ZREM")
+                .arg(scheduled_key)
+                .arg(payload)
+                .query_async::<()>(&mut conn)
+                .await
+                .ok();
+        }
+
+        if moved > 0 {
+            info!(count = moved, "Moved scheduled jobs to main queue");
+        }
+
+        Ok(moved)
+    }
+
     /// Enqueue an analyze video job.
     pub async fn enqueue_analyze(&self, job: AnalyzeVideoJob) -> QueueResult<String> {
         self.enqueue(QueueJob::AnalyzeVideo(job)).await

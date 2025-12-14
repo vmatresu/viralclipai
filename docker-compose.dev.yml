@@ -152,6 +152,9 @@ services:
       # Gemini AI
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
 
+      # Object detection models path
+      - MODELS_PATH=/app/models
+
     volumes:
       # Source code mount
       - ./backend:/app:cached
@@ -162,6 +165,8 @@ services:
       - worker-temp:/tmp/videos
       # Firebase credentials
       - ./firebase-credentials.json:/app/firebase-credentials.json:ro
+      # Object detection models (read-only)
+      - ./backend/models:/app/models:ro
 
     networks:
       - vclip-dev

@@ -51,6 +51,7 @@ pub mod activity_split;
 #[cfg(feature = "opencv")]
 pub mod motion;
 pub mod camera_constraints;
+pub mod cinematic;
 pub mod config;
 pub mod continuous_renderer;
 pub mod crop_planner;

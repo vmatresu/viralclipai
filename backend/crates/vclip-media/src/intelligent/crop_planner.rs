@@ -76,8 +76,9 @@ impl CropPlanner {
         let face_bottom = keyframe.cy + face_half_h;
 
         // Required margins around face (proportional to crop size)
-        let margin_h = crop_height * 0.12; // 12% minimum vertical margin
-        let margin_w = crop_width * 0.08;  // 8% minimum horizontal margin
+        // Increased margins to prevent faces from being cut off
+        let margin_h = crop_height * 0.18; // 18% minimum vertical margin (up from 12%)
+        let margin_w = crop_width * 0.12;  // 12% minimum horizontal margin (up from 8%)
 
         // Face bounds with required margins
         let required_left = face_left - margin_w;

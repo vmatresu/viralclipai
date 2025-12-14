@@ -391,7 +391,7 @@ pub async fn run_fallback_detection(
     );
 
     match tier {
-        DetectionTier::SpeakerAware => {
+        DetectionTier::SpeakerAware | DetectionTier::Cinematic => {
             info!("[FALLBACK] Using SpeakerAware pipeline (YuNet + FaceMesh)");
             let pipeline = PipelineBuilder::for_tier(DetectionTier::SpeakerAware).build()?;
             let result = pipeline.analyze(video_path, start_time, end_time).await?;

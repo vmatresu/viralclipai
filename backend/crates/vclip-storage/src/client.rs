@@ -147,10 +147,16 @@ impl R2Client {
             .send()
             .await
             .map_err(|e| {
-                if e.to_string().contains("NoSuchKey") {
+                let err_str = e.to_string();
+                if err_str.contains("NoSuchKey") || err_str.contains("404") {
                     StorageError::not_found(key)
+                } else if err_str.contains("service error") {
+                    StorageError::DownloadFailed(format!(
+                        "R2 service error downloading key={}: {} (check network/auth)",
+                        key, err_str
+                    ))
                 } else {
-                    StorageError::DownloadFailed(e.to_string())
+                    StorageError::DownloadFailed(format!("key={}: {}", key, err_str))
                 }
             })?;
 
@@ -165,13 +171,16 @@ impl R2Client {
         Ok(bytes)
     }
 
-    /// Download object to a file.
+    /// Download object to a file using streaming (memory efficient for large files).
+    ///
+    /// This streams chunks directly to disk instead of buffering the entire file
+    /// in memory, which is critical for large video files (500MB+).
     pub async fn download_file(&self, key: &str, path: impl AsRef<Path>) -> StorageResult<()> {
-        let path = path.as_ref();
-        debug!("Downloading {} to {}", key, path.display());
+        use tokio::io::AsyncWriteExt;
 
-        let bytes = self.download_bytes(key).await?;
-        
+        let path = path.as_ref();
+        debug!("Downloading {} to {} (streaming)", key, path.display());
+
         // Create parent directory if it doesn't exist
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent)
@@ -179,11 +188,66 @@ impl R2Client {
                 .map_err(|e| StorageError::DownloadFailed(format!("Failed to create directory: {}", e)))?;
         }
 
-        tokio::fs::write(path, bytes)
+        // Get the object with streaming body
+        let response = self
+            .client
+            .get_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .send()
             .await
-            .map_err(|e| StorageError::DownloadFailed(format!("Failed to write file: {}", e)))?;
+            .map_err(|e| {
+                let err_str = e.to_string();
+                if err_str.contains("NoSuchKey") || err_str.contains("404") {
+                    StorageError::not_found(key)
+                } else if err_str.contains("service error") {
+                    StorageError::DownloadFailed(format!(
+                        "R2 service error downloading key={}: {} (check network/auth)",
+                        key, err_str
+                    ))
+                } else {
+                    StorageError::DownloadFailed(format!("key={}: {}", key, err_str))
+                }
+            })?;
 
-        info!("Downloaded {} to {}", key, path.display());
+        let content_length = response.content_length().unwrap_or(0);
+        info!(
+            "Streaming download {} ({} bytes) to {}",
+            key,
+            content_length,
+            path.display()
+        );
+
+        // Create file for writing
+        let mut file = tokio::fs::File::create(path)
+            .await
+            .map_err(|e| StorageError::DownloadFailed(format!("Failed to create file: {}", e)))?;
+
+        // Stream chunks directly to disk
+        let mut body = response.body;
+        let mut total_written: u64 = 0;
+
+        while let Some(chunk) = body
+            .try_next()
+            .await
+            .map_err(|e| StorageError::DownloadFailed(format!("Stream error: {}", e)))?
+        {
+            file.write_all(&chunk)
+                .await
+                .map_err(|e| StorageError::DownloadFailed(format!("Write error: {}", e)))?;
+            total_written += chunk.len() as u64;
+        }
+
+        file.flush()
+            .await
+            .map_err(|e| StorageError::DownloadFailed(format!("Flush error: {}", e)))?;
+
+        info!(
+            "Downloaded {} to {} ({} bytes streamed)",
+            key,
+            path.display(),
+            total_written
+        );
         Ok(())
     }
 
@@ -351,10 +415,28 @@ impl R2Client {
         {
             Ok(_) => Ok(true),
             Err(e) => {
-                if e.to_string().contains("NotFound") || e.to_string().contains("NoSuchKey") {
+                // Try to extract more details from the SDK error
+                let err_str = e.to_string();
+                let err_details = format!(
+                    "key={}, bucket={}, error={}",
+                    key, self.bucket, err_str
+                );
+
+                // Check for not-found variants
+                if err_str.contains("NotFound")
+                    || err_str.contains("NoSuchKey")
+                    || err_str.contains("404")
+                {
                     Ok(false)
+                } else if err_str.contains("service error") {
+                    // Generic "service error" - try to get more context
+                    // This often means network issues, auth problems, or rate limiting
+                    Err(StorageError::AwsSdk(format!(
+                        "R2 service error (check network/auth): {}",
+                        err_details
+                    )))
                 } else {
-                    Err(StorageError::AwsSdk(e.to_string()))
+                    Err(StorageError::AwsSdk(err_details))
                 }
             }
         }

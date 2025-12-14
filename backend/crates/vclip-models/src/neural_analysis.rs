@@ -42,6 +42,11 @@ pub struct SceneNeuralAnalysis {
 
     /// When this analysis was created
     pub created_at: DateTime<Utc>,
+
+    /// Optional cinematic signals (shot boundaries) for caching.
+    /// Only populated when Cinematic tier processing has been run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cinematic_signals: Option<CinematicSignalsCache>,
 }
 
 fn default_detection_tier() -> crate::detection_tier::DetectionTier {
@@ -60,6 +65,7 @@ impl SceneNeuralAnalysis {
             frames: Vec::new(),
             analysis_version: NEURAL_ANALYSIS_VERSION,
             created_at: Utc::now(),
+            cinematic_signals: None,
         }
     }
 
@@ -148,6 +154,69 @@ pub struct CropperDetection {
     pub track_id: u32,
     /// Optional mouth openness score
     pub mouth_openness: Option<f64>,
+}
+
+/// Cacheable cinematic signals (shot boundaries).
+///
+/// Stored as part of `SceneNeuralAnalysis` to avoid re-running expensive
+/// histogram extraction for shot detection.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
+pub struct CinematicSignalsCache {
+    /// Detected shot boundaries with timing information
+    pub shots: Vec<ShotBoundaryCache>,
+    /// Version for cache invalidation
+    pub version: u32,
+    /// Shot detection threshold used
+    pub shot_threshold: f64,
+    /// Minimum shot duration used
+    pub min_shot_duration: f64,
+}
+
+/// Version of the cinematic signals format.
+pub const CINEMATIC_SIGNALS_VERSION: u32 = 1;
+
+impl CinematicSignalsCache {
+    /// Create a new empty cache.
+    pub fn new() -> Self {
+        Self {
+            shots: Vec::new(),
+            version: CINEMATIC_SIGNALS_VERSION,
+            shot_threshold: 0.5,
+            min_shot_duration: 0.5,
+        }
+    }
+
+    /// Create with shot boundaries.
+    pub fn with_shots(shots: Vec<ShotBoundaryCache>, threshold: f64, min_duration: f64) -> Self {
+        Self {
+            shots,
+            version: CINEMATIC_SIGNALS_VERSION,
+            shot_threshold: threshold,
+            min_shot_duration: min_duration,
+        }
+    }
+
+    /// Check if cache is valid for given config.
+    pub fn is_valid(&self, threshold: f64, min_duration: f64) -> bool {
+        self.version == CINEMATIC_SIGNALS_VERSION
+            && (self.shot_threshold - threshold).abs() < 0.01
+            && (self.min_shot_duration - min_duration).abs() < 0.01
+    }
+}
+
+impl Default for CinematicSignalsCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// A cached shot boundary.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
+pub struct ShotBoundaryCache {
+    /// Start time in seconds
+    pub start_time: f64,
+    /// End time in seconds
+    pub end_time: f64,
 }
 
 /// Analysis results for a single frame.

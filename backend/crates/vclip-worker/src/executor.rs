@@ -128,6 +128,30 @@ impl JobExecutor {
             }
         });
 
+        // Spawn a task to process scheduled (delayed) jobs periodically
+        let queue_scheduled = Arc::clone(&self.queue);
+        let mut shutdown_rx_scheduled = self.shutdown.subscribe();
+
+        let scheduled_task = tokio::spawn(async move {
+            // Check for scheduled jobs every 10 seconds
+            let mut interval = tokio::time::interval(Duration::from_secs(10));
+            loop {
+                tokio::select! {
+                    _ = shutdown_rx_scheduled.changed() => {
+                        if *shutdown_rx_scheduled.borrow() {
+                            break;
+                        }
+                    }
+                    _ = interval.tick() => {
+                        // Move due jobs from scheduled set to main queue
+                        if let Err(e) = queue_scheduled.process_scheduled_jobs().await {
+                            debug!("Failed to process scheduled jobs: {}", e);
+                        }
+                    }
+                }
+            }
+        });
+
         // Main job consumption loop
         loop {
             tokio::select! {
@@ -149,6 +173,7 @@ impl JobExecutor {
 
         // Wait for claim task to finish
         claim_task.abort();
+        scheduled_task.abort();
 
         // Wait for in-flight jobs to complete
         info!("Waiting for in-flight jobs to complete...");
@@ -279,6 +304,39 @@ impl JobExecutor {
                 // Clear dedup key so the same job can be reprocessed later
                 if let Err(e) = queue.clear_dedup(&job).await {
                     warn!("Failed to clear dedup key for job {}: {}", job_id, e);
+                }
+            }
+            Err(ref e) if e.is_reschedule() => {
+                // Special handling for reschedule errors (analysis-first pattern)
+                // ACK the original message, clear dedup, and re-enqueue with delay
+                info!(
+                    job_id = %job_id,
+                    "Rescheduling job (cinematic analysis pending)"
+                );
+
+                // ACK the original to prevent immediate redelivery
+                if let Err(e) = queue.ack(&message_id).await {
+                    warn!("Failed to ack rescheduled job {}: {}", job_id, e);
+                }
+
+                // Clear dedup key to allow re-enqueue
+                if let Err(e) = queue.clear_dedup(&job).await {
+                    warn!("Failed to clear dedup key for rescheduled job {}: {}", job_id, e);
+                }
+
+                // Re-enqueue with delay if this is a render job
+                if let QueueJob::RenderSceneStyle(render_job) = job {
+                    let delay = Duration::from_secs(30);
+                    if let Err(e) = queue
+                        .enqueue_render_with_delay(render_job, delay)
+                        .await
+                    {
+                        warn!(
+                            job_id = %job_id,
+                            error = %e,
+                            "Failed to reschedule render job"
+                        );
+                    }
                 }
             }
             Err(e) => {

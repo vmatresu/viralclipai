@@ -30,7 +30,7 @@ pub async fn process_neural_analysis_job(
     ));
 
     // Use the neural cache service's get_or_compute to handle locking
-    let (analysis, stored_bytes) = ctx
+    let result = ctx
         .neural_cache
         .get_or_compute(
             &job.user_id,
@@ -39,7 +39,51 @@ pub async fn process_neural_analysis_job(
             job.detection_tier,
             || compute_neural_analysis(ctx, job),
         )
-        .await?;
+        .await;
+
+    // Handle result with cinematic analysis status updates
+    let (analysis, stored_bytes) = match result {
+        Ok((analysis, stored_bytes)) => {
+            // Mark cinematic analysis as complete for Cinematic tier
+            if job.detection_tier == DetectionTier::Cinematic {
+                if let Err(e) = crate::cinematic_analysis::mark_analysis_complete(
+                    ctx,
+                    job.video_id.as_str(),
+                    job.scene_id,
+                )
+                .await
+                {
+                    warn!(
+                        video_id = %job.video_id,
+                        scene_id = job.scene_id,
+                        error = %e,
+                        "Failed to mark cinematic analysis as complete (non-critical)"
+                    );
+                } else {
+                    info!(
+                        video_id = %job.video_id,
+                        scene_id = job.scene_id,
+                        "Marked cinematic analysis as complete"
+                    );
+                }
+            }
+            (analysis, stored_bytes)
+        }
+        Err(e) => {
+            // Mark cinematic analysis as failed for Cinematic tier
+            if job.detection_tier == DetectionTier::Cinematic {
+                crate::cinematic_analysis::mark_analysis_failed(
+                    ctx,
+                    job.video_id.as_str(),
+                    job.scene_id,
+                    &format!("{}", e),
+                )
+                .await
+                .ok();
+            }
+            return Err(e);
+        }
+    };
 
     // Phase 5: Track neural cache storage using ACTUAL compressed size (non-billable)
     // Only update accounting if we actually stored new data (not a cache hit)

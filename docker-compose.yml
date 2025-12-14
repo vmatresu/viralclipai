@@ -175,6 +175,9 @@ services:
       # Gemini AI
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
 
+      # Object detection models path
+      - MODELS_PATH=/app/models
+
     networks:
       - vclip-network
 
@@ -182,6 +185,8 @@ services:
       # Temp storage for video processing (use tmpfs in prod for speed)
       - worker-temp:/tmp/videos
       - ./firebase-credentials.json:/app/firebase-credentials.json:ro
+      # Object detection models (read-only)
+      - ./backend/models:/app/models:ro
 
     depends_on:
       redis:

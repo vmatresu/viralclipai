@@ -191,39 +191,37 @@ async fn download_source_video(
     ctx.progress.progress(&job.job_id, 15).await.ok();
 
     // First, check Firestore for cached source video status
+    // IMPORTANT: Always try R2 if we have a key, even if Firestore says "expired"
+    // because R2 objects don't actually expire unless lifecycle rules are configured.
+    // The expires_at in Firestore is just metadata tracking, not actual object TTL.
     let video_repo = vclip_firestore::VideoRepository::new(ctx.firestore.clone(), &job.user_id);
-    let use_cached_source = match video_repo.get(&job.video_id).await {
+    let (use_cached_source, is_expired) = match video_repo.get(&job.video_id).await {
         Ok(Some(video_meta)) => {
-            // Check if source video is ready and not expired
-            if let (Some(status), Some(ref r2_key), Some(expires_at)) = (
+            // Try R2 download even if "expired" in Firestore - object may still exist
+            if let (Some(status), Some(ref r2_key)) = (
                 video_meta.source_video_status,
                 &video_meta.source_video_r2_key,
-                video_meta.source_video_expires_at,
             ) {
-                if status == vclip_models::SourceVideoStatus::Ready
-                    && expires_at > chrono::Utc::now()
-                {
+                if status == vclip_models::SourceVideoStatus::Ready {
+                    let expired = video_meta.source_video_expires_at
+                        .map(|exp| exp <= chrono::Utc::now())
+                        .unwrap_or(false);
                     info!(
-                        "Using cached source video from R2: {} (expires: {})",
-                        r2_key, expires_at
+                        "Using cached source video from R2: {} (expired_in_metadata: {})",
+                        r2_key, expired
                     );
-                    Some(r2_key.clone())
-                } else if status == vclip_models::SourceVideoStatus::Ready {
-                    // Expired - mark as expired and fall back
-                    info!("Cached source video expired at {}, falling back to origin", expires_at);
-                    video_repo.set_source_video_expired(&job.video_id).await.ok();
-                    None
+                    (Some(r2_key.clone()), expired)
                 } else {
-                    None
+                    (None, false)
                 }
             } else {
-                None
+                (None, false)
             }
         }
-        _ => None,
+        _ => (None, false),
     };
 
-    // Try cached R2 source if available
+    // Try cached R2 source if available (even if metadata says expired)
     if let Some(r2_key) = use_cached_source {
         match ctx.storage.download_file(&r2_key, &video_file).await {
             Ok(_) => {
@@ -231,7 +229,11 @@ async fn download_source_video(
                 return Ok(video_file);
             }
             Err(e) => {
-                info!("Failed to download from cached R2 key {}: {}, falling back to origin", r2_key, e);
+                info!("Failed to download from R2 key {}: {}, trying fallbacks", r2_key, e);
+                // Only mark as expired if R2 download actually fails AND metadata said expired
+                if is_expired {
+                    video_repo.set_source_video_expired(&job.video_id).await.ok();
+                }
             }
         }
     }
@@ -525,19 +527,38 @@ fn format_timestamp(seconds: f64) -> String {
     format!("{:02}:{:02}:{:06.3}", hours, minutes, secs)
 }
 
-/// Check if all raw segments for the given scene IDs are cached in R2.
+/// Check if all raw segments for the given scene IDs are cached locally or in R2.
 ///
-/// Returns true only if ALL scenes have cached raw segments.
+/// Returns true only if ALL scenes have cached raw segments (either local or R2).
+/// Checks LOCAL FILES FIRST before checking R2 to avoid unnecessary network calls.
 async fn check_all_raw_segments_cached(
     ctx: &EnhancedProcessingContext,
     job: &ReprocessScenesJob,
     scene_ids: &[u32],
 ) -> bool {
     use crate::raw_segment_cache::raw_segment_r2_key;
-    
+
+    let work_dir = std::path::PathBuf::from(&ctx.config.work_dir).join(job.video_id.as_str());
+
     for scene_id in scene_ids {
+        // Check local file first (fast path)
+        let local_path = work_dir.join(format!("raw_{}.mp4", scene_id));
+        if local_path.exists() {
+            tracing::debug!(
+                scene_id = scene_id,
+                path = ?local_path,
+                "Raw segment exists locally"
+            );
+            continue;
+        }
+
+        // Check R2 if not local
         let r2_key = raw_segment_r2_key(&job.user_id, job.video_id.as_str(), *scene_id);
         if !ctx.raw_cache.check_raw_exists(&r2_key).await {
+            tracing::info!(
+                scene_id = scene_id,
+                "Raw segment not cached (not local, not in R2)"
+            );
             return false;
         }
     }

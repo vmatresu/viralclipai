@@ -39,6 +39,11 @@ pub enum DetectionTier {
     /// Visual motion detection (heuristic, no NN).
     /// Uses frame differencing to detect active regions.
     MotionAware,
+
+    /// Cinematic tier: AutoAI-inspired smooth camera motion.
+    /// Uses YuNet + polynomial trajectory optimization + adaptive zoom.
+    /// Best quality for professional, jitter-free output.
+    Cinematic,
 }
 
 impl DetectionTier {
@@ -48,6 +53,7 @@ impl DetectionTier {
         DetectionTier::Basic,
         DetectionTier::SpeakerAware,
         DetectionTier::MotionAware,
+        DetectionTier::Cinematic,
     ];
 
     /// Returns the tier name as a string.
@@ -57,6 +63,7 @@ impl DetectionTier {
             DetectionTier::Basic => "basic",
             DetectionTier::SpeakerAware => "speaker_aware",
             DetectionTier::MotionAware => "motion_aware",
+            DetectionTier::Cinematic => "cinematic",
         }
     }
 
@@ -67,6 +74,7 @@ impl DetectionTier {
             DetectionTier::Basic => "YuNet face detection",
             DetectionTier::SpeakerAware => "YuNet + face mesh mouth activity (visual-only)",
             DetectionTier::MotionAware => "Visual motion heuristics (no NN)",
+            DetectionTier::Cinematic => "AutoAI-inspired cinematic camera (polynomial smoothing + adaptive zoom)",
         }
     }
 
@@ -77,12 +85,16 @@ impl DetectionTier {
             DetectionTier::Basic => 2,
             DetectionTier::MotionAware => 3,
             DetectionTier::SpeakerAware => 4,
+            DetectionTier::Cinematic => 5,
         }
     }
 
     /// Returns true if this tier requires YuNet face detection.
     pub fn requires_yunet(&self) -> bool {
-        matches!(self, DetectionTier::Basic | DetectionTier::SpeakerAware)
+        matches!(
+            self,
+            DetectionTier::Basic | DetectionTier::SpeakerAware | DetectionTier::Cinematic
+        )
     }
 
     /// Returns true if this tier uses stereo audio analysis.
@@ -96,13 +108,18 @@ impl DetectionTier {
     pub fn uses_visual_activity(&self) -> bool {
         matches!(
             self,
-            DetectionTier::MotionAware | DetectionTier::SpeakerAware
+            DetectionTier::MotionAware | DetectionTier::SpeakerAware | DetectionTier::Cinematic
         )
     }
 
     /// Returns true if this tier uses face activity analysis (temporal tracking).
     pub fn uses_face_activity(&self) -> bool {
-        matches!(self, DetectionTier::SpeakerAware)
+        matches!(self, DetectionTier::SpeakerAware | DetectionTier::Cinematic)
+    }
+
+    /// Returns true if this tier uses polynomial trajectory optimization.
+    pub fn uses_trajectory_optimization(&self) -> bool {
+        matches!(self, DetectionTier::Cinematic)
     }
 }
 
@@ -121,6 +138,7 @@ impl FromStr for DetectionTier {
             "basic" => Ok(DetectionTier::Basic),
             "speaker_aware" | "speaker" => Ok(DetectionTier::SpeakerAware),
             "motion_aware" | "motion" => Ok(DetectionTier::MotionAware),
+            "cinematic" => Ok(DetectionTier::Cinematic),
             _ => Err(DetectionTierParseError(s.to_string())),
         }
     }
@@ -156,6 +174,10 @@ mod tests {
             "motion".parse::<DetectionTier>().unwrap(),
             DetectionTier::MotionAware
         );
+        assert_eq!(
+            "cinematic".parse::<DetectionTier>().unwrap(),
+            DetectionTier::Cinematic
+        );
         assert!("invalid".parse::<DetectionTier>().is_err());
     }
 
@@ -164,6 +186,7 @@ mod tests {
         assert_eq!(DetectionTier::None.to_string(), "none");
         assert_eq!(DetectionTier::SpeakerAware.to_string(), "speaker_aware");
         assert_eq!(DetectionTier::MotionAware.to_string(), "motion_aware");
+        assert_eq!(DetectionTier::Cinematic.to_string(), "cinematic");
     }
 
     #[test]
@@ -171,21 +194,29 @@ mod tests {
         assert!(!DetectionTier::None.requires_yunet());
         assert!(DetectionTier::Basic.requires_yunet());
         assert!(!DetectionTier::MotionAware.requires_yunet());
+        assert!(DetectionTier::Cinematic.requires_yunet());
 
         // Audio is disabled for all tiers
         assert!(!DetectionTier::None.uses_audio());
         assert!(!DetectionTier::Basic.uses_audio());
         assert!(!DetectionTier::SpeakerAware.uses_audio());
         assert!(!DetectionTier::MotionAware.uses_audio());
+        assert!(!DetectionTier::Cinematic.uses_audio());
 
         // Visual activity
         assert!(!DetectionTier::Basic.uses_visual_activity());
         assert!(DetectionTier::MotionAware.uses_visual_activity());
         assert!(DetectionTier::SpeakerAware.uses_visual_activity());
+        assert!(DetectionTier::Cinematic.uses_visual_activity());
 
         // Face activity (temporal tracking)
         assert!(DetectionTier::SpeakerAware.uses_face_activity());
         assert!(!DetectionTier::MotionAware.uses_face_activity());
+        assert!(DetectionTier::Cinematic.uses_face_activity());
+
+        // Trajectory optimization
+        assert!(!DetectionTier::SpeakerAware.uses_trajectory_optimization());
+        assert!(DetectionTier::Cinematic.uses_trajectory_optimization());
     }
 
     #[test]
@@ -193,5 +224,6 @@ mod tests {
         assert!(DetectionTier::None.speed_rank() < DetectionTier::Basic.speed_rank());
         assert!(DetectionTier::Basic.speed_rank() < DetectionTier::MotionAware.speed_rank());
         assert!(DetectionTier::MotionAware.speed_rank() < DetectionTier::SpeakerAware.speed_rank());
+        assert!(DetectionTier::SpeakerAware.speed_rank() < DetectionTier::Cinematic.speed_rank());
     }
 }

@@ -11,6 +11,7 @@ use vclip_media::download_video;
 use vclip_models::ClipTask;
 use vclip_queue::RenderSceneStyleJob;
 
+use crate::cinematic_analysis;
 use crate::clip_pipeline;
 use crate::error::{WorkerError, WorkerResult};
 use crate::logging::JobLogger;
@@ -168,6 +169,28 @@ async fn process_render_clip_inner(
     work_dir: &Path,
     clips_dir: &Path,
 ) -> WorkerResult<()> {
+    // Cinematic tier: analysis-first pattern
+    // The Cinematic style requires analysis to be complete before processing
+    // to ensure the highest quality smooth camera motion.
+    if cinematic_analysis::requires_analysis_first(&job.style) {
+        let can_proceed = cinematic_analysis::check_or_queue_analysis(
+            ctx,
+            &job.user_id,
+            job.video_id.as_str(),
+            job.scene_id,
+        )
+        .await?;
+        
+        if !can_proceed {
+            // Analysis is in progress or was just queued.
+            // The job should be rescheduled by the executor to check again later.
+            // For now, we return an error that the executor can interpret as "reschedule".
+            return Err(WorkerError::reschedule(
+                "Cinematic analysis in progress, reschedule job"
+            ));
+        }
+    }
+
     // Only premium tiers (SpeakerAware, MotionAware) should trigger cache generation.
     // Lower tiers can consume cache if available but never trigger expensive generation.
     if job.style.should_generate_cached_analysis() {
@@ -375,38 +398,44 @@ async fn download_video_for_render(
     }
 
     // Phase 2: Check Firestore for cached source video status first
+    // IMPORTANT: Always try R2 if we have a key, even if Firestore says "expired"
+    // because R2 objects don't actually expire unless lifecycle rules are configured.
+    // The expires_at in Firestore is just metadata tracking, not actual object TTL.
     let video_repo = vclip_firestore::VideoRepository::new(ctx.firestore.clone(), &job.user_id);
     if let Ok(Some(video_meta)) = video_repo.get(&job.video_id).await {
-        if let (Some(status), Some(ref r2_key), Some(expires_at)) = (
+        if let (Some(status), Some(ref r2_key)) = (
             video_meta.source_video_status,
             &video_meta.source_video_r2_key,
-            video_meta.source_video_expires_at,
         ) {
-            if status == vclip_models::SourceVideoStatus::Ready
-                && expires_at > chrono::Utc::now()
-            {
+            // Try R2 download even if "expired" in Firestore - object may still exist
+            if status == vclip_models::SourceVideoStatus::Ready {
+                let is_expired = video_meta.source_video_expires_at
+                    .map(|exp| exp <= chrono::Utc::now())
+                    .unwrap_or(false);
+
                 info!(
                     video_id = %job.video_id,
                     r2_key = %r2_key,
-                    expires_at = %expires_at,
-                    "Using cached source video from Firestore metadata"
+                    is_expired = is_expired,
+                    "Attempting download from R2 (trying even if metadata says expired)"
                 );
+
                 match ctx.storage.download_file(r2_key, &video_file).await {
                     Ok(_) => {
-                        info!("Downloaded video from cached R2 key: {}", r2_key);
+                        info!("Downloaded video from R2 key: {}", r2_key);
                         return Ok(video_file);
                     }
                     Err(e) => {
                         tracing::warn!(
-                            "Failed to download from cached R2 key {}: {}, trying fallbacks",
+                            "Failed to download from R2 key {}: {}, trying fallbacks",
                             r2_key, e
                         );
+                        // Only mark as expired if R2 download actually fails
+                        if is_expired {
+                            video_repo.set_source_video_expired(&job.video_id).await.ok();
+                        }
                     }
                 }
-            } else if status == vclip_models::SourceVideoStatus::Ready {
-                // Expired - mark as expired
-                info!("Cached source video expired at {}, falling back", expires_at);
-                video_repo.set_source_video_expired(&job.video_id).await.ok();
             }
         }
     }

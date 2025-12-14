@@ -1,7 +1,7 @@
 "use client";
 
 import * as Slider from "@radix-ui/react-slider";
-import { Activity, ScanFace, Sparkles, Zap } from "lucide-react";
+import { Activity, Film, ScanFace, Sparkles, Zap } from "lucide-react";
 import {
   type ComponentType,
   type KeyboardEvent,
@@ -27,11 +27,15 @@ type QualityLevel = {
   icon?: ComponentType<{ className?: string }>;
 };
 
+export type StaticPosition = "left" | "center" | "right";
+
 export type LayoutQualitySelection = {
   splitEnabled: boolean;
   splitStyle: string;
   fullEnabled: boolean;
   fullStyle: string;
+  /** Position for Static Full style (left_focus, center_focus, right_focus) */
+  staticPosition: StaticPosition;
   includeOriginal: boolean;
 };
 
@@ -70,27 +74,15 @@ const SPLIT_LEVELS: QualityLevel[] = [
 
 const FULL_LEVELS: QualityLevel[] = [
   {
-    value: "left_focus",
-    label: "Static – Focus Left",
-    helper: "No AI, fixed left crop",
-    icon: Zap,
-  },
-  {
     value: "center_focus",
-    label: "Static – Focus Center",
-    helper: "No AI, fixed center crop",
-    icon: Zap,
-  },
-  {
-    value: "right_focus",
-    label: "Static – Focus Right",
-    helper: "No AI, fixed right crop",
+    label: "Static",
+    helper: "No AI, fixed crop position",
     icon: Zap,
   },
   {
     value: "intelligent_motion",
     label: "Motion",
-    helper: "Heuristic motion-aware crop (no neural nets)",
+    helper: "High-speed motion-aware crop (no neural nets)",
     icon: Activity,
   },
   {
@@ -105,6 +97,12 @@ const FULL_LEVELS: QualityLevel[] = [
     helper: "Premium face mesh AI for the active speaker",
     icon: Sparkles,
   },
+  {
+    value: "intelligent_cinematic",
+    label: "Cinematic",
+    helper: "Smooth camera motion",
+    icon: Film,
+  },
 ];
 
 const splitValues = SPLIT_LEVELS.map((lvl) => lvl.value);
@@ -115,6 +113,7 @@ export const DEFAULT_SELECTION: LayoutQualitySelection = {
   splitStyle: "intelligent_split",
   fullEnabled: false,
   fullStyle: "intelligent",
+  staticPosition: "center",
   includeOriginal: false,
 };
 
@@ -125,6 +124,13 @@ const STYLE_SELECTION_ALIASES: Record<string, string> = {
   intelligent_basic: "intelligent",
 };
 
+/** Map static position to backend style name */
+const STATIC_POSITION_STYLES: Record<StaticPosition, string> = {
+  left: "left_focus",
+  center: "center_focus",
+  right: "right_focus",
+};
+
 export function selectionToStyles(selection: LayoutQualitySelection): string[] {
   const styles = new Set<string>();
 
@@ -133,7 +139,12 @@ export function selectionToStyles(selection: LayoutQualitySelection): string[] {
   }
 
   if (selection.fullEnabled) {
-    styles.add(selection.fullStyle);
+    // For Static style, use the position-specific style name
+    if (selection.fullStyle === "center_focus") {
+      styles.add(STATIC_POSITION_STYLES[selection.staticPosition]);
+    } else {
+      styles.add(selection.fullStyle);
+    }
   }
 
   if (selection.includeOriginal) {
@@ -155,12 +166,25 @@ export function stylesToSelection(
     return alias ?? normalizeStyleForSelection(lowered) ?? lowered;
   });
 
+  // Check for static position styles
+  let staticPosition: StaticPosition = fallback.staticPosition;
+  if (normalized.includes("left_focus")) staticPosition = "left";
+  else if (normalized.includes("right_focus")) staticPosition = "right";
+  else if (normalized.includes("center_focus")) staticPosition = "center";
+
+  // Map position-specific styles to center_focus for UI display
+  const normalizedForUI = normalized.map((s) =>
+    ["left_focus", "right_focus"].includes(s) ? "center_focus" : s
+  );
+
   const splitStyle =
-    splitValues.find((val) => normalized.includes(val)) ?? fallback.splitStyle;
+    splitValues.find((val) => normalizedForUI.includes(val)) ?? fallback.splitStyle;
   const fullStyle =
-    fullValues.find((val) => normalized.includes(val)) ?? fallback.fullStyle;
-  const splitEnabled = normalized.some((s) => splitValues.includes(s));
-  const fullEnabled = normalized.some((s) => fullValues.includes(s));
+    fullValues.find((val) => normalizedForUI.includes(val)) ?? fallback.fullStyle;
+  const splitEnabled = normalizedForUI.some((s) => splitValues.includes(s));
+  const fullEnabled =
+    normalizedForUI.some((s) => fullValues.includes(s)) ||
+    normalized.some((s) => ["left_focus", "right_focus", "center_focus"].includes(s));
 
   return {
     splitEnabled,
@@ -168,14 +192,21 @@ export function stylesToSelection(
     includeOriginal: normalized.includes("original"),
     splitStyle,
     fullStyle,
+    staticPosition,
   };
 }
 
 /** Styles that require a studio plan (Active Speaker) */
 const STUDIO_ONLY_STYLES = ["intelligent_speaker", "intelligent_split_speaker"];
 
-/** Styles that require at least a pro plan (Smart Face) */
-const PRO_ONLY_STYLES = ["intelligent", "intelligent_split"];
+/** Styles that require at least a pro plan (Smart Face, Motion, Cinematic) */
+const PRO_ONLY_STYLES = [
+  "intelligent",
+  "intelligent_split",
+  "intelligent_motion",
+  "intelligent_split_motion",
+  "intelligent_cinematic",
+];
 
 function QualitySlider({
   levels,
@@ -314,6 +345,53 @@ function QualitySlider({
   );
 }
 
+/** Static position selector (L | C | R) for Static Full style */
+function StaticPositionSelector({
+  position,
+  onChange,
+  disabled,
+}: {
+  position: StaticPosition;
+  onChange: (next: StaticPosition) => void;
+  disabled?: boolean;
+}) {
+  const positions: { value: StaticPosition; label: string }[] = [
+    { value: "left", label: "L" },
+    { value: "center", label: "C" },
+    { value: "right", label: "R" },
+  ];
+
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-center gap-0.5 mt-2",
+        disabled && "opacity-50 pointer-events-none"
+      )}
+      data-interactive="true"
+    >
+      <span className="text-[10px] text-muted-foreground mr-2">Position:</span>
+      <div className="inline-flex rounded-full bg-slate-800/80 p-0.5 border border-white/10">
+        {positions.map((pos) => (
+          <button
+            key={pos.value}
+            type="button"
+            onClick={() => onChange(pos.value)}
+            className={cn(
+              "px-2.5 py-0.5 text-[10px] font-medium rounded-full transition-all",
+              position === pos.value
+                ? "bg-indigo-500 text-white shadow-sm"
+                : "text-muted-foreground hover:text-white hover:bg-white/5"
+            )}
+            disabled={disabled}
+          >
+            {pos.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function LayoutCard({
   title,
   enabled,
@@ -323,6 +401,8 @@ function LayoutCard({
   onLevelChange,
   hasStudioPlan,
   hasProPlan,
+  staticPosition,
+  onStaticPositionChange,
 }: {
   title: string;
   enabled: boolean;
@@ -332,6 +412,8 @@ function LayoutCard({
   onLevelChange: (next: string) => void;
   hasStudioPlan?: boolean;
   hasProPlan?: boolean;
+  staticPosition?: StaticPosition;
+  onStaticPositionChange?: (next: StaticPosition) => void;
 }) {
   const enableId = `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-toggle`;
 
@@ -410,6 +492,14 @@ function LayoutCard({
           hasStudioPlan={hasStudioPlan}
           hasProPlan={hasProPlan}
         />
+        {/* Show position selector for Static style */}
+        {levelValue === "center_focus" && staticPosition && onStaticPositionChange && (
+          <StaticPositionSelector
+            position={staticPosition}
+            onChange={onStaticPositionChange}
+            disabled={!enabled}
+          />
+        )}
       </div>
     </div>
   );
@@ -484,6 +574,8 @@ export function StyleQualitySelector({
             }
             hasStudioPlan={hasStudioPlan}
             hasProPlan={hasProPlan}
+            staticPosition={selection.staticPosition}
+            onStaticPositionChange={(next) => updateSelection({ staticPosition: next })}
           />
         </div>
 

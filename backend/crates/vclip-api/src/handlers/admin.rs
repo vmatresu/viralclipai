@@ -383,3 +383,81 @@ pub async fn recalculate_user_storage(
         ),
     }))
 }
+
+/// Reset video status request.
+#[derive(Debug, Deserialize)]
+pub struct ResetVideoRequest {
+    /// New status to set: "completed", "failed", or "analyzed"
+    #[serde(default = "default_reset_status")]
+    pub status: String,
+}
+
+fn default_reset_status() -> String {
+    "analyzed".to_string()
+}
+
+/// Reset video status response.
+#[derive(Serialize)]
+pub struct ResetVideoResponse {
+    pub success: bool,
+    pub video_id: String,
+    pub status: String,
+    pub message: String,
+}
+
+/// Reset a video's status (admin only).
+///
+/// This is useful for recovering from stuck "processing" states caused by
+/// worker crashes (e.g., OOM kills). Sets the video status to allow reprocessing.
+pub async fn reset_video_status(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((target_uid, video_id)): Path<(String, String)>,
+    Json(request): Json<ResetVideoRequest>,
+) -> ApiResult<Json<ResetVideoResponse>> {
+    use vclip_models::VideoStatus;
+
+    if !state.user_service.is_super_admin(&user.uid).await? {
+        return Err(ApiError::forbidden("Admin access required"));
+    }
+
+    // Validate status
+    let new_status = match request.status.as_str() {
+        "completed" => VideoStatus::Completed,
+        "failed" => VideoStatus::Failed,
+        "analyzed" => VideoStatus::Analyzed,
+        other => {
+            return Err(ApiError::bad_request(format!(
+                "Invalid status '{}'. Must be one of: completed, failed, analyzed",
+                other
+            )));
+        }
+    };
+
+    let video_id = vclip_models::VideoId::from(video_id);
+    let video_repo = vclip_firestore::VideoRepository::new(
+        (*state.firestore).clone(),
+        &target_uid,
+    );
+
+    // Update video status
+    video_repo
+        .update_status(&video_id, new_status.clone())
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to update video status: {}", e)))?;
+
+    info!(
+        "Admin {} reset video {} for user {} to status '{}'",
+        user.uid, video_id, target_uid, request.status
+    );
+
+    Ok(Json(ResetVideoResponse {
+        success: true,
+        video_id: video_id.to_string(),
+        status: request.status,
+        message: format!(
+            "Video status reset to '{}'. You can now reprocess the video.",
+            new_status.as_str()
+        ),
+    }))
+}

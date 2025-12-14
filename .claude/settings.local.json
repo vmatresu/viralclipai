@@ -15,7 +15,13 @@
       "Bash(cargo test:*)",
       "Bash(cargo build:*)",
       "Bash(npm run lint:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(rustfmt:*)",
+      "mcp__ide__getDiagnostics",
+      "Bash(docker logs:*)",
+      "Bash(docker inspect:*)",
+      "Bash(docker events:*)",
+      "Bash(docker exec:*)"
     ],
     "deny": [],
     "ask": []
