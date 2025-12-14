@@ -85,10 +85,17 @@ static USER_CONNECTIONS: std::sync::LazyLock<UserConnectionTracker> =
     std::sync::LazyLock::new(UserConnectionTracker::new);
 
 /// Styles that require a studio plan (Active Speaker).
-const STUDIO_ONLY_STYLES: &[Style] = &[Style::IntelligentSpeaker, Style::IntelligentSplitSpeaker];
+const STUDIO_ONLY_STYLES: &[Style] = &[];
 
 /// Styles that require at least a pro plan (Smart Face).
-const PRO_ONLY_STYLES: &[Style] = &[Style::Intelligent, Style::IntelligentSplit];
+const PRO_ONLY_STYLES: &[Style] = &[
+    Style::Intelligent,
+    Style::IntelligentSplit,
+    Style::IntelligentSpeaker,
+    Style::IntelligentSplitSpeaker,
+    Style::IntelligentSplitActivity,
+    Style::IntelligentCinematic,
+];
 
 /// Check if any of the styles require a studio plan.
 fn contains_studio_only_styles(styles: &[Style]) -> bool {
@@ -160,6 +167,9 @@ pub struct WsReprocessRequest {
     pub crop_mode: String,
     #[serde(default = "default_aspect")]
     pub target_aspect: String,
+    /// Enable object detection for Cinematic style (default: false)
+    #[serde(default)]
+    pub enable_object_detection: bool,
 }
 
 /// WebSocket process endpoint.
@@ -392,28 +402,11 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
         return;
     }
 
-    // Check studio plan requirement for Active Speaker styles
-    if contains_studio_only_styles(&styles) {
-        match state.user_service.has_studio_plan(&uid).await {
-            Ok(false) => {
-                let error = WsMessage::error("Active Speaker style is only available for Studio plans. Please upgrade to access this feature.");
-                let _ = tx.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
-                drop(tx);
-                let _ = send_task.await;
-                return;
-            }
-            Err(e) => {
-                warn!("Failed to check studio plan: {}", e);
-            }
-            Ok(true) => {}
-        }
-    }
-
     // Check pro plan requirement for Smart Face styles
     if contains_pro_only_styles(&styles) {
         match state.user_service.has_pro_or_studio_plan(&uid).await {
             Ok(false) => {
-                let error = WsMessage::error("Smart Face style is only available for Pro and Studio plans. Please upgrade to access this feature.");
+                let error = WsMessage::error("Selected style(s) are only available for Pro and Studio plans. Please upgrade to access this feature.");
                 let _ = tx.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
                 drop(tx);
                 let _ = send_task.await;
@@ -514,7 +507,7 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
                         // Send ping if no recent activity
                         if last_activity.elapsed() > WS_HEARTBEAT_INTERVAL / 2 {
                             if tx.send(Message::Ping(vec![])).await.is_err() {
-                                warn!("Heartbeat failed, client disconnected");
+                                warn!("WebSocket send failed, client disconnected");
                                 break;
                             }
                         }
@@ -760,26 +753,11 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
         return;
     }
 
-    // Check studio plan requirement for Active Speaker styles
-    if contains_studio_only_styles(&styles) {
-        match state.user_service.has_studio_plan(&uid).await {
-            Ok(false) => {
-                let error = WsMessage::error("Active Speaker style is only available for Studio plans. Please upgrade to access this feature.");
-                let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
-                return;
-            }
-            Err(e) => {
-                warn!("Failed to check studio plan: {}", e);
-            }
-            Ok(true) => {}
-        }
-    }
-
     // Check pro plan requirement for Smart Face styles
     if contains_pro_only_styles(&styles) {
         match state.user_service.has_pro_or_studio_plan(&uid).await {
             Ok(false) => {
-                let error = WsMessage::error("Smart Face style is only available for Pro and Studio plans. Please upgrade to access this feature.");
+                let error = WsMessage::error("Selected style(s) are only available for Pro and Studio plans. Please upgrade to access this feature.");
                 let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
                 return;
             }
@@ -809,9 +787,11 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
 
     // Create job with all parameters
     let video_id = vclip_models::VideoId::from_string(&request.video_id);
-    let job = vclip_queue::ReprocessScenesJob::new(&uid, video_id.clone(), request.scene_ids, styles)
+    let mut job = vclip_queue::ReprocessScenesJob::new(&uid, video_id.clone(), request.scene_ids, styles)
         .with_crop_mode(crop_mode)
         .with_target_aspect(target_aspect);
+    // Pass enable_object_detection flag to the job
+    job.enable_object_detection = request.enable_object_detection;
     let job_id = job.job_id.clone();
 
     // Enqueue job

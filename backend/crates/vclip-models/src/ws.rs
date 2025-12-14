@@ -371,6 +371,12 @@ pub struct WsReprocessRequest {
     /// Target aspect ratio
     #[serde(default = "default_aspect")]
     pub target_aspect: String,
+
+    /// Enable object detection for Cinematic style (default: false).
+    /// When enabled, YOLOv8 object detection runs alongside face detection
+    /// for improved scene understanding and camera motion.
+    #[serde(default)]
+    pub enable_object_detection: bool,
 }
 
 #[cfg(test)]

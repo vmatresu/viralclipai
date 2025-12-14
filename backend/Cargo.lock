@@ -4518,6 +4518,7 @@ dependencies = [
  "chrono",
  "dotenvy",
  "futures",
+ "image",
  "metrics",
  "metrics-exporter-prometheus",
  "redis 0.29.5",

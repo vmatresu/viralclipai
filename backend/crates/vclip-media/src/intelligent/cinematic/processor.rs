@@ -55,11 +55,11 @@ pub struct CinematicProcessor {
 impl CinematicProcessor {
     /// Create a new cinematic processor with default configuration.
     pub fn new() -> Self {
-        // Try to load object detector (optional - graceful fallback)
-        let object_detector = Self::try_load_object_detector();
+        let config = CinematicConfig::default();
+        let object_detector = Self::try_load_object_detector(&config);
         
         Self {
-            config: CinematicConfig::default(),
+            config,
             base_config: IntelligentCropConfig::for_tier(DetectionTier::Cinematic),
             object_detector,
         }
@@ -67,7 +67,7 @@ impl CinematicProcessor {
 
     /// Create with custom configuration.
     pub fn with_config(config: CinematicConfig) -> Self {
-        let object_detector = Self::try_load_object_detector();
+        let object_detector = Self::try_load_object_detector(&config);
         
         Self {
             config,
@@ -78,17 +78,23 @@ impl CinematicProcessor {
 
     /// Create optimized for podcasts/interviews.
     pub fn for_podcast() -> Self {
-        let object_detector = Self::try_load_object_detector();
+        let config = CinematicConfig::podcast();
+        let object_detector = Self::try_load_object_detector(&config);
         
         Self {
-            config: CinematicConfig::podcast(),
+            config,
             base_config: IntelligentCropConfig::for_tier(DetectionTier::Cinematic),
             object_detector,
         }
     }
     
     /// Try to load the object detector model.
-    fn try_load_object_detector() -> Option<Arc<ObjectDetector>> {
+    fn try_load_object_detector(config: &CinematicConfig) -> Option<Arc<ObjectDetector>> {
+        if !config.enable_object_detection {
+            info!("[CINEMATIC] Object detection disabled in config");
+            return None;
+        }
+
         match ObjectDetector::new(ObjectDetectorConfig::default()) {
             Ok(detector) => {
                 info!("[CINEMATIC] Object detection enabled (YOLOv8)");

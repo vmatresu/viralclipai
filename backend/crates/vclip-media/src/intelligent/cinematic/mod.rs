@@ -60,5 +60,5 @@ pub use shot_detector::{Shot, ShotDetector};
 pub use signal_fusion::{SaliencySignal, SignalFusingCalculator, SignalSource};
 pub use trajectory::TrajectoryOptimizer;
 pub use zoom::AdaptiveZoom;
-
+pub use signals::{ShotBoundary, ShotSignals};
 

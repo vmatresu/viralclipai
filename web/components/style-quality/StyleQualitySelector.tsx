@@ -17,6 +17,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { normalizeStyleForSelection } from "@/lib/styleTiers";
 import { cn } from "@/lib/utils";
 
@@ -197,14 +198,14 @@ export function stylesToSelection(
 }
 
 /** Styles that require a studio plan (Active Speaker) */
-const STUDIO_ONLY_STYLES = ["intelligent_speaker", "intelligent_split_speaker"];
+const STUDIO_ONLY_STYLES: string[] = [];
 
 /** Styles that require at least a pro plan (Smart Face, Motion, Cinematic) */
 const PRO_ONLY_STYLES = [
   "intelligent",
   "intelligent_split",
-  "intelligent_motion",
-  "intelligent_split_motion",
+  "intelligent_speaker",
+  "intelligent_split_speaker",
   "intelligent_cinematic",
 ];
 
@@ -512,6 +513,8 @@ interface StyleQualitySelectorProps {
   className?: string;
   /** User's current plan - used to gate studio-only features */
   userPlan?: string;
+  enableObjectDetection?: boolean;
+  onEnableObjectDetectionChange?: (next: boolean) => void;
 }
 
 export function StyleQualitySelector({
@@ -520,6 +523,8 @@ export function StyleQualitySelector({
   disabled = false,
   className,
   userPlan,
+  enableObjectDetection,
+  onEnableObjectDetectionChange,
 }: StyleQualitySelectorProps) {
   const hasStudioPlan = userPlan === "studio";
   const hasProPlan = userPlan === "pro" || userPlan === "studio";
@@ -563,20 +568,52 @@ export function StyleQualitySelector({
             hasProPlan={hasProPlan}
           />
 
-          <LayoutCard
-            title="Full View (9×16)"
-            enabled={selection.fullEnabled}
-            onToggle={(next) => updateSelection({ fullEnabled: next })}
-            levelValue={selection.fullStyle}
-            levels={FULL_LEVELS}
-            onLevelChange={(next) =>
-              updateSelection({ fullStyle: next, fullEnabled: true })
-            }
-            hasStudioPlan={hasStudioPlan}
-            hasProPlan={hasProPlan}
-            staticPosition={selection.staticPosition}
-            onStaticPositionChange={(next) => updateSelection({ staticPosition: next })}
-          />
+          <div className="space-y-3">
+            <LayoutCard
+              title="Full View (9×16)"
+              enabled={selection.fullEnabled}
+              onToggle={(next) => updateSelection({ fullEnabled: next })}
+              levelValue={selection.fullStyle}
+              levels={FULL_LEVELS}
+              onLevelChange={(next) =>
+                updateSelection({ fullStyle: next, fullEnabled: true })
+              }
+              hasStudioPlan={hasStudioPlan}
+              hasProPlan={hasProPlan}
+              staticPosition={selection.staticPosition}
+              onStaticPositionChange={(next) =>
+                updateSelection({ staticPosition: next })
+              }
+            />
+
+            {selection.fullEnabled &&
+              selection.fullStyle?.toLowerCase().includes("cinematic") &&
+              onEnableObjectDetectionChange && (
+                <div className="flex items-start gap-3 rounded-lg border border-white/10 bg-slate-900/70 p-3">
+                  <Checkbox
+                    id="enableObjectDetection"
+                    checked={enableObjectDetection}
+                    onCheckedChange={(checked) =>
+                      onEnableObjectDetectionChange(Boolean(checked))
+                    }
+                    disabled={disabled}
+                    data-interactive="true"
+                  />
+                  <div className="space-y-0.5">
+                    <Label
+                      htmlFor="enableObjectDetection"
+                      className="text-sm font-medium cursor-pointer text-white"
+                    >
+                      Use object detection
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Enable object detection to track objects on scenes without faces
+                      for improved camera motion (slower)
+                    </p>
+                  </div>
+                </div>
+              )}
+          </div>
         </div>
 
         <div className="space-y-3 rounded-xl border border-white/10 bg-slate-900/60 p-4">

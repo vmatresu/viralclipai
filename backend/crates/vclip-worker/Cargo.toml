@@ -40,6 +40,7 @@ rustls = { workspace = true }
 reqwest = { workspace = true }
 regex = "1.11"
 anyhow = "1.0"
+image = "0.24"
 
 [dev-dependencies]
 tokio-test = { workspace = true }

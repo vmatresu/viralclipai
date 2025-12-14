@@ -10,7 +10,7 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-use vclip_models::VideoId;
+use vclip_models::{Style, VideoId};
 
 use crate::auth::AuthUser;
 use crate::error::{ApiError, ApiResult};
@@ -1223,10 +1223,28 @@ pub async fn reprocess_scenes(
         ));
     }
 
-    // Check plan restrictions
-    if !state.user_service.has_pro_or_studio_plan(&user.uid).await? {
+    // Parse styles with "all" expansion support
+    let styles = Style::expand_styles(&request.styles);
+
+    if styles.is_empty() {
+        return Err(ApiError::bad_request("No valid styles specified"));
+    }
+
+    // Enforce style availability by plan (match frontend rules)
+    // - Motion styles are allowed for Free
+    // - Smart Face / Active Speaker / Cinematic require Pro/Studio
+    const PRO_ONLY_STYLES: &[Style] = &[
+        Style::Intelligent,
+        Style::IntelligentSplit,
+        Style::IntelligentSpeaker,
+        Style::IntelligentSplitSpeaker,
+        Style::IntelligentSplitActivity,
+        Style::IntelligentCinematic,
+    ];
+    let requires_pro = styles.iter().any(|s| PRO_ONLY_STYLES.contains(s));
+    if requires_pro && !state.user_service.has_pro_or_studio_plan(&user.uid).await? {
         return Err(ApiError::forbidden(
-            "Scene reprocessing is only available for Pro and Studio plans. Please upgrade to access this feature."
+            "Selected style(s) are only available for Pro and Studio plans. Please upgrade to access this feature.",
         ));
     }
 
@@ -1250,7 +1268,7 @@ pub async fn reprocess_scenes(
     }
 
     // Validate plan limits for the number of clips being created
-    let total_clips = request.scene_ids.len() as u32 * request.styles.len() as u32;
+    let total_clips = request.scene_ids.len() as u32 * styles.len() as u32;
     state.user_service.validate_plan_limits(&user.uid, total_clips).await?;
 
     // Load highlights from Firestore to validate scene IDs
@@ -1283,13 +1301,6 @@ pub async fn reprocess_scenes(
             invalid_ids,
             available_ids.iter().collect::<Vec<_>>()
         )));
-    }
-
-    // Parse styles with "all" expansion support
-    let styles = vclip_models::Style::expand_styles(&request.styles);
-    
-    if styles.is_empty() {
-        return Err(ApiError::bad_request("No valid styles specified"));
     }
 
     // Parse crop mode and target aspect from highlights or use defaults

@@ -139,6 +139,9 @@ pub struct ReprocessScenesJob {
     pub crop_mode: CropMode,
     /// Target aspect ratio
     pub target_aspect: AspectRatio,
+    /// Enable object detection for Cinematic tier (default: false)
+    #[serde(default)]
+    pub enable_object_detection: bool,
 }
 
 impl ReprocessScenesJob {
@@ -156,6 +159,7 @@ impl ReprocessScenesJob {
             styles,
             crop_mode: CropMode::default(),
             target_aspect: AspectRatio::default(),
+            enable_object_detection: false,
         }
     }
 
@@ -224,6 +228,9 @@ pub struct RenderSceneStyleJob {
     pub pad_after_seconds: Option<f64>,
     /// Parent job ID for tracking (orchestration job that created this)
     pub parent_job_id: Option<JobId>,
+    /// Enable object detection for Cinematic tier (default: false)
+    #[serde(default)]
+    pub enable_object_detection: bool,
 }
 
 impl RenderSceneStyleJob {
@@ -251,6 +258,7 @@ impl RenderSceneStyleJob {
             pad_before_seconds: None,
             pad_after_seconds: None,
             parent_job_id: None,
+            enable_object_detection: false,
         }
     }
 

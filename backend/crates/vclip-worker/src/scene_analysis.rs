@@ -46,6 +46,7 @@ use std::path::Path;
 use tracing::{debug, info, warn};
 use vclip_models::{DetectionTier, FrameAnalysis, SceneNeuralAnalysis};
 
+use crate::cinematic_signals::{compute_cinematic_signals, CinematicSignalOptions};
 use crate::error::{WorkerError, WorkerResult};
 use crate::processor::EnhancedProcessingContext;
 
@@ -255,7 +256,7 @@ async fn run_detection(
             WorkerError::job_failed(format!("Failed to build detection pipeline: {}", e))
         })?;
 
-    match pipeline.analyze(video_path, start_time, end_time).await {
+    let (_video_width, _video_height) = match pipeline.analyze(video_path, start_time, end_time).await {
         Ok(result) => {
             let video_width = result.width as f32;
             let video_height = result.height as f32;
@@ -292,6 +293,8 @@ async fn run_detection(
                 tier = ?result.tier_used,
                 "Detection complete for scene analysis"
             );
+            
+            (video_width as u32, video_height as u32)
         }
         Err(e) => {
             warn!(
@@ -309,6 +312,50 @@ async fn run_detection(
                 let time = start_time + (i as f64 * sample_interval);
                 let frame = FrameAnalysis::new(time);
                 analysis.add_frame(frame);
+            }
+            
+            (1920, 1080) // Default dimensions for fallback
+        }
+    };
+
+    // For Cinematic tier, also compute and cache shot boundaries (object detection off by default)
+    if detection_tier == DetectionTier::Cinematic {
+        info!(
+            video_id = %video_id,
+            scene_id = scene_id,
+            "Computing cinematic signals (shot boundaries)..."
+        );
+
+        // Use the cinematic_signals module with object detection OFF by default
+        // Object detection is enabled only when explicitly requested via job options
+        let options = CinematicSignalOptions::default();
+        
+        let cinematic_signals = compute_cinematic_signals(
+            video_path,
+            start_time,
+            end_time,
+            options,
+        )
+        .await;
+
+        match cinematic_signals {
+            Ok(signals) => {
+                info!(
+                    video_id = %video_id,
+                    scene_id = scene_id,
+                    shots = signals.shots.len(),
+                    has_objects = signals.object_detections.is_some(),
+                    "Cinematic signals computed and added to cache"
+                );
+                analysis.cinematic_signals = Some(signals);
+            }
+            Err(e) => {
+                warn!(
+                    video_id = %video_id,
+                    scene_id = scene_id,
+                    error = %e,
+                    "Failed to compute cinematic signals (non-fatal)"
+                );
             }
         }
     }

@@ -115,6 +115,8 @@ export interface ReprocessOptions {
   token: string;
   cropMode?: string;
   targetAspect?: string;
+  /** Enable object detection for Cinematic style (default: false) */
+  enableObjectDetection?: boolean;
 }
 
 const MAX_MESSAGE_SIZE = 1024 * 1024; // 1MB
@@ -167,6 +169,7 @@ export function reprocessScenesWebSocket(
     token,
     cropMode = "none",
     targetAspect = "9:16",
+    enableObjectDetection = false,
   } = options;
 
   // Validation
@@ -216,6 +219,7 @@ export function reprocessScenesWebSocket(
           styles,
           crop_mode: cropMode,
           target_aspect: targetAspect,
+          enable_object_detection: enableObjectDetection,
         })
       );
     } catch (error) {

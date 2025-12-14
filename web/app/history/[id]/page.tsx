@@ -157,6 +157,7 @@ export default function HistoryDetailPage() {
     null
   );
   const [overwritePromptEnabled, setOverwritePromptEnabled] = useState<boolean>(true);
+  const [enableObjectDetection, setEnableObjectDetection] = useState<boolean>(false);
   const {
     getJob,
     completeJob: contextCompleteJob,
@@ -298,9 +299,17 @@ export default function HistoryDetailPage() {
   const startReprocess = useCallback(
     async (plan: ReprocessPlan) => {
       setIsProcessing(true);
-      await reprocess(plan.sceneIds, plan.styles);
+      // Pass enableObjectDetection only if Cinematic style is selected
+      const hasCinematic = plan.styles.some((s) =>
+        s.toLowerCase().includes("cinematic")
+      );
+      await reprocess(
+        plan.sceneIds,
+        plan.styles,
+        hasCinematic && enableObjectDetection
+      );
     },
-    [reprocess]
+    [reprocess, enableObjectDetection]
   );
 
   const handleConfirmOverwrite = useCallback(async () => {
@@ -797,6 +806,8 @@ export default function HistoryDetailPage() {
               onChange={handleStylesChange}
               disabled={isProcessing || isReprocessing}
               userPlan={userSettings?.plan}
+              enableObjectDetection={enableObjectDetection}
+              onEnableObjectDetectionChange={setEnableObjectDetection}
             />
 
             <div className="space-y-3">

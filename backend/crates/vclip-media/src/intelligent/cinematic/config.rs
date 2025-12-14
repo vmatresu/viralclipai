@@ -112,6 +112,13 @@ pub struct CinematicConfig {
     pub shot_detection_fps: f64,
 
     // ============================================
+    // Object Detection
+    // ============================================
+    /// Enable object detection for improved camera motion in scenes without faces.
+    /// When enabled, uses YOLOv8 to detect objects and fuse them with face signals.
+    pub enable_object_detection: bool,
+
+    // ============================================
     // Multi-Frame Scene Analysis
     // ============================================
     /// Number of frames to analyze ahead before making camera decisions.
@@ -168,6 +175,9 @@ impl Default for CinematicConfig {
             shot_threshold: 0.5,
             min_shot_duration: 0.5,
             shot_detection_fps: 5.0,
+
+            // Object detection (disabled by default for better camera motion)
+            enable_object_detection: false,
 
             // Multi-frame scene analysis
             lookahead_frames: 15, // 0.5s at 30fps
@@ -258,6 +268,12 @@ impl CinematicConfig {
     /// Builder: Set trajectory optimization method.
     pub fn with_trajectory_method(mut self, method: TrajectoryMethod) -> Self {
         self.trajectory_method = method;
+        self
+    }
+
+    /// Builder: Enable/disable object detection.
+    pub fn with_object_detection(mut self, enabled: bool) -> Self {
+        self.enable_object_detection = enabled;
         self
     }
 

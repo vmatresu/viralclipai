@@ -85,7 +85,11 @@ export function useReprocessing({
   }, []);
 
   const reprocess = useCallback(
-    async (sceneIds: number[], styles: string[]) => {
+    async (
+      sceneIds: number[],
+      styles: string[],
+      enableObjectDetection: boolean = false
+    ) => {
       if (state.isProcessing) {
         toast.error("Reprocessing already in progress");
         return;
@@ -241,6 +245,7 @@ export function useReprocessing({
             token,
             cropMode: "none",
             targetAspect: "9:16",
+            enableObjectDetection,
           },
           callbacks
         );
