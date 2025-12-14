@@ -576,7 +576,13 @@ async fn find_clip_by_id(
 
 /// Sanitize a download filename.
 fn sanitize_download_filename(name: &str) -> String {
-    let sanitized: String = name
+    let safe_joined: String = name
+        .split(|c| c == '/' || c == '\\')
+        .filter(|s| !s.is_empty() && *s != "." && *s != "..")
+        .collect::<Vec<_>>()
+        .join("");
+
+    let sanitized: String = safe_joined
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_' || *c == '.')
         .take(100)

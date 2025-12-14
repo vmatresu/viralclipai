@@ -8,6 +8,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use chrono::Utc;
 use gcp_auth::TokenProvider;
 use tokio::sync::RwLock;
 use tracing::{debug, warn};
@@ -66,6 +67,12 @@ impl TokenCache {
         }
     }
 
+    /// Invalidate the cached token.
+    pub async fn invalidate(&self) {
+        let mut cache = self.cache.write().await;
+        *cache = None;
+    }
+
     /// Get a valid access token, refreshing if necessary.
     ///
     /// This method implements the single-flight pattern:
@@ -107,7 +114,23 @@ impl TokenCache {
         match refresh_result {
             Ok(token) => {
                 let access_token = token.as_str().to_string();
-                let expires_at = Instant::now() + TOKEN_DEFAULT_TTL;
+
+                // Prefer the real expiry from gcp_auth, fall back to a conservative default.
+                let expires_at = {
+                    let now = Utc::now();
+                    let exp = token.expires_at();
+
+                    if exp > now {
+                        match (exp - now).to_std() {
+                            Ok(ttl) => Instant::now() + ttl,
+                            Err(_) => Instant::now() + TOKEN_DEFAULT_TTL,
+                        }
+                    } else {
+                        // Treat already-expired tokens as having a near-immediate expiry so we
+                        // force refresh on the next request.
+                        Instant::now()
+                    }
+                };
 
                 *cache = Some(CachedToken {
                     access_token: access_token.clone(),

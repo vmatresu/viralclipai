@@ -15,11 +15,12 @@ use reqwest::{Client, StatusCode};
 use tracing::{debug, info_span, Instrument};
 
 use crate::error::{FirestoreError, FirestoreResult};
-use crate::metrics::record_request;
+use crate::metrics::{names as metric_names, record_request};
 use crate::retry::RetryConfig;
 use crate::token_cache::TokenCache;
 use crate::types::{
-    BatchWriteRequest, BatchWriteResponse, Document, ListDocumentsResponse, Value, Write,
+    BatchGetDocumentsRequest, BatchGetDocumentsResponse, BatchWriteRequest, BatchWriteResponse,
+    Document, DocumentMask, ListDocumentsResponse, Value, Write,
 };
 
 // =============================================================================
@@ -148,6 +149,10 @@ impl FirestoreClient {
         self.token_cache.get_token().await
     }
 
+    fn is_access_token_expired(body: &str) -> bool {
+        body.contains("ACCESS_TOKEN_EXPIRED") || body.contains("\"UNAUTHENTICATED\"")
+    }
+
     /// Build document path.
     fn document_path(&self, collection: &str, doc_id: &str) -> String {
         format!("{}/{}/{}", self.base_url, collection, doc_id)
@@ -164,11 +169,26 @@ impl FirestoreClient {
         doc_id: &str,
     ) -> FirestoreResult<Option<Document>> {
         let url = self.document_path(collection, doc_id);
-        let token = self.get_token().await?;
 
         self.execute_request("get_document", collection, Some(doc_id), async {
-            let response = self.http.get(&url).bearer_auth(&token).send().await?;
-            let status = response.status();
+            let mut token = self.get_token().await?;
+            let mut response = self.http.get(&url).bearer_auth(&token).send().await?;
+            let mut status = response.status();
+
+            if status == StatusCode::UNAUTHORIZED {
+                let body = response.text().await.unwrap_or_default();
+                if Self::is_access_token_expired(&body) {
+                    self.token_cache.invalidate().await;
+                    token = self.get_token().await?;
+                    response = self.http.get(&url).bearer_auth(&token).send().await?;
+                    status = response.status();
+                } else {
+                    return Err(FirestoreError::from_http_status(
+                        status.as_u16(),
+                        format!("{} failed: {}", url, body),
+                    ));
+                }
+            }
 
             match status {
                 StatusCode::OK => {
@@ -190,12 +210,39 @@ impl FirestoreClient {
         fields: HashMap<String, Value>,
     ) -> FirestoreResult<Document> {
         let url = format!("{}/{}?documentId={}", self.base_url, collection, doc_id);
-        let token = self.get_token().await?;
         let body = Document::new(fields);
 
         self.execute_request("create_document", collection, Some(doc_id), async {
-            let response = self.http.post(&url).bearer_auth(&token).json(&body).send().await?;
-            let status = response.status();
+            let mut token = self.get_token().await?;
+            let mut response = self
+                .http
+                .post(&url)
+                .bearer_auth(&token)
+                .json(&body)
+                .send()
+                .await?;
+            let mut status = response.status();
+
+            if status == StatusCode::UNAUTHORIZED {
+                let body_text = response.text().await.unwrap_or_default();
+                if Self::is_access_token_expired(&body_text) {
+                    self.token_cache.invalidate().await;
+                    token = self.get_token().await?;
+                    response = self
+                        .http
+                        .post(&url)
+                        .bearer_auth(&token)
+                        .json(&body)
+                        .send()
+                        .await?;
+                    status = response.status();
+                } else {
+                    return Err(FirestoreError::from_http_status(
+                        status.as_u16(),
+                        format!("{} failed: {}", url, body_text),
+                    ));
+                }
+            }
 
             match status {
                 StatusCode::OK | StatusCode::CREATED => {
@@ -226,12 +273,39 @@ impl FirestoreClient {
             url = format!("{}?{}", url, params.join("&"));
         }
 
-        let token = self.get_token().await?;
         let body = Document::new(fields);
 
         self.execute_request("update_document", collection, Some(doc_id), async {
-            let response = self.http.patch(&url).bearer_auth(&token).json(&body).send().await?;
-            let status = response.status();
+            let mut token = self.get_token().await?;
+            let mut response = self
+                .http
+                .patch(&url)
+                .bearer_auth(&token)
+                .json(&body)
+                .send()
+                .await?;
+            let mut status = response.status();
+
+            if status == StatusCode::UNAUTHORIZED {
+                let body_text = response.text().await.unwrap_or_default();
+                if Self::is_access_token_expired(&body_text) {
+                    self.token_cache.invalidate().await;
+                    token = self.get_token().await?;
+                    response = self
+                        .http
+                        .patch(&url)
+                        .bearer_auth(&token)
+                        .json(&body)
+                        .send()
+                        .await?;
+                    status = response.status();
+                } else {
+                    return Err(FirestoreError::from_http_status(
+                        status.as_u16(),
+                        format!("{} failed: {}", url, body_text),
+                    ));
+                }
+            }
 
             match status {
                 StatusCode::OK => {
@@ -267,12 +341,39 @@ impl FirestoreClient {
             url = format!("{}?{}", url, params.join("&"));
         }
 
-        let token = self.get_token().await?;
         let body = Document::new(fields);
 
         self.execute_request("update_document_precondition", collection, Some(doc_id), async {
-            let response = self.http.patch(&url).bearer_auth(&token).json(&body).send().await?;
-            let status = response.status();
+            let mut token = self.get_token().await?;
+            let mut response = self
+                .http
+                .patch(&url)
+                .bearer_auth(&token)
+                .json(&body)
+                .send()
+                .await?;
+            let mut status = response.status();
+
+            if status == StatusCode::UNAUTHORIZED {
+                let body_text = response.text().await.unwrap_or_default();
+                if Self::is_access_token_expired(&body_text) {
+                    self.token_cache.invalidate().await;
+                    token = self.get_token().await?;
+                    response = self
+                        .http
+                        .patch(&url)
+                        .bearer_auth(&token)
+                        .json(&body)
+                        .send()
+                        .await?;
+                    status = response.status();
+                } else {
+                    return Err(FirestoreError::from_http_status(
+                        status.as_u16(),
+                        format!("{} failed: {}", url, body_text),
+                    ));
+                }
+            }
 
             match status {
                 StatusCode::OK => {
@@ -296,13 +397,28 @@ impl FirestoreClient {
     /// Delete a document.
     pub async fn delete_document(&self, collection: &str, doc_id: &str) -> FirestoreResult<()> {
         let url = self.document_path(collection, doc_id);
-        let token = self.get_token().await?;
         let coll = collection.to_string();
         let id = doc_id.to_string();
 
         self.execute_request("delete_document", collection, Some(doc_id), async {
-            let response = self.http.delete(&url).bearer_auth(&token).send().await?;
-            let status = response.status();
+            let mut token = self.get_token().await?;
+            let mut response = self.http.delete(&url).bearer_auth(&token).send().await?;
+            let mut status = response.status();
+
+            if status == StatusCode::UNAUTHORIZED {
+                let body = response.text().await.unwrap_or_default();
+                if Self::is_access_token_expired(&body) {
+                    self.token_cache.invalidate().await;
+                    token = self.get_token().await?;
+                    response = self.http.delete(&url).bearer_auth(&token).send().await?;
+                    status = response.status();
+                } else {
+                    return Err(FirestoreError::from_http_status(
+                        status.as_u16(),
+                        format!("{} failed: {}", url, body),
+                    ));
+                }
+            }
 
             match status {
                 StatusCode::OK | StatusCode::NO_CONTENT => Ok(()),
@@ -335,16 +451,118 @@ impl FirestoreClient {
             url = format!("{}?{}", url, params.join("&"));
         }
 
-        let token = self.get_token().await?;
-
         self.execute_request("list_documents", collection, None, async {
-            let response = self.http.get(&url).bearer_auth(&token).send().await?;
-            let status = response.status();
+            let mut token = self.get_token().await?;
+            let mut response = self.http.get(&url).bearer_auth(&token).send().await?;
+            let mut status = response.status();
+
+            if status == StatusCode::UNAUTHORIZED {
+                let body = response.text().await.unwrap_or_default();
+                if Self::is_access_token_expired(&body) {
+                    self.token_cache.invalidate().await;
+                    token = self.get_token().await?;
+                    response = self.http.get(&url).bearer_auth(&token).send().await?;
+                    status = response.status();
+                } else {
+                    return Err(FirestoreError::from_http_status(
+                        status.as_u16(),
+                        format!("{} failed: {}", url, body),
+                    ));
+                }
+            }
 
             match status {
                 StatusCode::OK => {
                     let list: ListDocumentsResponse = response.json().await?;
+                    let returned = list.documents.as_ref().map(|d| d.len()).unwrap_or(0) as u64;
+                    metrics::counter!(
+                        metric_names::LIST_DOCUMENTS_RETURNED_TOTAL,
+                        "collection" => collection.to_string()
+                    )
+                    .increment(returned);
                     Ok(list)
+                }
+                _ => Err(Self::handle_error_response(status, &url, response).await),
+            }
+        })
+        .await
+    }
+
+    /// Batch get multiple documents using Firestore documents:batchGet.
+    ///
+    /// Returns a vector of Documents in arbitrary order (matching Firestore response ordering).
+    /// Missing documents are omitted.
+    pub async fn batch_get_documents(
+        &self,
+        full_document_names: Vec<String>,
+        mask: Option<DocumentMask>,
+    ) -> FirestoreResult<Vec<Document>> {
+        if full_document_names.is_empty() {
+            return Ok(vec![]);
+        }
+        if full_document_names.len() > 100 {
+            return Err(FirestoreError::request_failed(
+                "Batch get exceeds 100 document limit".to_string(),
+            ));
+        }
+
+        let url = format!("{}:batchGet", self.base_url);
+        let request = BatchGetDocumentsRequest {
+            documents: full_document_names,
+            mask,
+        };
+
+        self.execute_request("batch_get_documents", "batch", None, async {
+            let mut token = self.get_token().await?;
+            let mut response = self
+                .http
+                .post(&url)
+                .bearer_auth(&token)
+                .json(&request)
+                .send()
+                .await?;
+            let mut status = response.status();
+
+            if status == StatusCode::UNAUTHORIZED {
+                let body = response.text().await.unwrap_or_default();
+                if Self::is_access_token_expired(&body) {
+                    self.token_cache.invalidate().await;
+                    token = self.get_token().await?;
+                    response = self
+                        .http
+                        .post(&url)
+                        .bearer_auth(&token)
+                        .json(&request)
+                        .send()
+                        .await?;
+                    status = response.status();
+                } else {
+                    return Err(FirestoreError::from_http_status(
+                        status.as_u16(),
+                        format!("{} failed: {}", url, body),
+                    ));
+                }
+            }
+
+            match status {
+                StatusCode::OK => {
+                    let body = response.text().await.unwrap_or_default();
+                    // Firestore batchGet returns a JSON array of BatchGetDocumentsResponse objects
+                    let responses: Vec<BatchGetDocumentsResponse> =
+                        serde_json::from_str(&body).map_err(|e| {
+                            FirestoreError::request_failed(format!(
+                                "Failed to parse batchGet response: {} (body prefix: {})",
+                                e,
+                                &body[..body.len().min(200)]
+                            ))
+                        })?;
+
+                    let docs: Vec<Document> = responses
+                        .into_iter()
+                        .filter_map(|r| r.found)
+                        .collect();
+
+                    Ok(docs)
                 }
                 _ => Err(Self::handle_error_response(status, &url, response).await),
             }
@@ -373,16 +591,40 @@ impl FirestoreClient {
             return Err(FirestoreError::request_failed("Batch write exceeds 500 document limit"));
         }
 
-        let url = format!(
-            "https://firestore.googleapis.com/v1/projects/{}/databases/{}/documents:batchWrite",
-            self.config.project_id, self.config.database_id
-        );
-        let token = self.get_token().await?;
+        let url = format!("{}:batchWrite", self.base_url);
         let request = BatchWriteRequest { writes };
 
         self.execute_request("batch_write", "batch", None, async {
-            let response = self.http.post(&url).bearer_auth(&token).json(&request).send().await?;
-            let status = response.status();
+            let mut token = self.get_token().await?;
+            let mut response = self
+                .http
+                .post(&url)
+                .bearer_auth(&token)
+                .json(&request)
+                .send()
+                .await?;
+            let mut status = response.status();
+
+            if status == StatusCode::UNAUTHORIZED {
+                let body = response.text().await.unwrap_or_default();
+                if Self::is_access_token_expired(&body) {
+                    self.token_cache.invalidate().await;
+                    token = self.get_token().await?;
+                    response = self
+                        .http
+                        .post(&url)
+                        .bearer_auth(&token)
+                        .json(&request)
+                        .send()
+                        .await?;
+                    status = response.status();
+                } else {
+                    return Err(FirestoreError::from_http_status(
+                        status.as_u16(),
+                        format!("{} failed: {}", url, body),
+                    ));
+                }
+            }
 
             match status {
                 StatusCode::OK => {

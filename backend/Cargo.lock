@@ -4425,6 +4425,7 @@ dependencies = [
  "ndarray",
  "opencv",
  "ort",
+ "rayon",
  "serde",
  "serde_json",
  "tempfile",

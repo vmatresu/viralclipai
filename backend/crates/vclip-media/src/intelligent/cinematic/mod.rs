@@ -39,7 +39,9 @@
 //! ```
 
 pub mod camera_mode;
+pub mod composition;
 pub mod config;
+pub mod l1_optimizer;
 pub mod processor;
 pub mod scene_window;
 pub mod shot_detector;
@@ -49,7 +51,9 @@ pub mod trajectory;
 pub mod zoom;
 
 pub use camera_mode::{CameraMode, CameraModeAnalyzer};
-pub use config::CinematicConfig;
+pub use composition::{CameraHint, FocusZone, SceneComposition, SceneCompositionAnalyzer, SubjectArrangement};
+pub use config::{CinematicConfig, TrajectoryMethod};
+pub use l1_optimizer::{L1TrajectoryOptimizer, L1OptimizerConfig, L1Error};
 pub use processor::{CinematicProcessor, create_cinematic_clip, create_cinematic_clip_with_cache};
 pub use scene_window::{SceneWindowAnalyzer, WindowAnalysis};
 pub use shot_detector::{Shot, ShotDetector};

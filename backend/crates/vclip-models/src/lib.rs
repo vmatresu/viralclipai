@@ -49,8 +49,9 @@ pub use analysis::{
     ProcessingEstimate, SceneSelection, StartAnalysisResponse,
 };
 pub use neural_analysis::{
-    BoundingBox, CinematicSignalsCache, CropperDetection, FaceDetection, FrameAnalysis,
-    SceneNeuralAnalysis, ShotBoundaryCache, CINEMATIC_SIGNALS_VERSION, NEURAL_ANALYSIS_VERSION,
+    BoundingBox, CachedObjectDetection, CinematicSignalsCache, CropperDetection, FaceDetection,
+    FrameAnalysis, FrameObjectDetections, ObjectDetectionsCache, SceneNeuralAnalysis,
+    ShotBoundaryCache, CINEMATIC_SIGNALS_VERSION, NEURAL_ANALYSIS_VERSION,
 };
 pub use cinematic_analysis::{
     CinematicAnalysisStatus, cinematic_analysis_key, CINEMATIC_ANALYSIS_TIMEOUT_SECS,

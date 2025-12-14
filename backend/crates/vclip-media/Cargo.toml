@@ -38,6 +38,7 @@ ort = { version = "2.0.0-rc.10", features = ["half", "download-binaries"], defau
 # OpenCV for YuNet face detection (optional - falls back to FFmpeg if not available)
 # Include imgcodecs so debug rendering can write overlays when enabled.
 opencv = { version = "0.93", default-features = false, features = ["objdetect", "imgproc", "videoio", "dnn", "imgcodecs"], optional = true }
+rayon = "1.10"
 
 [dev-dependencies]
 tokio-test = { workspace = true }

@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use axum::body::Body;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::Response;
 use axum::Json;
@@ -246,75 +246,12 @@ pub async fn get_video_info(
     }))
 }
 
-/// User videos response.
-#[derive(Serialize)]
-pub struct UserVideosResponse {
-    pub videos: Vec<VideoSummary>,
-}
-
-#[derive(Serialize)]
-pub struct VideoSummary {
-    pub id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub video_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub video_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub video_title: Option<String>,
-    pub clips_count: u32,
-    /// Total size of all clips in bytes.
-    pub total_size_bytes: u64,
-    /// Human-readable total size.
-    pub total_size_formatted: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub custom_prompt: Option<String>,
-}
-
-/// List user videos query params.
-#[derive(Deserialize)]
-pub struct ListVideosQuery {
-    pub limit: Option<u32>,
-    pub offset: Option<String>,
-}
-
-/// List user videos.
-pub async fn list_user_videos(
-    State(state): State<AppState>,
-    Query(query): Query<ListVideosQuery>,
-    user: AuthUser,
-) -> ApiResult<Json<UserVideosResponse>> {
-    // Create video repository
-    let video_repo = vclip_firestore::VideoRepository::new(
-        (*state.firestore).clone(),
-        &user.uid,
-    );
-
-    // List videos
-    let videos = video_repo.list(query.limit).await?;
-
-    // Convert to response format
-    let summaries: Vec<VideoSummary> = videos
-        .into_iter()
-        .map(|v| VideoSummary {
-            id: v.video_id.as_str().to_string(),
-            video_id: Some(v.video_id.as_str().to_string()),
-            video_url: Some(v.video_url),
-            video_title: Some(v.video_title),
-            clips_count: v.clips_count,
-            total_size_bytes: v.total_size_bytes,
-            total_size_formatted: vclip_models::format_bytes(v.total_size_bytes),
-            created_at: Some(v.created_at.to_rfc3339()),
-            status: Some(v.status.as_str().to_string()),
-            custom_prompt: v.custom_prompt,
-        })
-        .collect();
-
-    Ok(Json(UserVideosResponse { videos: summaries }))
-}
+// Re-export from video_status module for backward compatibility
+pub use super::video_status::{
+    get_processing_status, is_valid_video_id, list_user_videos, ListVideosQuery,
+    ProcessingStatusEntry, ProcessingStatusQuery, ProcessingStatusResponse, UserVideosResponse,
+    VideoSummary,
+};
 
 /// Delete video response.
 #[derive(Serialize)]
@@ -1403,19 +1340,3 @@ pub async fn reprocess_scenes(
     }))
 }
 
-// ============================================================================
-// Validation Helpers
-// ============================================================================
-
-/// Validate video ID format to prevent injection attacks.
-/// 
-/// Valid format: alphanumeric characters and hyphens only, 8-64 chars.
-/// Examples: "9a4fef5b-e5b0-41c3-b64c-55ddb09346a3", "abc123-def456"
-fn is_valid_video_id(id: &str) -> bool {
-    if id.is_empty() || id.len() > 64 || id.len() < 8 {
-        return false;
-    }
-    
-    // Only allow alphanumeric and hyphens
-    id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
-}

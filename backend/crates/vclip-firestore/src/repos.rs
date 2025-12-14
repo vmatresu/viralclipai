@@ -11,12 +11,20 @@ use vclip_models::{ClipMetadata, ClipStatus, SourceVideoStatus, VideoId, VideoMe
 use crate::client::FirestoreClient;
 use crate::error::{FirestoreError, FirestoreResult};
 use crate::share_repo::ShareRepository;
-use crate::types::{FromFirestoreValue, ToFirestoreValue, Value};
+use crate::types::{DocumentMask, FromFirestoreValue, ToFirestoreValue, Value};
 
 /// Repository for video documents.
 pub struct VideoRepository {
     client: FirestoreClient,
     user_id: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct VideoStatusSnapshot {
+    pub video_id: VideoId,
+    pub status: Option<VideoStatus>,
+    pub clips_count: Option<u32>,
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl VideoRepository {
@@ -526,7 +534,19 @@ impl VideoRepository {
 
     /// List all videos for the user.
     pub async fn list(&self, limit: Option<u32>) -> FirestoreResult<Vec<VideoMetadata>> {
-        let response = self.client.list_documents(&self.collection(), limit, None).await?;
+        let (videos, _) = self.list_page(limit, None).await?;
+        Ok(videos)
+    }
+
+    pub async fn list_page(
+        &self,
+        limit: Option<u32>,
+        page_token: Option<&str>,
+    ) -> FirestoreResult<(Vec<VideoMetadata>, Option<String>)> {
+        let response = self
+            .client
+            .list_documents(&self.collection(), limit, page_token)
+            .await?;
 
         let mut videos = Vec::new();
         if let Some(docs) = response.documents {
@@ -534,14 +554,86 @@ impl VideoRepository {
                 if let Some(name) = &doc.name {
                     // Extract video_id from document path
                     let video_id = name.split('/').last().unwrap_or("").to_string();
-                    if let Ok(meta) = document_to_video_metadata(&doc, &VideoId::from_string(video_id)) {
+                    if let Ok(meta) =
+                        document_to_video_metadata(&doc, &VideoId::from_string(video_id))
+                    {
                         videos.push(meta);
                     }
                 }
             }
         }
 
-        Ok(videos)
+        Ok((videos, response.next_page_token))
+    }
+
+    pub async fn get_status_snapshots(
+        &self,
+        video_ids: &[VideoId],
+    ) -> FirestoreResult<Vec<VideoStatusSnapshot>> {
+        if video_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let collection = self.collection();
+        let doc_names: Vec<String> = video_ids
+            .iter()
+            .map(|id| self.client.full_document_name(&collection, id.as_str()))
+            .collect();
+
+        let mask = DocumentMask {
+            field_paths: vec![
+                "status".to_string(),
+                "clips_count".to_string(),
+                "updated_at".to_string(),
+            ],
+        };
+
+        let docs = self
+            .client
+            .batch_get_documents(doc_names, Some(mask))
+            .await?;
+
+        let mut out = Vec::new();
+        for doc in docs {
+            let video_id_str = doc
+                .name
+                .as_deref()
+                .and_then(|n| n.split('/').last())
+                .unwrap_or("")
+                .to_string();
+            if video_id_str.is_empty() {
+                continue;
+            }
+
+            let fields = doc.fields.as_ref();
+            let status = fields
+                .and_then(|f| f.get("status"))
+                .and_then(String::from_firestore_value)
+                .and_then(|s| match s.as_str() {
+                    "processing" => Some(VideoStatus::Processing),
+                    "analyzed" => Some(VideoStatus::Analyzed),
+                    "completed" => Some(VideoStatus::Completed),
+                    "failed" => Some(VideoStatus::Failed),
+                    _ => None,
+                });
+
+            let clips_count = fields
+                .and_then(|f| f.get("clips_count"))
+                .and_then(u32::from_firestore_value);
+
+            let updated_at = fields
+                .and_then(|f| f.get("updated_at"))
+                .and_then(chrono::DateTime::<chrono::Utc>::from_firestore_value);
+
+            out.push(VideoStatusSnapshot {
+                video_id: VideoId::from_string(video_id_str),
+                status,
+                clips_count,
+                updated_at,
+            });
+        }
+
+        Ok(out)
     }
 
     // ========================================================================

@@ -8,6 +8,48 @@ export interface ApiRequestOptions {
   body?: unknown;
 }
 
+export function getUserVideos<T = unknown>(
+  token: string,
+  options?: {
+    limit?: number;
+    pageToken?: string | null;
+  }
+): Promise<{ videos: T[]; next_page_token?: string | null }> {
+  const limit = options?.limit;
+  const pageToken = options?.pageToken;
+
+  const params = new URLSearchParams();
+  if (typeof limit === "number") {
+    params.set("limit", String(limit));
+  }
+  if (pageToken) {
+    params.set("page_token", pageToken);
+  }
+
+  const path = params.toString()
+    ? `/api/user/videos?${params.toString()}`
+    : "/api/user/videos";
+
+  return apiFetch(path, { token });
+}
+
+export function getProcessingStatuses(
+  token: string,
+  videoIds: string[]
+): Promise<{
+  videos: Array<{
+    video_id: string;
+    status?: "processing" | "analyzed" | "completed" | "failed";
+    clips_count?: number;
+    updated_at?: string;
+  }>;
+}> {
+  const ids = videoIds.join(",");
+  return apiFetch(`/api/user/videos/processing-status?ids=${encodeURIComponent(ids)}`, {
+    token,
+  });
+}
+
 /**
  * Sanitizes error messages to prevent information leakage
  */

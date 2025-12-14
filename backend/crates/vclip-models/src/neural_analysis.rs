@@ -156,10 +156,10 @@ pub struct CropperDetection {
     pub mouth_openness: Option<f64>,
 }
 
-/// Cacheable cinematic signals (shot boundaries).
+/// Cacheable cinematic signals (shot boundaries and object detections).
 ///
 /// Stored as part of `SceneNeuralAnalysis` to avoid re-running expensive
-/// histogram extraction for shot detection.
+/// histogram extraction for shot detection and YOLOv8 object detection.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 pub struct CinematicSignalsCache {
     /// Detected shot boundaries with timing information
@@ -170,10 +170,14 @@ pub struct CinematicSignalsCache {
     pub shot_threshold: f64,
     /// Minimum shot duration used
     pub min_shot_duration: f64,
+    /// Cached object detections per frame (optional - may be None for older cache entries)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub object_detections: Option<ObjectDetectionsCache>,
 }
 
 /// Version of the cinematic signals format.
-pub const CINEMATIC_SIGNALS_VERSION: u32 = 1;
+/// Increment when structure changes to invalidate old caches.
+pub const CINEMATIC_SIGNALS_VERSION: u32 = 2;
 
 impl CinematicSignalsCache {
     /// Create a new empty cache.
@@ -183,6 +187,7 @@ impl CinematicSignalsCache {
             version: CINEMATIC_SIGNALS_VERSION,
             shot_threshold: 0.5,
             min_shot_duration: 0.5,
+            object_detections: None,
         }
     }
 
@@ -193,7 +198,14 @@ impl CinematicSignalsCache {
             version: CINEMATIC_SIGNALS_VERSION,
             shot_threshold: threshold,
             min_shot_duration: min_duration,
+            object_detections: None,
         }
+    }
+
+    /// Add object detections to the cache.
+    pub fn with_object_detections(mut self, detections: ObjectDetectionsCache) -> Self {
+        self.object_detections = Some(detections);
+        self
     }
 
     /// Check if cache is valid for given config.
@@ -201,6 +213,14 @@ impl CinematicSignalsCache {
         self.version == CINEMATIC_SIGNALS_VERSION
             && (self.shot_threshold - threshold).abs() < 0.01
             && (self.min_shot_duration - min_duration).abs() < 0.01
+    }
+
+    /// Check if object detections cache is valid.
+    pub fn has_valid_object_detections(&self, expected_model: &str) -> bool {
+        self.object_detections
+            .as_ref()
+            .map(|od| od.model_version == expected_model && !od.frames.is_empty())
+            .unwrap_or(false)
     }
 }
 
@@ -217,6 +237,62 @@ pub struct ShotBoundaryCache {
     pub start_time: f64,
     /// End time in seconds
     pub end_time: f64,
+}
+
+/// Cached object detection results.
+///
+/// Stores per-frame object detections from YOLOv8 or similar models
+/// to avoid re-running expensive inference on reprocessing.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
+pub struct ObjectDetectionsCache {
+    /// Per-frame object detections
+    pub frames: Vec<FrameObjectDetections>,
+    /// Sample interval used (for time calculation)
+    pub sample_interval: f64,
+    /// Model version for cache invalidation (e.g., "yolov8n")
+    pub model_version: String,
+}
+
+impl ObjectDetectionsCache {
+    /// Create a new object detections cache.
+    pub fn new(sample_interval: f64, model_version: impl Into<String>) -> Self {
+        Self {
+            frames: Vec::new(),
+            sample_interval,
+            model_version: model_version.into(),
+        }
+    }
+
+    /// Add a frame's detections.
+    pub fn add_frame(&mut self, time: f64, objects: Vec<CachedObjectDetection>) {
+        self.frames.push(FrameObjectDetections { time, objects });
+    }
+}
+
+/// Object detections for a single frame.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
+pub struct FrameObjectDetections {
+    /// Timestamp in seconds
+    pub time: f64,
+    /// Object detections in this frame
+    pub objects: Vec<CachedObjectDetection>,
+}
+
+/// A cached object detection.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
+pub struct CachedObjectDetection {
+    /// Normalized X coordinate (0-1)
+    pub x: f32,
+    /// Normalized Y coordinate (0-1)
+    pub y: f32,
+    /// Normalized width (0-1)
+    pub width: f32,
+    /// Normalized height (0-1)
+    pub height: f32,
+    /// COCO class ID
+    pub class_id: usize,
+    /// Confidence score (0-1)
+    pub confidence: f32,
 }
 
 /// Analysis results for a single frame.
@@ -430,5 +506,41 @@ mod tests {
         let mut old_analysis = SceneNeuralAnalysis::new("video", 1);
         old_analysis.analysis_version = 0;
         assert!(!old_analysis.is_current_version());
+    }
+
+    #[test]
+    fn test_object_detections_cache_serde() {
+        let mut cache = ObjectDetectionsCache::new(0.125, "yolov8n");
+        cache.add_frame(
+            0.5,
+            vec![CachedObjectDetection {
+                x: 0.1,
+                y: 0.2,
+                width: 0.3,
+                height: 0.4,
+                class_id: 0, // person
+                confidence: 0.9,
+            }],
+        );
+
+        let json = serde_json::to_string(&cache).expect("serialize");
+        let decoded: ObjectDetectionsCache = serde_json::from_str(&json).expect("deserialize");
+
+        assert_eq!(cache.frames.len(), decoded.frames.len());
+        assert_eq!(decoded.model_version, "yolov8n");
+        assert_eq!(decoded.frames[0].objects.len(), 1);
+        assert_eq!(decoded.frames[0].objects[0].class_id, 0);
+    }
+
+    #[test]
+    fn test_cinematic_signals_with_objects() {
+        let mut obj_cache = ObjectDetectionsCache::new(0.125, "yolov8n");
+        obj_cache.add_frame(0.0, vec![]);
+
+        let cache = CinematicSignalsCache::with_shots(vec![], 0.5, 0.5)
+            .with_object_detections(obj_cache);
+
+        assert!(cache.has_valid_object_detections("yolov8n"));
+        assert!(!cache.has_valid_object_detections("yolov8s")); // Different model
     }
 }

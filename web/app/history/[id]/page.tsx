@@ -53,6 +53,7 @@ import {
   bulkDeleteClips,
   deleteAllClips,
   deleteClip as deleteClipApi,
+  getProcessingStatuses,
   getVideoDetails,
   getVideoHighlights,
   getVideoSceneStyles,
@@ -414,13 +415,11 @@ export default function HistoryDetailPage() {
         const token = await getIdToken();
         if (!token || cancelled) return;
 
-        const data = await apiFetch<{
-          videos: Array<{ video_id?: string; id?: string; status?: string }>;
-        }>("/api/user/videos", { token });
+        const data = await getProcessingStatuses(token, [videoId]);
 
         if (cancelled) return;
 
-        const video = data.videos.find((v) => (v.video_id ?? v.id) === videoId);
+        const video = data.videos.find((v) => v.video_id === videoId);
 
         // Set processing status based on API
         // We trust the API status. If it says processing, we show the status window.

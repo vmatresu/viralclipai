@@ -84,6 +84,23 @@ pub struct ListDocumentsResponse {
     pub next_page_token: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchGetDocumentsRequest {
+    pub documents: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mask: Option<DocumentMask>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchGetDocumentsResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub found: Option<Document>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub missing: Option<String>,
+ }
+
 // ============================================================================
 // Batch Write Types (for atomic multi-document operations)
 // ============================================================================

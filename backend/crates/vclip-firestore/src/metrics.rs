@@ -21,6 +21,9 @@ pub mod names {
 
     /// Request latency in seconds by operation.
     pub const LATENCY_SECONDS: &str = "firestore_latency_seconds";
+
+    /// Total documents returned by list operations.
+    pub const LIST_DOCUMENTS_RETURNED_TOTAL: &str = "firestore_list_documents_returned_total";
 }
 
 // =============================================================================

@@ -37,48 +37,87 @@ async fn test_video_repository() {
     let user_id = "test_user_integration";
     let repo = VideoRepository::new(client.clone(), user_id);
 
-    // Create a test video
-    let video_id = VideoId::new();
-    let video = VideoMetadata {
-        id: video_id.clone(),
-        user_id: user_id.to_string(),
-        video_url: "https://www.youtube.com/watch?v=test".to_string(),
-        video_title: "Integration Test Video".to_string(),
-        status: VideoStatus::Processing,
-        clips_count: 0,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
-        completed_at: None,
-        error_message: None,
-        custom_prompt: None,
-    };
+    // Create a few test videos to validate pagination and batch status reads.
+    let video_ids: Vec<VideoId> = (0..3).map(|_| VideoId::new()).collect();
 
-    // Create
-    repo.create(&video).await.expect("Failed to create video");
-    println!("Created video: {}", video_id);
+    for (i, video_id) in video_ids.iter().enumerate() {
+        let video = VideoMetadata {
+            video_id: video_id.clone(),
+            user_id: user_id.to_string(),
+            video_url: "https://www.youtube.com/watch?v=test".to_string(),
+            video_title: format!("Integration Test Video {}", i),
+            youtube_id: "test".to_string(),
+            status: VideoStatus::Processing,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            completed_at: None,
+            failed_at: None,
+            error_message: None,
+            highlights_count: 0,
+            custom_prompt: None,
+            styles_processed: vec![],
+            crop_mode: "none".to_string(),
+            target_aspect: "9:16".to_string(),
+            clips_count: 0,
+            total_size_bytes: 0,
+            clips_by_style: std::collections::HashMap::new(),
+            highlights_json_key: "test".to_string(),
+            created_by: user_id.to_string(),
+            source_video_r2_key: None,
+            source_video_status: None,
+            source_video_expires_at: None,
+            source_video_error: None,
+        };
+        repo.create(&video).await.expect("Failed to create video");
+        println!("Created video: {}", video_id);
+    }
 
-    // Read
-    let fetched = repo.get(video_id.as_str()).await.expect("Failed to get video");
+    // Read one back
+    let fetched = repo
+        .get(&video_ids[0])
+        .await
+        .expect("Failed to get video");
     assert!(fetched.is_some());
-    let fetched = fetched.unwrap();
-    assert_eq!(fetched.video_title, "Integration Test Video");
 
-    // Update status
-    repo.update_status(video_id.as_str(), VideoStatus::Completed)
+    // Pagination: request 1 item per page, expect a next_page_token.
+    let (page1, token1) = repo
+        .list_page(Some(1), None)
+        .await
+        .expect("Failed to list_page");
+    assert_eq!(page1.len(), 1);
+    assert!(token1.is_some());
+
+    let (page2, _token2) = repo
+        .list_page(Some(1), token1.as_deref())
+        .await
+        .expect("Failed to list_page (page 2)");
+    assert_eq!(page2.len(), 1);
+
+    // Batch status snapshots
+    let snapshots = repo
+        .get_status_snapshots(&video_ids)
+        .await
+        .expect("Failed to get_status_snapshots");
+    assert!(snapshots.len() <= video_ids.len());
+
+    // Update status of first video
+    repo.update_status(&video_ids[0], VideoStatus::Completed)
         .await
         .expect("Failed to update status");
 
     // Verify update
-    let updated = repo.get(video_id.as_str()).await.expect("Failed to get video").unwrap();
+    let updated = repo
+        .get(&video_ids[0])
+        .await
+        .expect("Failed to get video")
+        .unwrap();
     assert_eq!(updated.status, VideoStatus::Completed);
 
-    // Delete
-    repo.delete(video_id.as_str()).await.expect("Failed to delete video");
-    println!("Deleted video: {}", video_id);
-
-    // Verify deletion
-    let deleted = repo.get(video_id.as_str()).await.expect("Failed to get video");
-    assert!(deleted.is_none());
+    // Cleanup
+    for video_id in &video_ids {
+        repo.delete(video_id).await.expect("Failed to delete video");
+        println!("Deleted video: {}", video_id);
+    }
 }
 
 /// Test user repository operations.

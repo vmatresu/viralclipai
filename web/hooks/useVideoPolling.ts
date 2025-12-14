@@ -5,9 +5,10 @@
  * Uses exponential backoff to reduce server load.
  */
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
-import { apiFetch } from "@/lib/apiClient";
+import { mergeProcessingStatuses } from "@/hooks/videoPollingMerge";
+import { getProcessingStatuses } from "@/lib/apiClient";
 import { invalidateClipsCache } from "@/lib/cache";
 import { frontendLogger } from "@/lib/logger";
 
@@ -16,6 +17,7 @@ export interface UserVideo {
   video_id?: string;
   status?: "processing" | "analyzed" | "completed" | "failed";
   clips_count?: number;
+  updated_at?: string;
 }
 
 interface UseVideoPollingOptions {
@@ -25,6 +27,11 @@ interface UseVideoPollingOptions {
   onVideosUpdate: (videos: UserVideo[]) => void;
   pollInterval?: number; // Default: 5000ms
   maxInterval?: number; // Maximum interval for exponential backoff
+  longProcessingAfterMs?: number; // Default: 10 min
+}
+
+function getVideoId(video: UserVideo): string {
+  return video.video_id ?? video.id ?? "";
 }
 
 /**
@@ -37,10 +44,21 @@ export function useVideoPolling({
   onVideosUpdate,
   pollInterval = 5000,
   maxInterval = 30000,
+  longProcessingAfterMs = 10 * 60 * 1000,
 }: UseVideoPollingOptions) {
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const backoffRef = useRef<number>(pollInterval);
   const isPollingRef = useRef<boolean>(false);
+  const firstSeenProcessingAtRef = useRef<Map<string, number>>(new Map());
+
+  const processingIds = useMemo(() => {
+    return videos
+      .filter((v) => v.status === "processing")
+      .map(getVideoId)
+      .filter(Boolean);
+  }, [videos]);
+
+  const processingIdsKey = useMemo(() => processingIds.join(","), [processingIds]);
 
   const poll = useCallback(async () => {
     // Prevent concurrent polls
@@ -56,39 +74,23 @@ export function useVideoPolling({
         return;
       }
 
-      const data = await apiFetch<{ videos: UserVideo[] }>("/api/user/videos", {
-        token,
-      });
-      const newVideos = (data as { videos: UserVideo[] }).videos ?? [];
-
-      // Create a map of old videos by ID for comparison
-      const oldVideosMap = new Map<string, UserVideo>();
-      videos.forEach((v) => {
-        const id = v.video_id ?? v.id ?? "";
-        if (id) oldVideosMap.set(id, v);
-      });
-
-      // Check if any video status changed
-      let hasStatusChange = false;
-      const completedVideoIds: string[] = [];
-
-      newVideos.forEach((newV) => {
-        const id = newV.video_id ?? newV.id ?? "";
-        if (!id) return;
-
-        const oldV = oldVideosMap.get(id);
-        if (oldV?.status === "processing" && newV.status === "completed") {
-          hasStatusChange = true;
-          completedVideoIds.push(id);
-        } else if (oldV && oldV.status !== newV.status) {
-          hasStatusChange = true;
+      const now = Date.now();
+      processingIds.forEach((id) => {
+        if (!firstSeenProcessingAtRef.current.has(id)) {
+          firstSeenProcessingAtRef.current.set(id, now);
         }
       });
 
-      if (hasStatusChange) {
-        onVideosUpdate(newVideos);
+      const data = await getProcessingStatuses(token, processingIds);
+      const { merged, completedVideoIds, hadAnyChange } = mergeProcessingStatuses(
+        videos,
+        data.videos
+      );
+
+      if (hadAnyChange) {
+        onVideosUpdate(merged);
         // Invalidate cache for videos that completed
-        completedVideoIds.forEach((videoId) => {
+        completedVideoIds.forEach((videoId: string) => {
           void invalidateClipsCache(videoId);
         });
         // Reset backoff on successful update
@@ -96,6 +98,17 @@ export function useVideoPolling({
       } else {
         // Exponential backoff if no changes (reduce server load)
         backoffRef.current = Math.min(backoffRef.current * 1.5, maxInterval);
+      }
+
+      const processingDurationsMs = processingIds
+        .map((id) => {
+          const start = firstSeenProcessingAtRef.current.get(id);
+          return typeof start === "number" ? now - start : 0;
+        })
+        .filter((v) => v > 0);
+      const maxProcessingMs = Math.max(0, ...processingDurationsMs);
+      if (maxProcessingMs > longProcessingAfterMs) {
+        backoffRef.current = Math.min(Math.max(backoffRef.current, maxInterval), 60000);
       }
     } catch (err) {
       // Silently fail - don't disrupt UI
@@ -105,7 +118,15 @@ export function useVideoPolling({
     } finally {
       isPollingRef.current = false;
     }
-  }, [videos, getIdToken, onVideosUpdate, pollInterval, maxInterval]);
+  }, [
+    videos,
+    getIdToken,
+    onVideosUpdate,
+    pollInterval,
+    maxInterval,
+    longProcessingAfterMs,
+    processingIds,
+  ]);
 
   useEffect(() => {
     const cleanup = () => {
@@ -120,10 +141,10 @@ export function useVideoPolling({
       return cleanup;
     }
 
-    const hasProcessingVideos = videos.some((v) => v.status === "processing");
-    if (!hasProcessingVideos) {
+    if (!processingIdsKey) {
       // Reset backoff when no processing videos
       backoffRef.current = pollInterval;
+      firstSeenProcessingAtRef.current.clear();
       cleanup();
       return cleanup;
     }
@@ -145,7 +166,7 @@ export function useVideoPolling({
     scheduleNextPoll();
 
     return cleanup;
-  }, [enabled, videos, poll, pollInterval]);
+  }, [enabled, processingIdsKey, poll, pollInterval]);
 
   return {
     currentInterval: backoffRef.current,

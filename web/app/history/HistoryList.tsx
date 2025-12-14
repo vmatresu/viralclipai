@@ -51,6 +51,7 @@ import {
   apiFetch,
   bulkDeleteVideos,
   deleteVideo,
+  getUserVideos,
   updateVideoTitle,
 } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
@@ -74,6 +75,8 @@ export default function HistoryList() {
   const [videos, setVideos] = useState<UserVideo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [nextPageToken, setNextPageToken] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [selectedVideos, setSelectedVideos] = useState<Set<string>>(new Set());
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
@@ -168,10 +171,13 @@ export default function HistoryList() {
       if (!token) {
         throw new Error("Failed to get authentication token");
       }
-      const data = (await apiFetch<{ videos: UserVideo[] }>("/api/user/videos", {
-        token,
-      })) as { videos: UserVideo[] };
+
+      const data = await getUserVideos<UserVideo>(token, {
+        limit: 25,
+        pageToken: null,
+      });
       setVideos(data.videos ?? []);
+      setNextPageToken((data.next_page_token as string | null) ?? null);
       setError(null);
       setSelectedVideos(new Set()); // Clear selections when reloading
     } catch (err: unknown) {
@@ -182,6 +188,48 @@ export default function HistoryList() {
       setLoading(false);
     }
   }, [getIdToken, user, authLoading]);
+
+  const loadMoreVideos = useCallback(async () => {
+    if (authLoading || !user) {
+      return;
+    }
+    if (!nextPageToken || loadingMore) {
+      return;
+    }
+
+    setLoadingMore(true);
+    try {
+      const token = await getIdToken();
+      if (!token) {
+        throw new Error("Failed to get authentication token");
+      }
+      const data = await getUserVideos<UserVideo>(token, {
+        limit: 25,
+        pageToken: nextPageToken,
+      });
+
+      setVideos((prev) => {
+        const existing = new Set(
+          prev.map((v) => v.video_id ?? v.id ?? "").filter(Boolean)
+        );
+        const merged = [...prev];
+        (data.videos ?? []).forEach((v) => {
+          const id = v.video_id ?? v.id ?? "";
+          if (!id || existing.has(id)) return;
+          existing.add(id);
+          merged.push(v);
+        });
+        return merged;
+      });
+      setNextPageToken((data.next_page_token as string | null) ?? null);
+    } catch (err: unknown) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to load more history";
+      setError(errorMessage);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [authLoading, user, nextPageToken, loadingMore, getIdToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -206,12 +254,20 @@ export default function HistoryList() {
 
         // Load videos and plan usage in parallel
         const [videosData, usageData] = await Promise.all([
-          apiFetch<{ videos: UserVideo[] }>("/api/user/videos", { token }),
+          getUserVideos<UserVideo>(token, {
+            limit: 25,
+            pageToken: null,
+          }),
           apiFetch<PlanUsage>("/api/settings", { token }),
         ]);
 
         if (!cancelled) {
           setVideos((videosData as { videos: UserVideo[] }).videos ?? []);
+          setNextPageToken(
+            ((videosData as { next_page_token?: string | null }).next_page_token as
+              | string
+              | null) ?? null
+          );
           setPlanUsage(usageData);
           setError(null);
           setSelectedVideos(new Set()); // Clear selections when reloading
@@ -903,6 +959,14 @@ export default function HistoryList() {
           </TableBody>
         </Table>
       </div>
+
+      {nextPageToken && (
+        <div className="flex justify-center pt-2">
+          <Button variant="outline" onClick={loadMoreVideos} disabled={loadingMore}>
+            {loadingMore ? "Loading..." : "Load more"}
+          </Button>
+        </div>
+      )}
 
       <DeleteConfirmDialog
         open={deleteDialogOpen}

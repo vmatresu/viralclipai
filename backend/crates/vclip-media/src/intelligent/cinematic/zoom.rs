@@ -235,21 +235,24 @@ impl AdaptiveZoom {
     /// * `keyframes` - Camera keyframes to modify
     /// * `frame_detections` - Detections per frame (indexed by frame number)
     /// * `activities` - Activity scores per track_id
-    /// * `fps` - Frames per second for time mapping
+    /// * `start_time` - Start time of the detection window (seconds)
+    /// * `detection_fps` - Sampling rate of `frame_detections` (frames per second)
     pub fn apply_to_keyframes(
         &mut self,
         keyframes: &[CameraKeyframe],
         frame_detections: &[Vec<Detection>],
         activities: &HashMap<u32, f64>,
-        fps: f64,
+        start_time: f64,
+        detection_fps: f64,
     ) -> Vec<CameraKeyframe> {
         self.reset();
 
         keyframes
             .iter()
             .map(|kf| {
-                // Find corresponding frame
-                let frame_idx = (kf.time * fps).round() as usize;
+                // Find corresponding detection frame (frame_detections are sampled at detection_fps)
+                let rel_time = (kf.time - start_time).max(0.0);
+                let frame_idx = (rel_time * detection_fps).round() as usize;
                 let detections = frame_detections
                     .get(frame_idx)
                     .map(|v| v.as_slice())

@@ -24,7 +24,7 @@ use crate::handlers::settings::{get_settings, update_settings};
 use crate::handlers::storage::{check_storage_quota, get_storage_quota};
 use crate::handlers::videos::{
     bulk_delete_clips, bulk_delete_videos, delete_all_clips, delete_clip, delete_video, get_video_highlights, get_video_info,
-    get_video_scene_styles, list_user_videos, reprocess_scenes, stream_clip, update_video_title,
+    get_video_scene_styles, list_user_videos, get_processing_status, reprocess_scenes, stream_clip, update_video_title,
 };
 use crate::metrics::metrics_middleware;
 use crate::middleware::{cors_layer, rate_limit_middleware, request_id, request_logging, security_headers, RateLimiterCache};
@@ -69,7 +69,8 @@ pub fn create_router(state: AppState, metrics_handle: Option<PrometheusHandle>) 
         // Reprocess
         .route("/videos/:video_id/reprocess", post(reprocess_scenes))
         // User videos list
-        .route("/user/videos", get(list_user_videos));
+        .route("/user/videos", get(list_user_videos))
+        .route("/user/videos/processing-status", get(get_processing_status));
 
     // Clip delivery routes (secure playback/download/share URLs)
     let clip_routes = Router::new()

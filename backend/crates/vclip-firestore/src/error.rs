@@ -62,7 +62,8 @@ impl FirestoreError {
     pub fn from_http_status(status: u16, message: impl Into<String>) -> Self {
         let msg = message.into();
         match status {
-            401 | 403 => Self::PermissionDenied(msg),
+            401 => Self::AuthError(msg),
+            403 => Self::PermissionDenied(msg),
             404 => Self::NotFound(msg),
             409 => Self::AlreadyExists(msg),
             412 => Self::PreconditionFailed(msg),
@@ -90,6 +91,7 @@ impl FirestoreError {
     /// Get HTTP status code if available.
     pub fn http_status(&self) -> Option<u16> {
         match self {
+            FirestoreError::AuthError(_) => Some(401),
             FirestoreError::RateLimited(_) => Some(429),
             FirestoreError::ServerError(status, _) => Some(*status),
             FirestoreError::NotFound(_) => Some(404),

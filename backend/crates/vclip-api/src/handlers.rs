@@ -6,6 +6,7 @@ pub mod clip_delivery;
 pub mod health;
 pub mod settings;
 pub mod storage;
+pub mod video_status;
 pub mod videos;
 
 pub use admin::*;
@@ -14,4 +15,5 @@ pub use clip_delivery::*;
 pub use health::*;
 pub use settings::*;
 pub use storage::*;
+pub use video_status::*;
 pub use videos::*;

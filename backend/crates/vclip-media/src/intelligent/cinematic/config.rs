@@ -2,6 +2,20 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Trajectory optimization method for camera path smoothing.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub enum TrajectoryMethod {
+    /// L2 polynomial fitting - fast, good baseline.
+    /// Produces paths with small, non-zero motion everywhere.
+    L2Polynomial,
+    
+    /// L1 optimal paths - better quality, promotes sparsity in derivatives.
+    /// Produces cinematographic segments: static → pan → static.
+    /// This is the default as it produces more professional results.
+    #[default]
+    L1Optimal,
+}
+
 /// Configuration for the Cinematic pipeline.
 ///
 /// This configuration controls all aspects of the AutoAI-inspired
@@ -22,7 +36,12 @@ pub struct CinematicConfig {
     // ============================================
     // Trajectory Optimization
     // ============================================
-    /// Degree of polynomial for trajectory fitting.
+    /// Trajectory optimization method.
+    /// L1Optimal (default) produces cinematographic segments with distinct static/pan periods.
+    /// L2Polynomial is faster but produces constant micro-motion.
+    pub trajectory_method: TrajectoryMethod,
+
+    /// Degree of polynomial for trajectory fitting (used by L2Polynomial method).
     /// 3 = cubic (good balance of smooth vs responsive)
     pub polynomial_degree: usize,
 
@@ -123,6 +142,7 @@ impl Default for CinematicConfig {
             panning_threshold: 0.15,
 
             // Trajectory optimization
+            trajectory_method: TrajectoryMethod::default(),  // L1Optimal
             polynomial_degree: 3,
             smoothness_weight: 0.3,
             output_sample_rate: 30.0,
@@ -233,6 +253,17 @@ impl CinematicConfig {
     pub fn with_detection_fps(mut self, fps: f64) -> Self {
         self.detection_fps = fps;
         self
+    }
+
+    /// Builder: Set trajectory optimization method.
+    pub fn with_trajectory_method(mut self, method: TrajectoryMethod) -> Self {
+        self.trajectory_method = method;
+        self
+    }
+
+    /// Builder: Use L2 polynomial trajectory (faster, less cinematic).
+    pub fn with_l2_trajectory(self) -> Self {
+        self.with_trajectory_method(TrajectoryMethod::L2Polynomial)
     }
 }
 

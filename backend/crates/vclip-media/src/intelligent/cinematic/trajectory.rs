@@ -1,22 +1,31 @@
-//! Polynomial trajectory optimization for cinematic camera motion.
+//! Trajectory optimization for cinematic camera motion.
 //!
-//! This module implements AutoAI-inspired trajectory smoothing using
-//! regularized least-squares polynomial fitting.
+//! This module provides a unified trajectory optimizer that can use either:
+//! - **L1 Optimal paths**: Promotes sparsity for cinematographic segments (default)
+//! - **L2 Polynomial fitting**: Fast baseline with regularized least-squares
+//!
+//! The L1 method produces professional-quality camera motion with distinct
+//! static and panning segments, while L2 provides faster processing with
+//! good (but not cinematic) smoothness.
 
 use super::camera_mode::{median, CameraMode};
-use super::config::CinematicConfig;
+use super::config::{CinematicConfig, TrajectoryMethod};
+use super::l1_optimizer::L1TrajectoryOptimizer;
 use crate::intelligent::CameraKeyframe;
+use tracing::warn;
 
-/// Polynomial trajectory optimizer for smooth camera paths.
+/// Trajectory optimizer for smooth camera paths.
 ///
-/// Uses regularized least-squares fitting to create smooth camera trajectories
-/// that minimize jerk (rate of acceleration change) while staying close to
-/// the original keyframe positions.
+/// Supports both L1 (optimal cinematographic) and L2 (polynomial) methods.
+/// L1 is the default for best visual quality.
 pub struct TrajectoryOptimizer {
-    /// Degree of polynomial (3 = cubic, good balance).
+    /// Trajectory optimization method.
+    pub method: TrajectoryMethod,
+
+    /// Degree of polynomial for L2 fitting (3 = cubic, good balance).
     pub polynomial_degree: usize,
 
-    /// Regularization weight for smoothness (0-1).
+    /// Regularization weight for L2 smoothness (0-1).
     pub smoothness_weight: f64,
 
     /// Output sample rate in fps.
@@ -27,15 +36,27 @@ impl TrajectoryOptimizer {
     /// Create optimizer from config.
     pub fn new(config: &CinematicConfig) -> Self {
         Self {
+            method: config.trajectory_method,
             polynomial_degree: config.polynomial_degree,
             smoothness_weight: config.smoothness_weight,
             sample_rate: config.output_sample_rate,
         }
     }
 
-    /// Create optimizer with explicit parameters.
+    /// Create optimizer with explicit parameters (uses L1 by default).
     pub fn with_params(degree: usize, smoothness: f64, sample_rate: f64) -> Self {
         Self {
+            method: TrajectoryMethod::L1Optimal,
+            polynomial_degree: degree,
+            smoothness_weight: smoothness,
+            sample_rate,
+        }
+    }
+
+    /// Create optimizer with specific method.
+    pub fn with_method(method: TrajectoryMethod, degree: usize, smoothness: f64, sample_rate: f64) -> Self {
+        Self {
+            method,
             polynomial_degree: degree,
             smoothness_weight: smoothness,
             sample_rate,
@@ -59,6 +80,32 @@ impl TrajectoryOptimizer {
             return keyframes.to_vec();
         }
 
+        match self.method {
+            TrajectoryMethod::L1Optimal => self.optimize_l1(keyframes, mode),
+            TrajectoryMethod::L2Polynomial => self.optimize_l2(keyframes, mode),
+        }
+    }
+
+    /// Optimize using L1 optimal paths (with L2 fallback on failure).
+    fn optimize_l1(&self, keyframes: &[CameraKeyframe], mode: CameraMode) -> Vec<CameraKeyframe> {
+        // For stationary mode, L1 isn't needed - just use median
+        if matches!(mode, CameraMode::Stationary) {
+            return self.apply_stationary(keyframes);
+        }
+
+        let l1_optimizer = L1TrajectoryOptimizer::new(self.sample_rate);
+        
+        match l1_optimizer.optimize(keyframes) {
+            Ok(result) => result,
+            Err(e) => {
+                warn!("L1 trajectory optimization failed: {}, falling back to L2", e);
+                self.optimize_l2(keyframes, mode)
+            }
+        }
+    }
+
+    /// Optimize using L2 polynomial fitting.
+    fn optimize_l2(&self, keyframes: &[CameraKeyframe], mode: CameraMode) -> Vec<CameraKeyframe> {
         match mode {
             CameraMode::Stationary => self.apply_stationary(keyframes),
             CameraMode::Panning => self.apply_panning(keyframes),
@@ -384,7 +431,11 @@ mod tests {
 
     #[test]
     fn test_tracking_optimization() {
-        let optimizer = TrajectoryOptimizer::with_params(3, 0.3, 10.0);
+        // Use L2 explicitly since this test validates L2-specific resampling
+        let optimizer = TrajectoryOptimizer::with_method(
+            TrajectoryMethod::L2Polynomial,
+            3, 0.3, 10.0
+        );
         let keyframes = make_keyframes(&[
             (0.0, 200.0, 300.0, 200.0),
             (0.5, 500.0, 350.0, 250.0),
