@@ -115,14 +115,14 @@ pub async fn compute_cinematic_signals(
                 signals = signals.with_object_detections(object_cache);
             }
             Err(e) => {
-                debug!(
+                info!(
                     error = %e,
-                    "[CINEMATIC_SIGNALS] Object detection skipped (model not available)"
+                    "[CINEMATIC_SIGNALS] Object detection unavailable (model load failed)"
                 );
             }
         }
     } else {
-        debug!("[CINEMATIC_SIGNALS] Object detection disabled by user preference");
+        info!("[CINEMATIC_SIGNALS] Object detection disabled (user preference)");
     }
 
     Ok(signals)

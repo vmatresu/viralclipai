@@ -156,7 +156,7 @@ impl TierAwareSplitProcessor {
         );
 
         if !split_info.should_split {
-            info!("[INTELLIGENT_SPLIT] Alternating/single-face detected → using full-frame tracking");
+            info!("[INTELLIGENT_SPLIT] Alternating/single speaker detected → falling back to INTELLIGENT_FULL mode (this is expected for non-simultaneous speakers)");
             let cropper = super::tier_aware_cropper::TierAwareIntelligentCropper::new(
                 self.config.clone(),
                 self.tier,

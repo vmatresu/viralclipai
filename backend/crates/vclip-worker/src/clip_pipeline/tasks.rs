@@ -1,4 +1,4 @@
-use vclip_models::{AspectRatio, ClipTask, CropMode, Style};
+use vclip_models::{sanitize_filename_title, AspectRatio, ClipTask, CropMode, Style};
 
 use crate::gemini::HighlightsResponse;
 
@@ -17,7 +17,7 @@ pub fn generate_clip_tasks(
         for style in styles {
             let task = ClipTask {
                 scene_id: highlight.id,
-                scene_title: sanitize_title(&highlight.title),
+                scene_title: sanitize_filename_title(&highlight.title),
                 scene_description: highlight.description.clone(),
                 start: highlight.start.clone(),
                 end: highlight.end.clone(),
@@ -35,19 +35,6 @@ pub fn generate_clip_tasks(
     tasks
 }
 
-/// Sanitize a title for use in filenames.
-pub fn sanitize_title(title: &str) -> String {
-    title
-        .chars()
-        .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_')
-        .collect::<String>()
-        .trim()
-        .replace(' ', "_")
-        .chars()
-        .take(50)
-        .collect()
-}
-
 /// Generate clip tasks from a subset of highlight entries (for reprocessing).
 /// Uses R2 HighlightEntry format (legacy).
 pub fn generate_clip_tasks_from_highlights(
@@ -62,7 +49,7 @@ pub fn generate_clip_tasks_from_highlights(
         for style in styles {
             tasks.push(ClipTask {
                 scene_id: highlight.id,
-                scene_title: sanitize_title(&highlight.title),
+                scene_title: sanitize_filename_title(&highlight.title),
                 scene_description: highlight.description.clone(),
                 start: highlight.start.clone(),
                 end: highlight.end.clone(),
@@ -92,7 +79,7 @@ pub fn generate_clip_tasks_from_firestore_highlights(
         for style in styles {
             tasks.push(ClipTask {
                 scene_id: highlight.id,
-                scene_title: sanitize_title(&highlight.title),
+                scene_title: sanitize_filename_title(&highlight.title),
                 scene_description: highlight.description.clone(),
                 start: highlight.start.clone(),
                 end: highlight.end.clone(),

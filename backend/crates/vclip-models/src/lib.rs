@@ -29,7 +29,7 @@ pub mod ws;
 pub mod youtube_url_config;
 
 // Re-export common types
-pub use clip::{ClipMetadata, ClipStatus, ClipTask};
+pub use clip::{ClipMetadata, ClipStatus, ClipTask, sanitize_filename_title};
 pub use detection_tier::DetectionTier;
 pub use encoding::EncodingConfig;
 pub use highlight::{Highlight, HighlightCategory, HighlightsData, VideoHighlights};

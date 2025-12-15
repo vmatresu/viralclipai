@@ -208,7 +208,7 @@ impl ClipTask {
     ///
     /// Format: `clip_{priority:02}_{safe_title}_{style}.mp4`
     pub fn output_filename(&self) -> String {
-        let safe_title = sanitize_title(&self.scene_title);
+        let safe_title = sanitize_filename_title(&self.scene_title);
         format!(
             "clip_{:02}_{}_{}_{}.mp4",
             self.priority,
@@ -220,10 +220,14 @@ impl ClipTask {
 }
 
 /// Sanitize a title for use in filenames.
-fn sanitize_title(title: &str) -> String {
+///
+/// Only allows ASCII alphanumeric, hyphen, underscore, and space.
+/// Non-ASCII characters (including Unicode letters like 'î', 'ă', 'ș') are
+/// stripped to prevent URL encoding mismatches between R2 and signed URLs.
+pub fn sanitize_filename_title(title: &str) -> String {
     title
         .chars()
-        .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_')
+        .filter(|c| c.is_ascii_alphanumeric() || *c == ' ' || *c == '-' || *c == '_')
         .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()
@@ -261,7 +265,16 @@ mod tests {
 
     #[test]
     fn test_sanitize_title() {
-        assert_eq!(sanitize_title("Hello World!"), "hello_world");
-        assert_eq!(sanitize_title("Test@#$%123"), "test123");
+        assert_eq!(sanitize_filename_title("Hello World!"), "hello_world");
+        assert_eq!(sanitize_filename_title("Test@#$%123"), "test123");
+    }
+
+    #[test]
+    fn test_sanitize_title_unicode() {
+        // Romanian characters should be stripped (prevents 404 from URL encoding)
+        assert_eq!(sanitize_filename_title("Soluția românească"), "soluia_romneasc");
+        assert_eq!(sanitize_filename_title("RAM-ii și cartofii"), "ram-ii_i_cartofii");
+        // Only ASCII alphanumeric + space/hyphen/underscore allowed
+        assert_eq!(sanitize_filename_title("Café résumé"), "caf_rsum");
     }
 }
