@@ -37,6 +37,7 @@ reqwest = { workspace = true }
 governor = { workspace = true }
 validator = { workspace = true }
 futures-util = "0.3"
+anyhow = "1.0"
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 regex-lite = "0.1"

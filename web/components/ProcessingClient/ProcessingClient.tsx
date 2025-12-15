@@ -14,12 +14,13 @@ import { analyticsEvents } from "@/lib/analytics";
 import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
+import { useProcessing } from "@/lib/processing-context";
 import { limitLength, sanitizeUrl } from "@/lib/security/validation";
+import { createWebSocketConnection, getWebSocketUrl } from "@/lib/websocket-client";
 import {
   handleWSMessage,
   type MessageHandlerCallbacks,
 } from "@/lib/websocket/messageHandler";
-import { createWebSocketConnection, getWebSocketUrl } from "@/lib/websocket-client";
 
 import { ErrorDisplay } from "./ErrorDisplay";
 import { useVideoProcessing } from "./hooks";
@@ -72,6 +73,7 @@ export function ProcessingClient() {
   } = useVideoProcessing();
 
   const { getIdToken, loading: authLoading, user } = useAuth();
+  const { startJob, startJobPolling, completeJob } = useProcessing();
   const hasResults = clips.length > 0;
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
 
@@ -148,7 +150,7 @@ export function ProcessingClient() {
           ws.send(
             JSON.stringify({
               url: sanitizedUrl,
-              styles: styles.length > 0 ? styles : ["intelligent_split"], // Fallback to default if none selected
+              styles: styles.length > 0 ? styles : ["intelligent"], // Fallback to default if none selected
               token,
               prompt: sanitizedPrompt || undefined,
             })
@@ -178,6 +180,7 @@ export function ProcessingClient() {
             onDone: (videoId) => {
               ws.close();
               setVideoId(videoId);
+              completeJob(videoId); // Mark job as complete in processing context
               const newUrl = new URL(window.location.href);
               newUrl.searchParams.set("id", videoId);
               window.history.pushState({}, "", newUrl.toString());
@@ -193,6 +196,13 @@ export function ProcessingClient() {
               if (clipCount > 0 && totalClips > 0) {
                 log(`📦 Clip ${clipCount}/${totalClips} uploaded`, "success");
               }
+            },
+            // Job tracking for polling fallback
+            onJobStarted: (jobId, videoId) => {
+              frontendLogger.info(`Job started: ${jobId} for video ${videoId}`);
+              // Start tracking the job in processing context with polling fallback
+              startJob(videoId);
+              startJobPolling(videoId, jobId, token);
             },
             // Detailed progress callbacks
             onSceneStarted: handleSceneStarted,

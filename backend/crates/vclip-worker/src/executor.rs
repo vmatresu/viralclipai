@@ -291,9 +291,26 @@ impl JobExecutor {
             }
         });
 
+        // Progress heartbeat for frontend polling fallback
+        // Updates the heartbeat timestamp in Redis so stale job detection works
+        let progress_ctx = Arc::clone(&ctx);
+        let progress_job_id = vclip_models::JobId::from(job_id.clone());
+        let progress_heartbeat_task = tokio::spawn(async move {
+            // Heartbeat every 15 seconds to stay well under the 60s stale threshold
+            let mut ticker = tokio::time::interval(Duration::from_secs(15));
+            loop {
+                ticker.tick().await;
+                if let Err(e) = progress_ctx.progress.heartbeat(&progress_job_id).await {
+                    debug!("Progress heartbeat failed for job {}: {}", progress_job_id, e);
+                }
+            }
+        });
+
         let result = Self::process_job(Arc::clone(&ctx), job.clone(), video_processor).await;
 
+        // Stop both heartbeat tasks
         heartbeat_task.abort();
+        progress_heartbeat_task.abort();
 
         match result {
             Ok(()) => {

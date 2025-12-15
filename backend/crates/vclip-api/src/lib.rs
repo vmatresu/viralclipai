@@ -22,5 +22,5 @@ pub mod ws;
 pub use config::ApiConfig;
 pub use error::{ApiError, ApiResult};
 pub use routes::create_router;
-pub use services::UserService;
+pub use services::{StaleJobDetector, UserService};
 pub use state::AppState;

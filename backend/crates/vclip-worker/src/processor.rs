@@ -357,15 +357,20 @@ impl VideoProcessor {
             highlights: highlights
                 .highlights
                 .iter()
-                .map(|h| vclip_models::Highlight {
-                    id: h.id,
-                    title: h.title.clone(),
-                    start: h.start.clone(),
-                    end: h.end.clone(),
-                    duration: h.duration,
-                    pad_before: h.pad_before_seconds,
-                    pad_after: h.pad_after_seconds,
-                    hook_category: h.hook_category.as_ref().and_then(|cat| {
+                .map(|h| {
+                    let mut highlight = vclip_models::Highlight::new(
+                        h.id,
+                        h.title.clone(),
+                        h.start.clone(),
+                        h.end.clone(),
+                    )
+                    .with_calculated_duration();
+                    if highlight.duration == 0 {
+                        highlight.duration = h.duration;
+                    }
+                    highlight.pad_before = h.pad_before_seconds;
+                    highlight.pad_after = h.pad_after_seconds;
+                    highlight.hook_category = h.hook_category.as_ref().and_then(|cat| {
                         match cat.to_lowercase().as_str() {
                             "emotional" => Some(vclip_models::HighlightCategory::Emotional),
                             "educational" => Some(vclip_models::HighlightCategory::Educational),
@@ -376,9 +381,10 @@ impl VideoProcessor {
                             "surprising" => Some(vclip_models::HighlightCategory::Surprising),
                             _ => Some(vclip_models::HighlightCategory::Other),
                         }
-                    }),
-                    reason: h.reason.clone(),
-                    description: h.description.clone(),
+                    });
+                    highlight.reason = h.reason.clone();
+                    highlight.description = h.description.clone();
+                    highlight
                 })
                 .collect(),
             video_url: Some(transcript.url.clone()),
@@ -540,19 +546,32 @@ impl VideoProcessor {
         let scenes: Vec<DraftScene> = analysis
             .highlights
             .iter()
-            .map(|h| DraftScene {
-                id: h.id,
-                analysis_draft_id: job.draft_id.clone(),
-                title: h.title.clone(),
-                description: h.description.clone(),
-                reason: h.reason.clone(),
-                start: h.start.clone(),
-                end: h.end.clone(),
-                duration_secs: h.duration,
-                pad_before: h.pad_before_seconds,
-                pad_after: h.pad_after_seconds,
-                confidence: None, // Confidence scoring not yet implemented in AI response
-                hook_category: h.hook_category.clone(),
+            .map(|h| {
+                let computed = vclip_models::Highlight::new(
+                    h.id,
+                    "temp",
+                    h.start.clone(),
+                    h.end.clone(),
+                )
+                .with_calculated_duration();
+                DraftScene {
+                    id: h.id,
+                    analysis_draft_id: job.draft_id.clone(),
+                    title: h.title.clone(),
+                    description: h.description.clone(),
+                    reason: h.reason.clone(),
+                    start: h.start.clone(),
+                    end: h.end.clone(),
+                    duration_secs: if computed.duration == 0 {
+                        h.duration
+                    } else {
+                        computed.duration
+                    },
+                    pad_before: h.pad_before_seconds,
+                    pad_after: h.pad_after_seconds,
+                    confidence: None, // Confidence scoring not yet implemented in AI response
+                    hook_category: h.hook_category.clone(),
+                }
             })
             .collect();
 

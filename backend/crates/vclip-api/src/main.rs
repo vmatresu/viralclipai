@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use tracing::{error, info};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-use vclip_api::{create_router, metrics, ApiConfig, AppState};
+use vclip_api::{create_router, metrics, ApiConfig, AppState, StaleJobDetector};
 
 #[tokio::main]
 async fn main() {
@@ -70,6 +70,15 @@ async fn main() {
     } else {
         None
     };
+
+    // Start stale job detector background task
+    let stale_detector = StaleJobDetector::new(
+        std::sync::Arc::clone(&state.progress),
+        std::sync::Arc::clone(&state.firestore),
+    );
+    tokio::spawn(async move {
+        stale_detector.run().await;
+    });
 
     // Create router
     let app = create_router(state, metrics_handle);

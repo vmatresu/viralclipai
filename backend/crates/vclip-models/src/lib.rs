@@ -18,6 +18,7 @@ pub mod detection_tier;
 pub mod encoding;
 pub mod highlight;
 pub mod job;
+pub mod job_status;
 pub mod neural_analysis;
 pub mod plan;
 pub mod share;
@@ -56,3 +57,4 @@ pub use neural_analysis::{
 pub use cinematic_analysis::{
     CinematicAnalysisStatus, cinematic_analysis_key, CINEMATIC_ANALYSIS_TIMEOUT_SECS,
 };
+pub use job_status::{JobStatus, JobStatusCache};

@@ -530,7 +530,7 @@ export default function HistoryDetailPage() {
       if (collected.size > 0) {
         setSelectedStyles(Array.from(collected));
       } else {
-        setSelectedStyles(["intelligent_split"]);
+        setSelectedStyles(["intelligent"]);
       }
     }
   }, [sceneStylesData, clips]);

@@ -120,8 +120,7 @@ export function useReprocessing({
         });
 
         // Start job in global processing context
-        // Set waitForProcessing=true to handle race condition where API might still show old 'completed' status
-        startJob(videoId, videoTitle, totalClips, true);
+        startJob(videoId, videoTitle, totalClips);
 
         // Use dedicated WebSocket client for better separation of concerns
         const callbacks: ReprocessCallbacks = {

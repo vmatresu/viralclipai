@@ -84,9 +84,6 @@ impl Default for UserConnectionTracker {
 static USER_CONNECTIONS: std::sync::LazyLock<UserConnectionTracker> = 
     std::sync::LazyLock::new(UserConnectionTracker::new);
 
-/// Styles that require a studio plan (Active Speaker).
-const STUDIO_ONLY_STYLES: &[Style] = &[];
-
 /// Styles that require at least a pro plan (Smart Face).
 const PRO_ONLY_STYLES: &[Style] = &[
     Style::Intelligent,
@@ -96,11 +93,6 @@ const PRO_ONLY_STYLES: &[Style] = &[
     Style::IntelligentSplitActivity,
     Style::IntelligentCinematic,
 ];
-
-/// Check if any of the styles require a studio plan.
-fn contains_studio_only_styles(styles: &[Style]) -> bool {
-    styles.iter().any(|s| STUDIO_ONLY_STYLES.contains(s))
-}
 
 /// Check if any of the styles require at least a pro plan.
 fn contains_pro_only_styles(styles: &[Style]) -> bool {
@@ -435,6 +427,21 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
     match state.queue.enqueue_process(job).await {
         Ok(_) => {
             metrics::record_job_enqueued("process_video");
+
+            // Initialize job status in Redis for polling fallback
+            // Total clips is 0 for now - worker will update once scenes are determined
+            if let Err(e) = state
+                .progress
+                .init_job_status(&job_id, video_id.as_str(), &uid, 0)
+                .await
+            {
+                warn!("Failed to init job status: {}", e);
+            }
+
+            // Send job_started message immediately for polling fallback
+            let job_started = WsMessage::job_started(job_id.as_str(), video_id.as_str());
+            send_ws_message(&tx, job_started).await;
+
             let log = WsMessage::log("Job enqueued, processing will begin shortly...");
             send_ws_message(&tx, log).await;
         }
@@ -486,6 +493,7 @@ async fn handle_process_socket(socket: WebSocket, state: AppState) {
                                         "done"
                                     },
                                     WsMessage::Error { .. } => "error",
+                                    WsMessage::JobStarted { .. } => "job_started",
                                 };
                                 metrics::record_ws_message_sent("process", msg_type);
 
@@ -797,6 +805,19 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
     // Enqueue job
     match state.queue.enqueue_reprocess(job).await {
         Ok(_) => {
+            // Initialize job status in Redis for polling fallback
+            if let Err(e) = state
+                .progress
+                .init_job_status(&job_id, video_id.as_str(), &uid, total_clips)
+                .await
+            {
+                warn!("Failed to init job status: {}", e);
+            }
+
+            // Send job_started message immediately for polling fallback
+            let job_started = WsMessage::job_started(job_id.as_str(), video_id.as_str());
+            let _ = sender.send(Message::Text(serde_json::to_string(&job_started).unwrap())).await;
+
             let log = WsMessage::log("Reprocess job enqueued...");
             let _ = sender.send(Message::Text(serde_json::to_string(&log).unwrap())).await;
         }
@@ -845,6 +866,7 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
                                     WsMessage::SceneStarted { .. } => "scene_started",
                                     WsMessage::SceneCompleted { .. } => "scene_completed",
                                     WsMessage::StyleOmitted { .. } => "style_omitted",
+                                    WsMessage::JobStarted { .. } => "job_started",
                                 };
 
                                 metrics::record_ws_message_sent("reprocess", msg_type);

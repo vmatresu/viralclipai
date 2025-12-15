@@ -46,6 +46,25 @@ export function SceneCard({
   onToggle,
   formatTime,
 }: SceneCardProps) {
+  const parseTimeToSeconds = (timeStr: string): number => {
+    if (!timeStr) return 0;
+    const parts = timeStr.split(":").map((p) => parseFloat(p) || 0);
+    if (parts.length === 3) {
+      const [h = 0, m = 0, s = 0] = parts;
+      return h * 3600 + m * 60 + s;
+    }
+    if (parts.length === 2) {
+      const [m = 0, s = 0] = parts;
+      return m * 60 + s;
+    }
+    return parseFloat(timeStr) || 0;
+  };
+
+  const computedDuration = Math.max(
+    0,
+    parseTimeToSeconds(highlight.end) - parseTimeToSeconds(highlight.start)
+  );
+
   const handleCopyForSocial = useCallback(
     async (e: React.MouseEvent<HTMLButtonElement>) => {
       e.stopPropagation();
@@ -92,7 +111,7 @@ export function SceneCard({
             </div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Clock className="h-3 w-3" />
-              <span>{highlight.duration}s</span>
+              <span>{computedDuration || highlight.duration}s</span>
               {highlight.hook_category && (
                 <>
                   <span>•</span>

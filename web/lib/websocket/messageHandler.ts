@@ -18,6 +18,7 @@ import {
   type WSClipUploadedMessage,
   type WSDoneMessage,
   type WSErrorMessage,
+  type WSJobStartedMessage,
   type WSLogMessage,
   type WSProgressMessage,
   type WSSceneCompletedMessage,
@@ -30,6 +31,8 @@ export interface MessageHandlerCallbacks {
   onError: (message: string, details?: string) => void;
   onDone: (videoId: string) => void;
   onClipUploaded: (videoId: string, clipCount: number, totalClips: number) => void;
+  // Job tracking callback for polling fallback
+  onJobStarted?: (jobId: string, videoId: string) => void;
   // New detailed progress callbacks (optional for backward compatibility)
   onClipProgress?: (
     sceneId: number,
@@ -233,6 +236,18 @@ export function handleWSMessage(
         const clipsFailed =
           typeof message.clipsFailed === "number" ? message.clipsFailed : 0;
         callbacks.onSceneCompleted(sceneId, clipsCompleted, clipsFailed);
+      }
+      return true;
+    }
+
+    // Handle job started messages (for polling fallback)
+    if (isWSMessageType<WSJobStartedMessage>(message, WS_MESSAGE_TYPES.JOB_STARTED)) {
+      if (callbacks.onJobStarted) {
+        const jobId = typeof message.jobId === "string" ? message.jobId : "";
+        const videoId = typeof message.videoId === "string" ? message.videoId : "";
+        if (jobId && videoId) {
+          callbacks.onJobStarted(jobId, videoId);
+        }
       }
       return true;
     }

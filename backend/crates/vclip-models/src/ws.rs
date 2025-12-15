@@ -20,6 +20,8 @@ pub enum WsMessageType {
     Done,
     /// Clip uploaded notification
     ClipUploaded,
+    /// Job started notification (for polling fallback)
+    JobStarted,
 }
 
 impl WsMessageType {
@@ -30,6 +32,7 @@ impl WsMessageType {
             WsMessageType::Error => "error",
             WsMessageType::Done => "done",
             WsMessageType::ClipUploaded => "clip_uploaded",
+            WsMessageType::JobStarted => "job_started",
         }
     }
 }
@@ -131,6 +134,19 @@ pub enum WsMessage {
         style: String,
         /// Reason for omission
         reason: String,
+    },
+
+    /// Job started notification (for polling fallback)
+    ///
+    /// Sent immediately after job is enqueued to enable polling-based
+    /// progress tracking as a fallback when WebSocket disconnects.
+    JobStarted {
+        /// Job ID for polling the /api/jobs/:job_id/status endpoint
+        #[serde(rename = "jobId")]
+        job_id: String,
+        /// Video ID associated with this job
+        #[serde(rename = "videoId")]
+        video_id: String,
     },
 }
 
@@ -295,6 +311,16 @@ impl WsMessage {
         }
     }
 
+    /// Create a job started message.
+    ///
+    /// Sent immediately after job enqueue to enable polling-based tracking.
+    pub fn job_started(job_id: impl Into<String>, video_id: impl Into<String>) -> Self {
+        WsMessage::JobStarted {
+            job_id: job_id.into(),
+            video_id: video_id.into(),
+        }
+    }
+
     /// Get the message type.
     pub fn message_type(&self) -> WsMessageType {
         match self {
@@ -307,6 +333,7 @@ impl WsMessage {
             WsMessage::SceneStarted { .. } => WsMessageType::Progress,
             WsMessage::SceneCompleted { .. } => WsMessageType::Progress,
             WsMessage::StyleOmitted { .. } => WsMessageType::Progress,
+            WsMessage::JobStarted { .. } => WsMessageType::JobStarted,
         }
     }
 }

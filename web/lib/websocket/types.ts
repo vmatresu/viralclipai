@@ -13,6 +13,7 @@ export const WS_MESSAGE_TYPES = {
   CLIP_PROGRESS: "clip_progress",
   SCENE_STARTED: "scene_started",
   SCENE_COMPLETED: "scene_completed",
+  JOB_STARTED: "job_started",
 } as const;
 
 export type WSMessageType = (typeof WS_MESSAGE_TYPES)[keyof typeof WS_MESSAGE_TYPES];
@@ -123,6 +124,15 @@ export interface WSSceneCompletedMessage extends BaseWSMessage {
 }
 
 /**
+ * Job started message (for polling fallback)
+ */
+export interface WSJobStartedMessage extends BaseWSMessage {
+  type: typeof WS_MESSAGE_TYPES.JOB_STARTED;
+  jobId: string;
+  videoId: string;
+}
+
+/**
  * Scene progress tracking for UI state
  */
 export interface SceneProgress {
@@ -148,7 +158,8 @@ export type WSMessage =
   | WSClipUploadedMessage
   | WSClipProgressMessage
   | WSSceneStartedMessage
-  | WSSceneCompletedMessage;
+  | WSSceneCompletedMessage
+  | WSJobStartedMessage;
 
 /**
  * Type guard to check if message is a specific type

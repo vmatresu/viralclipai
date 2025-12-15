@@ -16,7 +16,8 @@
     "paths": {
       "@/components/*": ["./components/*"],
       "@/lib/*": ["./lib/*"],
-      "@/hooks/*": ["./hooks/*"]
+      "@/hooks/*": ["./hooks/*"],
+      "@/types/*": ["./types/*"]
     },
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true

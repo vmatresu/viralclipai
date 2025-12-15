@@ -16,6 +16,7 @@ use crate::handlers::analysis::{
     delete_draft, estimate_processing, get_analysis_status, get_draft,
     list_drafts, process_draft, start_analysis,
 };
+use crate::handlers::jobs::{get_job_status, get_job_history};
 use crate::handlers::clip_delivery::{
     create_share, get_download_url, get_playback_url, get_thumbnail_url,
     resolve_share, revoke_share,
@@ -92,6 +93,11 @@ pub fn create_router(state: AppState, metrics_handle: Option<PrometheusHandle>) 
         .route("/storage/quota", get(get_storage_quota))
         .route("/storage/check", post(check_storage_quota));
 
+    // Job status routes (for polling fallback)
+    let job_routes = Router::new()
+        .route("/jobs/:job_id/status", get(get_job_status))
+        .route("/jobs/:job_id/history", get(get_job_history));
+
     // Admin routes for canary testing and user management (superadmin only)
     let admin_routes = Router::new()
         .route("/admin/jobs/synthetic", post(enqueue_synthetic_job))
@@ -120,6 +126,7 @@ pub fn create_router(state: AppState, metrics_handle: Option<PrometheusHandle>) 
         .merge(clip_routes)
         .merge(settings_routes)
         .merge(storage_routes)
+        .merge(job_routes)
         .merge(admin_routes)
         .layer(middleware::from_fn_with_state(
             rate_limiter.clone(),

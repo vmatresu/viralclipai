@@ -110,9 +110,9 @@ const splitValues = SPLIT_LEVELS.map((lvl) => lvl.value);
 const fullValues = FULL_LEVELS.map((lvl) => lvl.value);
 
 export const DEFAULT_SELECTION: LayoutQualitySelection = {
-  splitEnabled: true,
+  splitEnabled: false,
   splitStyle: "intelligent_split",
-  fullEnabled: false,
+  fullEnabled: true,
   fullStyle: "intelligent",
   staticPosition: "center",
   includeOriginal: false,
@@ -535,7 +535,12 @@ export function StyleQualitySelector({
 
   const updateSelection = (patch: Partial<LayoutQualitySelection>) => {
     const next = { ...selection, ...patch };
-    onChange(selectionToStyles(next));
+    let styles = selectionToStyles(next);
+    // If user disables Split and Full, re-enable Full to avoid empty selection.
+    if (styles.length === 0) {
+      styles = selectionToStyles({ ...next, fullEnabled: true });
+    }
+    onChange(styles);
   };
 
   return (

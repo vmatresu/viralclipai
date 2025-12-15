@@ -200,18 +200,27 @@ impl VideoHighlights {
     }
 }
 
-/// Parse a timestamp string (HH:MM:SS or HH:MM:SS.mmm) to total seconds.
+/// Parse a timestamp string (HH:MM:SS(.mmm), MM:SS(.mmm), or SS(.mmm)) to total seconds.
 fn parse_timestamp(ts: &str) -> Result<f64, ()> {
     let parts: Vec<&str> = ts.split(':').collect();
-    if parts.len() != 3 {
-        return Err(());
+    match parts.len() {
+        1 => {
+            let seconds: f64 = parts[0].parse().map_err(|_| ())?;
+            Ok(seconds)
+        }
+        2 => {
+            let minutes: f64 = parts[0].parse().map_err(|_| ())?;
+            let seconds: f64 = parts[1].parse().map_err(|_| ())?;
+            Ok(minutes * 60.0 + seconds)
+        }
+        3 => {
+            let hours: f64 = parts[0].parse().map_err(|_| ())?;
+            let minutes: f64 = parts[1].parse().map_err(|_| ())?;
+            let seconds: f64 = parts[2].parse().map_err(|_| ())?;
+            Ok(hours * 3600.0 + minutes * 60.0 + seconds)
+        }
+        _ => Err(()),
     }
-
-    let hours: f64 = parts[0].parse().map_err(|_| ())?;
-    let minutes: f64 = parts[1].parse().map_err(|_| ())?;
-    let seconds: f64 = parts[2].parse().map_err(|_| ())?;
-
-    Ok(hours * 3600.0 + minutes * 60.0 + seconds)
 }
 
 #[cfg(test)]
@@ -224,11 +233,18 @@ mod tests {
         assert_eq!(parse_timestamp("00:01:00").unwrap(), 60.0);
         assert_eq!(parse_timestamp("01:00:00").unwrap(), 3600.0);
         assert!((parse_timestamp("00:00:30.500").unwrap() - 30.5).abs() < 0.001);
+        assert_eq!(parse_timestamp("53:53").unwrap(), 3233.0);
     }
 
     #[test]
     fn test_highlight_duration() {
         let h = Highlight::new(1, "Test", "00:00:00", "00:01:30").with_calculated_duration();
         assert_eq!(h.duration, 90);
+    }
+
+    #[test]
+    fn test_highlight_duration_mm_ss() {
+        let h = Highlight::new(1, "Test", "53:53", "58:12").with_calculated_duration();
+        assert_eq!(h.duration, 259);
     }
 }
