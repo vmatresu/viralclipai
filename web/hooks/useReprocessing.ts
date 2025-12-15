@@ -12,8 +12,8 @@ import { useAuth } from "@/lib/auth";
 import { invalidateClipsCache } from "@/lib/cache";
 import { useProcessing, type ProcessingJob } from "@/lib/processing-context";
 import {
-    reprocessScenesWebSocket,
-    type ReprocessCallbacks,
+  reprocessScenesWebSocket,
+  type ReprocessCallbacks,
 } from "@/lib/websocket/reprocess-client";
 import { type SceneProgress } from "@/types/processing";
 

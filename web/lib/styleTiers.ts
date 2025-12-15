@@ -28,6 +28,7 @@ export const STYLE_TIER_LABELS: Record<string, StyleMeta> = {
 
   // Cinematic / Tier 4
   intelligent_cinematic: { label: "Cinematic", color: "premium" },
+  streamer_split: { label: "Streamer Split", color: "premium" },
 
   // Legacy fallbacks (history only)
   intelligent_activity: { label: "Active Speaker (Legacy)", color: "legacy" },
@@ -53,6 +54,7 @@ export const STYLE_DISPLAY_LABELS: Record<string, string> = {
   intelligent_speaker: "Active Speaker",
   intelligent_split_speaker: "Active Speaker (Split)",
   intelligent_cinematic: "Cinematic",
+  streamer_split: "Streamer Split",
   intelligent_activity: "Active Speaker (Legacy)",
   intelligent_split_activity: "Active Speaker (Legacy Split)",
   intelligent_basic: "Smart Face (Legacy)",

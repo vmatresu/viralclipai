@@ -154,7 +154,7 @@ export class ProgressManager {
   private config: ProgressManagerConfig;
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
-  private reconnectDelay: number;
+
   private connectionState: ConnectionState = "disconnected";
   private activeJobId: string | null = null;
   private lastEventSeq: number = 0;
@@ -165,7 +165,6 @@ export class ProgressManager {
 
   constructor(config: Partial<ProgressManagerConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
-    this.reconnectDelay = this.config.reconnectDelayMs;
   }
 
   /**

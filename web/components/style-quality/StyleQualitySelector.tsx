@@ -1,20 +1,20 @@
 "use client";
 
 import * as Slider from "@radix-ui/react-slider";
-import { Activity, Film, ScanFace, Sparkles, Zap } from "lucide-react";
+import { Activity, Film, Monitor, ScanFace, Sparkles, Zap } from "lucide-react";
 import {
-    type ComponentType,
-    type KeyboardEvent,
-    type MouseEvent,
-    useMemo,
+  type ComponentType,
+  type KeyboardEvent,
+  type MouseEvent,
+  useMemo,
 } from "react";
 
 import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -70,6 +70,12 @@ const SPLIT_LEVELS: QualityLevel[] = [
     label: "Active Speaker",
     helper: "Premium face mesh AI",
     icon: Sparkles,
+  },
+  {
+    value: "streamer_split",
+    label: "Streamer Split",
+    helper: "Original on top, face cam on bottom",
+    icon: Monitor,
   },
 ];
 
@@ -200,13 +206,14 @@ export function stylesToSelection(
 /** Styles that require a studio plan (Active Speaker) */
 const STUDIO_ONLY_STYLES: string[] = [];
 
-/** Styles that require at least a pro plan (Smart Face, Motion, Cinematic) */
+/** Styles that require at least a pro plan (Smart Face, Motion, Cinematic, Streamer Split) */
 const PRO_ONLY_STYLES = [
   "intelligent",
   "intelligent_split",
   "intelligent_speaker",
   "intelligent_split_speaker",
   "intelligent_cinematic",
+  "streamer_split",
 ];
 
 function QualitySlider({

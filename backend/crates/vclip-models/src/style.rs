@@ -44,6 +44,8 @@ pub enum Style {
     IntelligentSplitActivity,
     /// Intelligent cinematic - AutoAI-inspired smooth camera with polynomial trajectory
     IntelligentCinematic,
+    /// Streamer split - original gameplay on top, face cam on bottom (for gaming/explainer content)
+    StreamerSplit,
 }
 
 impl Style {
@@ -63,6 +65,7 @@ impl Style {
         Style::IntelligentSplitMotion,
         Style::IntelligentSplitActivity,
         Style::IntelligentCinematic,
+        Style::StreamerSplit,
     ];
 
     /// Styles included when user requests "all".
@@ -120,6 +123,7 @@ impl Style {
             Style::IntelligentSplitMotion => "intelligent_split_motion",
             Style::IntelligentSplitActivity => "intelligent_split_activity",
             Style::IntelligentCinematic => "intelligent_cinematic",
+            Style::StreamerSplit => "streamer_split",
         }
     }
 
@@ -135,6 +139,7 @@ impl Style {
                 | Style::IntelligentSplitMotion
                 | Style::IntelligentSplitActivity
                 | Style::IntelligentCinematic
+                | Style::StreamerSplit
         )
     }
 
@@ -151,6 +156,7 @@ impl Style {
                 | Style::IntelligentSplitSpeaker
                 | Style::IntelligentSplitActivity
                 | Style::IntelligentCinematic
+                | Style::StreamerSplit
         )
     }
 
@@ -172,12 +178,13 @@ impl Style {
                 | Style::IntelligentMotion
                 | Style::IntelligentSplitMotion
                 | Style::IntelligentCinematic
+                | Style::StreamerSplit
         )
     }
 
     /// Whether this style should trigger neural analysis cache generation.
     ///
-    /// Only premium tiers (SpeakerAware, MotionAware, Cinematic) should generate and cache analysis.
+    /// Only premium tiers (SpeakerAware, MotionAware, Cinematic, StreamerSplit) should generate and cache analysis.
     /// These are gated to Pro/Studio plans. Lower tiers (Basic) can consume cached
     /// analysis if it exists, but should never trigger expensive cache generation.
     pub fn should_generate_cached_analysis(&self) -> bool {
@@ -189,6 +196,7 @@ impl Style {
                 | Style::IntelligentSplitMotion
                 | Style::IntelligentSplitActivity
                 | Style::IntelligentCinematic
+                | Style::StreamerSplit
         )
     }
 
@@ -212,6 +220,8 @@ impl Style {
             Style::IntelligentSplitActivity => DetectionTier::SpeakerAware,
             // Cinematic tier uses polynomial trajectory optimization + adaptive zoom
             Style::IntelligentCinematic => DetectionTier::Cinematic,
+            // StreamerSplit uses Basic face detection (can trigger cache generation)
+            Style::StreamerSplit => DetectionTier::Basic,
         }
     }
 
@@ -232,6 +242,7 @@ impl Style {
                 | Style::IntelligentSplitSpeaker
                 | Style::IntelligentSplitMotion
                 | Style::IntelligentSplitActivity
+                | Style::StreamerSplit
         )
     }
 
@@ -266,6 +277,7 @@ impl FromStr for Style {
             "intelligent_split_motion" => Ok(Style::IntelligentSplitMotion),
             "intelligent_split_activity" => Ok(Style::IntelligentSplitActivity),
             "intelligent_cinematic" | "cinematic" => Ok(Style::IntelligentCinematic),
+            "streamer_split" => Ok(Style::StreamerSplit),
             _ => Err(StyleParseError(s.to_string())),
         }
     }

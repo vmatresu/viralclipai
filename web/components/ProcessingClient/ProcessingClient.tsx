@@ -16,11 +16,11 @@ import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
 import { useProcessing } from "@/lib/processing-context";
 import { limitLength, sanitizeUrl } from "@/lib/security/validation";
-import { createWebSocketConnection, getWebSocketUrl } from "@/lib/websocket-client";
 import {
   handleWSMessage,
   type MessageHandlerCallbacks,
 } from "@/lib/websocket/messageHandler";
+import { createWebSocketConnection, getWebSocketUrl } from "@/lib/websocket-client";
 
 import { ErrorDisplay } from "./ErrorDisplay";
 import { useVideoProcessing } from "./hooks";
