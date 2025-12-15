@@ -26,7 +26,11 @@ import {
   type HistoryClip,
 } from "@/components/HistoryDetail/SceneExplorer";
 import { DetailedProcessingStatus } from "@/components/shared/DetailedProcessingStatus";
-import { StyleQualitySelector } from "@/components/style-quality/StyleQualitySelector";
+import {
+  DEFAULT_STREAMER_SPLIT_CONFIG,
+  StyleQualitySelector,
+  type StreamerSplitConfig,
+} from "@/components/style-quality/StyleQualitySelector";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -158,6 +162,9 @@ export default function HistoryDetailPage() {
   );
   const [overwritePromptEnabled, setOverwritePromptEnabled] = useState<boolean>(true);
   const [enableObjectDetection, setEnableObjectDetection] = useState<boolean>(false);
+  const [streamerSplitConfig, setStreamerSplitConfig] = useState<StreamerSplitConfig>(
+    DEFAULT_STREAMER_SPLIT_CONFIG
+  );
   const {
     getJob,
     completeJob: contextCompleteJob,
@@ -303,14 +310,26 @@ export default function HistoryDetailPage() {
       const hasCinematic = plan.styles.some((s) =>
         s.toLowerCase().includes("cinematic")
       );
+      // Pass StreamerSplit params only if streamer_split style is selected
+      const hasStreamerSplit = plan.styles.some(
+        (s) => s.toLowerCase() === "streamer_split"
+      );
+      const streamerParams = hasStreamerSplit
+        ? {
+            position_x: streamerSplitConfig.positionX,
+            position_y: streamerSplitConfig.positionY,
+            zoom: streamerSplitConfig.zoom,
+          }
+        : undefined;
       await reprocess(
         plan.sceneIds,
         plan.styles,
         hasCinematic && enableObjectDetection,
-        overwrite
+        overwrite,
+        streamerParams
       );
     },
-    [reprocess, enableObjectDetection]
+    [reprocess, enableObjectDetection, streamerSplitConfig]
   );
 
   const handleConfirmOverwrite = useCallback(async () => {
@@ -808,6 +827,8 @@ export default function HistoryDetailPage() {
               userPlan={userSettings?.plan}
               enableObjectDetection={enableObjectDetection}
               onEnableObjectDetectionChange={setEnableObjectDetection}
+              streamerSplitConfig={streamerSplitConfig}
+              onStreamerSplitConfigChange={setStreamerSplitConfig}
             />
 
             <div className="space-y-3">

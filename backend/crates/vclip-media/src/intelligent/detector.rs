@@ -147,6 +147,11 @@ impl FaceDetector {
                     if face_area_ratio >= self.config.min_face_size {
                         Some((*bbox, *score))
                     } else {
+                        debug!(
+                            "Filtered small face: {:.1}x{:.1} at ({:.0},{:.0}), area_ratio={:.4} < min={:.4}",
+                            bbox.width, bbox.height, bbox.x, bbox.y,
+                            face_area_ratio, self.config.min_face_size
+                        );
                         None
                     }
                 })

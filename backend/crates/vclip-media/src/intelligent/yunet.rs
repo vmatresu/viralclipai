@@ -175,8 +175,10 @@ pub(crate) const YUNET_MODEL_PATHS_2022: &[&str] = &[
     "/usr/share/opencv/models/face_detection_yunet_2022mar.onnx",
 ];
 
-/// Score threshold for face detection (lowered for faster detection)
-const SCORE_THRESHOLD: f32 = 0.6;
+/// Score threshold for face detection.
+/// Lowered to 0.3 to detect small faces in webcam overlays (streamer content).
+/// YuNet is generally reliable, so false positives at this threshold are rare.
+const SCORE_THRESHOLD: f32 = 0.3;
 
 /// NMS threshold for face detection
 const NMS_THRESHOLD: f32 = 0.3;
@@ -316,11 +318,13 @@ impl YuNetDetector {
     ///
     /// Ensures dimensions are multiples of 32 for CNN compatibility
     /// and within reasonable bounds for performance.
-    /// Uses smaller dimensions for faster inference.
+    /// Uses larger dimensions to better detect small faces in webcam overlays.
     fn calculate_input_size(frame_width: u32, frame_height: u32) -> (i32, i32) {
-        // Target dimensions optimized for speed (reduced from 640x480)
-        let target_width = 320.0;
-        let target_height = 240.0;
+        // Target dimensions optimized for small face detection (streamer webcam overlays).
+        // A 160x200 webcam face in 1920x1080 becomes ~80x100 pixels at 960x540 input,
+        // which is more reliably detected than ~53x67 at 640x480.
+        let target_width = 960.0;
+        let target_height = 540.0;
         
         // Calculate scale factor
         let scale = (frame_width as f64 / target_width)
@@ -336,9 +340,9 @@ impl YuNetDetector {
         input_width = ((input_width + ALIGNMENT / 2) / ALIGNMENT) * ALIGNMENT;
         input_height = ((input_height + ALIGNMENT / 2) / ALIGNMENT) * ALIGNMENT;
 
-        // Clamp to reasonable bounds (smaller for speed)
-        input_width = input_width.clamp(160, 320);
-        input_height = input_height.clamp(120, 240);
+        // Clamp to reasonable bounds (increased upper bound for small face detection)
+        input_width = input_width.clamp(160, 960);
+        input_height = input_height.clamp(120, 540);
 
         (input_width, input_height)
     }
@@ -550,7 +554,14 @@ impl YuNetDetector {
             results.push((bbox, score));
         }
 
-        debug!("YuNet detected {} faces (from {} candidates)", results.len(), num_faces);
+        if results.is_empty() && num_faces > 0 {
+            debug!(
+                "YuNet filtered all {} candidates (threshold={}, all below confidence or invalid)",
+                num_faces, SCORE_THRESHOLD
+            );
+        } else {
+            debug!("YuNet detected {} faces (from {} candidates)", results.len(), num_faces);
+        }
         Ok(results)
     }
 
@@ -654,8 +665,9 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
     let max_wall = Duration::from_secs_f64(duration.min(120.0).max(30.0)); // bound wall time even on long clips
 
     info!(
-        "Detecting faces with YuNet: {} frames at {:.1} fps (cap {})",
-        num_samples, sample_fps, max_samples
+        "Detecting faces with YuNet: {} frames at {:.1} fps (cap {}), threshold={}, input={}x{}",
+        num_samples, sample_fps, max_samples, SCORE_THRESHOLD,
+        detector.input_size.0, detector.input_size.1
     );
 
     for frame_idx in 0..max_samples {

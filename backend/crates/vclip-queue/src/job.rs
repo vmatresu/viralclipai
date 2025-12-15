@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use vclip_models::{AspectRatio, CropMode, DetectionTier, JobId, Style, VideoId};
+use vclip_models::{AspectRatio, CropMode, DetectionTier, JobId, StreamerSplitParams, Style, VideoId};
 
 fn default_neural_detection_tier() -> DetectionTier {
     // Backward compatibility: previously we always computed the highest tier.
@@ -145,6 +145,9 @@ pub struct ReprocessScenesJob {
     /// When true, overwrite existing clips instead of skipping them
     #[serde(default)]
     pub overwrite: bool,
+    /// Optional StreamerSplit parameters for user-controlled crop position/zoom
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub streamer_split_params: Option<StreamerSplitParams>,
 }
 
 impl ReprocessScenesJob {
@@ -164,6 +167,7 @@ impl ReprocessScenesJob {
             target_aspect: AspectRatio::default(),
             enable_object_detection: false,
             overwrite: false,
+            streamer_split_params: None,
         }
     }
 
@@ -182,6 +186,12 @@ impl ReprocessScenesJob {
     /// Set overwrite mode (re-render existing clips).
     pub fn with_overwrite(mut self, overwrite: bool) -> Self {
         self.overwrite = overwrite;
+        self
+    }
+
+    /// Set StreamerSplit parameters for user-controlled crop position/zoom.
+    pub fn with_streamer_split_params(mut self, params: Option<StreamerSplitParams>) -> Self {
+        self.streamer_split_params = params;
         self
     }
 

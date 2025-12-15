@@ -1,15 +1,19 @@
 //! Admin handlers for canary testing, monitoring, and user management.
 
+ use std::collections::HashMap;
+
 use axum::extract::{Path, Query, State};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
+ use vclip_firestore::{FromFirestoreValue, ToFirestoreValue, Value, FirestoreError};
 use vclip_models::{AspectRatio, CropMode, Style};
 use vclip_queue::ProcessVideoJob;
 
 use crate::auth::AuthUser;
 use crate::error::{ApiError, ApiResult};
+ use crate::security::sanitize_string;
 use crate::state::AppState;
 
 /// Synthetic job request for canary testing.
@@ -146,6 +150,70 @@ pub async fn get_system_info(
         rust_version: env!("CARGO_PKG_RUST_VERSION").to_string(),
         build_timestamp: chrono::Utc::now().to_rfc3339(),
     }))
+}
+
+#[derive(Serialize)]
+pub struct AdminPromptResponse {
+    pub prompt: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AdminPromptUpdateRequest {
+    pub prompt: String,
+}
+
+pub async fn get_admin_prompt(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> ApiResult<Json<AdminPromptResponse>> {
+    if !state.user_service.is_super_admin(&user.uid).await? {
+        return Err(ApiError::forbidden("Admin access required"));
+    }
+
+    let doc = state.firestore.get_document("admin", "config").await?;
+    let prompt = doc
+        .as_ref()
+        .and_then(|d| d.fields.as_ref())
+        .and_then(|fields| fields.get("base_prompt"))
+        .and_then(|v| String::from_firestore_value(v))
+        .unwrap_or_default();
+
+    Ok(Json(AdminPromptResponse { prompt }))
+}
+
+pub async fn update_admin_prompt(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(request): Json<AdminPromptUpdateRequest>,
+) -> ApiResult<Json<AdminPromptResponse>> {
+    if !state.user_service.is_super_admin(&user.uid).await? {
+        return Err(ApiError::forbidden("Admin access required"));
+    }
+
+    let prompt = sanitize_string(&request.prompt);
+
+    let mut fields: HashMap<String, Value> = HashMap::new();
+    fields.insert("base_prompt".to_string(), prompt.to_firestore_value());
+
+    let update_mask = Some(vec!["base_prompt".to_string()]);
+    match state
+        .firestore
+        .update_document("admin", "config", fields.clone(), update_mask)
+        .await
+    {
+        Ok(_) => {}
+        Err(FirestoreError::NotFound(_)) => {
+            state
+                .firestore
+                .create_document("admin", "config", fields)
+                .await?;
+        }
+        Err(e) => return Err(e.into()),
+    }
+
+    info!("Updated global base prompt (admin/config.base_prompt) by admin {}", user.uid);
+
+    Ok(Json(AdminPromptResponse { prompt }))
 }
 
 /// User info response for admin views.

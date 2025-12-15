@@ -6,6 +6,131 @@ use serde::{Deserialize, Serialize};
 
 use crate::{AspectRatio, CropMode, Style, VideoId};
 
+/// Horizontal position for StreamerSplit bottom panel crop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum HorizontalPosition {
+    Left,
+    #[default]
+    Center,
+    Right,
+}
+
+impl HorizontalPosition {
+    /// Returns the normalized X position (0.0 = left, 0.5 = center, 1.0 = right).
+    pub fn to_normalized(&self) -> f64 {
+        match self {
+            HorizontalPosition::Left => 0.15,    // 15% from left
+            HorizontalPosition::Center => 0.50,  // Center
+            HorizontalPosition::Right => 0.85,   // 15% from right
+        }
+    }
+}
+
+/// Vertical position for StreamerSplit bottom panel crop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum VerticalPosition {
+    #[default]
+    Top,
+    Middle,
+    Bottom,
+}
+
+impl VerticalPosition {
+    /// Returns the normalized Y position (0.0 = top, 0.5 = middle, 1.0 = bottom).
+    pub fn to_normalized(&self) -> f64 {
+        match self {
+            VerticalPosition::Top => 0.20,      // 20% from top (typical webcam)
+            VerticalPosition::Middle => 0.50,   // Center
+            VerticalPosition::Bottom => 0.80,   // 20% from bottom
+        }
+    }
+}
+
+/// Parameters for StreamerSplit style - user-specified crop for bottom panel.
+///
+/// This allows users to manually select where to crop the bottom panel
+/// instead of relying on face detection (which can be unreliable for
+/// gaming content with multiple faces/avatars).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct StreamerSplitParams {
+    /// Horizontal position of the crop area.
+    #[serde(default)]
+    pub position_x: HorizontalPosition,
+
+    /// Vertical position of the crop area.
+    #[serde(default)]
+    pub position_y: VerticalPosition,
+
+    /// Zoom level for the bottom panel (1.0 = no zoom, 2.0 = 2x zoom, max 4.0).
+    /// Default is 1.5 for a slight zoom on webcam overlays.
+    #[serde(default = "default_zoom")]
+    pub zoom: f32,
+
+    /// Optional static image URL to display in the bottom panel instead of video crop.
+    /// If provided, the video crop is ignored and this image is shown.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub static_image_url: Option<String>,
+}
+
+fn default_zoom() -> f32 {
+    1.5
+}
+
+impl Default for StreamerSplitParams {
+    fn default() -> Self {
+        Self {
+            position_x: HorizontalPosition::Left,  // Top-left is most common webcam position
+            position_y: VerticalPosition::Top,
+            zoom: 1.5,
+            static_image_url: None,
+        }
+    }
+}
+
+impl StreamerSplitParams {
+    /// Create params for top-left corner (most common webcam position for gaming).
+    pub fn top_left() -> Self {
+        Self {
+            position_x: HorizontalPosition::Left,
+            position_y: VerticalPosition::Top,
+            zoom: 2.0,
+            static_image_url: None,
+        }
+    }
+
+    /// Create params for top-right corner.
+    pub fn top_right() -> Self {
+        Self {
+            position_x: HorizontalPosition::Right,
+            position_y: VerticalPosition::Top,
+            zoom: 2.0,
+            static_image_url: None,
+        }
+    }
+
+    /// Create params for center (full frame, no zoom).
+    pub fn full_frame() -> Self {
+        Self {
+            position_x: HorizontalPosition::Center,
+            position_y: VerticalPosition::Middle,
+            zoom: 1.0,
+            static_image_url: None,
+        }
+    }
+
+    /// Create params with a static image.
+    pub fn with_static_image(url: impl Into<String>) -> Self {
+        Self {
+            position_x: HorizontalPosition::Center,
+            position_y: VerticalPosition::Middle,
+            zoom: 1.0,
+            static_image_url: Some(url.into()),
+        }
+    }
+}
+
 /// Status of a clip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, Default)]
 #[serde(rename_all = "snake_case")]
@@ -178,6 +303,11 @@ pub struct ClipTask {
     /// Padding after end (seconds)
     #[serde(default)]
     pub pad_after: f64,
+
+    /// Optional parameters for StreamerSplit style.
+    /// If not provided, defaults to top-left position with 1.5x zoom.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub streamer_split_params: Option<StreamerSplitParams>,
 }
 
 impl ClipTask {
@@ -201,7 +331,14 @@ impl ClipTask {
             priority: 99,
             pad_before: 0.0,
             pad_after: 0.0,
+            streamer_split_params: None,
         }
+    }
+
+    /// Set StreamerSplit parameters.
+    pub fn with_streamer_split_params(mut self, params: StreamerSplitParams) -> Self {
+        self.streamer_split_params = Some(params);
+        self
     }
 
     /// Generate the output filename.

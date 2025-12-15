@@ -29,6 +29,21 @@ type QualityLevel = {
 };
 
 export type StaticPosition = "left" | "center" | "right";
+export type HorizontalPosition = "left" | "center" | "right";
+export type VerticalPosition = "top" | "middle" | "bottom";
+
+/** StreamerSplit configuration for user-controlled crop */
+export type StreamerSplitConfig = {
+  positionX: HorizontalPosition;
+  positionY: VerticalPosition;
+  zoom: number;
+};
+
+export const DEFAULT_STREAMER_SPLIT_CONFIG: StreamerSplitConfig = {
+  positionX: "left",
+  positionY: "top",
+  zoom: 1.5,
+};
 
 export type LayoutQualitySelection = {
   splitEnabled: boolean;
@@ -38,6 +53,8 @@ export type LayoutQualitySelection = {
   /** Position for Static Full style (left_focus, center_focus, right_focus) */
   staticPosition: StaticPosition;
   includeOriginal: boolean;
+  /** StreamerSplit configuration */
+  streamerSplitConfig: StreamerSplitConfig;
 };
 
 const SPLIT_LEVELS: QualityLevel[] = [
@@ -60,6 +77,12 @@ const SPLIT_LEVELS: QualityLevel[] = [
     icon: Activity,
   },
   {
+    value: "streamer_split",
+    label: "Streamer Split",
+    helper: "Original on top, custom crop on bottom",
+    icon: Monitor,
+  },
+  {
     value: "intelligent_split",
     label: "Smart Face",
     helper: "AI face framing for both panels",
@@ -70,12 +93,6 @@ const SPLIT_LEVELS: QualityLevel[] = [
     label: "Active Speaker",
     helper: "Premium face mesh AI",
     icon: Sparkles,
-  },
-  {
-    value: "streamer_split",
-    label: "Streamer Split",
-    helper: "Original on top, face cam on bottom",
-    icon: Monitor,
   },
 ];
 
@@ -122,6 +139,7 @@ export const DEFAULT_SELECTION: LayoutQualitySelection = {
   fullStyle: "intelligent",
   staticPosition: "center",
   includeOriginal: false,
+  streamerSplitConfig: DEFAULT_STREAMER_SPLIT_CONFIG,
 };
 
 const STYLE_SELECTION_ALIASES: Record<string, string> = {
@@ -200,20 +218,20 @@ export function stylesToSelection(
     splitStyle,
     fullStyle,
     staticPosition,
+    streamerSplitConfig: fallback.streamerSplitConfig,
   };
 }
 
 /** Styles that require a studio plan (Active Speaker) */
 const STUDIO_ONLY_STYLES: string[] = [];
 
-/** Styles that require at least a pro plan (Smart Face, Motion, Cinematic, Streamer Split) */
+/** Styles that require at least a pro plan (Smart Face, Active Speaker, Cinematic) */
 const PRO_ONLY_STYLES = [
   "intelligent",
   "intelligent_split",
   "intelligent_speaker",
   "intelligent_split_speaker",
   "intelligent_cinematic",
-  "streamer_split",
 ];
 
 function QualitySlider({
@@ -400,6 +418,126 @@ function StaticPositionSelector({
   );
 }
 
+/** StreamerSplit configuration UI - position and zoom controls */
+function StreamerSplitConfigurator({
+  config,
+  onChange,
+  disabled,
+}: {
+  config: StreamerSplitConfig;
+  onChange: (next: StreamerSplitConfig) => void;
+  disabled?: boolean;
+}) {
+  const horizontalPositions: { value: HorizontalPosition; label: string }[] = [
+    { value: "left", label: "Left" },
+    { value: "center", label: "Center" },
+    { value: "right", label: "Right" },
+  ];
+
+  const verticalPositions: { value: VerticalPosition; label: string }[] = [
+    { value: "top", label: "Top" },
+    { value: "middle", label: "Middle" },
+    { value: "bottom", label: "Bottom" },
+  ];
+
+  const zoomLevels = [
+    { value: 1.0, label: "1×" },
+    { value: 1.5, label: "1.5×" },
+    { value: 2.0, label: "2×" },
+    { value: 2.5, label: "2.5×" },
+    { value: 3.0, label: "3×" },
+  ];
+
+  return (
+    <div
+      className={cn(
+        "mt-3 space-y-3 rounded-lg border border-white/10 bg-slate-900/60 p-3",
+        disabled && "opacity-50 pointer-events-none"
+      )}
+      data-interactive="true"
+    >
+      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+        Bottom Panel Crop Position
+      </div>
+
+      {/* Position Grid - 3x3 visual selector */}
+      <div className="flex items-center gap-4">
+        <div className="grid grid-cols-3 gap-1 p-1 rounded-lg bg-slate-800/80 border border-white/10">
+          {verticalPositions.map((vPos) =>
+            horizontalPositions.map((hPos) => {
+              const isSelected =
+                config.positionX === hPos.value && config.positionY === vPos.value;
+              return (
+                <button
+                  key={`${vPos.value}-${hPos.value}`}
+                  type="button"
+                  onClick={() =>
+                    onChange({
+                      ...config,
+                      positionX: hPos.value,
+                      positionY: vPos.value,
+                    })
+                  }
+                  className={cn(
+                    "w-7 h-7 rounded transition-all text-[9px] font-medium",
+                    isSelected
+                      ? "bg-indigo-500 text-white shadow-sm"
+                      : "bg-slate-700/50 text-muted-foreground hover:bg-slate-700 hover:text-white"
+                  )}
+                  disabled={disabled}
+                  title={`${vPos.label} ${hPos.label}`}
+                >
+                  {isSelected ? "●" : "○"}
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        <div className="flex-1 space-y-1">
+          <div className="text-[10px] text-muted-foreground">
+            Position:{" "}
+            <span className="text-white font-medium capitalize">
+              {config.positionY} {config.positionX}
+            </span>
+          </div>
+          <div className="text-[10px] text-muted-foreground">
+            Select where your webcam overlay is located
+          </div>
+        </div>
+      </div>
+
+      {/* Zoom Level */}
+      <div className="space-y-2">
+        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+          Zoom Level
+        </div>
+        <div className="flex gap-1">
+          {zoomLevels.map((zoom) => (
+            <button
+              key={zoom.value}
+              type="button"
+              onClick={() => onChange({ ...config, zoom: zoom.value })}
+              className={cn(
+                "flex-1 px-2 py-1.5 text-[11px] font-medium rounded transition-all",
+                config.zoom === zoom.value
+                  ? "bg-indigo-500 text-white shadow-sm"
+                  : "bg-slate-800/80 text-muted-foreground hover:bg-slate-700 hover:text-white border border-white/10"
+              )}
+              disabled={disabled}
+            >
+              {zoom.label}
+            </button>
+          ))}
+        </div>
+        <div className="text-[10px] text-muted-foreground">
+          Higher zoom = closer crop on the selected position
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LayoutCard({
   title,
   enabled,
@@ -411,6 +549,8 @@ function LayoutCard({
   hasProPlan,
   staticPosition,
   onStaticPositionChange,
+  streamerSplitConfig,
+  onStreamerSplitConfigChange,
 }: {
   title: string;
   enabled: boolean;
@@ -422,6 +562,8 @@ function LayoutCard({
   hasProPlan?: boolean;
   staticPosition?: StaticPosition;
   onStaticPositionChange?: (next: StaticPosition) => void;
+  streamerSplitConfig?: StreamerSplitConfig;
+  onStreamerSplitConfigChange?: (next: StreamerSplitConfig) => void;
 }) {
   const enableId = `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-toggle`;
 
@@ -508,6 +650,16 @@ function LayoutCard({
             disabled={!enabled}
           />
         )}
+        {/* Show StreamerSplit configurator */}
+        {levelValue === "streamer_split" &&
+          streamerSplitConfig &&
+          onStreamerSplitConfigChange && (
+            <StreamerSplitConfigurator
+              config={streamerSplitConfig}
+              onChange={onStreamerSplitConfigChange}
+              disabled={!enabled}
+            />
+          )}
       </div>
     </div>
   );
@@ -522,6 +674,9 @@ interface StyleQualitySelectorProps {
   userPlan?: string;
   enableObjectDetection?: boolean;
   onEnableObjectDetectionChange?: (next: boolean) => void;
+  /** StreamerSplit configuration */
+  streamerSplitConfig?: StreamerSplitConfig;
+  onStreamerSplitConfigChange?: (config: StreamerSplitConfig) => void;
 }
 
 export function StyleQualitySelector({
@@ -532,12 +687,24 @@ export function StyleQualitySelector({
   userPlan,
   enableObjectDetection,
   onEnableObjectDetectionChange,
+  streamerSplitConfig: externalConfig,
+  onStreamerSplitConfigChange,
 }: StyleQualitySelectorProps) {
   const hasStudioPlan = userPlan === "studio";
   const hasProPlan = userPlan === "pro" || userPlan === "studio";
-  const selection = useMemo(
+
+  // Use external config if provided, otherwise use internal state
+  const baseSelection = useMemo(
     () => stylesToSelection(selectedStyles, DEFAULT_SELECTION),
     [selectedStyles]
+  );
+
+  const selection = useMemo(
+    () => ({
+      ...baseSelection,
+      streamerSplitConfig: externalConfig ?? baseSelection.streamerSplitConfig,
+    }),
+    [baseSelection, externalConfig]
   );
 
   const updateSelection = (patch: Partial<LayoutQualitySelection>) => {
@@ -546,6 +713,11 @@ export function StyleQualitySelector({
     // Allow all selections to be unselected - user can choose any combination
     // of Split, Full, and Original (including none)
     onChange(styles);
+
+    // Notify parent of streamerSplitConfig changes
+    if (patch.streamerSplitConfig && onStreamerSplitConfigChange) {
+      onStreamerSplitConfigChange(patch.streamerSplitConfig);
+    }
   };
 
   return (
@@ -576,6 +748,10 @@ export function StyleQualitySelector({
             }
             hasStudioPlan={hasStudioPlan}
             hasProPlan={hasProPlan}
+            streamerSplitConfig={selection.streamerSplitConfig}
+            onStreamerSplitConfigChange={(next) =>
+              updateSelection({ streamerSplitConfig: next })
+            }
           />
 
           <div className="space-y-3">

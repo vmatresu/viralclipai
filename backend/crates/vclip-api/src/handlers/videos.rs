@@ -221,9 +221,23 @@ pub async fn get_video_info(
         let size_mb = clip_meta.file_size_bytes as f64 / (1024.0 * 1024.0);
         let size_str = format!("{:.1} MB", size_mb);
 
+        // Use filename if available, otherwise construct a nice filename from metadata
+        // This handles legacy clips that may not have filename stored
+        let name = if clip_meta.filename.is_empty() {
+            // Generate a nice filename: clip_{priority:02}_{scene_id}_{sanitized_title}_{style}.mp4
+            let safe_title = vclip_models::sanitize_filename_title(&clip_meta.scene_title);
+            if safe_title.is_empty() {
+                format!("clip_{:02}_{}_scene_{}.mp4", clip_meta.priority, clip_meta.scene_id, clip_meta.style)
+            } else {
+                format!("clip_{:02}_{}_{}.mp4", clip_meta.priority, safe_title, clip_meta.style)
+            }
+        } else {
+            clip_meta.filename
+        };
+
         clips.push(ClipInfo {
             clip_id: clip_meta.clip_id.clone(),
-            name: clip_meta.filename,
+            name,
             title,
             description,
             size: size_str,
@@ -1181,7 +1195,32 @@ pub struct ReprocessScenesRequest {
     /// When true, overwrite existing clips instead of skipping them (default: false)
     #[serde(default)]
     pub overwrite: bool,
+    /// Optional StreamerSplit parameters for user-controlled crop position/zoom.
+    /// Only used when styles includes "streamer_split".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub streamer_split_params: Option<StreamerSplitParamsRequest>,
 }
+
+/// StreamerSplit parameters from the frontend.
+#[derive(Debug, Clone, Deserialize)]
+pub struct StreamerSplitParamsRequest {
+    /// Horizontal position: "left", "center", or "right"
+    #[serde(default = "default_position_x")]
+    pub position_x: String,
+    /// Vertical position: "top", "middle", or "bottom"
+    #[serde(default = "default_position_y")]
+    pub position_y: String,
+    /// Zoom level (1.0 = full frame, 2.0 = 2x zoom, max 4.0)
+    #[serde(default = "default_zoom")]
+    pub zoom: f32,
+    /// Optional static image URL to display instead of video crop
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub static_image_url: Option<String>,
+}
+
+fn default_position_x() -> String { "left".to_string() }
+fn default_position_y() -> String { "top".to_string() }
+fn default_zoom() -> f32 { 1.5 }
 
 /// Reprocess scenes response.
 #[derive(Serialize)]
@@ -1310,6 +1349,24 @@ pub async fn reprocess_scenes(
     let crop_mode = vclip_models::CropMode::default();
     let target_aspect = vclip_models::AspectRatio::default();
 
+    // Convert StreamerSplit params from request to model type
+    let streamer_split_params = request.streamer_split_params.as_ref().map(|p| {
+        vclip_models::StreamerSplitParams {
+            position_x: match p.position_x.as_str() {
+                "left" => vclip_models::HorizontalPosition::Left,
+                "right" => vclip_models::HorizontalPosition::Right,
+                _ => vclip_models::HorizontalPosition::Center,
+            },
+            position_y: match p.position_y.as_str() {
+                "top" => vclip_models::VerticalPosition::Top,
+                "bottom" => vclip_models::VerticalPosition::Bottom,
+                _ => vclip_models::VerticalPosition::Middle,
+            },
+            zoom: p.zoom,
+            static_image_url: p.static_image_url.clone(),
+        }
+    });
+
     // Create and enqueue reprocess job
     let video_id_obj = vclip_models::VideoId::from_string(&video_id);
     let job = vclip_queue::ReprocessScenesJob::new(
@@ -1320,7 +1377,8 @@ pub async fn reprocess_scenes(
     )
     .with_crop_mode(crop_mode)
     .with_target_aspect(target_aspect)
-    .with_overwrite(request.overwrite);
+    .with_overwrite(request.overwrite)
+    .with_streamer_split_params(streamer_split_params);
     
     let job_id = job.job_id.clone();
 

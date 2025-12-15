@@ -129,8 +129,8 @@ impl Default for IntelligentCropConfig {
             detection_resolution: 320,
 
             // Face Detection
-            min_detection_confidence: 0.5,
-            min_face_size: 0.02,
+            min_detection_confidence: 0.3,
+            min_face_size: 0.01,
             face_expand_ratio: 0.3,
 
             // Tracking

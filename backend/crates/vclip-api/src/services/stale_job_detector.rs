@@ -14,7 +14,7 @@ use tracing::{error, info, warn};
 
 use vclip_firestore::{FirestoreClient, VideoRepository};
 use vclip_models::{JobId, JobStatus, JobStatusCache, VideoId, VideoStatus};
-use vclip_queue::{ProgressChannel, STALE_GRACE_PERIOD_SECS, STALE_THRESHOLD_SECS};
+use vclip_queue::{ProgressChannel, STALE_GRACE_PERIOD_SECS};
 
 /// Interval between stale job detection runs.
 const DETECTION_INTERVAL: Duration = Duration::from_secs(30);
@@ -86,8 +86,17 @@ impl StaleJobDetector {
                 continue;
             }
 
-            // Check if job is stale
-            let is_stale = job_status.is_stale(STALE_THRESHOLD_SECS, STALE_GRACE_PERIOD_SECS);
+            // Check if job has an active heartbeat in Redis
+            // The worker updates heartbeat:{job_id} key every 15s with 60s TTL
+            // If that key doesn't exist, the worker has stopped sending heartbeats
+            let job_id = vclip_models::JobId::from(job_status.job_id.clone());
+            let has_heartbeat = self.progress.is_alive(&job_id).await.unwrap_or(false);
+
+            // Job is stale if:
+            // 1. No heartbeat key exists AND
+            // 2. Job has been running longer than grace period (to allow startup time)
+            let age_secs = (chrono::Utc::now() - job_status.started_at).num_seconds();
+            let is_stale = !has_heartbeat && age_secs > STALE_GRACE_PERIOD_SECS;
 
             if is_stale {
                 stale_count += 1;
@@ -191,7 +200,11 @@ impl StaleJobDetector {
                 continue;
             }
 
-            let is_stale = job_status.is_stale(STALE_THRESHOLD_SECS, STALE_GRACE_PERIOD_SECS);
+            // Check actual heartbeat key in Redis
+            let job_id = vclip_models::JobId::from(job_status.job_id.clone());
+            let has_heartbeat = self.progress.is_alive(&job_id).await.unwrap_or(false);
+            let age_secs = (chrono::Utc::now() - job_status.started_at).num_seconds();
+            let is_stale = !has_heartbeat && age_secs > STALE_GRACE_PERIOD_SECS;
 
             if is_stale {
                 stale_count += 1;

@@ -101,6 +101,7 @@ mod tests {
                 priority: 1,
                 pad_before: 0.0,
                 pad_after: 0.0,
+                streamer_split_params: None,
             },
             input_path,
             temp_dir.path().join("output.mp4"),

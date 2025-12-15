@@ -27,6 +27,7 @@ pub fn generate_clip_tasks(
                 priority: highlight.id, // Use highlight ID as priority
                 pad_before: highlight.pad_before_seconds,
                 pad_after: highlight.pad_after_seconds,
+                streamer_split_params: None,
             };
             tasks.push(task);
         }
@@ -59,6 +60,7 @@ pub fn generate_clip_tasks_from_highlights(
                 priority: highlight.id,
                 pad_before: highlight.pad_before_seconds,
                 pad_after: highlight.pad_after_seconds,
+                streamer_split_params: None,
             });
         }
     }
@@ -73,10 +75,34 @@ pub fn generate_clip_tasks_from_firestore_highlights(
     crop_mode: &CropMode,
     target_aspect: &AspectRatio,
 ) -> Vec<ClipTask> {
+    generate_clip_tasks_from_firestore_highlights_with_params(
+        highlights,
+        styles,
+        crop_mode,
+        target_aspect,
+        None,
+    )
+}
+
+/// Generate clip tasks from Firestore VideoHighlights with optional StreamerSplit params.
+pub fn generate_clip_tasks_from_firestore_highlights_with_params(
+    highlights: &[&vclip_models::Highlight],
+    styles: &[Style],
+    crop_mode: &CropMode,
+    target_aspect: &AspectRatio,
+    streamer_split_params: Option<vclip_models::StreamerSplitParams>,
+) -> Vec<ClipTask> {
     let mut tasks = Vec::new();
 
     for highlight in highlights {
         for style in styles {
+            // Only include streamer_split_params for StreamerSplit style
+            let params = if *style == Style::StreamerSplit {
+                streamer_split_params.clone()
+            } else {
+                None
+            };
+
             tasks.push(ClipTask {
                 scene_id: highlight.id,
                 scene_title: sanitize_filename_title(&highlight.title),
@@ -89,6 +115,7 @@ pub fn generate_clip_tasks_from_firestore_highlights(
                 priority: highlight.id,
                 pad_before: highlight.pad_before,
                 pad_after: highlight.pad_after,
+                streamer_split_params: params,
             });
         }
     }

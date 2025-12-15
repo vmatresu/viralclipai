@@ -108,6 +108,14 @@ export interface ReprocessCallbacks {
   onStyleOmitted?: (sceneId: number, style: string, reason: string) => void;
 }
 
+/** StreamerSplit configuration for user-controlled crop */
+export interface StreamerSplitParams {
+  position_x: "left" | "center" | "right";
+  position_y: "top" | "middle" | "bottom";
+  zoom: number;
+  static_image_url?: string;
+}
+
 export interface ReprocessOptions {
   videoId: string;
   sceneIds: number[];
@@ -119,6 +127,8 @@ export interface ReprocessOptions {
   enableObjectDetection?: boolean;
   /** When true, overwrite existing clips instead of skipping them (default: false) */
   overwrite?: boolean;
+  /** StreamerSplit parameters for user-controlled crop position/zoom */
+  streamerSplitParams?: StreamerSplitParams;
 }
 
 const MAX_MESSAGE_SIZE = 1024 * 1024; // 1MB
@@ -173,6 +183,7 @@ export function reprocessScenesWebSocket(
     targetAspect = "9:16",
     enableObjectDetection = false,
     overwrite = false,
+    streamerSplitParams,
   } = options;
 
   // Validation
@@ -224,6 +235,7 @@ export function reprocessScenesWebSocket(
           target_aspect: targetAspect,
           enable_object_detection: enableObjectDetection,
           overwrite,
+          streamer_split_params: streamerSplitParams,
         })
       );
     } catch (error) {

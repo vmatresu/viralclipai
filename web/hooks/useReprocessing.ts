@@ -14,6 +14,7 @@ import { useProcessing, type ProcessingJob } from "@/lib/processing-context";
 import {
   reprocessScenesWebSocket,
   type ReprocessCallbacks,
+  type StreamerSplitParams,
 } from "@/lib/websocket/reprocess-client";
 import { type SceneProgress } from "@/types/processing";
 
@@ -89,7 +90,8 @@ export function useReprocessing({
       sceneIds: number[],
       styles: string[],
       enableObjectDetection: boolean = false,
-      overwrite: boolean = false
+      overwrite: boolean = false,
+      streamerSplitParams?: StreamerSplitParams
     ) => {
       if (state.isProcessing) {
         toast.error("Reprocessing already in progress");
@@ -247,6 +249,7 @@ export function useReprocessing({
             targetAspect: "9:16",
             enableObjectDetection,
             overwrite,
+            streamerSplitParams,
           },
           callbacks
         );

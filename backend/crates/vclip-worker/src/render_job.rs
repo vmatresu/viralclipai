@@ -156,13 +156,13 @@ pub async fn process_render_job(
 /// Inner processing logic for render job.
 ///
 /// Cache-first strategy (optimized):
-/// 1. Check if raw segment already exists in R2 (FIRST - avoid full source download)
-/// 2. If raw exists: download raw segment directly
-/// 3. If raw missing: download full source, extract raw segment, upload to R2
-/// 4. Apply style to the raw segment
+/// 1. Check if raw segment already exists locally
+/// 2. Check if raw segment exists in R2 - download if so
+/// 3. Try yt-dlp segment download (YouTube HLS) - avoids full source download
+/// 4. Fall back to full source download + extraction
+/// 5. Apply style to the raw segment
 ///
-/// This order ensures we avoid downloading the full source video when a cached
-/// raw segment for the scene already exists.
+/// This order ensures we avoid downloading the full source video when possible.
 async fn process_render_clip_inner(
     ctx: &EnhancedProcessingContext,
     job: &RenderSceneStyleJob,
@@ -269,29 +269,90 @@ async fn process_render_clip_inner(
             }
         }
     }
-    // Step 3: Raw segment not in R2 - download full source and extract
+    // Step 3: Raw segment not in R2 - try yt-dlp segment download first, then fall back to full source
     else {
-        info!(
-            scene_id = job.scene_id,
-            "Raw segment not cached, downloading source video..."
-        );
-        let source_video = download_video_for_render(ctx, job, work_dir).await?;
-        let (seg, created) = ctx
-            .raw_cache
-            .get_or_create_with_outcome(
-                &job.user_id,
-                job.video_id.as_str(),
-                job.scene_id,
-                &source_video,
-                &padded_start_ts,
-                &padded_end_ts,
-                work_dir,
-            )
-            .await?;
-        raw_created = created;
-        // Ensure we use the correct path
-        if seg != raw_segment && seg.exists() {
-            tokio::fs::copy(&seg, &raw_segment).await.ok();
+        // Get video URL for potential yt-dlp segment download
+        let video_url = get_video_url_for_render(ctx, job).await;
+        
+        // Try yt-dlp segment download first (much faster than full source download)
+        let mut segment_downloaded = false;
+        if let Some(ref url) = video_url {
+            if vclip_media::likely_supports_segment_download(url) {
+                info!(
+                    scene_id = job.scene_id,
+                    url = %url,
+                    "Trying yt-dlp segment download (avoiding full source download)"
+                );
+                
+                match vclip_media::download_segment(
+                    url,
+                    padded_start,
+                    padded_end,
+                    &raw_segment,
+                    true, // force_keyframes for accurate cuts
+                )
+                .await
+                {
+                    Ok(()) => {
+                        info!(
+                            scene_id = job.scene_id,
+                            "Downloaded segment directly via yt-dlp (skipped full source download)"
+                        );
+                        segment_downloaded = true;
+                        raw_created = true;
+                        
+                        // Upload to R2 for future use (non-blocking)
+                        if let Err(e) = ctx.raw_cache.upload_raw_segment(&raw_segment, &r2_key).await {
+                            tracing::warn!(
+                                scene_id = job.scene_id,
+                                error = %e,
+                                "Failed to upload yt-dlp segment to R2 (non-critical)"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        // Check if it's a "not supported" error - graceful fallback
+                        if e.downcast_ref::<vclip_media::SegmentDownloadNotSupported>().is_some() {
+                            info!(
+                                scene_id = job.scene_id,
+                                "yt-dlp segment download not supported for this video, falling back to full source"
+                            );
+                        } else {
+                            tracing::warn!(
+                                scene_id = job.scene_id,
+                                error = %e,
+                                "yt-dlp segment download failed, falling back to full source"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Fall back to full source download + extraction if segment download didn't work
+        if !segment_downloaded {
+            info!(
+                scene_id = job.scene_id,
+                "Downloading full source video for segment extraction..."
+            );
+            let source_video = download_video_for_render(ctx, job, work_dir).await?;
+            let (seg, created) = ctx
+                .raw_cache
+                .get_or_create_with_outcome(
+                    &job.user_id,
+                    job.video_id.as_str(),
+                    job.scene_id,
+                    &source_video,
+                    &padded_start_ts,
+                    &padded_end_ts,
+                    work_dir,
+                )
+                .await?;
+            raw_created = created;
+            // Ensure we use the correct path
+            if seg != raw_segment && seg.exists() {
+                tokio::fs::copy(&seg, &raw_segment).await.ok();
+            }
         }
     }
 
@@ -338,6 +399,7 @@ async fn process_render_clip_inner(
         // Padding already applied in raw extraction, so set to 0
         pad_before: 0.0,
         pad_after: 0.0,
+        streamer_split_params: None, // TODO: Pass from RenderSceneStyleJob if needed
     };
 
     // Step 3: Process the clip using the raw segment as input
@@ -481,6 +543,38 @@ async fn download_video_fallback(
 
     download_video(&video_url, video_file).await?;
     Ok(())
+}
+
+/// Get video URL from Firestore highlights for yt-dlp segment download.
+///
+/// Returns None if highlights not found or no URL stored.
+async fn get_video_url_for_render(
+    ctx: &EnhancedProcessingContext,
+    job: &RenderSceneStyleJob,
+) -> Option<String> {
+    let highlights_repo = vclip_firestore::HighlightsRepository::new(
+        ctx.firestore.clone(),
+        &job.user_id,
+    );
+
+    match highlights_repo.get(&job.video_id).await {
+        Ok(Some(highlights)) => highlights.video_url,
+        Ok(None) => {
+            tracing::debug!(
+                video_id = %job.video_id,
+                "No highlights found for video URL lookup"
+            );
+            None
+        }
+        Err(e) => {
+            tracing::debug!(
+                video_id = %job.video_id,
+                error = %e,
+                "Failed to get highlights for video URL lookup"
+            );
+            None
+        }
+    }
 }
 
 /// Trigger a neural analysis job for a scene (fire-and-forget).

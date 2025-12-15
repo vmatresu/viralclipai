@@ -2,27 +2,23 @@
 //!
 //! Creates a split view optimized for gaming/explainer content:
 //! - Top panel: Original landscape gameplay/content (letterboxed to fit 9:8 panel)
-//! - Bottom panel: Face cam with intelligent face tracking
+//! - Bottom panel: User-specified crop region (webcam area) or static image
 //!
 //! Audio comes only from the original video (top panel).
-//! If face detection fails in some frames, the processor shows black bars
-//! or the last successfully detected face position (frozen frame fallback).
 //!
-//! This style is available to Pro and Studio tiers only and can trigger
-//! face detection cache generation.
+//! This style is FREE (no AI detection required) and uses user-specified
+//! parameters for the bottom panel crop position and zoom level.
 
 use async_trait::async_trait;
 use std::path::Path;
 use std::process::Stdio;
 use tokio::process::Command;
 use tracing::{info, warn};
-use vclip_models::{DetectionTier, EncodingConfig, Style};
+use vclip_models::{DetectionTier, EncodingConfig, StreamerSplitParams, Style};
 
 use crate::core::observability::ProcessingLogger;
 use crate::core::{ProcessingContext, ProcessingRequest, ProcessingResult, StyleProcessor};
 use crate::error::{MediaError, MediaResult};
-use crate::intelligent::detection_adapter::get_detections;
-use crate::intelligent::models::BoundingBox;
 use crate::intelligent::output_format::{SPLIT_PANEL_HEIGHT, SPLIT_PANEL_WIDTH};
 use crate::probe::probe_video;
 use crate::thumbnail::generate_thumbnail;
@@ -37,34 +33,19 @@ const PANEL_HEIGHT: u32 = SPLIT_PANEL_HEIGHT;
 ///
 /// Creates a split view with:
 /// - Original gameplay/content letterboxed on top
-/// - Face cam with intelligent tracking on bottom
-#[derive(Clone)]
-pub struct StreamerSplitProcessor {
-    tier: DetectionTier,
-}
+/// - User-specified crop region on bottom (no AI detection)
+#[derive(Clone, Default)]
+pub struct StreamerSplitProcessor;
 
 impl StreamerSplitProcessor {
     /// Create a new streamer split processor.
     pub fn new() -> Self {
-        Self {
-            tier: DetectionTier::Basic,
-        }
+        Self
     }
 
-    /// Create with specific detection tier.
-    pub fn with_tier(tier: DetectionTier) -> Self {
-        Self { tier }
-    }
-
-    /// Get the detection tier.
+    /// Get the detection tier (None - no AI detection needed).
     pub fn detection_tier(&self) -> DetectionTier {
-        self.tier
-    }
-}
-
-impl Default for StreamerSplitProcessor {
-    fn default() -> Self {
-        Self::new()
+        DetectionTier::None
     }
 }
 
@@ -84,7 +65,6 @@ impl StyleProcessor for StreamerSplitProcessor {
         ctx: &ProcessingContext,
     ) -> MediaResult<()> {
         utils::validate_paths(&request.input_path, &request.output_path)?;
-        ctx.security.check_resource_limits("face_detection")?;
         ctx.security.check_resource_limits("ffmpeg")?;
         Ok(())
     }
@@ -103,18 +83,25 @@ impl StyleProcessor for StreamerSplitProcessor {
 
         logger.log_start(&request.input_path, &request.output_path);
 
+        // Get user-specified params or use defaults
+        let params = request
+            .task
+            .streamer_split_params
+            .clone()
+            .unwrap_or_default();
+
         info!(
-            "[STREAMER_SPLIT] Processing with tier {:?}",
-            self.tier
+            "[STREAMER_SPLIT] Processing with user params: pos=({:?}, {:?}), zoom={:.1}",
+            params.position_x, params.position_y, params.zoom
         );
 
-        // Process the streamer split
+        // Process the streamer split with user params
         process_streamer_split(
             request.input_path.as_ref(),
             request.output_path.as_ref(),
             &request.task,
             &request.encoding,
-            request.cached_neural_analysis.as_deref(),
+            &params,
         )
         .await?;
 
@@ -155,9 +142,8 @@ impl StyleProcessor for StreamerSplitProcessor {
         let duration = crate::intelligent::parse_timestamp(&request.task.end).unwrap_or(30.0)
             - crate::intelligent::parse_timestamp(&request.task.start).unwrap_or(0.0);
 
-        let mut complexity = utils::estimate_complexity(duration, true);
-        complexity.estimated_time_ms = (complexity.estimated_time_ms as f64 * 1.5) as u64;
-        complexity
+        // StreamerSplit is now fast (no AI detection), so reduce complexity estimate
+        utils::estimate_complexity(duration, false)
     }
 }
 
@@ -165,13 +151,13 @@ impl StyleProcessor for StreamerSplitProcessor {
 ///
 /// Creates a 9:16 output with:
 /// - Top panel (9:8): Original content letterboxed
-/// - Bottom panel (9:8): Face cam with intelligent tracking
+/// - Bottom panel (9:8): User-specified crop region
 async fn process_streamer_split(
     input: &Path,
     output: &Path,
     task: &vclip_models::ClipTask,
     encoding: &EncodingConfig,
-    cached_analysis: Option<&vclip_models::SceneNeuralAnalysis>,
+    params: &StreamerSplitParams,
 ) -> MediaResult<()> {
     let pipeline_start = std::time::Instant::now();
 
@@ -182,12 +168,10 @@ async fn process_streamer_split(
     let video_info = probe_video(input).await?;
     let width = video_info.width;
     let height = video_info.height;
-    let fps = video_info.fps;
-    let duration = video_info.duration;
 
     info!(
         "[STREAMER_SPLIT] Video: {}x{} @ {:.2}fps, {:.2}s",
-        width, height, fps, duration
+        width, height, video_info.fps, video_info.duration
     );
 
     // Step 2: Extract segment with padding
@@ -202,57 +186,19 @@ async fn process_streamer_split(
     let segment_info = probe_video(&segment_path).await?;
     let seg_width = segment_info.width;
     let seg_height = segment_info.height;
-    let seg_fps = segment_info.fps;
-    let seg_duration = segment_info.duration;
 
-    // Step 3: Get face detections (from cache or run detection)
-    info!("[STREAMER_SPLIT] Getting face detections...");
+    // Step 3: Compute crop region from user params
+    let crop_region = compute_crop_from_params(params, seg_width, seg_height);
 
-    let frame_detections = get_detections(
-        cached_analysis,
-        &segment_path,
-        DetectionTier::Basic,
-        0.0,
-        seg_duration,
-        seg_width,
-        seg_height,
-        seg_fps,
-    )
-    .await?;
-
-    // Convert Vec<Vec<Detection>> to Vec<(f64, Vec<BoundingBox>)>
-    let detections: Vec<(f64, Vec<BoundingBox>)> = frame_detections
-        .into_iter()
-        .map(|frame| {
-            let time = frame.first().map(|d| d.time).unwrap_or(0.0);
-            let boxes: Vec<BoundingBox> = frame.iter().map(|d| d.bbox).collect();
-            (time, boxes)
-        })
-        .collect();
-
-    info!("[STREAMER_SPLIT] Got {} detection frames", detections.len());
-
-    // Step 4: Compute face tracking crop windows
-    let face_crops = compute_face_crop_windows(
-        &detections,
-        seg_width,
-        seg_height,
-        seg_fps,
-        seg_duration,
+    info!(
+        "[STREAMER_SPLIT] Crop region: {}x{} at ({}, {}), zoom: {:.1}x",
+        crop_region.width, crop_region.height, crop_region.x, crop_region.y, params.zoom
     );
 
-    // Step 5: Render the streamer split
+    // Step 4: Render the streamer split
     info!("[STREAMER_SPLIT] Rendering split view...");
 
-    render_streamer_split(
-        &segment_path,
-        output,
-        seg_width,
-        seg_height,
-        &face_crops,
-        encoding,
-    )
-    .await?;
+    render_streamer_split(&segment_path, output, &crop_region, encoding).await?;
 
     // Cleanup segment
     if segment_path.exists() {
@@ -282,112 +228,51 @@ async fn process_streamer_split(
     Ok(())
 }
 
-
-/// Crop window for face tracking.
+/// Crop region for the bottom panel.
 #[derive(Debug, Clone, Copy)]
-struct FaceCropWindow {
-    /// Center X position (0.0 to 1.0)
-    cx: f64,
-    /// Center Y position (0.0 to 1.0)
-    cy: f64,
-    /// Whether a face was detected for this frame
-    has_face: bool,
-}
-
-impl Default for FaceCropWindow {
-    fn default() -> Self {
-        Self {
-            cx: 0.5,
-            cy: 0.4, // Default to upper-center
-            has_face: false,
-        }
-    }
-}
-
-/// Compute face crop windows for each frame.
-///
-/// Returns a crop window per frame, with fallback to last known position
-/// or default center if no face detected.
-fn compute_face_crop_windows(
-    detections: &[(f64, Vec<BoundingBox>)],
+struct CropRegion {
+    x: u32,
+    y: u32,
     width: u32,
     height: u32,
-    fps: f64,
-    duration: f64,
-) -> Vec<FaceCropWindow> {
-    let frame_count = (duration * fps).ceil() as usize;
-    let mut crops = vec![FaceCropWindow::default(); frame_count.max(1)];
-    
-    // Build a map of timestamp -> best face position
-    let mut detection_map: std::collections::BTreeMap<usize, (f64, f64)> = std::collections::BTreeMap::new();
-    
-    for (timestamp, faces) in detections {
-        if faces.is_empty() {
-            continue;
-        }
-        
-        // Find the largest face (likely the streamer's face cam)
-        let best_face = faces
-            .iter()
-            .max_by(|a, b| {
-                let area_a = a.width * a.height;
-                let area_b = b.width * b.height;
-                area_a.partial_cmp(&area_b).unwrap_or(std::cmp::Ordering::Equal)
-            });
-        
-        if let Some(face) = best_face {
-            let frame_idx = (*timestamp * fps).round() as usize;
-            let cx = (face.x + face.width / 2.0) / width as f64;
-            let cy = (face.y + face.height / 2.0) / height as f64;
-            detection_map.insert(frame_idx, (cx, cy));
-        }
-    }
-    
-    // Fill in crops with interpolation/fallback
-    let mut last_known: Option<(f64, f64)> = None;
-    
-    for i in 0..crops.len() {
-        if let Some(&(cx, cy)) = detection_map.get(&i) {
-            crops[i] = FaceCropWindow {
-                cx,
-                cy,
-                has_face: true,
-            };
-            last_known = Some((cx, cy));
-        } else if let Some((cx, cy)) = last_known {
-            // Use last known position (frozen face fallback)
-            crops[i] = FaceCropWindow {
-                cx,
-                cy,
-                has_face: false, // Using fallback
-            };
-        }
-        // Otherwise keep default (center, no face)
-    }
-    
-    // Smooth the crop positions for stable camera movement
-    smooth_crop_windows(&mut crops);
-    
-    crops
 }
 
-/// Smooth crop window positions to avoid jittery camera movement.
-fn smooth_crop_windows(crops: &mut [FaceCropWindow]) {
-    if crops.len() < 3 {
-        return;
-    }
-    
-    // Apply exponential moving average
-    let alpha = 0.3; // Smoothing factor
-    
-    let mut smoothed_cx = crops[0].cx;
-    let mut smoothed_cy = crops[0].cy;
-    
-    for crop in crops.iter_mut() {
-        smoothed_cx = alpha * crop.cx + (1.0 - alpha) * smoothed_cx;
-        smoothed_cy = alpha * crop.cy + (1.0 - alpha) * smoothed_cy;
-        crop.cx = smoothed_cx;
-        crop.cy = smoothed_cy;
+/// Compute crop region from user-specified parameters.
+///
+/// The crop region is calculated based on:
+/// - Position (horizontal: left/center/right, vertical: top/middle/bottom)
+/// - Zoom level (1.0 = full frame, 2.0 = 2x zoom, etc.)
+fn compute_crop_from_params(params: &StreamerSplitParams, width: u32, height: u32) -> CropRegion {
+    let panel_ratio = PANEL_WIDTH as f64 / PANEL_HEIGHT as f64; // 9:8 = 1.125
+
+    // Calculate crop size based on zoom level
+    // zoom = 1.0 means full frame, zoom = 2.0 means half the frame, etc.
+    let zoom = params.zoom.clamp(1.0, 4.0) as f64;
+    let crop_width = (width as f64 / zoom).round() as u32;
+    let crop_height = (crop_width as f64 / panel_ratio).round() as u32;
+
+    // Clamp to frame bounds
+    let crop_width = crop_width.min(width);
+    let crop_height = crop_height.min(height);
+
+    // Calculate position based on user selection
+    let norm_x = params.position_x.to_normalized();
+    let norm_y = params.position_y.to_normalized();
+
+    // Convert normalized position to pixel coordinates
+    // The position represents where the CENTER of the crop should be
+    let center_x = (norm_x * width as f64).round() as i32;
+    let center_y = (norm_y * height as f64).round() as i32;
+
+    // Calculate top-left corner, clamping to frame bounds
+    let x = (center_x - crop_width as i32 / 2).clamp(0, (width - crop_width) as i32) as u32;
+    let y = (center_y - crop_height as i32 / 2).clamp(0, (height - crop_height) as i32) as u32;
+
+    CropRegion {
+        x,
+        y,
+        width: crop_width,
+        height: crop_height,
     }
 }
 
@@ -395,89 +280,34 @@ fn smooth_crop_windows(crops: &mut [FaceCropWindow]) {
 ///
 /// Creates a single-pass FFmpeg command that:
 /// 1. Letterboxes the original content to fit top panel (9:8)
-/// 2. Crops and scales face region for bottom panel (9:8)
+/// 2. Crops and scales user-specified region for bottom panel (9:8)
 /// 3. Stacks them vertically
 /// 4. Uses audio only from the original (input)
 async fn render_streamer_split(
     segment: &Path,
     output: &Path,
-    width: u32,
-    height: u32,
-    face_crops: &[FaceCropWindow],
+    crop: &CropRegion,
     encoding: &EncodingConfig,
 ) -> MediaResult<()> {
-    // For simplicity, we use a single representative crop position
-    // (average of all detected positions) for static crop.
-    // A more advanced implementation would use per-frame cropping.
-    let avg_crop = if face_crops.is_empty() {
-        FaceCropWindow::default()
-    } else {
-        let (sum_cx, sum_cy, count) = face_crops.iter().fold(
-            (0.0, 0.0, 0),
-            |(cx, cy, c), crop| (cx + crop.cx, cy + crop.cy, c + 1),
-        );
-        FaceCropWindow {
-            cx: sum_cx / count as f64,
-            cy: sum_cy / count as f64,
-            has_face: face_crops.iter().any(|c| c.has_face),
-        }
-    };
-
-    // Calculate face crop dimensions
-    // We want to crop a 9:8 region centered on the face
-    let panel_ratio = PANEL_WIDTH as f64 / PANEL_HEIGHT as f64; // 9:8 = 1.125
-    
-    // Calculate the maximum crop size that fits within the frame
-    let max_crop_width = width as f64;
-    let max_crop_height = height as f64;
-    
-    // Calculate crop dimensions to maintain 9:8 aspect ratio
-    let (face_crop_w, face_crop_h) = if max_crop_width / max_crop_height > panel_ratio {
-        // Frame is wider than 9:8 - height limited
-        let h = max_crop_height * 0.8; // Use 80% of height to leave some margin
-        let w = h * panel_ratio;
-        (w.min(max_crop_width), h)
-    } else {
-        // Frame is taller than 9:8 - width limited
-        let w = max_crop_width * 0.8;
-        let h = w / panel_ratio;
-        (w, h.min(max_crop_height))
-    };
-    
-    // Calculate crop position centered on detected face
-    let face_crop_x = ((avg_crop.cx * width as f64) - face_crop_w / 2.0)
-        .max(0.0)
-        .min(width as f64 - face_crop_w);
-    let face_crop_y = ((avg_crop.cy * height as f64) - face_crop_h / 2.0)
-        .max(0.0)
-        .min(height as f64 - face_crop_h);
-
-    info!(
-        "[STREAMER_SPLIT] Face crop: {}x{} at ({}, {}), has_face: {}",
-        face_crop_w as i32, face_crop_h as i32,
-        face_crop_x as i32, face_crop_y as i32,
-        avg_crop.has_face
-    );
-
     // Build filter complex:
     // - Top panel: Original video letterboxed to 9:8 (pad with black bars)
-    // - Bottom panel: Face region cropped and scaled to 9:8
+    // - Bottom panel: User-specified region cropped and scaled to 9:8
     // - Stack vertically
     // - Audio from original only
     let filter_complex = format!(
         "[0:v]scale={pw}:{ph}:force_original_aspect_ratio=decrease,\
          pad={pw}:{ph}:(ow-iw)/2:(oh-ih)/2:black,\
          setsar=1,format=yuv420p[top];\
-         [0:v]crop={fcw}:{fch}:{fcx}:{fcy},\
+         [0:v]crop={cw}:{ch}:{cx}:{cy},\
          scale={pw}:{ph}:flags=lanczos,\
          setsar=1,format=yuv420p[bottom];\
          [top][bottom]vstack=inputs=2[vout]",
         pw = PANEL_WIDTH,
         ph = PANEL_HEIGHT,
-        fcw = face_crop_w as i32,
-        fch = face_crop_h as i32,
-        fcx = face_crop_x as i32,
-        fcy = face_crop_y as i32,
+        cw = crop.width,
+        ch = crop.height,
+        cx = crop.x,
+        cy = crop.y,
     );
 
     let mut cmd = Command::new("ffmpeg");
@@ -533,6 +363,7 @@ async fn render_streamer_split(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vclip_models::{HorizontalPosition, VerticalPosition};
 
     #[test]
     fn test_streamer_split_processor_creation() {
@@ -540,46 +371,89 @@ mod tests {
         assert_eq!(processor.name(), "streamer_split");
         assert!(processor.can_handle(Style::StreamerSplit));
         assert!(!processor.can_handle(Style::Split));
-        assert_eq!(processor.detection_tier(), DetectionTier::Basic);
+        // Now uses DetectionTier::None (no AI detection)
+        assert_eq!(processor.detection_tier(), DetectionTier::None);
     }
 
     #[test]
-    fn test_face_crop_window_default() {
-        let crop = FaceCropWindow::default();
-        assert!((crop.cx - 0.5).abs() < 0.001);
-        assert!((crop.cy - 0.4).abs() < 0.001);
-        assert!(!crop.has_face);
-    }
-
-    #[test]
-    fn test_compute_face_crop_windows_empty() {
-        let detections: Vec<(f64, Vec<BoundingBox>)> = vec![];
-        let crops = compute_face_crop_windows(&detections, 1920, 1080, 30.0, 1.0);
-        assert_eq!(crops.len(), 30);
-        assert!(!crops[0].has_face);
-    }
-
-    #[test]
-    fn test_compute_face_crop_windows_with_detection() {
-        let face = BoundingBox::new(100.0, 100.0, 200.0, 200.0);
-        let detections = vec![(0.5, vec![face])];
-        let crops = compute_face_crop_windows(&detections, 1920, 1080, 30.0, 1.0);
+    fn test_crop_region_top_left() {
+        let params = StreamerSplitParams {
+            position_x: HorizontalPosition::Left,
+            position_y: VerticalPosition::Top,
+            zoom: 2.0,
+            static_image_url: None,
+        };
+        let crop = compute_crop_from_params(&params, 1920, 1080);
         
-        // Frame 15 (0.5 * 30) should have the detection
-        let frame_15 = &crops[15];
-        assert!(frame_15.has_face || crops.iter().any(|c| c.has_face));
+        // With 2x zoom, crop should be half the frame width
+        assert_eq!(crop.width, 960);
+        // Crop should be at top-left
+        assert_eq!(crop.x, 0);
+        assert_eq!(crop.y, 0);
     }
 
     #[test]
-    fn test_smooth_crop_windows() {
-        let mut crops = vec![
-            FaceCropWindow { cx: 0.2, cy: 0.3, has_face: true },
-            FaceCropWindow { cx: 0.8, cy: 0.7, has_face: true },
-            FaceCropWindow { cx: 0.5, cy: 0.5, has_face: true },
-        ];
-        smooth_crop_windows(&mut crops);
+    fn test_crop_region_center() {
+        let params = StreamerSplitParams {
+            position_x: HorizontalPosition::Center,
+            position_y: VerticalPosition::Middle,
+            zoom: 1.0,
+            static_image_url: None,
+        };
+        let crop = compute_crop_from_params(&params, 1920, 1080);
         
-        // After smoothing, values should be between original values
-        assert!(crops[1].cx > 0.2 && crops[1].cx < 0.8);
+        // With 1x zoom, crop should be full frame width
+        assert_eq!(crop.width, 1920);
+        // Crop should be at origin (full frame)
+        assert_eq!(crop.x, 0);
+    }
+
+    #[test]
+    fn test_crop_region_bottom_right() {
+        let params = StreamerSplitParams {
+            position_x: HorizontalPosition::Right,
+            position_y: VerticalPosition::Bottom,
+            zoom: 2.0,
+            static_image_url: None,
+        };
+        let crop = compute_crop_from_params(&params, 1920, 1080);
+        
+        // With 2x zoom, crop should be half the frame width
+        assert_eq!(crop.width, 960);
+        // Crop should be at bottom-right
+        assert_eq!(crop.x, 960); // 1920 - 960
+    }
+
+    #[test]
+    fn test_zoom_clamping() {
+        // Test that zoom is clamped to valid range
+        let params_low = StreamerSplitParams {
+            position_x: HorizontalPosition::Center,
+            position_y: VerticalPosition::Middle,
+            zoom: 0.5, // Below minimum
+            static_image_url: None,
+        };
+        let crop_low = compute_crop_from_params(&params_low, 1920, 1080);
+        // Should be clamped to 1.0 (full frame)
+        assert_eq!(crop_low.width, 1920);
+
+        let params_high = StreamerSplitParams {
+            position_x: HorizontalPosition::Center,
+            position_y: VerticalPosition::Middle,
+            zoom: 10.0, // Above maximum
+            static_image_url: None,
+        };
+        let crop_high = compute_crop_from_params(&params_high, 1920, 1080);
+        // Should be clamped to 4.0 (quarter frame)
+        assert_eq!(crop_high.width, 480); // 1920 / 4
+    }
+
+    #[test]
+    fn test_default_params() {
+        let params = StreamerSplitParams::default();
+        assert_eq!(params.position_x, HorizontalPosition::Left);
+        assert_eq!(params.position_y, VerticalPosition::Top);
+        assert!((params.zoom - 1.5).abs() < 0.01);
+        assert!(params.static_image_url.is_none());
     }
 }

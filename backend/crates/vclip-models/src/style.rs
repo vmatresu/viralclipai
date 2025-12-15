@@ -139,7 +139,7 @@ impl Style {
                 | Style::IntelligentSplitMotion
                 | Style::IntelligentSplitActivity
                 | Style::IntelligentCinematic
-                | Style::StreamerSplit
+            // Note: StreamerSplit uses user-specified params, not intelligent cropping
         )
     }
 
@@ -147,6 +147,7 @@ impl Style {
     ///
     /// Returns true for styles that use YuNet/FaceMesh detection.
     /// MotionAware styles use motion heuristics instead of face detection.
+    /// StreamerSplit uses user-specified params, no face detection needed.
     pub fn requires_face_detection(&self) -> bool {
         matches!(
             self,
@@ -156,7 +157,7 @@ impl Style {
                 | Style::IntelligentSplitSpeaker
                 | Style::IntelligentSplitActivity
                 | Style::IntelligentCinematic
-                | Style::StreamerSplit
+            // Note: StreamerSplit removed - uses user-specified crop params
         )
     }
 
@@ -167,6 +168,7 @@ impl Style {
     ///
     /// Note: This only indicates the style CAN USE cache if available.
     /// Use `should_generate_cached_analysis()` to check if this style should TRIGGER cache generation.
+    /// StreamerSplit uses user-specified params, no cache needed.
     pub fn can_use_cached_analysis(&self) -> bool {
         matches!(
             self,
@@ -178,15 +180,16 @@ impl Style {
                 | Style::IntelligentMotion
                 | Style::IntelligentSplitMotion
                 | Style::IntelligentCinematic
-                | Style::StreamerSplit
+            // Note: StreamerSplit removed - uses user-specified crop params
         )
     }
 
     /// Whether this style should trigger neural analysis cache generation.
     ///
-    /// Only premium tiers (SpeakerAware, MotionAware, Cinematic, StreamerSplit) should generate and cache analysis.
+    /// Only premium tiers (SpeakerAware, MotionAware, Cinematic) should generate and cache analysis.
     /// These are gated to Pro/Studio plans. Lower tiers (Basic) can consume cached
     /// analysis if it exists, but should never trigger expensive cache generation.
+    /// StreamerSplit uses user-specified params, no cache generation needed.
     pub fn should_generate_cached_analysis(&self) -> bool {
         matches!(
             self,
@@ -196,7 +199,7 @@ impl Style {
                 | Style::IntelligentSplitMotion
                 | Style::IntelligentSplitActivity
                 | Style::IntelligentCinematic
-                | Style::StreamerSplit
+            // Note: StreamerSplit removed - uses user-specified crop params
         )
     }
 
@@ -220,8 +223,8 @@ impl Style {
             Style::IntelligentSplitActivity => DetectionTier::SpeakerAware,
             // Cinematic tier uses polynomial trajectory optimization + adaptive zoom
             Style::IntelligentCinematic => DetectionTier::Cinematic,
-            // StreamerSplit uses Basic face detection (can trigger cache generation)
-            Style::StreamerSplit => DetectionTier::Basic,
+            // StreamerSplit uses user-specified params, no detection needed (fast)
+            Style::StreamerSplit => DetectionTier::None,
         }
     }
 
@@ -631,6 +634,10 @@ mod tests {
         assert!(!Style::Intelligent.should_generate_cached_analysis());
         assert!(!Style::IntelligentSplit.should_generate_cached_analysis());
 
+        // StreamerSplit uses user params, no cache needed
+        assert!(!Style::StreamerSplit.should_generate_cached_analysis());
+        assert!(!Style::StreamerSplit.can_use_cached_analysis());
+
         // All intelligent styles can USE cache if available
         assert!(Style::Intelligent.can_use_cached_analysis());
         assert!(Style::IntelligentSplit.can_use_cached_analysis());
@@ -641,6 +648,18 @@ mod tests {
         // Non-intelligent styles cannot use cache
         assert!(!Style::Split.can_use_cached_analysis());
         assert!(!Style::Original.can_use_cached_analysis());
+    }
+
+    #[test]
+    fn test_streamer_split_is_fast() {
+        use crate::detection_tier::DetectionTier;
+
+        // StreamerSplit is now a fast style (no AI detection)
+        assert!(Style::StreamerSplit.is_fast());
+        assert!(Style::StreamerSplit.is_split_view());
+        assert_eq!(Style::StreamerSplit.detection_tier(), DetectionTier::None);
+        assert!(!Style::StreamerSplit.requires_face_detection());
+        assert!(!Style::StreamerSplit.requires_intelligent_crop());
     }
 
     #[test]
