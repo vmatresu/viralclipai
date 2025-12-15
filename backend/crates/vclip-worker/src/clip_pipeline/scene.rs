@@ -50,6 +50,7 @@ pub async fn process_scene(
         existing_completed,
         total_clips,
         None,
+        false, // Don't skip scene_started - we want it emitted
     )
     .await
 }
@@ -80,6 +81,7 @@ pub async fn process_scene_with_raw_key(
     existing_completed: &std::collections::HashSet<String>,
     total_clips: usize,
     raw_r2_key: Option<String>,
+    skip_scene_started: bool,
 ) -> WorkerResult<SceneProcessingResults> {
     let first_task = scene_tasks[0];
     let scene_id = first_task.scene_id;
@@ -87,24 +89,26 @@ pub async fn process_scene_with_raw_key(
     // Parse timing for scene started event
     let (start_sec, end_sec, duration_sec) = compute_padded_timing(first_task);
 
-    // Emit scene started event
-    if let Err(e) = ctx
-        .progress
-        .scene_started(
-            &job.job_id,
-            scene_id,
-            &first_task.scene_title,
-            scene_tasks.len() as u32,
-            start_sec,
-            duration_sec,
-        )
-        .await
-    {
-        tracing::warn!(
-            scene_id = scene_id,
-            error = %e,
-            "Failed to emit scene_started event"
-        );
+    // Emit scene started event (unless caller already emitted with original timestamps)
+    if !skip_scene_started {
+        if let Err(e) = ctx
+            .progress
+            .scene_started(
+                &job.job_id,
+                scene_id,
+                &first_task.scene_title,
+                scene_tasks.len() as u32,
+                start_sec,
+                duration_sec,
+            )
+            .await
+        {
+            tracing::warn!(
+                scene_id = scene_id,
+                error = %e,
+                "Failed to emit scene_started event"
+            );
+        }
     }
 
     info!(

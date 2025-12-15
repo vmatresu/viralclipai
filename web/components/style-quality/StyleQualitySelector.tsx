@@ -3,18 +3,18 @@
 import * as Slider from "@radix-ui/react-slider";
 import { Activity, Film, ScanFace, Sparkles, Zap } from "lucide-react";
 import {
-  type ComponentType,
-  type KeyboardEvent,
-  type MouseEvent,
-  useMemo,
+    type ComponentType,
+    type KeyboardEvent,
+    type MouseEvent,
+    useMemo,
 } from "react";
 
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -112,7 +112,7 @@ const fullValues = FULL_LEVELS.map((lvl) => lvl.value);
 export const DEFAULT_SELECTION: LayoutQualitySelection = {
   splitEnabled: false,
   splitStyle: "intelligent_split",
-  fullEnabled: true,
+  fullEnabled: false,
   fullStyle: "intelligent",
   staticPosition: "center",
   includeOriginal: false,
@@ -535,11 +535,9 @@ export function StyleQualitySelector({
 
   const updateSelection = (patch: Partial<LayoutQualitySelection>) => {
     const next = { ...selection, ...patch };
-    let styles = selectionToStyles(next);
-    // If user disables Split and Full, re-enable Full to avoid empty selection.
-    if (styles.length === 0) {
-      styles = selectionToStyles({ ...next, fullEnabled: true });
-    }
+    const styles = selectionToStyles(next);
+    // Allow all selections to be unselected - user can choose any combination
+    // of Split, Full, and Original (including none)
     onChange(styles);
   };
 

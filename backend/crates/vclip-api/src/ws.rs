@@ -162,6 +162,9 @@ pub struct WsReprocessRequest {
     /// Enable object detection for Cinematic style (default: false)
     #[serde(default)]
     pub enable_object_detection: bool,
+    /// Overwrite existing clips instead of skipping them (default: false)
+    #[serde(default)]
+    pub overwrite: bool,
 }
 
 /// WebSocket process endpoint.
@@ -797,7 +800,8 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
     let video_id = vclip_models::VideoId::from_string(&request.video_id);
     let mut job = vclip_queue::ReprocessScenesJob::new(&uid, video_id.clone(), request.scene_ids, styles)
         .with_crop_mode(crop_mode)
-        .with_target_aspect(target_aspect);
+        .with_target_aspect(target_aspect)
+        .with_overwrite(request.overwrite);
     // Pass enable_object_detection flag to the job
     job.enable_object_detection = request.enable_object_detection;
     let job_id = job.job_id.clone();

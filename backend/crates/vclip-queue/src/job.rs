@@ -142,6 +142,9 @@ pub struct ReprocessScenesJob {
     /// Enable object detection for Cinematic tier (default: false)
     #[serde(default)]
     pub enable_object_detection: bool,
+    /// When true, overwrite existing clips instead of skipping them
+    #[serde(default)]
+    pub overwrite: bool,
 }
 
 impl ReprocessScenesJob {
@@ -160,6 +163,7 @@ impl ReprocessScenesJob {
             crop_mode: CropMode::default(),
             target_aspect: AspectRatio::default(),
             enable_object_detection: false,
+            overwrite: false,
         }
     }
 
@@ -172,6 +176,12 @@ impl ReprocessScenesJob {
     /// Set target aspect ratio.
     pub fn with_target_aspect(mut self, aspect: AspectRatio) -> Self {
         self.target_aspect = aspect;
+        self
+    }
+
+    /// Set overwrite mode (re-render existing clips).
+    pub fn with_overwrite(mut self, overwrite: bool) -> Self {
+        self.overwrite = overwrite;
         self
     }
 

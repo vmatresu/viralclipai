@@ -349,7 +349,14 @@ async fn process_selected_scenes(
     use vclip_media::intelligent::parse_timestamp;
     
     // Load existing completed clips for skip-on-resume.
-    let existing_completed: std::collections::HashSet<String> =
+    // When overwrite is requested, skip this check entirely to force re-rendering.
+    let existing_completed: std::collections::HashSet<String> = if job.overwrite {
+        info!(
+            video_id = %job.video_id,
+            "Overwrite mode enabled, will re-render existing clips"
+        );
+        std::collections::HashSet::new()
+    } else {
         match vclip_firestore::ClipRepository::new(
             ctx.firestore.clone(),
             &job.user_id,
@@ -363,7 +370,8 @@ async fn process_selected_scenes(
                 tracing::info!("Failed to list completed clips (processing all): {}", e);
                 std::collections::HashSet::new()
             }
-        };
+        }
+    };
 
     // Group clips by scene_id for parallel processing of styles within each scene
     let mut scene_groups: HashMap<u32, Vec<&ClipTask>> = HashMap::new();
@@ -397,6 +405,31 @@ async fn process_selected_scenes(
             )
             .await
             .ok();
+
+        // Parse original timestamps for progress display (BEFORE raw segment timestamp modification)
+        let original_start_secs = parse_timestamp(&first_task.start).unwrap_or(0.0);
+        let original_end_secs = parse_timestamp(&first_task.end).unwrap_or(30.0);
+        let original_duration = original_end_secs - original_start_secs + first_task.pad_before + first_task.pad_after;
+
+        // Emit scene_started with ORIGINAL video timestamps so frontend shows correct timing
+        if let Err(e) = ctx
+            .progress
+            .scene_started(
+                &job.job_id,
+                scene_id,
+                &first_task.scene_title,
+                scene_tasks.len() as u32,
+                original_start_secs,
+                original_duration,
+            )
+            .await
+        {
+            tracing::warn!(
+                scene_id = scene_id,
+                error = %e,
+                "Failed to emit scene_started event"
+            );
+        }
 
         // Phase 4: Get or create cached raw segment for this scene
         // This avoids re-extracting the segment for each style
@@ -502,6 +535,7 @@ async fn process_selected_scenes(
             &existing_completed,
             total_clips,
             Some(raw_key),
+            true, // Skip scene_started - we already emitted with original timestamps above
         )
         .await?;
 

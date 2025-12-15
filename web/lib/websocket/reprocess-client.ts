@@ -117,6 +117,8 @@ export interface ReprocessOptions {
   targetAspect?: string;
   /** Enable object detection for Cinematic style (default: false) */
   enableObjectDetection?: boolean;
+  /** When true, overwrite existing clips instead of skipping them (default: false) */
+  overwrite?: boolean;
 }
 
 const MAX_MESSAGE_SIZE = 1024 * 1024; // 1MB
@@ -170,6 +172,7 @@ export function reprocessScenesWebSocket(
     cropMode = "none",
     targetAspect = "9:16",
     enableObjectDetection = false,
+    overwrite = false,
   } = options;
 
   // Validation
@@ -220,6 +223,7 @@ export function reprocessScenesWebSocket(
           crop_mode: cropMode,
           target_aspect: targetAspect,
           enable_object_detection: enableObjectDetection,
+          overwrite,
         })
       );
     } catch (error) {

@@ -12,8 +12,8 @@ import { useAuth } from "@/lib/auth";
 import { invalidateClipsCache } from "@/lib/cache";
 import { useProcessing, type ProcessingJob } from "@/lib/processing-context";
 import {
-  reprocessScenesWebSocket,
-  type ReprocessCallbacks,
+    reprocessScenesWebSocket,
+    type ReprocessCallbacks,
 } from "@/lib/websocket/reprocess-client";
 import { type SceneProgress } from "@/types/processing";
 
@@ -88,7 +88,8 @@ export function useReprocessing({
     async (
       sceneIds: number[],
       styles: string[],
-      enableObjectDetection: boolean = false
+      enableObjectDetection: boolean = false,
+      overwrite: boolean = false
     ) => {
       if (state.isProcessing) {
         toast.error("Reprocessing already in progress");
@@ -245,6 +246,7 @@ export function useReprocessing({
             cropMode: "none",
             targetAspect: "9:16",
             enableObjectDetection,
+            overwrite,
           },
           callbacks
         );

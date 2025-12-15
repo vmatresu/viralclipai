@@ -1178,6 +1178,9 @@ pub async fn update_video_title(
 pub struct ReprocessScenesRequest {
     pub scene_ids: Vec<u32>,
     pub styles: Vec<String>,
+    /// When true, overwrite existing clips instead of skipping them (default: false)
+    #[serde(default)]
+    pub overwrite: bool,
 }
 
 /// Reprocess scenes response.
@@ -1316,7 +1319,8 @@ pub async fn reprocess_scenes(
         styles,
     )
     .with_crop_mode(crop_mode)
-    .with_target_aspect(target_aspect);
+    .with_target_aspect(target_aspect)
+    .with_overwrite(request.overwrite);
     
     let job_id = job.job_id.clone();
 

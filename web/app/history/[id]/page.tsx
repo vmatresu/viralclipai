@@ -1,14 +1,14 @@
 "use client";
 
 import {
-  AlertCircle,
-  ArrowLeft,
-  ChevronDown,
-  ChevronRight,
-  Copy,
-  Play,
-  Sparkles,
-  Trash2,
+    AlertCircle,
+    ArrowLeft,
+    ChevronDown,
+    ChevronRight,
+    Copy,
+    Play,
+    Sparkles,
+    Trash2,
 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -16,47 +16,47 @@ import { toast } from "sonner";
 
 import { type Clip } from "@/components/ClipGrid";
 import {
-  OverwriteConfirmationDialog,
-  type OverwriteTarget,
+    OverwriteConfirmationDialog,
+    type OverwriteTarget,
 } from "@/components/HistoryDetail/OverwriteConfirmationDialog";
 import { SceneCard, type Highlight } from "@/components/HistoryDetail/SceneCard";
 import {
-  HistorySceneExplorer,
-  groupClipsByScene,
-  type HistoryClip,
+    HistorySceneExplorer,
+    groupClipsByScene,
+    type HistoryClip,
 } from "@/components/HistoryDetail/SceneExplorer";
 import { DetailedProcessingStatus } from "@/components/shared/DetailedProcessingStatus";
 import { StyleQualitySelector } from "@/components/style-quality/StyleQualitySelector";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
 } from "@/components/ui/card";
 import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
+    Dialog,
+    DialogClose,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useReprocessing } from "@/hooks/useReprocessing";
 import {
-  apiFetch,
-  bulkDeleteClips,
-  deleteAllClips,
-  deleteClip as deleteClipApi,
-  getProcessingStatuses,
-  getVideoDetails,
-  getVideoHighlights,
-  getVideoSceneStyles,
+    apiFetch,
+    bulkDeleteClips,
+    deleteAllClips,
+    deleteClip as deleteClipApi,
+    getProcessingStatuses,
+    getVideoDetails,
+    getVideoHighlights,
+    getVideoSceneStyles,
 } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { useProcessing } from "@/lib/processing-context";
@@ -297,7 +297,7 @@ export default function HistoryDetailPage() {
   );
 
   const startReprocess = useCallback(
-    async (plan: ReprocessPlan) => {
+    async (plan: ReprocessPlan, overwrite: boolean = false) => {
       setIsProcessing(true);
       // Pass enableObjectDetection only if Cinematic style is selected
       const hasCinematic = plan.styles.some((s) =>
@@ -306,7 +306,8 @@ export default function HistoryDetailPage() {
       await reprocess(
         plan.sceneIds,
         plan.styles,
-        hasCinematic && enableObjectDetection
+        hasCinematic && enableObjectDetection,
+        overwrite
       );
     },
     [reprocess, enableObjectDetection]
@@ -315,7 +316,8 @@ export default function HistoryDetailPage() {
   const handleConfirmOverwrite = useCallback(async () => {
     if (!pendingPlan) return;
     setOverwriteDialogOpen(false);
-    await startReprocess(pendingPlan);
+    // User confirmed overwrite - pass overwrite: true
+    await startReprocess(pendingPlan, true);
   }, [pendingPlan, startReprocess]);
 
   const handleCancelOverwrite = useCallback(() => {
@@ -527,11 +529,9 @@ export default function HistoryDetailPage() {
 
     if (sceneStylesData || clips.length > 0) {
       selectionInitializedRef.current = true;
-      if (collected.size > 0) {
-        setSelectedStyles(Array.from(collected));
-      } else {
-        setSelectedStyles(["intelligent"]);
-      }
+      // Start with empty selection if no existing styles are found
+      // User can select any combination of Split, Full, and Original
+      setSelectedStyles(Array.from(collected));
     }
   }, [sceneStylesData, clips]);
 

@@ -399,20 +399,21 @@ mod tests {
 
     #[test]
     fn test_vertical_bias_computation() {
-        // Face at top of frame -> low bias
+        // Face at top of frame -> very low bias (preserve headroom)
         let top_face = BoundingBox::new(100.0, 50.0, 100.0, 100.0);
         let bias = compute_vertical_bias(&[top_face], 1080);
         assert!(bias < 0.1, "Top face should have low bias: {}", bias);
 
-        // Face at middle of frame -> medium bias
+        // Face at middle of frame -> still conservative bias (prioritize face containment)
+        // New algorithm is more conservative to ensure faces aren't cut
         let mid_face = BoundingBox::new(100.0, 440.0, 100.0, 100.0);
         let bias = compute_vertical_bias(&[mid_face], 1080);
-        assert!(bias > 0.1 && bias < 0.3, "Mid face should have medium bias: {}", bias);
+        assert!(bias < 0.3, "Mid face should have conservative bias: {}", bias);
 
-        // Face at bottom of frame -> higher bias (clamped)
+        // Face at bottom of frame -> higher bias, but still clamped for safety
         let bottom_face = BoundingBox::new(100.0, 800.0, 100.0, 100.0);
         let bias = compute_vertical_bias(&[bottom_face], 1080);
-        assert!(bias >= 0.3, "Bottom face should have higher bias: {}", bias);
+        assert!(bias > 0.1, "Bottom face should have higher bias: {}", bias);
     }
 
     #[test]

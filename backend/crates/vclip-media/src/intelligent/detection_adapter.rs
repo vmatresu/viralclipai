@@ -204,10 +204,14 @@ impl SplitLayoutInfo {
     }
 }
 
-/// Compute vertical bias from face positions, accounting for face size.
+/// Compute vertical bias from face positions, ensuring faces are never cut.
 ///
 /// Returns a value from 0.0 (crop at top) to ~0.5 (crop at bottom).
-/// The bias positions the crop so faces are in the upper portion of the panel.
+/// The bias is used as: `crop_y = vertical_margin * bias`
+///
+/// **Key principle**: Preserve headroom above faces. Cut empty space, not faces.
+/// When faces are high in the frame, we should crop from the bottom (low bias),
+/// not from the top which would cut off foreheads/scalps.
 pub fn compute_vertical_bias(faces: &[BoundingBox], height: u32) -> f64 {
     if faces.is_empty() {
         return 0.15; // Default: slight bias toward top
@@ -219,34 +223,49 @@ pub fn compute_vertical_bias(faces: &[BoundingBox], height: u32) -> f64 {
     let min_top = faces.iter().map(|f| f.y).fold(f64::INFINITY, f64::min);
     let max_bottom = faces.iter().map(|f| f.y2()).fold(0.0f64, f64::max);
 
-    // Face center and extent
+    // Face metrics
     let face_center_y = (min_top + max_bottom) / 2.0;
-    let face_extent = max_bottom - min_top;
+    let face_height = max_bottom - min_top;
 
-    // Target: face center at ~35% from top of crop
-    let target_y_ratio = 0.35;
+    // Required headroom: 60% of face height above the face top
+    // Face detectors return boxes from ~eyebrow to chin, but we need room for
+    // the full head/scalp which extends significantly above the detected face.
+    // This is especially important for bald individuals.
+    let headroom = face_height * 0.60;
+    let required_visible_top = (min_top - headroom).max(0.0);
 
-    // Compute bias that would place face center at target position
+    // Target: place face center at ~38% from top of crop (slightly below rule-of-thirds)
+    let target_face_ratio = 0.38;
     let face_y_ratio = face_center_y / h;
 
-    // Base bias: how much to shift crop downward
-    let mut bias = (face_y_ratio - target_y_ratio).clamp(0.0, 0.5);
+    // Base bias: shift crop downward to achieve target positioning
+    let aesthetic_bias = (face_y_ratio - target_face_ratio).max(0.0);
 
-    // Safety check: ensure face won't be cut off at top or bottom
-    // If face is very tall, reduce bias to keep it in frame
-    let face_height_ratio = face_extent / h;
-    if face_height_ratio > 0.3 {
-        // Large face - center it more conservatively
-        bias = bias.min(0.25);
-    }
+    // Safety constraint: crop_y must not exceed required_visible_top
+    // Since crop_y = vertical_margin * bias, and vertical_margin ≈ h * 0.2 to 0.5 typically,
+    // we compute a safe maximum bias that ensures required_visible_top is always visible.
+    //
+    // For a typical split panel: crop_height ≈ h * 0.8, so vertical_margin ≈ h * 0.2
+    // Safe crop_y = required_visible_top → bias = required_visible_top / vertical_margin
+    // Approximate vertical_margin as h * 0.25 for safety calculation
+    let approx_margin_ratio = 0.25;
+    let max_safe_bias = if h * approx_margin_ratio > 0.0 {
+        required_visible_top / (h * approx_margin_ratio)
+    } else {
+        0.0
+    };
 
-    // Ensure minimum margin from edges
-    let min_margin = face_extent * 0.1;
-    let safe_top = min_top - min_margin;
-    if safe_top < 0.0 {
-        // Face is too close to top, reduce downward bias
-        bias = bias.max(0.0).min(0.2);
-    }
+    // Use the more conservative (lower) of aesthetic and safe bias
+    let bias = aesthetic_bias.min(max_safe_bias);
+
+    // Additional safety: if face is very large (>30% of frame height),
+    // be extra conservative to ensure it fits
+    let face_height_ratio = face_height / h;
+    let bias = if face_height_ratio > 0.3 {
+        bias.min(0.15)
+    } else {
+        bias
+    };
 
     bias.clamp(0.0, 0.5)
 }
