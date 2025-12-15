@@ -99,6 +99,144 @@ pub fn is_supported_url(url: &str) -> bool {
     supported_domains.iter().any(|domain| url.contains(domain))
 }
 
+/// Error indicating segment download is not supported for this source.
+#[derive(Debug)]
+pub struct SegmentDownloadNotSupported {
+    pub reason: String,
+}
+
+impl std::fmt::Display for SegmentDownloadNotSupported {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Segment download not supported: {}", self.reason)
+    }
+}
+
+impl std::error::Error for SegmentDownloadNotSupported {}
+
+/// Download a specific segment from a video using yt-dlp `--download-sections`.
+///
+/// This is more efficient than downloading the full video and then trimming.
+/// Works with HLS streams; may fail for DASH-only sources (returns error to allow fallback).
+///
+/// # Arguments
+/// * `url` - Video URL (YouTube, etc.)
+/// * `start_secs` - Start time in seconds
+/// * `end_secs` - End time in seconds
+/// * `output_path` - Path to save the segment
+/// * `force_keyframes` - If true, use `--force-keyframes-at-cuts` for accurate cuts (slower, re-encodes)
+///
+/// # Returns
+/// * `Ok(())` if segment was downloaded successfully
+/// * `Err(SegmentDownloadNotSupported)` if the source doesn't support segment downloads (DASH-only)
+/// * `Err(MediaError)` for other download failures
+pub async fn download_segment(
+    url: &str,
+    start_secs: f64,
+    end_secs: f64,
+    output_path: impl AsRef<Path>,
+    force_keyframes: bool,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let output_path = output_path.as_ref();
+
+    // Check yt-dlp exists
+    which::which("yt-dlp").map_err(|_| MediaError::YtDlpNotFound)?;
+
+    // Build section argument: "*start-end" format
+    let section_arg = format!("*{:.0}-{:.0}", start_secs, end_secs);
+
+    info!(
+        url = url,
+        start = start_secs,
+        end = end_secs,
+        output = %output_path.display(),
+        "Attempting segment download with yt-dlp --download-sections"
+    );
+
+    // Use cookies file if available for YouTube authentication
+    let cookies_path = "/app/youtube-cookies.txt";
+    let output_path_str = output_path.to_string_lossy();
+    
+    let mut args = vec![
+        "--remote-components".to_string(),
+        "ejs:github".to_string(),
+        "--download-sections".to_string(),
+        section_arg,
+        // Prefer HLS format which supports segment downloads
+        "-f".to_string(),
+        "bestvideo[ext=mp4][protocol=m3u8_native]+bestaudio[ext=m4a][protocol=m3u8_native]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best".to_string(),
+        "-o".to_string(),
+        output_path_str.to_string(),
+    ];
+
+    // Add force-keyframes for accurate cuts (re-encodes, slower but more accurate)
+    if force_keyframes {
+        args.push("--force-keyframes-at-cuts".to_string());
+    }
+
+    if Path::new(cookies_path).exists() {
+        args.push("--cookies".to_string());
+        args.push(cookies_path.to_string());
+    }
+    args.push(url.to_string());
+
+    let output = Command::new("yt-dlp")
+        .args(&args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        debug!("yt-dlp segment download stderr: {}", stderr);
+
+        // Check if failure is due to DASH-only or unsupported segment download
+        if stderr.contains("--download-sections")
+            || stderr.contains("does not support")
+            || stderr.contains("DASH")
+            || stderr.contains("Unable to download section")
+        {
+            return Err(Box::new(SegmentDownloadNotSupported {
+                reason: format!(
+                    "Source may not support HLS segment downloads: {}",
+                    stderr.lines().last().unwrap_or("Unknown error")
+                ),
+            }));
+        }
+
+        return Err(Box::new(MediaError::download_failed(format!(
+            "yt-dlp segment download failed: {}",
+            stderr.lines().last().unwrap_or("Unknown error")
+        ))));
+    }
+
+    // Verify file was created
+    if !output_path.exists() {
+        return Err(Box::new(MediaError::download_failed(
+            "Segment output file not created",
+        )));
+    }
+
+    let file_size = output_path.metadata()?.len();
+    info!(
+        output = %output_path.display(),
+        size_mb = file_size as f64 / (1024.0 * 1024.0),
+        "Downloaded video segment successfully"
+    );
+
+    Ok(())
+}
+
+/// Check if a URL likely supports segment downloads (HLS).
+///
+/// This is a heuristic check - actual support depends on the video.
+/// YouTube typically supports HLS for most videos.
+pub fn likely_supports_segment_download(url: &str) -> bool {
+    // YouTube generally supports HLS
+    url.contains("youtube.com") || url.contains("youtu.be")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

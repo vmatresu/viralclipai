@@ -39,7 +39,7 @@ pub use styles::StyleProcessorFactory;
 // Existing exports for backward compatibility
 pub use clip::{create_clip, extract_segment};
 pub use command::{FfmpegCommand, FfmpegRunner};
-pub use download::{download_video, is_supported_url};
+pub use download::{download_video, download_segment, is_supported_url, likely_supports_segment_download, SegmentDownloadNotSupported};
 pub use error::{MediaError, MediaResult};
 pub use intelligent::create_intelligent_clip;
 // Note: create_intelligent_split_clip is deprecated - use create_tier_aware_split_clip_with_cache instead

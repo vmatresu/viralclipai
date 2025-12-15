@@ -59,6 +59,145 @@ impl RawSegmentCacheService {
         }
     }
 
+    /// Get or create a raw segment, with optional direct segment download.
+    ///
+    /// Priority:
+    /// 1. Check local file
+    /// 2. Check R2 cache
+    /// 3. Try direct segment download from URL (if provided and supported)
+    /// 4. Fall back to extracting from source video
+    ///
+    /// This is more efficient for YouTube videos where HLS segment download works.
+    pub async fn get_or_create_with_segment_download(
+        &self,
+        user_id: &str,
+        video_id: &str,
+        scene_id: u32,
+        source_video: Option<&Path>,
+        video_url: Option<&str>,
+        start_secs: f64,
+        end_secs: f64,
+        work_dir: &Path,
+    ) -> WorkerResult<(PathBuf, bool)> {
+        let r2_key = raw_segment_r2_key(user_id, video_id, scene_id);
+        let local_path = work_dir.join(format!("raw_{}.mp4", scene_id));
+
+        // 1. Check local file
+        if local_path.exists() {
+            debug!(scene_id = scene_id, "Using existing local raw segment");
+            return Ok((local_path, false));
+        }
+
+        // 2. Check R2 cache
+        if self.check_raw_exists(&r2_key).await {
+            if self.download_raw_segment(&r2_key, &local_path).await? {
+                info!(scene_id = scene_id, "Using cached raw segment from R2");
+                return Ok((local_path, false));
+            }
+        }
+
+        // 3. Try direct segment download from URL
+        if let Some(url) = video_url {
+            if vclip_media::likely_supports_segment_download(url) {
+                if self.try_acquire_lock(user_id, video_id, scene_id).await? {
+                    info!(scene_id = scene_id, "Trying direct segment download from URL");
+                    
+                    match vclip_media::download_segment(
+                        url,
+                        start_secs,
+                        end_secs,
+                        &local_path,
+                        true, // force_keyframes for accurate cuts
+                    )
+                    .await
+                    {
+                        Ok(()) => {
+                            // Upload to R2 for future use
+                            if let Err(e) = self.upload_raw_segment(&local_path, &r2_key).await {
+                                warn!(
+                                    scene_id = scene_id,
+                                    error = %e,
+                                    "Failed to upload segment to R2 (non-critical)"
+                                );
+                            }
+                            
+                            if let Err(e) = self.release_lock(user_id, video_id, scene_id).await {
+                                warn!("Failed to release raw segment lock: {}", e);
+                            }
+                            
+                            info!(
+                                scene_id = scene_id,
+                                "Downloaded segment directly from URL"
+                            );
+                            return Ok((local_path, true));
+                        }
+                        Err(e) => {
+                            // Check if it's a "not supported" error - graceful fallback
+                            if e.downcast_ref::<vclip_media::SegmentDownloadNotSupported>().is_some() {
+                                info!(
+                                    scene_id = scene_id,
+                                    "Segment download not supported, falling back to source extraction"
+                                );
+                            } else {
+                                warn!(
+                                    scene_id = scene_id,
+                                    error = %e,
+                                    "Segment download failed, falling back to source extraction"
+                                );
+                            }
+                            // Continue to source extraction - don't release lock yet
+                        }
+                    }
+                    
+                    // We still hold the lock - try source extraction
+                    if let Some(source) = source_video {
+                        if source.exists() {
+                            let start_ts = format_timestamp_from_secs(start_secs);
+                            let end_ts = format_timestamp_from_secs(end_secs);
+                            
+                            let result = self
+                                .extract_and_upload(source, &start_ts, &end_ts, &local_path, &r2_key)
+                                .await;
+
+                            if let Err(e) = self.release_lock(user_id, video_id, scene_id).await {
+                                warn!("Failed to release raw segment lock: {}", e);
+                            }
+
+                            result?;
+                            return Ok((local_path, true));
+                        }
+                    }
+                    
+                    // Neither segment download nor source extraction worked
+                    if let Err(e) = self.release_lock(user_id, video_id, scene_id).await {
+                        warn!("Failed to release raw segment lock: {}", e);
+                    }
+                    
+                    return Err(WorkerError::job_failed(format!(
+                        "Neither segment download nor source extraction available for scene {}",
+                        scene_id
+                    )));
+                }
+            }
+        }
+
+        // 4. Fall back to source extraction (original path)
+        if let Some(source) = source_video {
+            if source.exists() {
+                let start_ts = format_timestamp_from_secs(start_secs);
+                let end_ts = format_timestamp_from_secs(end_secs);
+                return self.get_or_create_internal(
+                    user_id, video_id, scene_id, source, &start_ts, &end_ts, work_dir
+                ).await;
+            }
+        }
+
+        Err(WorkerError::job_failed(format!(
+            "No source available for raw segment extraction for scene {}",
+            scene_id
+        )))
+    }
+
     pub async fn get_or_create_with_outcome(
         &self,
         user_id: &str,
@@ -461,6 +600,14 @@ fn parse_timestamp_to_secs(ts: &str) -> f64 {
         }
         _ => 0.0,
     }
+}
+
+/// Format seconds as HH:MM:SS.mmm timestamp for FFmpeg.
+fn format_timestamp_from_secs(seconds: f64) -> String {
+    let hours = (seconds / 3600.0).floor() as u32;
+    let minutes = ((seconds % 3600.0) / 60.0).floor() as u32;
+    let secs = seconds % 60.0;
+    format!("{:02}:{:02}:{:06.3}", hours, minutes, secs)
 }
 
 #[cfg(test)]

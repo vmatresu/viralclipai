@@ -156,17 +156,20 @@ pub async fn reprocess_scenes(
 
 /// Download source video from R2 (cached) or original URL (fallback).
 ///
-/// Priority:
-/// 1. Check if source already exists in local work directory (from previous job)
-/// 2. Check Firestore for source_video_status == Ready and valid R2 key not expired
-/// 3. Try R2 download from cached source location
-/// 4. Fall back to original video URL and upload to R2 for future use
+/// Uses `SourceVideoDownloadCoordinator` to prevent duplicate downloads:
+/// 1. Check if source already exists in local work directory
+/// 2. Use coordinator to check cache or detect in-progress download
+/// 3. If another worker is downloading, wait for completion
+/// 4. If cache available, download from R2
+/// 5. Fall back to original video URL with lock held
 async fn download_source_video(
     ctx: &EnhancedProcessingContext,
     job: &ReprocessScenesJob,
     work_dir: &PathBuf,
     highlights: &vclip_models::VideoHighlights,
 ) -> WorkerResult<PathBuf> {
+    use crate::download_coordinator::{DownloadAction, SourceVideoDownloadCoordinator, WaitResult};
+    
     let video_file = work_dir.join("source.mp4");
 
     // Check if source already exists in local work directory (from previous/concurrent job)
@@ -185,55 +188,158 @@ async fn download_source_video(
     }
 
     ctx.progress
-        .log(&job.job_id, "Downloading source video...")
+        .log(&job.job_id, "Checking source video status...")
         .await
         .ok();
     ctx.progress.progress(&job.job_id, 15).await.ok();
 
-    // First, check Firestore for cached source video status
-    // IMPORTANT: Always try R2 if we have a key, even if Firestore says "expired"
-    // because R2 objects don't actually expire unless lifecycle rules are configured.
-    // The expires_at in Firestore is just metadata tracking, not actual object TTL.
-    let video_repo = vclip_firestore::VideoRepository::new(ctx.firestore.clone(), &job.user_id);
-    let (use_cached_source, is_expired) = match video_repo.get(&job.video_id).await {
-        Ok(Some(video_meta)) => {
-            // Try R2 download even if "expired" in Firestore - object may still exist
-            if let (Some(status), Some(ref r2_key)) = (
-                video_meta.source_video_status,
-                &video_meta.source_video_r2_key,
-            ) {
-                if status == vclip_models::SourceVideoStatus::Ready {
-                    let expired = video_meta.source_video_expires_at
-                        .map(|exp| exp <= chrono::Utc::now())
-                        .unwrap_or(false);
+    // Use coordinator to handle download coordination
+    let coordinator = SourceVideoDownloadCoordinator::new(
+        ctx.redis.clone(),
+        ctx.firestore.clone(),
+    );
+    
+    let action = coordinator
+        .acquire_or_wait_for_download(&job.user_id, job.video_id.as_str())
+        .await?;
+
+    match action {
+        DownloadAction::UseCache { r2_key } => {
+            // Download from R2 cache
+            ctx.progress
+                .log(&job.job_id, "Downloading from cache...")
+                .await
+                .ok();
+            
+            match ctx.storage.download_file(&r2_key, &video_file).await {
+                Ok(_) => {
                     info!(
-                        "Using cached source video from R2: {} (expired_in_metadata: {})",
-                        r2_key, expired
+                        video_id = %job.video_id,
+                        r2_key = r2_key.as_str(),
+                        "Downloaded source video from R2 cache"
                     );
-                    (Some(r2_key.clone()), expired)
-                } else {
-                    (None, false)
+                    return Ok(video_file);
                 }
-            } else {
-                (None, false)
+                Err(e) => {
+                    info!(
+                        video_id = %job.video_id,
+                        error = %e,
+                        "R2 cache download failed, falling back to original URL"
+                    );
+                }
             }
         }
-        _ => (None, false),
-    };
-
-    // Try cached R2 source if available (even if metadata says expired)
-    if let Some(r2_key) = use_cached_source {
-        match ctx.storage.download_file(&r2_key, &video_file).await {
-            Ok(_) => {
-                info!("Downloaded source video from R2 cache: {}", r2_key);
-                return Ok(video_file);
-            }
-            Err(e) => {
-                info!("Failed to download from R2 key {}: {}, trying fallbacks", r2_key, e);
-                // Only mark as expired if R2 download actually fails AND metadata said expired
-                if is_expired {
-                    video_repo.set_source_video_expired(&job.video_id).await.ok();
+        
+        DownloadAction::WaitForOther => {
+            // Another worker is downloading, wait for completion
+            ctx.progress
+                .log(&job.job_id, "Waiting for background download...")
+                .await
+                .ok();
+            
+            let wait_result = coordinator
+                .wait_for_download_complete(
+                    &job.user_id,
+                    job.video_id.as_str(),
+                    None, // Use default timeout
+                )
+                .await?;
+            
+            match wait_result {
+                WaitResult::Ready { r2_key } => {
+                    ctx.progress
+                        .log(&job.job_id, "Downloading from cache...")
+                        .await
+                        .ok();
+                    
+                    match ctx.storage.download_file(&r2_key, &video_file).await {
+                        Ok(_) => {
+                            info!(
+                                video_id = %job.video_id,
+                                r2_key = r2_key.as_str(),
+                                "Downloaded source video from R2 after waiting for background job"
+                            );
+                            return Ok(video_file);
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                video_id = %job.video_id,
+                                error = %e,
+                                "R2 download failed after wait, falling back to original URL"
+                            );
+                        }
+                    }
                 }
+                WaitResult::Failed { error } => {
+                    info!(
+                        video_id = %job.video_id,
+                        error = error.as_str(),
+                        "Background download failed, trying original URL"
+                    );
+                }
+                WaitResult::Timeout => {
+                    info!(
+                        video_id = %job.video_id,
+                        "Timeout waiting for background download, trying original URL"
+                    );
+                }
+            }
+        }
+        
+        DownloadAction::PerformDownload { lock_token } => {
+            // We acquired the lock, perform the download
+            ctx.progress
+                .log(&job.job_id, "Downloading source video...")
+                .await
+                .ok();
+            
+            // Mark as downloading in Firestore
+            coordinator
+                .mark_downloading(&job.user_id, job.video_id.as_str())
+                .await
+                .ok();
+            
+            if let Some(ref video_url) = highlights.video_url {
+                match download_video(video_url, &video_file).await {
+                    Ok(_) => {
+                        info!(
+                            video_id = %job.video_id,
+                            url = video_url.as_str(),
+                            "Downloaded source video from original URL"
+                        );
+                        
+                        // Upload to R2 for future requests
+                        upload_source_to_r2_async(ctx, job, &video_file).await;
+                        
+                        // Release lock
+                        coordinator
+                            .release_lock(&job.user_id, job.video_id.as_str(), &lock_token)
+                            .await
+                            .ok();
+                        
+                        return Ok(video_file);
+                    }
+                    Err(e) => {
+                        let err_msg = format!("Download failed: {}", e);
+                        coordinator
+                            .mark_failed(&job.user_id, job.video_id.as_str(), &err_msg)
+                            .await
+                            .ok();
+                        coordinator
+                            .release_lock(&job.user_id, job.video_id.as_str(), &lock_token)
+                            .await
+                            .ok();
+                        
+                        ctx.progress.error(&job.job_id, err_msg.clone()).await.ok();
+                        return Err(WorkerError::job_failed(&err_msg));
+                    }
+                }
+            } else {
+                // Release lock and return error
+                coordinator
+                    .release_lock(&job.user_id, job.video_id.as_str(), &lock_token)
+                    .await
+                    .ok();
             }
         }
     }
@@ -242,18 +348,23 @@ async fn download_source_video(
     let legacy_source_key = format!("{}/{}/source.mp4", job.user_id, job.video_id.as_str());
     match ctx.storage.download_file(&legacy_source_key, &video_file).await {
         Ok(_) => {
-            info!("Downloaded source video from legacy R2 location: {}", legacy_source_key);
+            info!(
+                video_id = %job.video_id,
+                "Downloaded source video from legacy R2 location: {}", 
+                legacy_source_key
+            );
             return Ok(video_file);
         }
         Err(r2_error) => {
             info!(
-                "Source video not found in R2 ({}), trying original URL from highlights",
-                r2_error
+                video_id = %job.video_id,
+                error = %r2_error,
+                "Source video not found in legacy R2 location"
             );
         }
     }
 
-    // Fall back to original video URL from highlights data
+    // Final fallback: try original URL directly
     if let Some(ref video_url) = highlights.video_url {
         ctx.progress
             .log(&job.job_id, "Downloading original video from source URL...")
@@ -262,11 +373,12 @@ async fn download_source_video(
 
         match download_video(video_url, &video_file).await {
             Ok(_) => {
-                info!("Downloaded source video from original URL: {} (fallback path)", video_url);
-
-                // Upload to R2 immediately for future requests (avoids duplicate download)
+                info!(
+                    video_id = %job.video_id,
+                    url = video_url.as_str(),
+                    "Downloaded source video from original URL (final fallback)"
+                );
                 upload_source_to_r2_async(ctx, job, &video_file).await;
-
                 return Ok(video_file);
             }
             Err(url_error) => {
