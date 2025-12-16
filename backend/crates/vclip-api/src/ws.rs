@@ -165,6 +165,9 @@ pub struct WsReprocessRequest {
     /// Overwrite existing clips instead of skipping them (default: false)
     #[serde(default)]
     pub overwrite: bool,
+    /// Enable Top Scenes compilation (creates single video with countdown overlay)
+    #[serde(default)]
+    pub top_scenes_compilation: bool,
 }
 
 /// WebSocket process endpoint.
@@ -780,8 +783,10 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
     }
 
     // Validate plan limits
-    let total_clips = request.scene_ids.len() as u32 * styles.len() as u32;
-    if let Err(e) = state.user_service.validate_plan_limits(&uid, total_clips).await {
+    // For top scenes compilation, output is 1 clip; otherwise scene_count * style_count
+    let is_top_scenes = request.top_scenes_compilation && styles.contains(&Style::StreamerTopScenes);
+    let estimated_clips = if is_top_scenes { 1 } else { request.scene_ids.len() as u32 * styles.len() as u32 };
+    if let Err(e) = state.user_service.validate_plan_limits(&uid, estimated_clips).await {
         let error = WsMessage::error(format!("{}", e));
         let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap())).await;
         return;
@@ -798,13 +803,21 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
 
     // Create job with all parameters
     let video_id = vclip_models::VideoId::from_string(&request.video_id);
-    let mut job = vclip_queue::ReprocessScenesJob::new(&uid, video_id.clone(), request.scene_ids, styles)
+    let mut job = vclip_queue::ReprocessScenesJob::new(&uid, video_id.clone(), request.scene_ids.clone(), styles)
         .with_crop_mode(crop_mode)
         .with_target_aspect(target_aspect)
-        .with_overwrite(request.overwrite);
+        .with_overwrite(request.overwrite)
+        .with_top_scenes_compilation(request.top_scenes_compilation);
     // Pass enable_object_detection flag to the job
     job.enable_object_detection = request.enable_object_detection;
     let job_id = job.job_id.clone();
+
+    // For top scenes compilation, output is 1 clip, not scene_count * style_count
+    let total_clips = if job.is_top_scenes_compilation() {
+        1
+    } else {
+        request.scene_ids.len() as u32 * job.styles.len() as u32
+    };
 
     // Enqueue job
     match state.queue.enqueue_reprocess(job).await {

@@ -84,8 +84,12 @@ impl RawSegmentCacheService {
 
         // 1. Check local file
         if local_path.exists() {
-            debug!(scene_id = scene_id, "Using existing local raw segment");
-            return Ok((local_path, false));
+            if let Ok(meta) = std::fs::metadata(&local_path) {
+                if meta.len() > 0 {
+                    debug!(scene_id = scene_id, "Using existing local raw segment");
+                    return Ok((local_path, false));
+                }
+            }
         }
 
         // 2. Check R2 cache
@@ -226,8 +230,12 @@ impl RawSegmentCacheService {
         let local_path = work_dir.join(format!("raw_{}.mp4", scene_id));
 
         if local_path.exists() {
-            debug!("Using existing local raw segment: {:?}", local_path);
-            return Ok((local_path, false));
+            if let Ok(meta) = std::fs::metadata(&local_path) {
+                if meta.len() > 0 {
+                    debug!("Using existing local raw segment: {:?}", local_path);
+                    return Ok((local_path, false));
+                }
+            }
         }
 
         if self.check_raw_exists(&r2_key).await {
@@ -313,7 +321,7 @@ impl RawSegmentCacheService {
     pub async fn download_raw_segment(&self, r2_key: &str, dest: &Path) -> WorkerResult<bool> {
         match self.storage.download_file(r2_key, dest).await {
             Ok(_) => {
-                info!("Downloaded raw segment from R2: {}", r2_key);
+                debug!("Downloaded raw segment from R2: {}", r2_key);
                 Ok(true)
             }
             Err(e) => {
@@ -477,8 +485,6 @@ impl RawSegmentCacheService {
 
         // Upload to R2
         self.upload_raw_segment(local_path, r2_key).await?;
-
-        info!("Uploaded raw segment to R2: {}", r2_key);
         Ok(())
     }
 }

@@ -321,12 +321,17 @@ export default function HistoryDetailPage() {
             zoom: streamerSplitConfig.zoom,
           }
         : undefined;
+      // Check if this is a Top Scenes compilation (streamer_top_scenes style)
+      const isTopScenesCompilation = plan.styles.some(
+        (s) => s.toLowerCase() === "streamer_top_scenes"
+      );
       await reprocess(
         plan.sceneIds,
         plan.styles,
         hasCinematic && enableObjectDetection,
         overwrite,
-        streamerParams
+        streamerParams,
+        isTopScenesCompilation
       );
     },
     [reprocess, enableObjectDetection, streamerSplitConfig]

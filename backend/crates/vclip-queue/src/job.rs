@@ -148,6 +148,9 @@ pub struct ReprocessScenesJob {
     /// Optional StreamerSplit parameters for user-controlled crop position/zoom
     #[serde(skip_serializing_if = "Option::is_none")]
     pub streamer_split_params: Option<StreamerSplitParams>,
+    /// Enable Top Scenes compilation mode (creates single video from all scenes with countdown overlay)
+    #[serde(default)]
+    pub top_scenes_compilation: bool,
 }
 
 impl ReprocessScenesJob {
@@ -168,7 +171,19 @@ impl ReprocessScenesJob {
             enable_object_detection: false,
             overwrite: false,
             streamer_split_params: None,
+            top_scenes_compilation: false,
         }
+    }
+
+    /// Check if this job is a Top Scenes compilation.
+    pub fn is_top_scenes_compilation(&self) -> bool {
+        self.top_scenes_compilation && self.styles.contains(&Style::StreamerTopScenes)
+    }
+
+    /// Set top scenes compilation mode.
+    pub fn with_top_scenes_compilation(mut self, enabled: bool) -> Self {
+        self.top_scenes_compilation = enabled;
+        self
     }
 
     /// Set crop mode.

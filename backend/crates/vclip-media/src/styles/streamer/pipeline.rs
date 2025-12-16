@@ -39,19 +39,20 @@ pub async fn process_single(
     let start_secs = (parse_timestamp(&task.start)? - task.pad_before).max(0.0);
     let end_secs = parse_timestamp(&task.end)? + task.pad_after;
     let clip_duration = end_secs - start_secs;
-
-    let segment_path = output.with_extension("segment.mp4");
-    extract_segment(input, &segment_path, start_secs, clip_duration).await?;
-
-    // Render the streamer format
-    render_streamer_format(&segment_path, output, encoding, config, None).await?;
-
-    // Cleanup segment
-    cleanup_file(&segment_path).await;
-
+    let needs_extract = start_secs > 0.001 || (clip_duration + 0.05) < video_info.duration;
+    if needs_extract {
+        let segment_path = output.with_extension("segment.mp4");
+        extract_segment(input, &segment_path, start_secs, clip_duration).await?;
+        // Render the streamer format
+        render_streamer_format(&segment_path, output, encoding, config, None).await?;
+        // Cleanup segment
+        cleanup_file(&segment_path).await;
+    } else {
+        // Render the streamer format
+        render_streamer_format(input, output, encoding, config, None).await?;
+    }
     // Generate thumbnail
     generate_thumbnail_safe(output).await;
-
     log_completion("[STREAMER]", pipeline_start, output).await;
 
     Ok(())
@@ -189,36 +190,59 @@ async fn render_streamer_format(
 
     debug!("[STREAMER] Filter complex: {}", filter_complex);
 
+    let mut args: Vec<String> = vec![
+        "-y".to_string(),
+        "-hide_banner".to_string(),
+        "-loglevel".to_string(),
+        "error".to_string(),
+        "-i".to_string(),
+        segment.to_str().unwrap_or("").to_string(),
+        "-filter_complex".to_string(),
+        filter_complex,
+        "-map".to_string(),
+        "[vout]".to_string(),
+        "-map".to_string(),
+        "0:a?".to_string(),
+        "-c:v".to_string(),
+        encoding.codec.clone(),
+        "-preset".to_string(),
+        encoding.preset.clone(),
+        if encoding.use_nvenc {
+            "-cq".to_string()
+        } else {
+            "-crf".to_string()
+        },
+        encoding.crf.to_string(),
+        "-pix_fmt".to_string(),
+        "yuv420p".to_string(),
+        "-c:a".to_string(),
+        encoding.audio_codec.clone(),
+        "-b:a".to_string(),
+        encoding.audio_bitrate.clone(),
+    ];
+
+    if video_info.fps > 30.5 {
+        args.extend_from_slice(&["-r".to_string(), "30".to_string()]);
+    }
+    args.extend_from_slice(&[
+        "-maxrate".to_string(),
+        "6M".to_string(),
+        "-bufsize".to_string(),
+        "12M".to_string(),
+    ]);
+
+    if !encoding.extra_args.is_empty() {
+        args.extend(encoding.extra_args.clone());
+    }
+
+    args.extend_from_slice(&[
+        "-movflags".to_string(),
+        "+faststart".to_string(),
+        output.to_str().unwrap_or("").to_string(),
+    ]);
+
     let result = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-i",
-            segment.to_str().unwrap_or(""),
-            "-filter_complex",
-            &filter_complex,
-            "-map",
-            "[vout]",
-            "-map",
-            "0:a?",
-            "-c:v",
-            &encoding.codec,
-            "-preset",
-            &encoding.preset,
-            "-crf",
-            &encoding.crf.to_string(),
-            "-pix_fmt",
-            "yuv420p",
-            "-c:a",
-            "aac",
-            "-b:a",
-            &encoding.audio_bitrate,
-            "-movflags",
-            "+faststart",
-            output.to_str().unwrap_or(""),
-        ])
+        .args(&args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -353,9 +377,90 @@ async fn log_completion(prefix: &str, start: std::time::Instant, output: &Path) 
 
     info!("{} ========================================", prefix);
     info!(
-        "{} COMPLETE in {:.2}s - {:.2} MB",
+        "{} COMPLETE in {:.2}s - {:.2} MiB",
         prefix,
         start.elapsed().as_secs_f64(),
-        file_size as f64 / 1_000_000.0
+        file_size as f64 / (1024.0 * 1024.0)
     );
+}
+
+/// Process Top Scenes compilation from pre-extracted raw segments.
+///
+/// This function takes multiple raw segment files (one per scene) and creates
+/// a single compilation video with countdown overlays.
+///
+/// # Arguments
+/// * `segment_paths` - Paths to raw segment files (already extracted), ordered for countdown (highest first)
+/// * `output` - Output path for the compilation video
+/// * `encoding` - Encoding configuration
+/// * `params` - Streamer params containing the TopSceneEntry list
+pub async fn process_top_scenes_from_segments(
+    segment_paths: &[std::path::PathBuf],
+    output: &Path,
+    encoding: &EncodingConfig,
+    params: &StreamerParams,
+) -> MediaResult<()> {
+    let pipeline_start = std::time::Instant::now();
+    let config = super::config::StreamerConfig::default();
+
+    info!("[STREAMER_TOP_SCENES] ========================================");
+    info!(
+        "[STREAMER_TOP_SCENES] START: Processing {} segments into compilation",
+        segment_paths.len()
+    );
+
+    if segment_paths.is_empty() || params.top_scenes.is_empty() {
+        return Err(MediaError::InvalidVideo(
+            "No segments provided for Top Scenes compilation".to_string(),
+        ));
+    }
+
+    if segment_paths.len() != params.top_scenes.len() {
+        return Err(MediaError::InvalidVideo(format!(
+            "Mismatch: {} segment paths but {} top_scenes entries",
+            segment_paths.len(),
+            params.top_scenes.len()
+        )));
+    }
+
+    let temp_dir = output.parent().unwrap_or(Path::new("/tmp"));
+    let mut styled_paths: Vec<std::path::PathBuf> = Vec::new();
+
+    // Process each segment with its countdown overlay
+    for (idx, (segment_path, scene_entry)) in segment_paths.iter().zip(params.top_scenes.iter()).enumerate() {
+        let countdown_number = scene_entry.scene_number;
+        info!(
+            "[STREAMER_TOP_SCENES] Processing segment {} (countdown: {})",
+            idx + 1,
+            countdown_number
+        );
+
+        // Render with streamer format and countdown overlay
+        let styled_path = temp_dir.join(format!("top_scene_{}_styled.mp4", countdown_number));
+        render_streamer_format(
+            segment_path,
+            &styled_path,
+            encoding,
+            &config,
+            Some(countdown_number),
+        )
+        .await?;
+
+        styled_paths.push(styled_path);
+    }
+
+    // Concatenate all styled segments
+    concatenate_segments(&styled_paths, output, encoding).await?;
+
+    // Cleanup styled segments
+    for path in &styled_paths {
+        cleanup_file(path).await;
+    }
+
+    // Generate thumbnail
+    generate_thumbnail_safe(output).await;
+
+    log_completion("[STREAMER_TOP_SCENES]", pipeline_start, output).await;
+
+    Ok(())
 }

@@ -129,6 +129,8 @@ export interface ReprocessOptions {
   overwrite?: boolean;
   /** StreamerSplit parameters for user-controlled crop position/zoom */
   streamerSplitParams?: StreamerSplitParams;
+  /** Enable Top Scenes compilation (creates single video with countdown overlay) */
+  topScenesCompilation?: boolean;
 }
 
 const MAX_MESSAGE_SIZE = 1024 * 1024; // 1MB
@@ -184,6 +186,7 @@ export function reprocessScenesWebSocket(
     enableObjectDetection = false,
     overwrite = false,
     streamerSplitParams,
+    topScenesCompilation = false,
   } = options;
 
   // Validation
@@ -236,6 +239,7 @@ export function reprocessScenesWebSocket(
           enable_object_detection: enableObjectDetection,
           overwrite,
           streamer_split_params: streamerSplitParams,
+          top_scenes_compilation: topScenesCompilation,
         })
       );
     } catch (error) {

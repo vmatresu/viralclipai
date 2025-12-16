@@ -25,6 +25,7 @@ use crate::intelligent::parse_timestamp;
 
 use super::utils;
 pub use config::StreamerConfig;
+pub use pipeline::process_top_scenes_from_segments;
 
 /// Processor for Streamer (full view) video style.
 ///

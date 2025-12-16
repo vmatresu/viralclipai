@@ -226,11 +226,18 @@ async fn process_render_clip_inner(
 
     // Step 1: Check if raw segment exists locally
     if raw_segment.exists() {
-        info!(
-            scene_id = job.scene_id,
-            "Using existing local raw segment: {:?}",
-            raw_segment
-        );
+        match tokio::fs::metadata(&raw_segment).await {
+            Ok(meta) if meta.len() > 0 => {
+                info!(
+                    scene_id = job.scene_id,
+                    "Using existing local raw segment: {:?}",
+                    raw_segment
+                );
+            }
+            _ => {
+                let _ = tokio::fs::remove_file(&raw_segment).await;
+            }
+        }
     }
     // Step 2: Check if raw segment exists in R2 (BEFORE downloading full source)
     else if ctx.raw_cache.check_raw_exists(&r2_key).await {

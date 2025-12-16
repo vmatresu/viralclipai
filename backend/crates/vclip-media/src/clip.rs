@@ -113,10 +113,10 @@ pub async fn extract_segment<P: AsRef<Path>>(
         .unwrap_or(0);
 
     info!(
-        "[SEGMENT_EXTRACT] DONE in {:.2}s - output: {} ({:.2} MB)",
+        "[SEGMENT_EXTRACT] DONE in {:.2}s - output: {} ({:.2} MiB)",
         elapsed.as_secs_f64(),
         output.display(),
-        file_size as f64 / 1_000_000.0
+        file_size as f64 / (1024.0 * 1024.0)
     );
 
     Ok(())

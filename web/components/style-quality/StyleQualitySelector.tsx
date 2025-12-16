@@ -32,6 +32,8 @@ interface StyleQualitySelectorProps {
   /** StreamerSplit configuration */
   streamerSplitConfig?: StreamerSplitConfig;
   onStreamerSplitConfigChange?: (config: StreamerSplitConfig) => void;
+  /** Callback when topScenesEnabled changes */
+  onTopScenesEnabledChange?: (enabled: boolean) => void;
 }
 
 export function StyleQualitySelector({
@@ -44,6 +46,7 @@ export function StyleQualitySelector({
   onEnableObjectDetectionChange,
   streamerSplitConfig: externalConfig,
   onStreamerSplitConfigChange,
+  onTopScenesEnabledChange,
 }: StyleQualitySelectorProps) {
   const hasStudioPlan = userPlan === "studio";
   const hasProPlan = userPlan === "pro" || userPlan === "studio";
@@ -70,6 +73,11 @@ export function StyleQualitySelector({
     // Notify parent of streamerSplitConfig changes
     if (patch.streamerSplitConfig && onStreamerSplitConfigChange) {
       onStreamerSplitConfigChange(patch.streamerSplitConfig);
+    }
+
+    // Notify parent of topScenesEnabled changes
+    if (patch.topScenesEnabled !== undefined && onTopScenesEnabledChange) {
+      onTopScenesEnabledChange(patch.topScenesEnabled);
     }
   };
 

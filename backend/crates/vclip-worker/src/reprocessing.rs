@@ -70,7 +70,17 @@ pub async fn reprocess_scenes(
         return Err(WorkerError::job_failed("No valid scenes found"));
     }
 
-    // Calculate total clips
+    // Check if this is a Top Scenes compilation job
+    if job.is_top_scenes_compilation() {
+        info!(
+            video_id = %job.video_id,
+            scene_count = selected_highlights.len(),
+            "Processing as Top Scenes compilation (single output video)"
+        );
+        return process_top_scenes_compilation(ctx, job, &selected_highlights, &video_highlights).await;
+    }
+
+    // Calculate total clips (for non-compilation mode)
     let total_clips = selected_highlights.len() * job.styles.len();
     ctx.progress
         .log(
@@ -1005,6 +1015,290 @@ async fn process_selected_scenes(
     }
 
     Ok(completed_clips)
+}
+
+/// Process Top Scenes compilation job - creates a single video from all selected scenes
+/// with countdown overlay (5, 4, 3, 2, 1).
+async fn process_top_scenes_compilation(
+    ctx: &EnhancedProcessingContext,
+    job: &ReprocessScenesJob,
+    selected_highlights: &[Highlight],
+    video_highlights: &vclip_models::VideoHighlights,
+) -> WorkerResult<()> {
+    use vclip_media::intelligent::parse_timestamp;
+    use vclip_models::{ClipMetadata, ClipStatus, EncodingConfig, StreamerParams, TopSceneEntry, Style};
+
+    let scene_count = selected_highlights.len();
+    
+    ctx.progress
+        .log(
+            &job.job_id,
+            format!("Creating Top Scenes compilation with {} scenes", scene_count),
+        )
+        .await
+        .ok();
+    ctx.progress.progress(&job.job_id, 10).await.ok();
+
+    // Create work directory
+    let work_dir = PathBuf::from(&ctx.config.work_dir).join(job.video_id.as_str());
+    tokio::fs::create_dir_all(&work_dir).await?;
+    let clips_dir = work_dir.join("clips");
+    tokio::fs::create_dir_all(&clips_dir).await?;
+
+    // Sort highlights by scene_id descending (for countdown: highest number first = TOP 5, 4, 3...)
+    let mut sorted_highlights: Vec<_> = selected_highlights.to_vec();
+    sorted_highlights.sort_by(|a, b| b.id.cmp(&a.id));
+
+    // Ensure all raw segments are available
+    ctx.progress
+        .log(&job.job_id, "Preparing scene segments...")
+        .await
+        .ok();
+
+    let mut raw_segment_paths: Vec<PathBuf> = Vec::new();
+    let video_url = video_highlights.video_url.clone();
+
+    for highlight in &sorted_highlights {
+        let scene_id = highlight.id;
+        let raw_segment = work_dir.join(format!("raw_{}.mp4", scene_id));
+
+        // Check if segment already exists locally
+        if raw_segment.exists() {
+            raw_segment_paths.push(raw_segment);
+            continue;
+        }
+
+        // Try to download from R2 cache
+        let r2_key = crate::raw_segment_cache::raw_segment_r2_key(
+            &job.user_id,
+            job.video_id.as_str(),
+            scene_id,
+        );
+
+        if ctx.raw_cache.check_raw_exists(&r2_key).await {
+            match ctx.storage.download_file(&r2_key, &raw_segment).await {
+                Ok(_) => {
+                    info!(scene_id = scene_id, "Downloaded raw segment from R2 cache");
+                    raw_segment_paths.push(raw_segment);
+                    continue;
+                }
+                Err(e) => {
+                    warn!(scene_id = scene_id, error = %e, "Failed to download from R2, will extract from source");
+                }
+            }
+        }
+
+        // Need to extract from source - download source if needed
+        let video_file = work_dir.join("source.mp4");
+        if !video_file.exists() {
+            if let Some(ref url) = video_url {
+                ctx.progress
+                    .log(&job.job_id, "Downloading source video...")
+                    .await
+                    .ok();
+                vclip_media::download_video(url, &video_file).await.map_err(|e| {
+                    WorkerError::job_failed(&format!("Failed to download source: {}", e))
+                })?;
+            } else {
+                return Err(WorkerError::job_failed("No source video available"));
+            }
+        }
+
+        // Extract segment
+        let start_secs = parse_timestamp(&highlight.start).unwrap_or(0.0);
+        let end_secs = parse_timestamp(&highlight.end).unwrap_or(30.0);
+        let padded_start = (start_secs - highlight.pad_before).max(0.0);
+        let padded_end = end_secs + highlight.pad_after;
+        let padded_start_ts = format_timestamp(padded_start);
+        let padded_end_ts = format_timestamp(padded_end);
+
+        let (seg_path, _) = ctx
+            .raw_cache
+            .get_or_create_with_outcome(
+                &job.user_id,
+                job.video_id.as_str(),
+                scene_id,
+                &video_file,
+                &padded_start_ts,
+                &padded_end_ts,
+                &work_dir,
+            )
+            .await?;
+
+        raw_segment_paths.push(seg_path);
+    }
+
+    ctx.progress.progress(&job.job_id, 30).await.ok();
+
+    // Build TopSceneEntry list for the streamer processor
+    let top_scenes: Vec<TopSceneEntry> = sorted_highlights
+        .iter()
+        .enumerate()
+        .map(|(idx, h)| {
+            let countdown_num = (scene_count - idx) as u8; // 5, 4, 3, 2, 1
+            TopSceneEntry {
+                scene_number: countdown_num,
+                start: h.start.clone(),
+                end: h.end.clone(),
+                title: Some(h.title.clone()),
+            }
+        })
+        .collect();
+
+    // Create output filename - use first scene's title for naming
+    let first_title = sorted_highlights
+        .first()
+        .map(|h| vclip_models::sanitize_filename_title(&h.title))
+        .unwrap_or_else(|| "compilation".to_string());
+    let output_filename = format!(
+        "top_{}_scenes_{}_streamer_top_scenes.mp4",
+        scene_count, first_title
+    );
+    let output_path = clips_dir.join(&output_filename);
+
+    ctx.progress
+        .log(&job.job_id, format!("Rendering Top {} compilation...", scene_count))
+        .await
+        .ok();
+
+    // Call the streamer top scenes processor with raw segment paths
+    let streamer_params = StreamerParams::top_scenes(top_scenes);
+    let encoding = EncodingConfig::default().with_crf(24);
+
+    // Process the compilation using the streamer pipeline
+    vclip_media::styles::streamer::process_top_scenes_from_segments(
+        &raw_segment_paths,
+        &output_path,
+        &encoding,
+        &streamer_params,
+    )
+    .await
+    .map_err(|e| WorkerError::job_failed(&format!("Failed to render compilation: {}", e)))?;
+
+    ctx.progress.progress(&job.job_id, 80).await.ok();
+
+    // Generate thumbnail
+    let thumb_path = output_path.with_extension("jpg");
+    if let Err(e) = vclip_media::thumbnail::generate_thumbnail(&output_path, &thumb_path).await {
+        warn!(error = %e, "Failed to generate thumbnail for compilation");
+    }
+
+    // Upload to R2
+    ctx.progress
+        .log(&job.job_id, "Uploading compilation...")
+        .await
+        .ok();
+
+    let r2_key = ctx
+        .storage
+        .upload_clip(&output_path, &job.user_id, job.video_id.as_str(), &output_filename)
+        .await
+        .map_err(|e| WorkerError::Storage(e))?;
+
+    // Upload thumbnail if exists
+    let thumb_path = output_path.with_extension("jpg");
+    let thumb_key = if thumb_path.exists() {
+        let thumb_filename = output_filename.replace(".mp4", ".jpg");
+        match ctx.storage.upload_clip(&thumb_path, &job.user_id, job.video_id.as_str(), &thumb_filename).await {
+            Ok(key) => Some(key),
+            Err(e) => {
+                warn!(error = %e, "Failed to upload thumbnail (non-critical)");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    ctx.progress.progress(&job.job_id, 90).await.ok();
+
+    // Calculate total duration
+    let total_duration: f64 = sorted_highlights
+        .iter()
+        .map(|h| {
+            let start = parse_timestamp(&h.start).unwrap_or(0.0);
+            let end = parse_timestamp(&h.end).unwrap_or(30.0);
+            (end - start) + h.pad_before + h.pad_after
+        })
+        .sum();
+
+    // Get file size
+    let file_size = tokio::fs::metadata(&output_path)
+        .await
+        .map(|m| m.len())
+        .unwrap_or(0);
+
+    // Create clip metadata - use scene_id=0 to indicate compilation
+    let clip_id = format!("{}_compilation_streamer_top_scenes", job.video_id);
+    let clip_meta = ClipMetadata {
+        clip_id: clip_id.clone(),
+        video_id: job.video_id.clone(),
+        user_id: job.user_id.clone(),
+        scene_id: 0, // Special: 0 indicates compilation
+        scene_title: format!("Top {} Scenes", scene_count),
+        scene_description: Some(format!(
+            "Compilation of scenes: {}",
+            sorted_highlights.iter().map(|h| h.id.to_string()).collect::<Vec<_>>().join(", ")
+        )),
+        filename: output_filename.clone(),
+        style: Style::StreamerTopScenes.to_string(),
+        priority: 0,
+        start_time: "00:00:00".to_string(),
+        end_time: format_timestamp(total_duration),
+        duration_seconds: total_duration,
+        file_size_bytes: file_size,
+        file_size_mb: file_size as f64 / (1024.0 * 1024.0),
+        has_thumbnail: thumb_key.is_some(),
+        r2_key,
+        thumbnail_r2_key: thumb_key,
+        raw_r2_key: None,
+        status: ClipStatus::Completed,
+        created_at: chrono::Utc::now(),
+        completed_at: Some(chrono::Utc::now()),
+        updated_at: Some(chrono::Utc::now()),
+        created_by: job.user_id.clone(),
+    };
+
+    // Save to Firestore
+    let clip_repo = vclip_firestore::ClipRepository::new(
+        ctx.firestore.clone(),
+        &job.user_id,
+        job.video_id.clone(),
+    );
+    clip_repo.create(&clip_meta).await.map_err(|e| WorkerError::Firestore(e))?;
+
+    // Update video clip count
+    update_video_clip_count(ctx, job, 1).await?;
+
+    // Update storage accounting
+    let storage_repo = vclip_firestore::StorageAccountingRepository::new(
+        ctx.firestore.clone(),
+        &job.user_id,
+    );
+    if let Err(e) = storage_repo.add_styled_clip(file_size).await {
+        warn!(error = %e, "Failed to update storage accounting (non-critical)");
+    }
+
+    // Cleanup work directory
+    if work_dir.exists() {
+        tokio::fs::remove_dir_all(&work_dir).await.ok();
+    }
+
+    ctx.progress.progress(&job.job_id, 100).await.ok();
+    ctx.progress
+        .done(&job.job_id, job.video_id.as_str())
+        .await
+        .ok();
+
+    info!(
+        video_id = %job.video_id,
+        scene_count = scene_count,
+        duration_sec = total_duration,
+        file_size_mb = file_size as f64 / (1024.0 * 1024.0),
+        "Top Scenes compilation completed"
+    );
+
+    Ok(())
 }
 
 /// Format seconds as HH:MM:SS.mmm timestamp for FFmpeg.
