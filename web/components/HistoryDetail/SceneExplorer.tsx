@@ -2,16 +2,16 @@
 
 import * as AccordionPrimitive from "@radix-ui/react-accordion";
 import {
-  AlertCircle,
-  ChevronDown,
-  Copy,
-  Download,
-  ExternalLink,
-  ImageIcon,
-  Link2,
-  Share2,
-  Trash,
-  Trash2,
+    AlertCircle,
+    ChevronDown,
+    Copy,
+    Download,
+    ExternalLink,
+    ImageIcon,
+    Link2,
+    Share2,
+    Trash,
+    Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -21,29 +21,29 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
+    Dialog,
+    DialogClose,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/auth";
 import {
-  copyShareUrl,
-  downloadClip,
-  getPlaybackUrl,
-  getThumbnailUrl,
+    copyShareUrl,
+    downloadClip,
+    getPlaybackUrl,
+    getThumbnailUrl,
 } from "@/lib/clipDelivery";
 import {
-  getStyleLabel,
-  getStyleTier,
-  getTierBadgeClasses,
-  normalizeStyleForSelection,
-  type TierColor,
+    getStyleLabel,
+    getStyleTier,
+    getTierBadgeClasses,
+    normalizeStyleForSelection,
+    type TierColor,
 } from "@/lib/styleTiers";
 import { cn } from "@/lib/utils";
 
@@ -120,7 +120,10 @@ export function groupClipsByScene(
 
   clips.forEach((clip) => {
     const existing = groups.get(clip.sceneId);
-    const sceneTitle = clip.sceneTitle ?? `Scene ${clip.sceneId}`;
+    // Use "Compilations" for scene_id=0, otherwise use scene title from clip or fallback
+    const sceneTitle = clip.sceneId === 0 
+      ? (clip.sceneTitle ?? "Compilations")
+      : (clip.sceneTitle ?? `Scene ${clip.sceneId}`);
     const clipSizeBytes = parseSizeToBytes(clip.size);
 
     if (!existing) {
@@ -142,9 +145,14 @@ export function groupClipsByScene(
     existing.totalSizeBytes = (existing.totalSizeBytes ?? 0) + clipSizeBytes;
   });
 
-  return Array.from(groups.values()).sort(
-    (a, b) => a.startSec - b.startSec || a.sceneId - b.sceneId
-  );
+  // Separate compilations (scene_id=0) from regular scenes
+  const regularScenes = Array.from(groups.values()).filter(g => g.sceneId !== 0);
+  const compilationScene = groups.get(0);
+  
+  // Sort regular scenes by time, then add compilations at the end
+  regularScenes.sort((a, b) => a.startSec - b.startSec || a.sceneId - b.sceneId);
+  
+  return compilationScene ? [...regularScenes, compilationScene] : regularScenes;
 }
 
 interface HistorySceneExplorerProps {
@@ -363,7 +371,9 @@ function HistorySceneItem({
             <div className="flex w-full items-center gap-3 sm:gap-4">
               <div className="flex-1 space-y-2 text-left">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline">Scene {sceneNumber}</Badge>
+                  <Badge variant="outline">
+                    {scene.sceneId === 0 ? "Compilation" : `Scene ${sceneNumber}`}
+                  </Badge>
                   <span className="text-sm text-muted-foreground">
                     {formatRange(scene)}
                   </span>

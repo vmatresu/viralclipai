@@ -1,14 +1,14 @@
 "use client";
 
 import {
-  AlertCircle,
-  ArrowLeft,
-  ChevronDown,
-  ChevronRight,
-  Copy,
-  Play,
-  Sparkles,
-  Trash2,
+    AlertCircle,
+    ArrowLeft,
+    ChevronDown,
+    ChevronRight,
+    Copy,
+    Play,
+    Sparkles,
+    Trash2,
 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -16,51 +16,51 @@ import { toast } from "sonner";
 
 import { type Clip } from "@/components/ClipGrid";
 import {
-  OverwriteConfirmationDialog,
-  type OverwriteTarget,
+    OverwriteConfirmationDialog,
+    type OverwriteTarget,
 } from "@/components/HistoryDetail/OverwriteConfirmationDialog";
 import { SceneCard, type Highlight } from "@/components/HistoryDetail/SceneCard";
 import {
-  HistorySceneExplorer,
-  groupClipsByScene,
-  type HistoryClip,
+    HistorySceneExplorer,
+    groupClipsByScene,
+    type HistoryClip,
 } from "@/components/HistoryDetail/SceneExplorer";
 import { DetailedProcessingStatus } from "@/components/shared/DetailedProcessingStatus";
 import {
-  DEFAULT_STREAMER_SPLIT_CONFIG,
-  StyleQualitySelector,
-  type StreamerSplitConfig,
+    DEFAULT_STREAMER_SPLIT_CONFIG,
+    StyleQualitySelector,
+    type StreamerSplitConfig,
 } from "@/components/style-quality/StyleQualitySelector";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
 } from "@/components/ui/card";
 import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
+    Dialog,
+    DialogClose,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useReprocessing } from "@/hooks/useReprocessing";
 import {
-  apiFetch,
-  bulkDeleteClips,
-  deleteAllClips,
-  deleteClip as deleteClipApi,
-  getProcessingStatuses,
-  getVideoDetails,
-  getVideoHighlights,
-  getVideoSceneStyles,
+    apiFetch,
+    bulkDeleteClips,
+    deleteAllClips,
+    deleteClip as deleteClipApi,
+    getProcessingStatuses,
+    getVideoDetails,
+    getVideoHighlights,
+    getVideoSceneStyles,
 } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { useProcessing } from "@/lib/processing-context";
@@ -97,6 +97,16 @@ interface ReprocessPlan {
 function parseClipIdentifier(clip: Clip): { sceneId: number; style: string } | null {
   const style = clip.style?.toLowerCase();
   const baseName = (clip.name || clip.title || "").replace(/\.(mp4|mov|mkv)$/i, "");
+  
+  // Check for compilation clips first (e.g., "top_5_scenes_title_streamer_top_scenes")
+  const compilationMatch = baseName.match(/^top_(\d+)_scenes_.*_([a-z0-9_]+)$/i);
+  if (compilationMatch) {
+    const inferredStyleSource = style ?? compilationMatch[2];
+    if (!inferredStyleSource) return null;
+    return { sceneId: 0, style: inferredStyleSource.toLowerCase() };
+  }
+  
+  // Check for regular clips (e.g., "clip_01_1_title_style")
   const match = baseName.match(/^clip_\d+_(\d+)_.*_([a-z0-9_]+)$/i);
 
   if (match) {

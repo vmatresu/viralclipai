@@ -9,6 +9,7 @@ use super::config::StreamerConfig;
 /// * `src_width` - Source video width
 /// * `src_height` - Source video height
 /// * `countdown_number` - Optional countdown number to overlay (1-5)
+/// * `scene_title` - Optional scene title to display next to countdown
 ///
 /// # Returns
 /// The filter complex string for FFmpeg
@@ -17,6 +18,7 @@ pub fn build_streamer_filter(
     src_width: u32,
     src_height: u32,
     countdown_number: Option<u8>,
+    scene_title: Option<&str>,
 ) -> String {
     let (main_width, main_height) = config.calculate_main_video_dimensions(src_width, src_height);
     let y_offset = config.calculate_y_offset(main_height);
@@ -42,13 +44,28 @@ pub fn build_streamer_filter(
 
     // Add countdown overlay if provided
     if let Some(num) = countdown_number {
+        // Build the display text: "5. Title" or just "5." if no title
+        let display_text = if let Some(title) = scene_title {
+            // Escape special characters for FFmpeg drawtext
+            let escaped_title = escape_drawtext(title);
+            // Truncate title to max 35 chars to fit on screen
+            let truncated = if escaped_title.chars().count() > 35 {
+                format!("{}...", escaped_title.chars().take(32).collect::<String>())
+            } else {
+                escaped_title
+            };
+            format!("{}. {}", num, truncated)
+        } else {
+            format!("{}.", num)
+        };
+        
         filter = format!(
             "{filter}[composed];\
-             [composed]drawtext=text='{num}.':fontsize={size}:fontcolor=white:\
+             [composed]drawtext=text='{text}':fontsize={size}:fontcolor=white:\
              borderw=4:bordercolor=black:x={x}:y={y}:\
              font=Arial[vout]",
             filter = filter,
-            num = num,
+            text = display_text,
             size = config.countdown_font_size,
             x = config.countdown_x,
             y = config.countdown_y,
@@ -60,6 +77,14 @@ pub fn build_streamer_filter(
     filter
 }
 
+/// Escape special characters for FFmpeg drawtext filter.
+fn escape_drawtext(s: &str) -> String {
+    s.replace('\\', "\\\\")
+     .replace('\'', "'\\''")
+     .replace(':', "\\:")
+     .replace('%', "\\%")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -67,7 +92,7 @@ mod tests {
     #[test]
     fn test_build_filter_without_countdown() {
         let config = StreamerConfig::default();
-        let filter = build_streamer_filter(&config, 1920, 1080, None);
+        let filter = build_streamer_filter(&config, 1920, 1080, None, None);
         
         assert!(filter.contains("[bg]"));
         assert!(filter.contains("[main]"));
@@ -80,7 +105,7 @@ mod tests {
     #[test]
     fn test_build_filter_with_countdown() {
         let config = StreamerConfig::default();
-        let filter = build_streamer_filter(&config, 1920, 1080, Some(5));
+        let filter = build_streamer_filter(&config, 1920, 1080, Some(5), None);
         
         assert!(filter.contains("drawtext"));
         assert!(filter.contains("text='5.'"));
@@ -96,10 +121,20 @@ mod tests {
             background_zoom: 2.0,
             ..Default::default()
         };
-        let filter = build_streamer_filter(&config, 1920, 1080, None);
+        let filter = build_streamer_filter(&config, 1920, 1080, None, None);
         
         assert!(filter.contains("crop=720:1280"));
         assert!(filter.contains("sigma=20"));
         assert!(filter.contains("scale=iw*2:ih*2"));
+    }
+
+    #[test]
+    fn test_build_filter_with_countdown_and_title() {
+        let config = StreamerConfig::default();
+        let filter = build_streamer_filter(&config, 1920, 1080, Some(5), Some("Test Title"));
+        
+        assert!(filter.contains("drawtext"));
+        assert!(filter.contains("5. Test Title"));
+        assert!(filter.contains("[vout]"));
     }
 }

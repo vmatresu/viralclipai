@@ -44,12 +44,12 @@ pub async fn process_single(
         let segment_path = output.with_extension("segment.mp4");
         extract_segment(input, &segment_path, start_secs, clip_duration).await?;
         // Render the streamer format
-        render_streamer_format(&segment_path, output, encoding, config, None).await?;
+        render_streamer_format(&segment_path, output, encoding, config, None, None).await?;
         // Cleanup segment
         cleanup_file(&segment_path).await;
     } else {
         // Render the streamer format
-        render_streamer_format(input, output, encoding, config, None).await?;
+        render_streamer_format(input, output, encoding, config, None, None).await?;
     }
     // Generate thumbnail
     generate_thumbnail_safe(output).await;
@@ -114,7 +114,7 @@ pub async fn process_top_scenes(
     }
 
     // Concatenate all styled segments
-    concatenate_segments(&segment_paths, output, encoding).await?;
+    concatenate_segments(&segment_paths, output).await?;
 
     // Cleanup styled segments
     for path in &segment_paths {
@@ -160,6 +160,7 @@ async fn process_scene_with_countdown(
         encoding,
         config,
         Some(countdown_number),
+        scene.title.as_deref(),
     )
     .await?;
 
@@ -170,12 +171,16 @@ async fn process_scene_with_countdown(
 }
 
 /// Render video in streamer format (landscape-in-portrait with blurred background).
-async fn render_streamer_format(
+/// 
+/// This function is public so it can be called directly from reprocessing layer
+/// for per-scene progress updates.
+pub async fn render_streamer_format(
     segment: &Path,
     output: &Path,
     encoding: &EncodingConfig,
     config: &StreamerConfig,
     countdown_number: Option<u8>,
+    scene_title: Option<&str>,
 ) -> MediaResult<()> {
     // Get video dimensions
     let video_info = probe_video(segment).await?;
@@ -186,6 +191,7 @@ async fn render_streamer_format(
         video_info.width,
         video_info.height,
         countdown_number,
+        scene_title,
     );
 
     debug!("[STREAMER] Filter complex: {}", filter_complex);
@@ -235,6 +241,13 @@ async fn render_streamer_format(
         args.extend(encoding.extra_args.clone());
     }
 
+    // Force a keyframe at the very first frame to fix frozen video issues when concatenating
+    // This ensures each segment starts cleanly when using stream copy concatenation
+    args.extend_from_slice(&[
+        "-force_key_frames".to_string(),
+        "expr:eq(n,0)".to_string(),
+    ]);
+
     args.extend_from_slice(&[
         "-movflags".to_string(),
         "+faststart".to_string(),
@@ -271,11 +284,13 @@ async fn render_streamer_format(
     Ok(())
 }
 
-/// Concatenate multiple video segments into a single output.
-async fn concatenate_segments(
+/// Concatenate multiple video segments into a single output using stream copy.
+/// 
+/// This function is public so it can be called directly from reprocessing layer.
+/// Uses stream copy (-c copy) since all segments should be in the same format.
+pub async fn concatenate_segments(
     segments: &[std::path::PathBuf],
     output: &Path,
-    encoding: &EncodingConfig,
 ) -> MediaResult<()> {
     if segments.is_empty() {
         return Err(MediaError::InvalidVideo(
@@ -303,6 +318,8 @@ async fn concatenate_segments(
         .await
         .map_err(|e| MediaError::InvalidVideo(format!("Failed to write concat list: {}", e)))?;
 
+    // Use stream copy (-c copy) since all segments are already encoded in the same format
+    // This is ~10x faster than re-encoding and produces smaller files
     let result = Command::new("ffmpeg")
         .args([
             "-y",
@@ -315,18 +332,8 @@ async fn concatenate_segments(
             "0",
             "-i",
             concat_list_path.to_str().unwrap_or(""),
-            "-c:v",
-            &encoding.codec,
-            "-preset",
-            &encoding.preset,
-            "-crf",
-            &encoding.crf.to_string(),
-            "-pix_fmt",
-            "yuv420p",
-            "-c:a",
-            "aac",
-            "-b:a",
-            &encoding.audio_bitrate,
+            "-c",
+            "copy",  // Stream copy - no re-encoding
             "-movflags",
             "+faststart",
             output.to_str().unwrap_or(""),
@@ -469,6 +476,7 @@ pub async fn process_top_scenes_from_segments(
             encoding,
             &config,
             Some(countdown_number),
+            scene_entry.title.as_deref(),
         )
         .await?;
 
@@ -476,7 +484,7 @@ pub async fn process_top_scenes_from_segments(
     }
 
     // Concatenate all styled segments
-    concatenate_segments(&styled_paths, output, encoding).await?;
+    concatenate_segments(&styled_paths, output).await?;
 
     // Cleanup styled segments
     for path in &styled_paths {
