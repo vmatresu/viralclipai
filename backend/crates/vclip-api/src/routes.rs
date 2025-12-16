@@ -27,6 +27,7 @@ use crate::handlers::storage::{check_storage_quota, get_storage_quota};
 use crate::handlers::videos::{
     bulk_delete_clips, bulk_delete_videos, delete_all_clips, delete_clip, delete_video, get_video_highlights, get_video_info,
     get_video_scene_styles, list_user_videos, get_processing_status, reprocess_scenes, stream_clip, update_video_title,
+    update_clip_title,
 };
 use crate::metrics::metrics_middleware;
 use crate::middleware::{cors_layer, rate_limit_middleware, request_id, request_logging, security_headers, RateLimiterCache};
@@ -68,6 +69,8 @@ pub fn create_router(state: AppState, metrics_handle: Option<PrometheusHandle>) 
         .route("/videos/:video_id/scene-styles", get(get_video_scene_styles))
         // Title update
         .route("/videos/:video_id/title", patch(update_video_title))
+        // Clip title update
+        .route("/videos/:video_id/clips/:clip_id/title", patch(update_clip_title))
         // Reprocess
         .route("/videos/:video_id/reprocess", post(reprocess_scenes))
         // User videos list

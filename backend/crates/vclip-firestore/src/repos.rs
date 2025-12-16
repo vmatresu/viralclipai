@@ -933,6 +933,38 @@ impl ClipRepository {
         info!("Set raw R2 key for clip {}: {}", clip_id, raw_r2_key);
         Ok(())
     }
+
+    /// Update clip title (scene_title field).
+    /// Used to allow users to rename clips after creation.
+    pub async fn update_title(&self, clip_id: &str, new_title: &str) -> FirestoreResult<()> {
+        let mut fields = HashMap::new();
+        fields.insert("scene_title".to_string(), new_title.to_firestore_value());
+        fields.insert("updated_at".to_string(), Utc::now().to_firestore_value());
+
+        self.client
+            .update_document(
+                &self.collection(),
+                clip_id,
+                fields,
+                Some(vec!["scene_title".to_string(), "updated_at".to_string()]),
+            )
+            .await?;
+        info!("Updated title for clip {}: {}", clip_id, new_title);
+        Ok(())
+    }
+
+    /// Get a single clip by ID.
+    pub async fn get(&self, clip_id: &str) -> FirestoreResult<Option<ClipMetadata>> {
+        match self.client.get_document(&self.collection(), clip_id).await {
+            Ok(Some(doc)) => {
+                let meta = document_to_clip_metadata(&doc)?;
+                Ok(Some(meta))
+            }
+            Ok(None) => Ok(None),
+            Err(FirestoreError::NotFound(_)) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
 }
 
 // Helper functions for conversion

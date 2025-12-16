@@ -1158,14 +1158,15 @@ async fn process_top_scenes_compilation(
         })
         .collect();
 
-    // Create output filename - use first scene's title for naming
+    // Create unique output filename with timestamp to avoid overwriting previous compilations
     let first_title = ordered_highlights
         .first()
         .map(|h| vclip_models::sanitize_filename_title(&h.title))
         .unwrap_or_else(|| "compilation".to_string());
+    let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
     let output_filename = format!(
-        "top_{}_scenes_{}_streamer_top_scenes.mp4",
-        scene_count, first_title
+        "top_{}_scenes_{}_{}_streamer_top_scenes.mp4",
+        scene_count, first_title, timestamp
     );
     let output_path = clips_dir.join(&output_filename);
 
@@ -1277,7 +1278,8 @@ async fn process_top_scenes_compilation(
         .unwrap_or(0);
 
     // Create clip metadata - use scene_id=0 to indicate compilation
-    let clip_id = format!("{}_compilation_streamer_top_scenes", job.video_id);
+    // Use timestamp in clip_id to ensure each compilation is unique and never overwrites previous ones
+    let clip_id = format!("{}_compilation_{}_{}", job.video_id, timestamp, "streamer_top_scenes");
     let clip_meta = ClipMetadata {
         clip_id: clip_id.clone(),
         video_id: job.video_id.clone(),

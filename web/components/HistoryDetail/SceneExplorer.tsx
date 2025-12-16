@@ -2,16 +2,17 @@
 
 import * as AccordionPrimitive from "@radix-ui/react-accordion";
 import {
-    AlertCircle,
-    ChevronDown,
-    Copy,
-    Download,
-    ExternalLink,
-    ImageIcon,
-    Link2,
-    Share2,
-    Trash,
-    Trash2,
+  AlertCircle,
+  ChevronDown,
+  Copy,
+  Download,
+  ExternalLink,
+  ImageIcon,
+  Link2,
+  Pencil,
+  Share2,
+  Trash,
+  Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -21,29 +22,31 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-    Dialog,
-    DialogClose,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-    DialogTrigger,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { updateClipTitle } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import {
-    copyShareUrl,
-    downloadClip,
-    getPlaybackUrl,
-    getThumbnailUrl,
+  copyShareUrl,
+  downloadClip,
+  getPlaybackUrl,
+  getThumbnailUrl,
 } from "@/lib/clipDelivery";
 import {
-    getStyleLabel,
-    getStyleTier,
-    getTierBadgeClasses,
-    normalizeStyleForSelection,
-    type TierColor,
+  getStyleLabel,
+  getStyleTier,
+  getTierBadgeClasses,
+  normalizeStyleForSelection,
+  type TierColor,
 } from "@/lib/styleTiers";
 import { cn } from "@/lib/utils";
 
@@ -121,9 +124,10 @@ export function groupClipsByScene(
   clips.forEach((clip) => {
     const existing = groups.get(clip.sceneId);
     // Use "Compilations" for scene_id=0, otherwise use scene title from clip or fallback
-    const sceneTitle = clip.sceneId === 0 
-      ? (clip.sceneTitle ?? "Compilations")
-      : (clip.sceneTitle ?? `Scene ${clip.sceneId}`);
+    const sceneTitle =
+      clip.sceneId === 0
+        ? (clip.sceneTitle ?? "Compilations")
+        : (clip.sceneTitle ?? `Scene ${clip.sceneId}`);
     const clipSizeBytes = parseSizeToBytes(clip.size);
 
     if (!existing) {
@@ -146,25 +150,29 @@ export function groupClipsByScene(
   });
 
   // Separate compilations (scene_id=0) from regular scenes
-  const regularScenes = Array.from(groups.values()).filter(g => g.sceneId !== 0);
+  const regularScenes = Array.from(groups.values()).filter((g) => g.sceneId !== 0);
   const compilationScene = groups.get(0);
-  
+
   // Sort regular scenes by time, then add compilations at the end
   regularScenes.sort((a, b) => a.startSec - b.startSec || a.sceneId - b.sceneId);
-  
+
   return compilationScene ? [...regularScenes, compilationScene] : regularScenes;
 }
 
 interface HistorySceneExplorerProps {
   scenes: SceneGroup[];
+  videoId: string;
   onDeleteClip?: (clip: HistoryClip) => Promise<void>;
   onDeleteScene?: (sceneId: number) => Promise<void>;
+  onClipTitleUpdated?: (clipId: string, newTitle: string) => void;
 }
 
 export function HistorySceneExplorer({
   scenes,
+  videoId,
   onDeleteClip,
   onDeleteScene,
+  onClipTitleUpdated,
 }: HistorySceneExplorerProps) {
   const { getIdToken } = useAuth();
 
@@ -213,6 +221,25 @@ export function HistorySceneExplorer({
     [getIdToken]
   );
 
+  const handleUpdateTitle = useCallback(
+    async (clip: HistoryClip, newTitle: string) => {
+      try {
+        const token = await getIdToken();
+        if (!token) {
+          toast.error("Please sign in to edit clip title.");
+          return;
+        }
+        await updateClipTitle(videoId, clip.id, newTitle, token);
+        toast.success("Title updated");
+        onClipTitleUpdated?.(clip.id, newTitle);
+      } catch (error) {
+        console.error("Failed to update title", error);
+        toast.error("Failed to update title");
+      }
+    },
+    [getIdToken, videoId, onClipTitleUpdated]
+  );
+
   // Sort scenes by sceneId to match the "Select Scenes" section ordering
   const sortedScenes = useMemo(
     () => [...scenes].sort((a, b) => a.sceneId - b.sceneId),
@@ -244,6 +271,7 @@ export function HistorySceneExplorer({
               onCopyShareLink={handleCopyShareLink}
               onDeleteClip={onDeleteClip}
               onDeleteScene={onDeleteScene}
+              onUpdateTitle={handleUpdateTitle}
               displayNumber={index + 1}
             />
           ))}
@@ -260,6 +288,7 @@ interface HistorySceneItemProps {
   onCopyShareLink: (clip: HistoryClip) => Promise<void>;
   onDeleteClip?: (clip: HistoryClip) => Promise<void>;
   onDeleteScene?: (sceneId: number) => Promise<void>;
+  onUpdateTitle?: (clip: HistoryClip, newTitle: string) => Promise<void>;
   /** 1-indexed display number for this scene */
   displayNumber: number;
 }
@@ -271,6 +300,7 @@ function HistorySceneItem({
   onCopyShareLink,
   onDeleteClip,
   onDeleteScene,
+  onUpdateTitle,
   displayNumber,
 }: HistorySceneItemProps) {
   const sceneNumber = displayNumber;
@@ -310,6 +340,9 @@ function HistorySceneItem({
   const [sceneDeleteOpen, setSceneDeleteOpen] = useState(false);
   const [deletingClipId, setDeletingClipId] = useState<string | null>(null);
   const [deletingScene, setDeletingScene] = useState(false);
+  const [editingClip, setEditingClip] = useState<HistoryClip | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [savingTitle, setSavingTitle] = useState(false);
 
   useEffect(() => {
     if (styles.length > 0) {
@@ -343,6 +376,20 @@ function HistorySceneItem({
       setClipToDelete(null);
     }
   }, [clipToDelete, onDeleteClip]);
+
+  const handleSaveTitle = useCallback(async () => {
+    if (!editingClip || !onUpdateTitle || !editTitle.trim()) {
+      setEditingClip(null);
+      return;
+    }
+    setSavingTitle(true);
+    try {
+      await onUpdateTitle(editingClip, editTitle.trim());
+      setEditingClip(null);
+    } finally {
+      setSavingTitle(false);
+    }
+  }, [editingClip, editTitle, onUpdateTitle]);
 
   const handleConfirmDeleteScene = useCallback(async () => {
     if (!onDeleteScene) {
@@ -524,6 +571,61 @@ function HistorySceneItem({
                               label="Share to Socials"
                               onClick={() => onCopyShareLink(clip)}
                             />
+                            {onUpdateTitle && (
+                              <Dialog
+                                open={editingClip?.id === clip.id}
+                                onOpenChange={(open) => {
+                                  if (!open) {
+                                    setEditingClip(null);
+                                  } else {
+                                    setEditingClip(clip);
+                                    setEditTitle(clip.sceneTitle ?? clip.title ?? "");
+                                  }
+                                }}
+                              >
+                                <DialogTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="gap-2"
+                                    onClick={() => {
+                                      setEditingClip(clip);
+                                      setEditTitle(clip.sceneTitle ?? clip.title ?? "");
+                                    }}
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                    Edit title
+                                  </Button>
+                                </DialogTrigger>
+                                <DialogContent>
+                                  <DialogHeader>
+                                    <DialogTitle>Edit clip title</DialogTitle>
+                                    <DialogDescription>
+                                      Change the title for this clip.
+                                    </DialogDescription>
+                                  </DialogHeader>
+                                  <Input
+                                    value={editTitle}
+                                    onChange={(e) => setEditTitle(e.target.value)}
+                                    placeholder="Enter new title"
+                                    disabled={savingTitle}
+                                  />
+                                  <DialogFooter className="gap-2 sm:justify-end">
+                                    <DialogClose asChild>
+                                      <Button variant="outline" disabled={savingTitle}>
+                                        Cancel
+                                      </Button>
+                                    </DialogClose>
+                                    <Button
+                                      onClick={handleSaveTitle}
+                                      disabled={savingTitle || !editTitle.trim()}
+                                    >
+                                      {savingTitle ? "Saving..." : "Save"}
+                                    </Button>
+                                  </DialogFooter>
+                                </DialogContent>
+                              </Dialog>
+                            )}
                             {onDeleteClip ? (
                               <Dialog
                                 open={clipToDelete?.id === clip.id}

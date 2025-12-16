@@ -218,6 +218,33 @@ export function bulkDeleteVideos(
 }
 
 /**
+ * Update clip title
+ */
+export function updateClipTitle(
+  videoId: string,
+  clipId: string,
+  title: string,
+  token: string
+): Promise<{
+  success: boolean;
+  clip_id: string;
+  new_title: string;
+}> {
+  return apiFetch<{
+    success: boolean;
+    clip_id: string;
+    new_title: string;
+  }>(
+    `/api/videos/${encodeURIComponent(videoId)}/clips/${encodeURIComponent(clipId)}/title`,
+    {
+      method: "PATCH",
+      token,
+      body: { title },
+    }
+  );
+}
+
+/**
  * Delete a single clip from a video
  */
 export function deleteClip(

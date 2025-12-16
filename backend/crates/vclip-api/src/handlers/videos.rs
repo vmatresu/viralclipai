@@ -543,6 +543,77 @@ pub async fn stream_clip(
 }
 
 // ============================================================================
+// Update Clip Title
+// ============================================================================
+
+#[derive(Deserialize)]
+pub struct UpdateClipTitleRequest {
+    pub title: String,
+}
+
+#[derive(Serialize)]
+pub struct UpdateClipTitleResponse {
+    pub success: bool,
+    pub clip_id: String,
+    pub new_title: String,
+}
+
+/// Update clip title.
+/// 
+/// PATCH /api/videos/:video_id/clips/:clip_id/title
+pub async fn update_clip_title(
+    State(state): State<AppState>,
+    Path((video_id, clip_id)): Path<(String, String)>,
+    user: AuthUser,
+    Json(request): Json<UpdateClipTitleRequest>,
+) -> ApiResult<Json<UpdateClipTitleResponse>> {
+    // Validate title
+    let title = request.title.trim();
+    if title.is_empty() {
+        return Err(ApiError::bad_request("Title cannot be empty"));
+    }
+    if title.len() > 200 {
+        return Err(ApiError::bad_request("Title too long (max 200 characters)"));
+    }
+
+    // Verify ownership
+    if !state.user_service.user_owns_video(&user.uid, &video_id).await? {
+        return Err(ApiError::not_found("Video not found"));
+    }
+
+    // Update clip title in Firestore
+    let clip_repo = vclip_firestore::ClipRepository::new(
+        (*state.firestore).clone(),
+        &user.uid,
+        vclip_models::VideoId::from_string(&video_id),
+    );
+
+    // Verify clip exists
+    if clip_repo.get(&clip_id).await?.is_none() {
+        return Err(ApiError::not_found("Clip not found"));
+    }
+
+    clip_repo.update_title(&clip_id, title).await.map_err(|e| {
+        warn!("Failed to update clip title: {}", e);
+        ApiError::internal(&format!("Failed to update clip title: {}", e))
+    })?;
+
+    info!(
+        user_id = %user.uid,
+        video_id = %video_id,
+        clip_id = %clip_id,
+        new_title = %title,
+        "Updated clip title"
+    );
+
+    Ok(Json(UpdateClipTitleResponse {
+        success: true,
+        clip_id,
+        new_title: title.to_string(),
+    }))
+}
+
+// ============================================================================
 // Delete Clip
 // ============================================================================
 
