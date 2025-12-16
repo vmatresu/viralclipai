@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { QualitySlider } from "./QualitySlider";
 import { StaticPositionSelector } from "./StaticPositionSelector";
 import { StreamerSplitConfigurator } from "./StreamerSplitConfigurator";
+import { TopScenesSelectionList } from "./TopScenesSelectionList";
 
 import type { QualityLevel, StaticPosition, StreamerSplitConfig } from "./types";
 import type { KeyboardEvent, MouseEvent } from "react";
@@ -26,6 +27,12 @@ interface LayoutCardProps {
   onStreamerSplitConfigChange?: (next: StreamerSplitConfig) => void;
   topScenesEnabled?: boolean;
   onTopScenesChange?: (next: boolean) => void;
+  /** Ordered list of scene IDs for Top Scenes compilation */
+  compilationScenes?: number[];
+  /** Map of scene ID to scene title */
+  sceneTitles?: Map<number, string>;
+  /** Callback when user removes a scene from the compilation */
+  onRemoveCompilationScene?: (sceneId: number) => void;
 }
 
 export function LayoutCard({
@@ -43,6 +50,9 @@ export function LayoutCard({
   onStreamerSplitConfigChange,
   topScenesEnabled,
   onTopScenesChange,
+  compilationScenes,
+  sceneTitles,
+  onRemoveCompilationScene,
 }: LayoutCardProps) {
   const enableId = `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-toggle`;
   const isSplitView = title.toLowerCase().includes("split");
@@ -150,28 +160,41 @@ export function LayoutCard({
         {levelValue === "streamer" && onTopScenesChange && (
           <div
             className={cn(
-              "mt-3 flex items-start gap-3 rounded-lg border border-white/10 bg-slate-900/60 p-3",
+              "mt-3 flex flex-col gap-2 rounded-lg border border-white/10 bg-slate-900/60 p-3",
               !enabled && "opacity-50 pointer-events-none"
             )}
             data-interactive="true"
           >
-            <Checkbox
-              id="top-scenes-toggle"
-              checked={topScenesEnabled}
-              onCheckedChange={(checked) => onTopScenesChange(Boolean(checked))}
-              disabled={!enabled}
-            />
-            <div className="space-y-0.5">
-              <Label
-                htmlFor="top-scenes-toggle"
-                className="text-sm font-medium cursor-pointer text-white"
-              >
-                Create Top Scenes compilation
-              </Label>
-              <p className="text-xs text-muted-foreground">
-                Combine selected scenes (max 5) with countdown overlay (5, 4, 3, 2, 1)
-              </p>
+            <div className="flex items-start gap-3">
+              <Checkbox
+                id="top-scenes-toggle"
+                checked={topScenesEnabled}
+                onCheckedChange={(checked) => onTopScenesChange(Boolean(checked))}
+                disabled={!enabled}
+              />
+              <div className="space-y-0.5">
+                <Label
+                  htmlFor="top-scenes-toggle"
+                  className="text-sm font-medium cursor-pointer text-white"
+                >
+                  Create Top Scenes compilation
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Combine selected scenes (max 10) with countdown overlay
+                </p>
+              </div>
             </div>
+
+            {/* Show ordered scene list when Top Scenes is enabled */}
+            {topScenesEnabled && compilationScenes && sceneTitles && (
+              <TopScenesSelectionList
+                orderedSceneIds={compilationScenes}
+                sceneTitles={sceneTitles}
+                onRemoveScene={onRemoveCompilationScene}
+                disabled={!enabled}
+                maxScenes={10}
+              />
+            )}
           </div>
         )}
       </div>

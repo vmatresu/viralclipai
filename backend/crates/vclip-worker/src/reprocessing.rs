@@ -1045,9 +1045,17 @@ async fn process_top_scenes_compilation(
     let clips_dir = work_dir.join("clips");
     tokio::fs::create_dir_all(&clips_dir).await?;
 
-    // Sort highlights by scene_id descending (for countdown: highest number first = TOP 5, 4, 3...)
-    let mut sorted_highlights: Vec<_> = selected_highlights.to_vec();
-    sorted_highlights.sort_by(|a, b| b.id.cmp(&a.id));
+    // Preserve the order from job.scene_ids (user selection order), reversed for countdown.
+    // User selects scenes in order: first selected = #1, last selected = #N
+    // In output video: last selected scene appears FIRST with highest countdown number (N)
+    // So we reverse the order: [1, 5, 4, 2, 7] becomes [7, 2, 4, 5, 1]
+    // Scene 1 (last selected) -> countdown #5 (first in video)
+    // Scene 7 (first selected) -> countdown #1 (last in video)
+    let ordered_highlights: Vec<Highlight> = job.scene_ids
+        .iter()
+        .filter_map(|id| selected_highlights.iter().find(|h| h.id == *id).cloned())
+        .rev() // Reverse so last selected appears first in video
+        .collect();
 
     // Ensure all raw segments are available
     ctx.progress
@@ -1058,12 +1066,17 @@ async fn process_top_scenes_compilation(
     let mut raw_segment_paths: Vec<PathBuf> = Vec::new();
     let video_url = video_highlights.video_url.clone();
 
-    for highlight in &sorted_highlights {
+    for highlight in &ordered_highlights {
         let scene_id = highlight.id;
         let raw_segment = work_dir.join(format!("raw_{}.mp4", scene_id));
 
         // Check if segment already exists locally
         if raw_segment.exists() {
+            info!(
+                scene_id = scene_id,
+                path = ?raw_segment,
+                "Using existing local raw segment"
+            );
             raw_segment_paths.push(raw_segment);
             continue;
         }
@@ -1131,7 +1144,7 @@ async fn process_top_scenes_compilation(
     ctx.progress.progress(&job.job_id, 30).await.ok();
 
     // Build TopSceneEntry list for the streamer processor
-    let top_scenes: Vec<TopSceneEntry> = sorted_highlights
+    let top_scenes: Vec<TopSceneEntry> = ordered_highlights
         .iter()
         .enumerate()
         .map(|(idx, h)| {
@@ -1146,7 +1159,7 @@ async fn process_top_scenes_compilation(
         .collect();
 
     // Create output filename - use first scene's title for naming
-    let first_title = sorted_highlights
+    let first_title = ordered_highlights
         .first()
         .map(|h| vclip_models::sanitize_filename_title(&h.title))
         .unwrap_or_else(|| "compilation".to_string());
@@ -1155,6 +1168,35 @@ async fn process_top_scenes_compilation(
         scene_count, first_title
     );
     let output_path = clips_dir.join(&output_filename);
+
+    // Log all segment paths for debugging
+    info!(
+        video_id = %job.video_id,
+        segment_count = raw_segment_paths.len(),
+        top_scenes_count = top_scenes.len(),
+        "Preparing to render Top Scenes compilation"
+    );
+    for (idx, path) in raw_segment_paths.iter().enumerate() {
+        let exists = path.exists();
+        let size = if exists {
+            tokio::fs::metadata(path).await.map(|m| m.len()).unwrap_or(0)
+        } else {
+            0
+        };
+        info!(
+            idx = idx,
+            path = ?path,
+            exists = exists,
+            size_bytes = size,
+            "Raw segment path"
+        );
+        if !exists {
+            return Err(WorkerError::job_failed(&format!(
+                "Raw segment {} does not exist at {:?}",
+                idx, path
+            )));
+        }
+    }
 
     ctx.progress
         .log(&job.job_id, format!("Rendering Top {} compilation...", scene_count))
@@ -1173,7 +1215,13 @@ async fn process_top_scenes_compilation(
         &streamer_params,
     )
     .await
-    .map_err(|e| WorkerError::job_failed(&format!("Failed to render compilation: {}", e)))?;
+    .map_err(|e| {
+        tracing::error!(
+            error = %e,
+            "Top Scenes compilation failed"
+        );
+        WorkerError::job_failed(&format!("Failed to render compilation: {}", e))
+    })?;
 
     ctx.progress.progress(&job.job_id, 80).await.ok();
 
@@ -1213,7 +1261,7 @@ async fn process_top_scenes_compilation(
     ctx.progress.progress(&job.job_id, 90).await.ok();
 
     // Calculate total duration
-    let total_duration: f64 = sorted_highlights
+    let total_duration: f64 = ordered_highlights
         .iter()
         .map(|h| {
             let start = parse_timestamp(&h.start).unwrap_or(0.0);
@@ -1238,7 +1286,7 @@ async fn process_top_scenes_compilation(
         scene_title: format!("Top {} Scenes", scene_count),
         scene_description: Some(format!(
             "Compilation of scenes: {}",
-            sorted_highlights.iter().map(|h| h.id.to_string()).collect::<Vec<_>>().join(", ")
+            ordered_highlights.iter().map(|h| h.id.to_string()).collect::<Vec<_>>().join(", ")
         )),
         filename: output_filename.clone(),
         style: Style::StreamerTopScenes.to_string(),

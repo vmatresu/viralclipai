@@ -46,7 +46,7 @@ pub fn build_streamer_filter(
             "{filter}[composed];\
              [composed]drawtext=text='{num}.':fontsize={size}:fontcolor=white:\
              borderw=4:bordercolor=black:x={x}:y={y}:\
-             font=Arial:fontweight=bold[vout]",
+             font=Arial[vout]",
             filter = filter,
             num = num,
             size = config.countdown_font_size,

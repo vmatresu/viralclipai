@@ -165,6 +165,10 @@ export default function HistoryDetailPage() {
   const [streamerSplitConfig, setStreamerSplitConfig] = useState<StreamerSplitConfig>(
     DEFAULT_STREAMER_SPLIT_CONFIG
   );
+  /** Track whether Top Scenes compilation mode is enabled */
+  const [topScenesEnabled, setTopScenesEnabled] = useState<boolean>(false);
+  /** Track the order of selected scenes for Top Scenes compilation */
+  const [compilationSceneOrder, setCompilationSceneOrder] = useState<number[]>([]);
   const {
     getJob,
     completeJob: contextCompleteJob,
@@ -325,8 +329,15 @@ export default function HistoryDetailPage() {
       const isTopScenesCompilation = plan.styles.some(
         (s) => s.toLowerCase() === "streamer_top_scenes"
       );
+
+      // For Top Scenes compilation, use the ordered scene IDs from compilationSceneOrder
+      // The order determines the countdown numbers: first selected = #1, last selected = #N
+      const sceneIdsToProcess = isTopScenesCompilation
+        ? compilationSceneOrder.filter((id) => plan.sceneIds.includes(id))
+        : plan.sceneIds;
+
       await reprocess(
-        plan.sceneIds,
+        sceneIdsToProcess,
         plan.styles,
         hasCinematic && enableObjectDetection,
         overwrite,
@@ -334,7 +345,7 @@ export default function HistoryDetailPage() {
         isTopScenesCompilation
       );
     },
-    [reprocess, enableObjectDetection, streamerSplitConfig]
+    [reprocess, enableObjectDetection, streamerSplitConfig, compilationSceneOrder]
   );
 
   const handleConfirmOverwrite = useCallback(async () => {
@@ -510,21 +521,78 @@ export default function HistoryDetailPage() {
     contextFailJob,
   ]);
 
-  const handleSceneToggle = useCallback((sceneId: number) => {
-    setSelectedScenes((prev) => {
-      const next = new Set(prev);
-      if (next.has(sceneId)) {
-        next.delete(sceneId);
-      } else {
-        next.add(sceneId);
-      }
-      return next;
-    });
-  }, []);
+  const handleSceneToggle = useCallback(
+    (sceneId: number) => {
+      setSelectedScenes((prev) => {
+        const next = new Set(prev);
+        if (next.has(sceneId)) {
+          next.delete(sceneId);
+        } else {
+          // Enforce max 10 scenes for Top Scenes compilation
+          if (topScenesEnabled && next.size >= 10) {
+            return prev; // Don't add more scenes
+          }
+          next.add(sceneId);
+        }
+        return next;
+      });
+
+      // Also update compilation scene order (maintained separately for ordering)
+      setCompilationSceneOrder((prev) => {
+        if (prev.includes(sceneId)) {
+          // Remove scene from order
+          return prev.filter((id) => id !== sceneId);
+        } else {
+          // Enforce max 10 scenes for Top Scenes compilation
+          if (topScenesEnabled && prev.length >= 10) {
+            return prev; // Don't add more scenes
+          }
+          // Add scene to end of order
+          return [...prev, sceneId];
+        }
+      });
+    },
+    [topScenesEnabled]
+  );
 
   const handleStylesChange = useCallback((styles: string[]) => {
     selectionInitializedRef.current = true;
     setSelectedStyles(styles);
+  }, []);
+
+  /** Handle Top Scenes enabled state change from StyleQualitySelector */
+  const handleTopScenesEnabledChange = useCallback(
+    (enabled: boolean) => {
+      setTopScenesEnabled(enabled);
+      // If disabling Top Scenes, we keep the compilationSceneOrder for potential re-enabling
+      // If enabling and there are selected scenes not in order, sync them
+      if (enabled) {
+        setCompilationSceneOrder((prev) => {
+          // Add any selected scenes not already in the order
+          const newOrder = [...prev];
+          selectedScenes.forEach((sceneId) => {
+            if (!newOrder.includes(sceneId)) {
+              newOrder.push(sceneId);
+            }
+          });
+          // Keep only scenes that are still selected
+          return newOrder.filter((id) => selectedScenes.has(id));
+        });
+      }
+    },
+    [selectedScenes]
+  );
+
+  /** Handle removing a scene from the Top Scenes compilation order */
+  const handleRemoveCompilationScene = useCallback((sceneId: number) => {
+    // Remove from compilation order
+    setCompilationSceneOrder((prev) => prev.filter((id) => id !== sceneId));
+    // Also deselect the scene
+    setSelectedScenes((prev) => {
+      const next = new Set(prev);
+      next.delete(sceneId);
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -652,8 +720,11 @@ export default function HistoryDetailPage() {
         return;
       }
       await deleteAllClips(videoId, token);
+      // Clear all clip-related state to prevent stale overwrite detection
       setClips([]);
+      setSceneStylesData(null);
       setSelectedScenes(new Set());
+      setCompilationSceneOrder([]);
       toast.success("All scenes deleted");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to delete scenes";
@@ -676,6 +747,33 @@ export default function HistoryDetailPage() {
     }
 
     const sceneIds = Array.from(selectedScenes);
+
+    // Check if this is a Top Scenes compilation
+    const isTopScenesCompilation = selectedStyles.some(
+      (s) => s.toLowerCase() === "streamer_top_scenes"
+    );
+
+    // For Top Scenes compilation, skip the per-scene overwrite check entirely
+    // because it creates ONE compilation clip (scene_id: 0), not individual scene clips
+    if (isTopScenesCompilation) {
+      const plan: ReprocessPlan = {
+        sceneIds,
+        styles: selectedStyles.map((s) => s.toLowerCase()),
+        conflicts: [], // No per-scene conflicts for compilation
+        fresh: [
+          {
+            sceneId: 0,
+            sceneTitle: `Top ${sceneIds.length} Scenes`,
+            style: "streamer_top_scenes",
+          },
+        ],
+      };
+      setPendingPlan(plan);
+      await startReprocess(plan);
+      return;
+    }
+
+    // For regular styles, check for overwrite conflicts
     const plan = buildReprocessPlan(sceneIds, selectedStyles);
     setPendingPlan(plan);
 
@@ -834,6 +932,10 @@ export default function HistoryDetailPage() {
               onEnableObjectDetectionChange={setEnableObjectDetection}
               streamerSplitConfig={streamerSplitConfig}
               onStreamerSplitConfigChange={setStreamerSplitConfig}
+              onTopScenesEnabledChange={handleTopScenesEnabledChange}
+              compilationScenes={compilationSceneOrder}
+              sceneTitles={sceneTitleById}
+              onRemoveCompilationScene={handleRemoveCompilationScene}
             />
 
             <div className="space-y-3">

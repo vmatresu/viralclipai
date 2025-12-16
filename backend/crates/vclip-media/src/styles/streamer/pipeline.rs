@@ -253,6 +253,13 @@ async fn render_streamer_format(
 
     if !result.status.success() {
         let stderr = String::from_utf8_lossy(&result.stderr);
+        tracing::error!(
+            stderr = %stderr,
+            exit_code = ?result.status.code(),
+            input = ?segment.to_string_lossy(),
+            output = ?output.to_string_lossy(),
+            "[STREAMER] FFmpeg render failed"
+        );
         return Err(MediaError::ffmpeg_failed(
             "Streamer render failed",
             Some(stderr.to_string()),
@@ -429,11 +436,30 @@ pub async fn process_top_scenes_from_segments(
     // Process each segment with its countdown overlay
     for (idx, (segment_path, scene_entry)) in segment_paths.iter().zip(params.top_scenes.iter()).enumerate() {
         let countdown_number = scene_entry.scene_number;
+        
+        // Verify segment exists
+        let segment_exists = segment_path.exists();
+        let segment_size = if segment_exists {
+            std::fs::metadata(segment_path).map(|m| m.len()).unwrap_or(0)
+        } else {
+            0
+        };
+        
         info!(
-            "[STREAMER_TOP_SCENES] Processing segment {} (countdown: {})",
+            "[STREAMER_TOP_SCENES] Processing segment {} (countdown: {}) path={:?} exists={} size={}",
             idx + 1,
-            countdown_number
+            countdown_number,
+            segment_path,
+            segment_exists,
+            segment_size
         );
+        
+        if !segment_exists {
+            return Err(MediaError::InvalidVideo(format!(
+                "Segment {} does not exist at {:?}",
+                idx + 1, segment_path
+            )));
+        }
 
         // Render with streamer format and countdown overlay
         let styled_path = temp_dir.join(format!("top_scene_{}_styled.mp4", countdown_number));

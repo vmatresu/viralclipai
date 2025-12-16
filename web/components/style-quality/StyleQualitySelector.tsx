@@ -34,6 +34,12 @@ interface StyleQualitySelectorProps {
   onStreamerSplitConfigChange?: (config: StreamerSplitConfig) => void;
   /** Callback when topScenesEnabled changes */
   onTopScenesEnabledChange?: (enabled: boolean) => void;
+  /** Ordered list of scene IDs for Top Scenes compilation */
+  compilationScenes?: number[];
+  /** Map of scene ID to scene title */
+  sceneTitles?: Map<number, string>;
+  /** Callback when user removes a scene from the compilation */
+  onRemoveCompilationScene?: (sceneId: number) => void;
 }
 
 export function StyleQualitySelector({
@@ -47,6 +53,9 @@ export function StyleQualitySelector({
   streamerSplitConfig: externalConfig,
   onStreamerSplitConfigChange,
   onTopScenesEnabledChange,
+  compilationScenes,
+  sceneTitles,
+  onRemoveCompilationScene,
 }: StyleQualitySelectorProps) {
   const hasStudioPlan = userPlan === "studio";
   const hasProPlan = userPlan === "pro" || userPlan === "studio";
@@ -135,6 +144,9 @@ export function StyleQualitySelector({
               }
               topScenesEnabled={selection.topScenesEnabled}
               onTopScenesChange={(next) => updateSelection({ topScenesEnabled: next })}
+              compilationScenes={compilationScenes}
+              sceneTitles={sceneTitles}
+              onRemoveCompilationScene={onRemoveCompilationScene}
             />
 
             {/* Object Detection checkbox for Cinematic style */}
