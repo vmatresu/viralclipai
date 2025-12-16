@@ -99,7 +99,7 @@ export function SceneCard({
       >
         Scene {sceneNumber}
       </Badge>
-      <CardContent className="p-4 pt-7">
+      <CardContent className="p-4 pt-10">
         <div className="flex items-start gap-3">
           <Checkbox
             checked={selected}

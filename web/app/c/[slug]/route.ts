@@ -12,9 +12,9 @@ import type { NextRequest } from "next/server";
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
+  { params }: { params: { slug: string } }
 ): Promise<NextResponse> {
-  const { slug } = await params;
+  const { slug } = params;
 
   // Validate slug format (alphanumeric, 8-16 chars)
   if (!slug || !/^[a-zA-Z0-9]{8,16}$/.test(slug)) {
@@ -22,7 +22,11 @@ export async function GET(
   }
 
   // Get backend API URL from environment
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? process.env.API_URL;
+  // Fallback to production API domain to avoid 503 when env vars are missing
+  const apiUrl =
+    process.env.NEXT_PUBLIC_API_URL ??
+    process.env.API_URL ??
+    "https://api.viralclipai.io";
   if (!apiUrl) {
     console.error("[share-route] API_URL not configured");
     return NextResponse.json({ error: "Service unavailable" }, { status: 503 });
