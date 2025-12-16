@@ -46,6 +46,10 @@ pub enum Style {
     IntelligentCinematic,
     /// Streamer split - original gameplay on top, face cam on bottom (for gaming/explainer content)
     StreamerSplit,
+    /// Streamer (full view) - landscape video centered with blurred portrait background (no AI)
+    Streamer,
+    /// Streamer Top Scenes - compilation of selected scenes with countdown overlay (no AI)
+    StreamerTopScenes,
 }
 
 impl Style {
@@ -66,6 +70,8 @@ impl Style {
         Style::IntelligentSplitActivity,
         Style::IntelligentCinematic,
         Style::StreamerSplit,
+        Style::Streamer,
+        Style::StreamerTopScenes,
     ];
 
     /// Styles included when user requests "all".
@@ -124,6 +130,8 @@ impl Style {
             Style::IntelligentSplitActivity => "intelligent_split_activity",
             Style::IntelligentCinematic => "intelligent_cinematic",
             Style::StreamerSplit => "streamer_split",
+            Style::Streamer => "streamer",
+            Style::StreamerTopScenes => "streamer_top_scenes",
         }
     }
 
@@ -225,6 +233,8 @@ impl Style {
             Style::IntelligentCinematic => DetectionTier::Cinematic,
             // StreamerSplit uses user-specified params, no detection needed (fast)
             Style::StreamerSplit => DetectionTier::None,
+            // Streamer styles are fast (no AI detection)
+            Style::Streamer | Style::StreamerTopScenes => DetectionTier::None,
         }
     }
 
@@ -281,6 +291,8 @@ impl FromStr for Style {
             "intelligent_split_activity" => Ok(Style::IntelligentSplitActivity),
             "intelligent_cinematic" | "cinematic" => Ok(Style::IntelligentCinematic),
             "streamer_split" => Ok(Style::StreamerSplit),
+            "streamer" => Ok(Style::Streamer),
+            "streamer_top_scenes" => Ok(Style::StreamerTopScenes),
             _ => Err(StyleParseError(s.to_string())),
         }
     }

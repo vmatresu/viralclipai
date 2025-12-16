@@ -64,7 +64,9 @@ pub fn build_video_filter(style: Style) -> Option<String> {
         | Style::IntelligentSplitMotion
         | Style::IntelligentSplitActivity
         | Style::IntelligentCinematic
-        | Style::StreamerSplit => None,
+        | Style::StreamerSplit
+        | Style::Streamer
+        | Style::StreamerTopScenes => None,
     }
 }
 

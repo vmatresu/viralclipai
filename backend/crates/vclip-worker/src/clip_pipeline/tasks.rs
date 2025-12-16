@@ -28,6 +28,7 @@ pub fn generate_clip_tasks(
                 pad_before: highlight.pad_before_seconds,
                 pad_after: highlight.pad_after_seconds,
                 streamer_split_params: None,
+                streamer_params: None,
             };
             tasks.push(task);
         }
@@ -61,6 +62,7 @@ pub fn generate_clip_tasks_from_highlights(
                 pad_before: highlight.pad_before_seconds,
                 pad_after: highlight.pad_after_seconds,
                 streamer_split_params: None,
+                streamer_params: None,
             });
         }
     }
@@ -116,6 +118,7 @@ pub fn generate_clip_tasks_from_firestore_highlights_with_params(
                 pad_before: highlight.pad_before,
                 pad_after: highlight.pad_after,
                 streamer_split_params: params,
+                streamer_params: None,
             });
         }
     }

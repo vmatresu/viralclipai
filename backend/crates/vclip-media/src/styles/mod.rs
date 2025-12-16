@@ -27,6 +27,7 @@ pub mod intelligent_split;
 pub mod intelligent_split_activity;
 pub mod intelligent_cinematic;
 pub mod streamer_split;
+pub mod streamer;
 
 /// Factory for creating style processors.
 /// Implements dependency injection for testing and flexibility.
@@ -85,6 +86,11 @@ impl StyleProcessorFactoryTrait for StyleProcessorFactory {
             // Streamer split - original content on top, face cam on bottom
             Style::StreamerSplit => Ok(Box::new(
                 streamer_split::StreamerSplitProcessor::new(),
+            )),
+
+            // Streamer (full view) - landscape-in-portrait with blurred background
+            Style::Streamer | Style::StreamerTopScenes => Ok(Box::new(
+                streamer::StreamerProcessor::new(),
             )),
         }
     }

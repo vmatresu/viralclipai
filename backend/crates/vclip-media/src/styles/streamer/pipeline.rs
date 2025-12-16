@@ -1,0 +1,361 @@
+//! Processing pipeline for Streamer style.
+
+use std::path::Path;
+use std::process::Stdio;
+use tokio::process::Command;
+use tracing::{debug, info, warn};
+use vclip_models::{ClipTask, EncodingConfig, StreamerParams, TopSceneEntry};
+
+use crate::clip::extract_segment;
+use crate::error::{MediaError, MediaResult};
+use crate::intelligent::parse_timestamp;
+use crate::probe::probe_video;
+use crate::thumbnail::generate_thumbnail;
+
+use super::config::StreamerConfig;
+use super::filters::build_streamer_filter;
+
+/// Process a single scene with Streamer style (landscape-in-portrait).
+pub async fn process_single(
+    input: &Path,
+    output: &Path,
+    task: &ClipTask,
+    encoding: &EncodingConfig,
+    config: &StreamerConfig,
+) -> MediaResult<()> {
+    let pipeline_start = std::time::Instant::now();
+
+    info!("[STREAMER] ========================================");
+    info!("[STREAMER] START: {:?}", input);
+
+    // Probe video
+    let video_info = probe_video(input).await?;
+    info!(
+        "[STREAMER] Video: {}x{} @ {:.2}fps, {:.2}s",
+        video_info.width, video_info.height, video_info.fps, video_info.duration
+    );
+
+    // Extract segment with padding
+    let start_secs = (parse_timestamp(&task.start)? - task.pad_before).max(0.0);
+    let end_secs = parse_timestamp(&task.end)? + task.pad_after;
+    let clip_duration = end_secs - start_secs;
+
+    let segment_path = output.with_extension("segment.mp4");
+    extract_segment(input, &segment_path, start_secs, clip_duration).await?;
+
+    // Render the streamer format
+    render_streamer_format(&segment_path, output, encoding, config, None).await?;
+
+    // Cleanup segment
+    cleanup_file(&segment_path).await;
+
+    // Generate thumbnail
+    generate_thumbnail_safe(output).await;
+
+    log_completion("[STREAMER]", pipeline_start, output).await;
+
+    Ok(())
+}
+
+/// Process Top Scenes compilation with countdown overlay.
+pub async fn process_top_scenes(
+    input: &Path,
+    output: &Path,
+    encoding: &EncodingConfig,
+    params: &StreamerParams,
+    config: &StreamerConfig,
+) -> MediaResult<()> {
+    let pipeline_start = std::time::Instant::now();
+
+    info!("[STREAMER_TOP_SCENES] ========================================");
+    info!("[STREAMER_TOP_SCENES] START: {:?}", input);
+    info!(
+        "[STREAMER_TOP_SCENES] Processing {} scenes",
+        params.top_scenes.len()
+    );
+
+    // Limit to max scenes
+    let scenes: Vec<&TopSceneEntry> = params
+        .top_scenes
+        .iter()
+        .take(config.max_top_scenes)
+        .collect();
+
+    if scenes.is_empty() {
+        return Err(MediaError::InvalidVideo(
+            "No scenes provided for Top Scenes compilation".to_string(),
+        ));
+    }
+
+    // Create temp directory for intermediate files
+    let temp_dir = output.parent().unwrap_or(Path::new("/tmp"));
+    let mut segment_paths: Vec<std::path::PathBuf> = Vec::new();
+
+    // Process each scene
+    for (idx, scene) in scenes.iter().enumerate() {
+        let countdown_number = (scenes.len() - idx) as u8; // 5, 4, 3, 2, 1
+        info!(
+            "[STREAMER_TOP_SCENES] Processing scene {} (countdown: {})",
+            scene.scene_number, countdown_number
+        );
+
+        let styled_path = process_scene_with_countdown(
+            input,
+            scene,
+            countdown_number,
+            temp_dir,
+            encoding,
+            config,
+        )
+        .await?;
+
+        segment_paths.push(styled_path);
+    }
+
+    // Concatenate all styled segments
+    concatenate_segments(&segment_paths, output, encoding).await?;
+
+    // Cleanup styled segments
+    for path in &segment_paths {
+        cleanup_file(path).await;
+    }
+
+    // Generate thumbnail
+    generate_thumbnail_safe(output).await;
+
+    log_completion("[STREAMER_TOP_SCENES]", pipeline_start, output).await;
+
+    Ok(())
+}
+
+/// Process a single scene with countdown overlay.
+async fn process_scene_with_countdown(
+    input: &Path,
+    scene: &TopSceneEntry,
+    countdown_number: u8,
+    temp_dir: &Path,
+    encoding: &EncodingConfig,
+    config: &StreamerConfig,
+) -> MediaResult<std::path::PathBuf> {
+    // Extract segment
+    let start_secs = parse_timestamp(&scene.start)?;
+    let end_secs = parse_timestamp(&scene.end)?;
+    let duration = end_secs - start_secs;
+
+    let segment_path = temp_dir.join(format!(
+        "streamer_scene_{}_segment.mp4",
+        scene.scene_number
+    ));
+    extract_segment(input, &segment_path, start_secs, duration).await?;
+
+    // Render with countdown overlay
+    let styled_path = temp_dir.join(format!(
+        "streamer_scene_{}_styled.mp4",
+        scene.scene_number
+    ));
+    render_streamer_format(
+        &segment_path,
+        &styled_path,
+        encoding,
+        config,
+        Some(countdown_number),
+    )
+    .await?;
+
+    // Cleanup intermediate segment
+    cleanup_file(&segment_path).await;
+
+    Ok(styled_path)
+}
+
+/// Render video in streamer format (landscape-in-portrait with blurred background).
+async fn render_streamer_format(
+    segment: &Path,
+    output: &Path,
+    encoding: &EncodingConfig,
+    config: &StreamerConfig,
+    countdown_number: Option<u8>,
+) -> MediaResult<()> {
+    // Get video dimensions
+    let video_info = probe_video(segment).await?;
+    
+    // Build filter complex
+    let filter_complex = build_streamer_filter(
+        config,
+        video_info.width,
+        video_info.height,
+        countdown_number,
+    );
+
+    debug!("[STREAMER] Filter complex: {}", filter_complex);
+
+    let result = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            segment.to_str().unwrap_or(""),
+            "-filter_complex",
+            &filter_complex,
+            "-map",
+            "[vout]",
+            "-map",
+            "0:a?",
+            "-c:v",
+            &encoding.codec,
+            "-preset",
+            &encoding.preset,
+            "-crf",
+            &encoding.crf.to_string(),
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            &encoding.audio_bitrate,
+            "-movflags",
+            "+faststart",
+            output.to_str().unwrap_or(""),
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| {
+            MediaError::ffmpeg_failed(format!("Failed to run FFmpeg: {}", e), None, None)
+        })?;
+
+    if !result.status.success() {
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        return Err(MediaError::ffmpeg_failed(
+            "Streamer render failed",
+            Some(stderr.to_string()),
+            result.status.code(),
+        ));
+    }
+
+    info!("[STREAMER] Rendered streamer format successfully");
+    Ok(())
+}
+
+/// Concatenate multiple video segments into a single output.
+async fn concatenate_segments(
+    segments: &[std::path::PathBuf],
+    output: &Path,
+    encoding: &EncodingConfig,
+) -> MediaResult<()> {
+    if segments.is_empty() {
+        return Err(MediaError::InvalidVideo(
+            "No segments to concatenate".to_string(),
+        ));
+    }
+
+    if segments.len() == 1 {
+        // Just copy the single segment
+        tokio::fs::copy(&segments[0], output).await.map_err(|e| {
+            MediaError::InvalidVideo(format!("Failed to copy segment: {}", e))
+        })?;
+        return Ok(());
+    }
+
+    // Create a concat list file
+    let concat_list_path = output.with_extension("concat.txt");
+    let concat_content: String = segments
+        .iter()
+        .map(|p| format!("file '{}'", p.display()))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    tokio::fs::write(&concat_list_path, &concat_content)
+        .await
+        .map_err(|e| MediaError::InvalidVideo(format!("Failed to write concat list: {}", e)))?;
+
+    let result = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            concat_list_path.to_str().unwrap_or(""),
+            "-c:v",
+            &encoding.codec,
+            "-preset",
+            &encoding.preset,
+            "-crf",
+            &encoding.crf.to_string(),
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            &encoding.audio_bitrate,
+            "-movflags",
+            "+faststart",
+            output.to_str().unwrap_or(""),
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| {
+            MediaError::ffmpeg_failed(format!("Failed to run FFmpeg concat: {}", e), None, None)
+        })?;
+
+    // Cleanup concat list
+    let _ = tokio::fs::remove_file(&concat_list_path).await;
+
+    if !result.status.success() {
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        return Err(MediaError::ffmpeg_failed(
+            "Segment concatenation failed",
+            Some(stderr.to_string()),
+            result.status.code(),
+        ));
+    }
+
+    info!(
+        "[STREAMER] Concatenated {} segments successfully",
+        segments.len()
+    );
+    Ok(())
+}
+
+/// Safely cleanup a file, logging any errors.
+async fn cleanup_file(path: &Path) {
+    if path.exists() {
+        if let Err(e) = tokio::fs::remove_file(path).await {
+            warn!("[STREAMER] Failed to cleanup {:?}: {}", path, e);
+        }
+    }
+}
+
+/// Generate thumbnail with error handling.
+async fn generate_thumbnail_safe(output: &Path) {
+    let thumb_path = output.with_extension("jpg");
+    if let Err(e) = generate_thumbnail(output, &thumb_path).await {
+        warn!("[STREAMER] Failed to generate thumbnail: {}", e);
+    }
+}
+
+/// Log completion with file size.
+async fn log_completion(prefix: &str, start: std::time::Instant, output: &Path) {
+    let file_size = tokio::fs::metadata(output)
+        .await
+        .map(|m| m.len())
+        .unwrap_or(0);
+
+    info!("{} ========================================", prefix);
+    info!(
+        "{} COMPLETE in {:.2}s - {:.2} MB",
+        prefix,
+        start.elapsed().as_secs_f64(),
+        file_size as f64 / 1_000_000.0
+    );
+}

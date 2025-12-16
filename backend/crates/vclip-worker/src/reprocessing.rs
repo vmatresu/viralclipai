@@ -954,6 +954,7 @@ async fn process_selected_scenes(
                 pad_before: 0.0,
                 pad_after: 0.0,
                 streamer_split_params: task.streamer_split_params.clone(),
+                streamer_params: task.streamer_params.clone(),
             })
             .collect();
 

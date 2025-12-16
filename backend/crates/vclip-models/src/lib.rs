@@ -30,8 +30,8 @@ pub mod youtube_url_config;
 
 // Re-export common types
 pub use clip::{
-    ClipMetadata, ClipStatus, ClipTask, HorizontalPosition, StreamerSplitParams,
-    VerticalPosition, sanitize_filename_title,
+    ClipMetadata, ClipStatus, ClipTask, HorizontalPosition, StreamerParams, StreamerSplitParams,
+    TopSceneEntry, VerticalPosition, sanitize_filename_title,
 };
 pub use detection_tier::DetectionTier;
 pub use encoding::EncodingConfig;

@@ -89,6 +89,55 @@ impl Default for StreamerSplitParams {
     }
 }
 
+/// Parameters for Streamer full-view style - landscape video centered with blurred background.
+///
+/// This creates a 9:16 portrait output with the original landscape video centered
+/// and a blurred/zoomed version of the same video as the background.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+pub struct StreamerParams {
+    /// Enable Top Scenes compilation mode.
+    /// When enabled, creates a compilation of up to 5 scenes with countdown overlay.
+    #[serde(default)]
+    pub top_scenes_enabled: bool,
+
+    /// Scene timestamps for Top Scenes compilation (max 5).
+    /// Each entry is a tuple of (start_time, end_time) in seconds.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub top_scenes: Vec<TopSceneEntry>,
+}
+
+/// A single scene entry for Top Scenes compilation.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct TopSceneEntry {
+    /// Scene number (for countdown display, e.g., 5, 4, 3, 2, 1)
+    pub scene_number: u8,
+    /// Start timestamp in "HH:MM:SS" or seconds format
+    pub start: String,
+    /// End timestamp in "HH:MM:SS" or seconds format
+    pub end: String,
+    /// Scene title (optional, for overlay text)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+impl StreamerParams {
+    /// Create default Streamer params (single scene, no Top Scenes).
+    pub fn single() -> Self {
+        Self {
+            top_scenes_enabled: false,
+            top_scenes: Vec::new(),
+        }
+    }
+
+    /// Create Top Scenes params with the given scenes.
+    pub fn top_scenes(scenes: Vec<TopSceneEntry>) -> Self {
+        Self {
+            top_scenes_enabled: true,
+            top_scenes: scenes.into_iter().take(5).collect(), // Max 5 scenes
+        }
+    }
+}
+
 impl StreamerSplitParams {
     /// Create params for top-left corner (most common webcam position for gaming).
     pub fn top_left() -> Self {
@@ -308,6 +357,11 @@ pub struct ClipTask {
     /// If not provided, defaults to top-left position with 1.5x zoom.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub streamer_split_params: Option<StreamerSplitParams>,
+
+    /// Optional parameters for Streamer (full-view) style.
+    /// Used for Top Scenes compilation and other Streamer-specific settings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub streamer_params: Option<StreamerParams>,
 }
 
 impl ClipTask {
@@ -332,7 +386,14 @@ impl ClipTask {
             pad_before: 0.0,
             pad_after: 0.0,
             streamer_split_params: None,
+            streamer_params: None,
         }
+    }
+
+    /// Set Streamer parameters.
+    pub fn with_streamer_params(mut self, params: StreamerParams) -> Self {
+        self.streamer_params = Some(params);
+        self
     }
 
     /// Set StreamerSplit parameters.
