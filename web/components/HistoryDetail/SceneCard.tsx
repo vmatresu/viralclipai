@@ -84,7 +84,7 @@ export function SceneCard({
 
   return (
     <Card
-      className={`cursor-pointer transition-all ${
+      className={`cursor-pointer transition-all relative ${
         selected ? "border-primary bg-primary/5" : "hover:border-primary/50"
       } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
       onClick={() => {
@@ -93,7 +93,13 @@ export function SceneCard({
         }
       }}
     >
-      <CardContent className="p-4">
+      <Badge
+        variant="secondary"
+        className="absolute top-3 left-3 text-xs shrink-0 font-bold"
+      >
+        Scene {sceneNumber}
+      </Badge>
+      <CardContent className="p-4 pt-7">
         <div className="flex items-start gap-3">
           <Checkbox
             checked={selected}
@@ -107,14 +113,7 @@ export function SceneCard({
           />
           <div className="flex-1 min-w-0 space-y-2">
             <div className="flex items-start justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Badge variant="secondary" className="text-xs shrink-0 font-bold">
-                  Scene {sceneNumber}
-                </Badge>
-                <h4 className="font-semibold text-sm leading-tight">
-                  {highlight.title}
-                </h4>
-              </div>
+              <h4 className="font-semibold text-sm leading-tight">{highlight.title}</h4>
               <Badge variant="outline" className="text-xs shrink-0">
                 {formatTime(highlight.start)} - {formatTime(highlight.end)}
               </Badge>
