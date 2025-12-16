@@ -836,16 +836,19 @@ export default function HistoryDetailPage() {
                 Select Scenes ({selectedScenes.size} selected)
               </h3>
               <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                {highlightsData.highlights.map((highlight) => (
-                  <SceneCard
-                    key={highlight.id}
-                    highlight={highlight}
-                    selected={selectedScenes.has(highlight.id)}
-                    disabled={isProcessing || isReprocessing}
-                    onToggle={handleSceneToggle}
-                    formatTime={formatTime}
-                  />
-                ))}
+                {[...highlightsData.highlights]
+                  .sort((a, b) => a.id - b.id)
+                  .map((highlight, index) => (
+                    <SceneCard
+                      key={highlight.id}
+                      highlight={highlight}
+                      selected={selectedScenes.has(highlight.id)}
+                      disabled={isProcessing || isReprocessing}
+                      onToggle={handleSceneToggle}
+                      formatTime={formatTime}
+                      sceneNumber={index + 1}
+                    />
+                  ))}
               </div>
             </div>
 

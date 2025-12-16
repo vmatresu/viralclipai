@@ -205,9 +205,9 @@ export function HistorySceneExplorer({
     [getIdToken]
   );
 
-  // Scenes are already enriched with highlights by groupClipsByScene; just sort them.
+  // Sort scenes by sceneId to match the "Select Scenes" section ordering
   const sortedScenes = useMemo(
-    () => [...scenes].sort((a, b) => a.startSec - b.startSec || a.sceneId - b.sceneId),
+    () => [...scenes].sort((a, b) => a.sceneId - b.sceneId),
     [scenes]
   );
 
@@ -227,7 +227,7 @@ export function HistorySceneExplorer({
         </Card>
       ) : (
         <Accordion type="multiple" className="space-y-3">
-          {sortedScenes.map((scene) => (
+          {sortedScenes.map((scene, index) => (
             <HistorySceneItem
               key={scene.sceneId}
               scene={scene}
@@ -236,6 +236,7 @@ export function HistorySceneExplorer({
               onCopyShareLink={handleCopyShareLink}
               onDeleteClip={onDeleteClip}
               onDeleteScene={onDeleteScene}
+              displayNumber={index + 1}
             />
           ))}
         </Accordion>
@@ -251,6 +252,8 @@ interface HistorySceneItemProps {
   onCopyShareLink: (clip: HistoryClip) => Promise<void>;
   onDeleteClip?: (clip: HistoryClip) => Promise<void>;
   onDeleteScene?: (sceneId: number) => Promise<void>;
+  /** 1-indexed display number for this scene */
+  displayNumber: number;
 }
 
 function HistorySceneItem({
@@ -260,8 +263,9 @@ function HistorySceneItem({
   onCopyShareLink,
   onDeleteClip,
   onDeleteScene,
+  displayNumber,
 }: HistorySceneItemProps) {
-  const sceneNumber = scene.sceneId;
+  const sceneNumber = displayNumber;
 
   const canonicalizeStyle = useCallback((style?: string) => {
     const trimmed = style?.trim() ?? "";

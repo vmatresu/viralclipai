@@ -37,6 +37,8 @@ interface SceneCardProps {
   disabled?: boolean;
   onToggle: (sceneId: number) => void;
   formatTime: (timeStr: string) => string;
+  /** 1-indexed scene number for display */
+  sceneNumber: number;
 }
 
 export function SceneCard({
@@ -45,6 +47,7 @@ export function SceneCard({
   disabled = false,
   onToggle,
   formatTime,
+  sceneNumber,
 }: SceneCardProps) {
   const parseTimeToSeconds = (timeStr: string): number => {
     if (!timeStr) return 0;
@@ -104,7 +107,14 @@ export function SceneCard({
           />
           <div className="flex-1 min-w-0 space-y-2">
             <div className="flex items-start justify-between gap-2">
-              <h4 className="font-semibold text-sm leading-tight">{highlight.title}</h4>
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary" className="text-xs shrink-0 font-bold">
+                  Scene {sceneNumber}
+                </Badge>
+                <h4 className="font-semibold text-sm leading-tight">
+                  {highlight.title}
+                </h4>
+              </div>
               <Badge variant="outline" className="text-xs shrink-0">
                 {formatTime(highlight.start)} - {formatTime(highlight.end)}
               </Badge>

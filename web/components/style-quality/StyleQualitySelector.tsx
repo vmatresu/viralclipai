@@ -71,16 +71,16 @@ const SPLIT_LEVELS: QualityLevel[] = [
     icon: Zap,
   },
   {
-    value: "intelligent_split_motion",
-    label: "Motion",
-    helper: "High-speed motion-aware split (no neural nets)",
-    icon: Activity,
-  },
-  {
     value: "streamer_split",
     label: "Streamer Split",
     helper: "Original on top, custom crop on bottom",
     icon: Monitor,
+  },
+  {
+    value: "intelligent_split_motion",
+    label: "Motion",
+    helper: "High-speed motion-aware split (no neural nets)",
+    icon: Activity,
   },
   {
     value: "intelligent_split",
@@ -440,13 +440,13 @@ function StreamerSplitConfigurator({
     { value: "bottom", label: "Bottom" },
   ];
 
-  const zoomLevels = [
-    { value: 1.0, label: "1×" },
-    { value: 1.5, label: "1.5×" },
-    { value: 2.0, label: "2×" },
-    { value: 2.5, label: "2.5×" },
-    { value: 3.0, label: "3×" },
-  ];
+  // Generate zoom levels from 1x to 15x with 0.5x increments
+  const zoomLevels: number[] = [];
+  for (let z = 1.0; z <= 15.0; z += 0.5) {
+    zoomLevels.push(z);
+  }
+  const zoomIndex = zoomLevels.findIndex((z) => z === config.zoom) ?? 0;
+  const clampedZoomIndex = Math.max(0, Math.min(zoomIndex, zoomLevels.length - 1));
 
   return (
     <div
@@ -507,31 +507,42 @@ function StreamerSplitConfigurator({
         </div>
       </div>
 
-      {/* Zoom Level */}
+      {/* Zoom Level Slider */}
       <div className="space-y-2">
-        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
-          Zoom Level
+        <div className="flex items-center justify-between">
+          <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            Zoom Level
+          </div>
+          <div className="text-sm font-medium text-white">{config.zoom}×</div>
         </div>
-        <div className="flex gap-1">
-          {zoomLevels.map((zoom) => (
-            <button
-              key={zoom.value}
-              type="button"
-              onClick={() => onChange({ ...config, zoom: zoom.value })}
-              className={cn(
-                "flex-1 px-2 py-1.5 text-[11px] font-medium rounded transition-all",
-                config.zoom === zoom.value
-                  ? "bg-indigo-500 text-white shadow-sm"
-                  : "bg-slate-800/80 text-muted-foreground hover:bg-slate-700 hover:text-white border border-white/10"
-              )}
-              disabled={disabled}
-            >
-              {zoom.label}
-            </button>
-          ))}
-        </div>
-        <div className="text-[10px] text-muted-foreground">
-          Higher zoom = closer crop on the selected position
+        <Slider.Root
+          className="relative flex w-full select-none items-center py-2"
+          value={[clampedZoomIndex]}
+          min={0}
+          max={zoomLevels.length - 1}
+          step={1}
+          onValueChange={(val) => {
+            const idx = val?.[0] ?? 0;
+            const clampedIdx = Math.min(Math.max(idx, 0), zoomLevels.length - 1);
+            // zoomLevels is a trusted local array; clamp protects bounds.
+            // eslint-disable-next-line security/detect-object-injection
+            const newZoom = zoomLevels[clampedIdx];
+            if (newZoom !== undefined) {
+              onChange({ ...config, zoom: newZoom });
+            }
+          }}
+          disabled={disabled}
+          aria-label="Zoom level"
+        >
+          <Slider.Track className="relative h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+            <Slider.Range className="absolute h-full rounded-full bg-indigo-500" />
+          </Slider.Track>
+          <Slider.Thumb className="block h-4 w-4 rounded-full border border-white/70 bg-white shadow-md outline-none transition-transform focus:scale-110 focus:ring-2 focus:ring-indigo-400/60" />
+        </Slider.Root>
+        <div className="flex justify-between text-[10px] text-muted-foreground">
+          <span>1×</span>
+          <span>Higher zoom = closer crop</span>
+          <span>15×</span>
         </div>
       </div>
     </div>
