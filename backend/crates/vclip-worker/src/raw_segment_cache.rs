@@ -489,17 +489,15 @@ impl RawSegmentCacheService {
     }
 }
 
-/// Extract raw segment from source video with proper A/V sync handling.
+/// Extract raw segment from source video using stream copy (fast, no re-encode).
 ///
-/// Uses a two-pass approach for accurate seeking:
-/// 1. First seeks to nearest keyframe before start time
-/// 2. Then uses input seeking with stream copy for accurate timestamps
-/// 3. Uses `-avoid_negative_ts make_zero` to fix timestamp issues
+/// Uses single input seeking which is the correct approach for stream copy:
+/// - `-ss` before `-i`: Fast seek to nearest keyframe at or before start time
+/// - `-c copy`: Stream copy (no decoding/encoding)
+/// - Output starts at the keyframe (may be slightly before requested time)
 ///
-/// This avoids the common issues with stream-copy cutting:
-/// - Keyframe-inaccurate starts
-/// - Audio offset / drift
-/// - Missing frames around boundaries
+/// **Important**: Do NOT use two `-ss` flags with `-c copy` - the second `-ss`
+/// after `-i` drops packets without their keyframes, causing black/frozen frames.
 pub async fn extract_raw_segment(
     source_video: &Path,
     start: &str,
@@ -513,46 +511,33 @@ pub async fn extract_raw_segment(
         source_video, start, end, output
     );
 
-    // Parse timestamps to calculate duration
     let start_secs = parse_timestamp_to_secs(start);
     let end_secs = parse_timestamp_to_secs(end);
     let duration = end_secs - start_secs;
 
-    // Use two-pass seeking for accurate cuts:
-    // -ss before -i: fast seek to nearest keyframe (may be before start)
-    // -ss after -i: accurate seek from that point
-    // -t: duration to extract
-    //
-    // We seek 2 seconds before the target to ensure we hit a keyframe,
-    // then use accurate seeking to get the exact start point.
-    let pre_seek = (start_secs - 2.0).max(0.0);
-    let accurate_seek = start_secs - pre_seek;
-
+    // Single input seek with stream copy - the ONLY correct way for -c copy
+    // Output will start at the nearest keyframe at or before start_secs
     let output_status = Command::new("ffmpeg")
         .args([
             "-y",
-            // Fast seek to near the start (keyframe-aligned)
+            "-hide_banner",
+            "-loglevel", "error",
+            // Input seeking - seeks to nearest keyframe at or before start
             "-ss",
-            &format!("{:.3}", pre_seek),
+            &format!("{:.3}", start_secs),
             "-i",
         ])
         .arg(source_video)
         .args([
-            // Accurate seek from the fast-seek position
-            "-ss",
-            &format!("{:.3}", accurate_seek),
             // Duration to extract
             "-t",
             &format!("{:.3}", duration),
-            // Stream copy (no re-encode)
-            "-c",
-            "copy",
-            // Fix negative timestamps that can occur with stream copy
-            "-avoid_negative_ts",
-            "make_zero",
-            // Ensure audio/video are properly muxed
-            "-async",
-            "1",
+            // Stream copy (no re-encode) - fast and lossless
+            "-c", "copy",
+            // Fix timestamp issues from stream copy
+            "-avoid_negative_ts", "make_zero",
+            // Ensure proper muxing
+            "-movflags", "+faststart",
         ])
         .arg(output)
         .output()

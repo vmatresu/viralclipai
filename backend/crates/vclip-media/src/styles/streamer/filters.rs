@@ -44,32 +44,45 @@ pub fn build_streamer_filter(
 
     // Add countdown overlay if provided
     if let Some(num) = countdown_number {
-        // Build the display text: "5. Title" or just "5." if no title
-        let display_text = if let Some(title) = scene_title {
-            // Escape special characters for FFmpeg drawtext
+        // Build the display text with the countdown number
+        // Title will be displayed on separate lines below the number
+        if let Some(title) = scene_title {
+            // First line: just the number
+            // Following lines: title wrapped to ~25 chars per line
             let escaped_title = escape_drawtext(title);
-            // Truncate title to max 35 chars to fit on screen
-            let truncated = if escaped_title.chars().count() > 35 {
-                format!("{}...", escaped_title.chars().take(32).collect::<String>())
-            } else {
-                escaped_title
-            };
-            format!("{}. {}", num, truncated)
+            let wrapped_title = wrap_text(&escaped_title, 25);
+            
+            // Use two drawtext filters: one for the number, one for the wrapped title
+            filter = format!(
+                "{filter}[composed];\
+                 [composed]drawtext=text='{num}.':fontsize={size}:fontcolor=white:\
+                 borderw=4:bordercolor=black:x={x}:y={y}:\
+                 font=Arial[withnum];\
+                 [withnum]drawtext=text='{title}':fontsize={title_size}:fontcolor=white:\
+                 borderw=3:bordercolor=black:x={x}:y={title_y}:\
+                 font=Arial[vout]",
+                filter = filter,
+                num = num,
+                size = config.countdown_font_size,
+                x = config.countdown_x,
+                y = config.countdown_y,
+                title = wrapped_title,
+                title_size = config.countdown_font_size * 2 / 3, // Smaller font for title
+                title_y = config.countdown_y + config.countdown_font_size + 10, // Below the number
+            );
         } else {
-            format!("{}.", num)
-        };
-        
-        filter = format!(
-            "{filter}[composed];\
-             [composed]drawtext=text='{text}':fontsize={size}:fontcolor=white:\
-             borderw=4:bordercolor=black:x={x}:y={y}:\
-             font=Arial[vout]",
-            filter = filter,
-            text = display_text,
-            size = config.countdown_font_size,
-            x = config.countdown_x,
-            y = config.countdown_y,
-        );
+            filter = format!(
+                "{filter}[composed];\
+                 [composed]drawtext=text='{num}.':fontsize={size}:fontcolor=white:\
+                 borderw=4:bordercolor=black:x={x}:y={y}:\
+                 font=Arial[vout]",
+                filter = filter,
+                num = num,
+                size = config.countdown_font_size,
+                x = config.countdown_x,
+                y = config.countdown_y,
+            );
+        }
     } else {
         filter = format!("{}[vout]", filter);
     }
@@ -83,6 +96,53 @@ fn escape_drawtext(s: &str) -> String {
      .replace('\'', "'\\''")
      .replace(':', "\\:")
      .replace('%', "\\%")
+}
+
+/// Wrap text to multiple lines with max chars per line.
+/// Uses word boundaries when possible, respecting the max line count.
+fn wrap_text(text: &str, max_chars: usize) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    let mut current_line = String::new();
+    
+    for word in text.split_whitespace() {
+        if current_line.is_empty() {
+            // First word on line
+            if word.chars().count() > max_chars {
+                // Word too long, truncate it
+                current_line = word.chars().take(max_chars - 1).collect::<String>() + "-";
+            } else {
+                current_line = word.to_string();
+            }
+        } else if current_line.chars().count() + 1 + word.chars().count() <= max_chars {
+            // Word fits on current line
+            current_line.push(' ');
+            current_line.push_str(word);
+        } else {
+            // Word doesn't fit, start new line
+            lines.push(std::mem::take(&mut current_line));
+            if lines.len() >= 3 {
+                // Max 3 lines, truncate remaining
+                let last = lines.last_mut().unwrap();
+                if last.chars().count() > max_chars - 3 {
+                    *last = last.chars().take(max_chars - 3).collect::<String>() + "...";
+                }
+                break;
+            }
+            if word.chars().count() > max_chars {
+                current_line = word.chars().take(max_chars - 1).collect::<String>() + "-";
+            } else {
+                current_line = word.to_string();
+            }
+        }
+    }
+    
+    // Add last line if not at max
+    if !current_line.is_empty() && lines.len() < 3 {
+        lines.push(current_line);
+    }
+    
+    // Join with escaped newline for FFmpeg
+    lines.join("\\n")
 }
 
 #[cfg(test)]
