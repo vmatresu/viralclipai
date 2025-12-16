@@ -12,9 +12,9 @@ import type { NextRequest } from "next/server";
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { slug: string } }
+  { params }: { params: Promise<{ slug: string }> }
 ): Promise<NextResponse> {
-  const { slug } = params;
+  const { slug } = await params;
 
   // Validate slug format (alphanumeric, 8-16 chars)
   if (!slug || !/^[a-zA-Z0-9]{8,16}$/.test(slug)) {
