@@ -1,15 +1,15 @@
 "use client";
 
 import {
-  AlertCircle,
-  ArrowLeft,
-  ChevronDown,
-  ChevronRight,
-  Copy,
-  Loader2,
-  Play,
-  Sparkles,
-  Trash2,
+    AlertCircle,
+    ArrowLeft,
+    ChevronDown,
+    ChevronRight,
+    Copy,
+    Loader2,
+    Play,
+    Sparkles,
+    Trash2,
 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -17,50 +17,50 @@ import { toast } from "sonner";
 
 import { type Clip } from "@/components/ClipGrid";
 import {
-  OverwriteConfirmationDialog,
-  type OverwriteTarget,
+    OverwriteConfirmationDialog,
+    type OverwriteTarget,
 } from "@/components/HistoryDetail/OverwriteConfirmationDialog";
 import { SceneCard, type Highlight } from "@/components/HistoryDetail/SceneCard";
 import {
-  HistorySceneExplorer,
-  groupClipsByScene,
-  type HistoryClip,
+    HistorySceneExplorer,
+    groupClipsByScene,
+    type HistoryClip,
 } from "@/components/HistoryDetail/SceneExplorer";
 import { DetailedProcessingStatus } from "@/components/shared/DetailedProcessingStatus";
 import {
-  DEFAULT_STREAMER_SPLIT_CONFIG,
-  StyleQualitySelector,
-  type StreamerSplitConfig,
+    DEFAULT_STREAMER_SPLIT_CONFIG,
+    StyleQualitySelector,
+    type StreamerSplitConfig,
 } from "@/components/style-quality/StyleQualitySelector";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
 } from "@/components/ui/card";
 import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
+    Dialog,
+    DialogClose,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { calculateProgressPercentage, useVideoStatus } from "@/hooks/useVideoStatus";
 import {
-  apiFetch,
-  bulkDeleteClips,
-  deleteAllClips,
-  deleteClip as deleteClipApi,
-  getVideoDetails,
-  getVideoHighlights,
-  getVideoSceneStyles,
+    apiFetch,
+    bulkDeleteClips,
+    deleteAllClips,
+    deleteClip as deleteClipApi,
+    getVideoDetails,
+    getVideoHighlights,
+    getVideoSceneStyles,
 } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { useProcessing } from "@/lib/processing-context";
@@ -326,6 +326,8 @@ export default function HistoryDetailPage() {
               position_x: streamerSplitConfig.positionX,
               position_y: streamerSplitConfig.positionY,
               zoom: streamerSplitConfig.zoom,
+              manual_crop: streamerSplitConfig.manualCrop,
+              split_ratio: streamerSplitConfig.manualCrop ? 0.35 : undefined,
             }
           : undefined;
         // Check if this is a Top Scenes compilation (streamer_top_scenes style)

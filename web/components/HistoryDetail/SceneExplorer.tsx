@@ -262,7 +262,7 @@ export function HistorySceneExplorer({
         </Card>
       ) : (
         <Accordion type="multiple" className="space-y-3">
-          {sortedScenes.map((scene, index) => (
+          {sortedScenes.map((scene) => (
             <HistorySceneItem
               key={scene.sceneId}
               scene={scene}
@@ -272,7 +272,6 @@ export function HistorySceneExplorer({
               onDeleteClip={onDeleteClip}
               onDeleteScene={onDeleteScene}
               onUpdateTitle={handleUpdateTitle}
-              displayNumber={index + 1}
             />
           ))}
         </Accordion>
@@ -289,8 +288,6 @@ interface HistorySceneItemProps {
   onDeleteClip?: (clip: HistoryClip) => Promise<void>;
   onDeleteScene?: (sceneId: number) => Promise<void>;
   onUpdateTitle?: (clip: HistoryClip, newTitle: string) => Promise<void>;
-  /** 1-indexed display number for this scene */
-  displayNumber: number;
 }
 
 function HistorySceneItem({
@@ -301,9 +298,9 @@ function HistorySceneItem({
   onDeleteClip,
   onDeleteScene,
   onUpdateTitle,
-  displayNumber,
 }: HistorySceneItemProps) {
-  const sceneNumber = displayNumber;
+  // Use actual scene ID for display, not index position
+  const sceneNumber = scene.sceneId;
 
   const canonicalizeStyle = useCallback((style?: string) => {
     const trimmed = style?.trim() ?? "";

@@ -61,3 +61,6 @@ pub use cinematic_analysis::{
     CinematicAnalysisStatus, cinematic_analysis_key, CINEMATIC_ANALYSIS_TIMEOUT_SECS,
 };
 pub use job_status::{JobStatus, JobStatusCache};
+pub mod rect;
+
+pub use rect::NormalizedRect;

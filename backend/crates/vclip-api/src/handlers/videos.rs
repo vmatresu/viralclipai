@@ -1344,6 +1344,12 @@ pub struct StreamerSplitParamsRequest {
     /// Optional static image URL to display instead of video crop
     #[serde(skip_serializing_if = "Option::is_none")]
     pub static_image_url: Option<String>,
+    /// Optional manual crop region
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manual_crop: Option<vclip_models::NormalizedRect>,
+    /// Optional split ratio
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub split_ratio: Option<f32>,
 }
 
 fn default_position_x() -> String { "left".to_string() }
@@ -1493,6 +1499,8 @@ pub async fn reprocess_scenes(
             },
             zoom: p.zoom,
             static_image_url: p.static_image_url.clone(),
+            manual_crop: p.manual_crop,
+            split_ratio: p.split_ratio,
         }
     });
 

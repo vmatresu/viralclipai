@@ -1,32 +1,18 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 import * as Slider from "@radix-ui/react-slider";
 
 import { cn } from "@/lib/utils";
 
-import type {
-  HorizontalPosition,
-  StreamerSplitConfig,
-  VerticalPosition,
-} from "./types";
+import type { StreamerSplitConfig } from "./types";
 
 interface StreamerSplitConfiguratorProps {
   config: StreamerSplitConfig;
   onChange: (next: StreamerSplitConfig) => void;
   disabled?: boolean;
 }
-
-const HORIZONTAL_POSITIONS: { value: HorizontalPosition; label: string }[] = [
-  { value: "left", label: "Left" },
-  { value: "center", label: "Center" },
-  { value: "right", label: "Right" },
-];
-
-const VERTICAL_POSITIONS: { value: VerticalPosition; label: string }[] = [
-  { value: "top", label: "Top" },
-  { value: "middle", label: "Middle" },
-  { value: "bottom", label: "Bottom" },
-];
 
 // Generate zoom levels from 1x to 15x with 0.5x increments
 const ZOOM_LEVELS: number[] = Array.from({ length: 39 }, (_, i) => 1.0 + i * 0.5);
@@ -36,6 +22,9 @@ export function StreamerSplitConfigurator({
   onChange,
   disabled,
 }: StreamerSplitConfiguratorProps) {
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState<number | null>(null);
+
   const zoomIndex = ZOOM_LEVELS.findIndex((z) => z === config.zoom);
   const clampedZoomIndex = Math.max(
     0,
@@ -52,6 +41,96 @@ export function StreamerSplitConfigurator({
     }
   };
 
+  // Grid is 16x9 = 144 cells (widescreen to match 16:9 YouTube source)
+  // indices 0..143
+  const GRID_COLS = 16;
+  const GRID_ROWS = 9;
+
+  const handleGridMouseDown = (index: number) => {
+    if (disabled) return;
+    setIsDragging(true);
+    setDragStart(index);
+    // Start new selection with just this cell
+    updateGridSelection([index]);
+  };
+
+  const handleGridMouseEnter = (index: number) => {
+    if (!isDragging || disabled || dragStart === null) return;
+
+    // Calculate rectangle from dragStart to current index
+    const startX = dragStart % GRID_COLS;
+    const startY = Math.floor(dragStart / GRID_COLS);
+    const endX = index % GRID_COLS;
+    const endY = Math.floor(index / GRID_COLS);
+
+    const minX = Math.min(startX, endX);
+    const maxX = Math.max(startX, endX);
+    const minY = Math.min(startY, endY);
+    const maxY = Math.max(startY, endY);
+
+    const newSelection: number[] = [];
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        newSelection.push(y * GRID_COLS + x);
+      }
+    }
+    updateGridSelection(newSelection);
+  };
+
+  const handleGridMouseUp = () => {
+    setIsDragging(false);
+    setDragStart(null);
+  };
+
+  // Convert grid selection to manual crop rect and update config
+  const updateGridSelection = (selection: number[]) => {
+    if (selection.length === 0) {
+      onChange({ ...config, gridSelection: [], manualCrop: undefined });
+      return;
+    }
+
+    // Calculate bounding box of selection
+    let minX = GRID_COLS;
+    let maxX = 0;
+    let minY = GRID_ROWS;
+    let maxY = 0;
+
+    selection.forEach((idx) => {
+      const x = idx % GRID_COLS;
+      const y = Math.floor(idx / GRID_COLS);
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+    });
+
+    // Normalized coordinates (0-1)
+    // Add 1 to max to include the width/height of the last cell
+    const manualCrop = {
+      x: minX / GRID_COLS,
+      y: minY / GRID_ROWS,
+      width: (maxX - minX + 1) / GRID_COLS,
+      height: (maxY - minY + 1) / GRID_ROWS,
+    };
+
+    onChange({
+      ...config,
+      gridSelection: selection,
+      manualCrop,
+    });
+  };
+
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      if (isDragging) {
+        setIsDragging(false);
+        setDragStart(null);
+      }
+    };
+    window.addEventListener("mouseup", handleGlobalMouseUp);
+    return () => window.removeEventListener("mouseup", handleGlobalMouseUp);
+  }, [isDragging]);
+
   return (
     <div
       className={cn(
@@ -60,54 +139,52 @@ export function StreamerSplitConfigurator({
       )}
       data-interactive="true"
     >
-      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
-        Top Panel – Webcam Position
+      <div className="flex items-center justify-between">
+        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+          Top Panel – Webcam Position
+        </div>
+        <div className="text-[10px] text-muted-foreground">Drag to select region</div>
       </div>
 
-      {/* Position Grid - 3x3 visual selector */}
-      <div className="flex items-center gap-4">
-        <div className="grid grid-cols-3 gap-1 p-1 rounded-lg bg-slate-800/80 border border-white/10">
-          {VERTICAL_POSITIONS.map((vPos) =>
-            HORIZONTAL_POSITIONS.map((hPos) => {
-              const isSelected =
-                config.positionX === hPos.value && config.positionY === vPos.value;
-              return (
-                <button
-                  key={`${vPos.value}-${hPos.value}`}
-                  type="button"
-                  onClick={() =>
-                    onChange({
-                      ...config,
-                      positionX: hPos.value,
-                      positionY: vPos.value,
-                    })
-                  }
-                  className={cn(
-                    "w-7 h-7 rounded transition-all text-[9px] font-medium",
-                    isSelected
-                      ? "bg-indigo-500 text-white shadow-sm"
-                      : "bg-slate-700/50 text-muted-foreground hover:bg-slate-700 hover:text-white"
-                  )}
-                  disabled={disabled}
-                  title={`${vPos.label} ${hPos.label}`}
-                >
-                  {isSelected ? "●" : "○"}
-                </button>
-              );
-            })
-          )}
+      {/* Position Grid - 9x9 visual selector */}
+      <div className="flex items-start gap-4">
+        <div
+          className="grid grid-cols-16 gap-[1px] p-1 rounded-lg bg-slate-800/80 border border-white/10 select-none touch-none"
+          style={{ gridTemplateColumns: `repeat(${GRID_COLS}, minmax(0, 1fr))` }}
+          onMouseLeave={handleGridMouseUp}
+        >
+          {Array.from({ length: GRID_COLS * GRID_ROWS }).map((_, i) => {
+            const isSelected = config.gridSelection?.includes(i);
+            return (
+              <div
+                key={i}
+                onMouseDown={() => handleGridMouseDown(i)}
+                onMouseEnter={() => handleGridMouseEnter(i)}
+                className={cn(
+                  "w-3 h-3 rounded-[1px] transition-colors cursor-pointer",
+                  isSelected ? "bg-indigo-500" : "bg-slate-700/30 hover:bg-slate-700/60"
+                )}
+              />
+            );
+          })}
         </div>
 
-        <div className="flex-1 space-y-1">
-          <div className="text-[10px] text-muted-foreground">
-            Position:{" "}
-            <span className="text-white font-medium capitalize">
-              {config.positionY} {config.positionX}
-            </span>
-          </div>
-          <div className="text-[10px] text-muted-foreground">
-            Select where your webcam is in the original video
-          </div>
+        <div className="flex-1 space-y-2">
+          {config.manualCrop ? (
+            <div className="space-y-1">
+              <div className="text-[10px] text-muted-foreground">
+                Custom Region Selected
+              </div>
+              <div className="text-xs font-medium text-white">
+                {Math.round(config.manualCrop.width * 100)}% ×{" "}
+                {Math.round(config.manualCrop.height * 100)}%
+              </div>
+            </div>
+          ) : (
+            <div className="text-[10px] text-muted-foreground italic">
+              Select a region on the grid to position your camera manually.
+            </div>
+          )}
         </div>
       </div>
 

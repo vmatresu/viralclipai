@@ -72,6 +72,17 @@ pub struct StreamerSplitParams {
     /// If provided, the video crop is ignored and this image is shown.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub static_image_url: Option<String>,
+
+    /// Manual crop region for the top panel (webcam).
+    /// If provided, this overrides position_x, position_y and zoom.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manual_crop: Option<crate::NormalizedRect>,
+
+    /// Split ratio (0.0 to 1.0) defining height of the top panel relative to total height.
+    /// Default is 0.5 (equal split) if not provided.
+    /// E.g., 0.35 means top panel gets 35% of height, bottom gets 65%.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub split_ratio: Option<f32>,
 }
 
 fn default_zoom() -> f32 {
@@ -85,6 +96,8 @@ impl Default for StreamerSplitParams {
             position_y: VerticalPosition::Top,
             zoom: 1.5,
             static_image_url: None,
+            manual_crop: None,
+            split_ratio: None,
         }
     }
 }
@@ -146,6 +159,8 @@ impl StreamerSplitParams {
             position_y: VerticalPosition::Top,
             zoom: 2.0,
             static_image_url: None,
+            manual_crop: None,
+            split_ratio: None,
         }
     }
 
@@ -156,6 +171,8 @@ impl StreamerSplitParams {
             position_y: VerticalPosition::Top,
             zoom: 2.0,
             static_image_url: None,
+            manual_crop: None,
+            split_ratio: None,
         }
     }
 
@@ -166,6 +183,8 @@ impl StreamerSplitParams {
             position_y: VerticalPosition::Middle,
             zoom: 1.0,
             static_image_url: None,
+            manual_crop: None,
+            split_ratio: None,
         }
     }
 
@@ -176,6 +195,8 @@ impl StreamerSplitParams {
             position_y: VerticalPosition::Middle,
             zoom: 1.0,
             static_image_url: Some(url.into()),
+            manual_crop: None,
+            split_ratio: None,
         }
     }
 }

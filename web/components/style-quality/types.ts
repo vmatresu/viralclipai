@@ -16,12 +16,22 @@ export type StreamerSplitConfig = {
   positionX: HorizontalPosition;
   positionY: VerticalPosition;
   zoom: number;
+  /** Normalized manual crop region (0-1) */
+  manualCrop?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  /** Selected grid cells indices (0-80 for 9x9 grid) */
+  gridSelection?: number[];
 };
 
 export const DEFAULT_STREAMER_SPLIT_CONFIG: StreamerSplitConfig = {
   positionX: "left",
   positionY: "top",
   zoom: 1.5,
+  gridSelection: [],
 };
 
 export type LayoutQualitySelection = {
