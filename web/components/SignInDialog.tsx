@@ -1,4 +1,6 @@
-import { LogIn, Mail, ArrowRight } from "lucide-react";
+"use client";
+
+import { ArrowRight, LogIn, Mail } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 

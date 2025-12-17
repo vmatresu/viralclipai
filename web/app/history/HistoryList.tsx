@@ -1,20 +1,20 @@
 "use client";
 
 import {
-    AlertCircle,
-    ArrowDown,
-    ArrowUp,
-    ArrowUpDown,
-    Check,
-    CheckSquare,
-    Clock,
-    Copy,
-    Film,
-    MoreHorizontal,
-    Square,
-    Trash2,
-    TrendingUp,
-    Zap,
+  AlertCircle,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Check,
+  CheckSquare,
+  Clock,
+  Copy,
+  Film,
+  MoreHorizontal,
+  Square,
+  Trash2,
+  TrendingUp,
+  Zap,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -24,34 +24,34 @@ import { EditableTitle } from "@/components/EditableTitle";
 import { SignInDialog } from "@/components/SignInDialog";
 import { Button } from "@/components/ui/button";
 import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui/card";
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@/components/ui/table";
 import { VideoStatusBadge } from "@/components/VideoStatusBadge";
 import { useVideoPolling } from "@/hooks/useVideoPolling";
 import {
-    apiFetch,
-    bulkDeleteVideos,
-    deleteVideo,
-    getUserVideos,
-    updateVideoTitle,
+  apiFetch,
+  bulkDeleteVideos,
+  deleteVideo,
+  getUserVideos,
+  updateVideoTitle,
 } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { invalidateClipsCache, invalidateClipsCacheMany } from "@/lib/cache";
@@ -60,12 +60,12 @@ import { cn } from "@/lib/utils";
 
 import { DeleteConfirmDialog } from "./components";
 import {
-    type DeleteTarget,
-    type PlanUsage,
-    type SortDirection,
-    type SortField,
-    type UserVideo,
-    parseSizeToBytes,
+  type DeleteTarget,
+  type PlanUsage,
+  type SortDirection,
+  type SortField,
+  type UserVideo,
+  parseSizeToBytes,
 } from "./types";
 
 export default function HistoryList() {
@@ -159,8 +159,6 @@ export default function HistoryList() {
     },
     [sortField, sortDirection, handleSort]
   );
-
-
 
   const fetchVideos = useCallback(
     async (pageToken: string | null) => {
@@ -907,7 +905,11 @@ export default function HistoryList() {
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              window.open(video.video_url, "_blank", "noopener,noreferrer");
+                              window.open(
+                                video.video_url,
+                                "_blank",
+                                "noopener,noreferrer"
+                              );
                             }}
                             className="cursor-pointer"
                           >
@@ -932,9 +934,7 @@ export default function HistoryList() {
 
       {/* Pagination Controls */}
       <div className="flex items-center justify-between mt-6">
-        <div className="text-sm text-muted-foreground">
-          Page {currentPage + 1}
-        </div>
+        <div className="text-sm text-muted-foreground">Page {currentPage + 1}</div>
         <div className="flex items-center gap-2">
           <Button
             variant="outline"

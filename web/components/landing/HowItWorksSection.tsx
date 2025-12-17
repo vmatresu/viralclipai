@@ -199,7 +199,8 @@ function FlowItem({
   variant: "input" | "engine" | "output";
 }) {
   const variantClasses = {
-    input: "bg-white/5 border-white/10 text-brand-400",
+    input:
+      "bg-muted/50 dark:bg-white/5 border-border dark:border-white/10 text-brand-400",
     engine: "btn-primary-gradient text-brand-dark",
     output: "bg-brand-cyan/10 border-brand-cyan/20 text-brand-cyan",
   };

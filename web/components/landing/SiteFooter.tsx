@@ -30,7 +30,7 @@ export function SiteFooter() {
   };
 
   return (
-    <footer className="border-t border-white/5 bg-brand-darker/50 backdrop-blur-xl">
+    <footer className="border-t border-border dark:border-white/5 bg-background dark:bg-brand-darker/50 backdrop-blur-xl">
       <div className="landing-container py-12">
         <div className="flex flex-col md:flex-row items-center justify-between gap-8 mb-8">
           {/* Brand */}
@@ -54,7 +54,7 @@ export function SiteFooter() {
         </div>
 
         {/* Copyright */}
-        <div className="pt-8 border-t border-white/5 text-center">
+        <div className="pt-8 border-t border-border dark:border-white/5 text-center">
           <p className="text-sm text-muted-foreground/60">
             © {currentYear} Viral Clip AI. All rights reserved.
           </p>

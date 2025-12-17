@@ -1,5 +1,6 @@
-import { PageWrapper } from "@/components/landing/PageWrapper";
 import Link from "next/link";
+
+import { PageWrapper } from "@/components/landing/PageWrapper";
 
 export default function PrivacyPage() {
   return (

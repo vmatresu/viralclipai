@@ -8,12 +8,12 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -24,12 +24,12 @@ import { frontendLogger } from "@/lib/logger";
 import { sanitizePrompt, validateVideoUrl } from "@/lib/security";
 import { cn } from "@/lib/utils";
 import {
-    createWebSocketConnection,
-    getWebSocketUrl,
-    handleWSMessage,
-    type ClipProcessingStep,
-    type MessageHandlerCallbacks,
-    type SceneProgress,
+  createWebSocketConnection,
+  getWebSocketUrl,
+  handleWSMessage,
+  type ClipProcessingStep,
+  type MessageHandlerCallbacks,
+  type SceneProgress,
 } from "@/lib/websocket";
 
 import { DetailedProcessingStatus } from "../shared/DetailedProcessingStatus";
@@ -452,13 +452,13 @@ export function ProcessVideoInterface() {
   };
 
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-8 p-6 md:p-8 rounded-3xl glass-card relative overflow-hidden">
+    <div className="w-full max-w-4xl mx-auto space-y-8 p-6 md:p-8 rounded-3xl glass-card relative overflow-hidden dark:bg-black/40">
       {/* Glow effect background (Updated to match mockup-glow) */}
-      <div className="absolute inset-[-2px] bg-gradient-to-r from-[#A45CFF] to-[#5CFFF9] rounded-3xl opacity-20 blur-[40px] -z-10 animate-pulse pointer-events-none" />
+      <div className="absolute inset-[-2px] bg-gradient-to-r from-[#A45CFF] to-[#5CFFF9] rounded-3xl opacity-10 dark:opacity-20 blur-[40px] -z-10 animate-pulse pointer-events-none" />
 
       {/* Header */}
       <div className="space-y-2 relative mb-6">
-        <h2 className="text-2xl font-bold tracking-tight text-white">
+        <h2 className="text-2xl font-bold tracking-tight text-foreground">
           Process Video
         </h2>
         <p className="text-muted-foreground">
@@ -509,7 +509,7 @@ export function ProcessVideoInterface() {
       {/* Main Input Area matching mockup-header */}
       <div className="flex flex-col md:flex-row gap-4 mb-6">
         {/* Input Field Wrapper matching .input-field */}
-        <div className="flex-1 flex items-center gap-3 bg-white/[0.03] backdrop-blur-[20px] border border-white/[0.08] rounded-lg p-4 shadow-inner group transition-all duration-300 focus-within:border-[#A45CFF]/50 focus-within:bg-white/[0.05]">
+        <div className="flex-1 flex items-center gap-3 bg-muted/50 dark:bg-white/[0.03] backdrop-blur-[20px] border border-border dark:border-white/[0.08] rounded-lg p-4 shadow-inner group transition-all duration-300 focus-within:border-[#A45CFF]/50 focus-within:bg-background dark:focus-within:bg-white/[0.05]">
           <svg
             viewBox="0 0 24 24"
             fill="none"
@@ -559,7 +559,7 @@ export function ProcessVideoInterface() {
 
         <Textarea
           placeholder="e.g. Find moments about crypto, funny jokes, or specific topics..."
-          className="min-h-[80px] rounded-xl border border-white/10 bg-white/5 p-4 text-sm leading-relaxed shadow-sm focus:border-[#A45CFF]/50 focus:ring-2 focus:ring-[#A45CFF]/25"
+          className="min-h-[80px] rounded-xl border border-border dark:border-white/10 bg-muted/30 dark:bg-white/5 p-4 text-sm leading-relaxed shadow-sm focus:border-[#A45CFF]/50 focus:ring-2 focus:ring-[#A45CFF]/25 text-foreground placeholder:text-muted-foreground"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
         />
@@ -568,7 +568,7 @@ export function ProcessVideoInterface() {
             <button
               key={p.label}
               onClick={() => handlePromptClick(p.prompt)}
-              className="text-xs px-3 py-1.5 rounded-full border transition-all font-medium bg-[#A45CFF]/10 text-[#A45CFF] border-[#A45CFF]/20 hover:border-[#A45CFF]/40 hover:bg-[#A45CFF]/20"
+              className="text-xs px-3 py-1.5 rounded-full border transition-all font-medium bg-[#A45CFF]/5 dark:bg-[#A45CFF]/10 text-[#A45CFF] border-[#A45CFF]/20 hover:border-[#A45CFF]/40 hover:bg-[#A45CFF]/10 dark:hover:bg-[#A45CFF]/20"
             >
               + {p.label}
             </button>

@@ -66,7 +66,7 @@ export function PricingSection() {
   return (
     <LandingSection
       id="pricing"
-      className="bg-gradient-to-b from-transparent via-brand-400/[0.03] to-transparent"
+      className="dark:bg-gradient-to-b dark:from-transparent dark:via-brand-400/[0.03] dark:to-transparent"
     >
       <SectionHeader
         title={
@@ -124,7 +124,7 @@ export function PricingSection() {
                 "w-full h-12 rounded-xl font-semibold transition-all",
                 plan.featured
                   ? "btn-primary-gradient"
-                  : "glass-card border-white/10 hover:border-brand-400/30 hover:bg-brand-400/10"
+                  : "glass-card border-border dark:border-white/10 hover:border-brand-400/30 hover:bg-brand-400/10"
               )}
               variant={plan.featured ? "default" : "outline"}
             >

@@ -923,7 +923,7 @@ export default function HistoryDetailPage() {
 
       <Card className="glass">
         <CardHeader
-          className="cursor-pointer hover:bg-accent/50 transition-colors"
+          className="cursor-pointer hover:bg-accent/10 transition-colors"
           onClick={() => setIsCollapsed(!isCollapsed)}
         >
           <CardTitle className="flex items-center gap-2">

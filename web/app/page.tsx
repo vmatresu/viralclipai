@@ -4,14 +4,14 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect } from "react";
 
 import {
-    AnimatedBackground,
-    FinalCTASection,
-    ForCreatorsSection,
-    HeroSection,
-    HowItWorksSection,
-    PricingSection,
-    TestimonialsSection,
-    WhyMattersSection,
+  AnimatedBackground,
+  FinalCTASection,
+  ForCreatorsSection,
+  HeroSection,
+  HowItWorksSection,
+  PricingSection,
+  TestimonialsSection,
+  WhyMattersSection,
 } from "@/components/landing";
 import { ProcessVideoInterface } from "@/components/process/ProcessVideoInterface";
 import { ProcessingClient } from "@/components/ProcessingClient";

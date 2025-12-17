@@ -24,7 +24,8 @@
       "Bash(docker exec:*)",
       "WebFetch(domain:docs.rs)",
       "WebFetch(domain:crates.io)",
-      "Bash(cargo search:*)"
+      "Bash(cargo search:*)",
+      "Bash(xargs:*)"
     ],
     "deny": [],
     "ask": []

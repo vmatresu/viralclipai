@@ -101,7 +101,7 @@ export function WhyMattersSection() {
   return (
     <LandingSection
       id="why-matters"
-      className="bg-gradient-to-b from-transparent via-brand-400/[0.03] to-transparent"
+      className="dark:bg-gradient-to-b dark:from-transparent dark:via-brand-400/[0.03] dark:to-transparent"
     >
       <SectionHeader
         title={

@@ -11,9 +11,5 @@ import { type ReactNode } from "react";
 import { ProcessingProvider } from "@/lib/processing-context";
 
 export function ClientProviders({ children }: { children: ReactNode }) {
-  return (
-    <ProcessingProvider>
-      {children}
-    </ProcessingProvider>
-  );
+  return <ProcessingProvider>{children}</ProcessingProvider>;
 }

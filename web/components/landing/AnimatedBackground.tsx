@@ -4,11 +4,12 @@ export function AnimatedBackground() {
   return (
     <div className="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
       {/* Base gradient */}
-      <div className="absolute inset-0 bg-gradient-to-b from-brand-dark via-brand-darker to-brand-dark" />
+      {/* Base gradient */}
+      <div className="absolute inset-0 bg-background dark:bg-gradient-to-b dark:from-brand-dark dark:via-brand-darker dark:to-brand-dark" />
 
       {/* Animated gradient orbs */}
       <div
-        className="gradient-orb"
+        className="gradient-orb opacity-20 dark:opacity-40"
         style={{
           width: "600px",
           height: "600px",
@@ -20,7 +21,7 @@ export function AnimatedBackground() {
         }}
       />
       <div
-        className="gradient-orb"
+        className="gradient-orb opacity-20 dark:opacity-40"
         style={{
           width: "500px",
           height: "500px",
@@ -32,7 +33,7 @@ export function AnimatedBackground() {
         }}
       />
       <div
-        className="gradient-orb"
+        className="gradient-orb opacity-20 dark:opacity-40"
         style={{
           width: "400px",
           height: "400px",

@@ -29,7 +29,7 @@ export function TestimonialsSection() {
   return (
     <LandingSection
       id="social-proof"
-      className="bg-gradient-to-b from-transparent via-brand-cyan/[0.02] to-transparent"
+      className="dark:bg-gradient-to-b dark:from-transparent dark:via-brand-cyan/[0.02] dark:to-transparent"
     >
       <SectionHeader
         title={

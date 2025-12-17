@@ -1,17 +1,19 @@
 "use client";
 
 import { ChevronDown, LogOut, Menu, X } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { SignInDialog } from "@/components/SignInDialog";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -56,7 +58,7 @@ export function SiteHeader() {
       className={cn(
         "fixed top-0 left-0 right-0 z-50 transition-all duration-300",
         isScrolled
-          ? "h-20 bg-transparent backdrop-blur-lg border-b border-white/5"
+          ? "h-20 bg-transparent backdrop-blur-lg border-b border-border/40 dark:border-white/5"
           : "h-24 bg-transparent"
       )}
     >
@@ -97,17 +99,18 @@ export function SiteHeader() {
                 asChild
                 className="btn-primary-gradient text-sm font-semibold px-5 py-2 rounded-lg"
               >
-                <a href="/#process-video">Generate My First Clip</a>
+                <Link href="/#process-video">Generate My First Clip</Link>
               </Button>
             </>
           )}
+          <ThemeToggle />
           {!loading && user && (
             <>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
                     variant="ghost"
-                    className="gap-2 pl-2 pr-3 h-10 rounded-full hover:bg-white/10 transition-colors"
+                    className="gap-2 pl-2 pr-3 h-10 rounded-full hover:bg-accent/50 dark:hover:bg-white/10 transition-colors"
                   >
                     <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-brand-400 to-brand-cyan p-[1px]">
                       <div className="h-full w-full rounded-full bg-[#05060D] flex items-center justify-center">
@@ -116,7 +119,7 @@ export function SiteHeader() {
                         </span>
                       </div>
                     </div>
-                    <span className="hidden lg:inline text-sm font-medium text-white/90 max-w-[150px] truncate">
+                    <span className="hidden lg:inline text-sm font-medium text-foreground dark:text-white/90 max-w-[150px] truncate">
                       {user.email?.split("@")[0]}
                     </span>
                     <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -124,7 +127,7 @@ export function SiteHeader() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   align="end"
-                  className="w-56 bg-[#0B0E1A] border-white/10 text-foreground backdrop-blur-xl"
+                  className="w-56 bg-white dark:bg-[#0B0E1A] border-gray-200 dark:border-white/10 text-gray-900 dark:text-gray-100 shadow-lg dark:shadow-none"
                 >
                   <DropdownMenuLabel className="font-normal">
                     <div className="flex flex-col space-y-1">
@@ -134,10 +137,10 @@ export function SiteHeader() {
                       </p>
                     </div>
                   </DropdownMenuLabel>
-                  <DropdownMenuSeparator className="bg-white/10" />
+                  <DropdownMenuSeparator className="bg-gray-200 dark:bg-white/10" />
                   <DropdownMenuItem
                     onClick={signOut}
-                    className="text-red-400 focus:text-red-400 focus:bg-red-400/10 cursor-pointer"
+                    className="text-red-600 dark:text-red-400 focus:text-red-600 dark:focus:text-red-400 focus:bg-red-50 dark:focus:bg-red-400/10 cursor-pointer"
                   >
                     <LogOut className="mr-2 h-4 w-4" />
                     <span>Sign out</span>
@@ -148,7 +151,7 @@ export function SiteHeader() {
                 asChild
                 className="btn-primary-gradient text-sm font-semibold px-5 py-2 rounded-lg"
               >
-                <a href="/history">View History</a>
+                <Link href="/history">View History</Link>
               </Button>
             </>
           )}
@@ -161,11 +164,7 @@ export function SiteHeader() {
           aria-label="Toggle navigation menu"
           aria-expanded={isMobileMenuOpen}
         >
-          {isMobileMenuOpen ? (
-            <X className="w-6 h-6" />
-          ) : (
-            <Menu className="w-6 h-6" />
-          )}
+          {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
         </button>
       </div>
 
@@ -207,7 +206,7 @@ export function SiteHeader() {
             asChild
             className="w-full btn-primary-gradient text-sm font-semibold py-3 rounded-lg mt-4"
           >
-            <a href="/history">View History</a>
+            <Link href="/history">View History</Link>
           </Button>
         </div>
       </div>

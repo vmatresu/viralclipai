@@ -64,8 +64,8 @@ export function ForCreatorsSection() {
         <div className="relative">
           <div className="absolute top-0 right-0 w-full h-full bg-[radial-gradient(circle_at_top_right,rgba(164,92,255,0.25),transparent_70%)] animate-glow-pulse pointer-events-none" />
 
-          <div className="glass-card rounded-3xl p-8 relative overflow-hidden">
-            <h4 className="text-xl font-semibold text-brand-cyan mb-4">
+          <div className="glass-card rounded-3xl p-8 relative overflow-hidden dark:bg-transparent">
+            <h4 className="text-xl font-semibold text-brand-purple dark:text-brand-cyan mb-4">
               This is a momentum engine.
             </h4>
             <p className="text-muted-foreground leading-relaxed mb-8">
