@@ -30,9 +30,9 @@ export const metadata: Metadata = {
     canonical: "/",
   },
   icons: {
-    icon: "/logo.svg",
-    shortcut: "/logo.svg",
-    apple: "/logo.svg",
+    icon: "/favicon.svg",
+    shortcut: "/favicon.svg",
+    apple: "/favicon.svg",
   },
   openGraph: {
     title: "Viral Clip AI - Creator Momentum Engine",
