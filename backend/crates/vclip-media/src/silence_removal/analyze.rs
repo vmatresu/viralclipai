@@ -11,7 +11,7 @@ use std::path::Path;
 use tempfile::NamedTempFile;
 use thiserror::Error;
 use tokio::process::Command;
-use tracing::{debug, info};
+use tracing::debug;
 
 use super::config::SilenceRemovalConfig;
 use super::segmenter::{compute_segment_stats, Segment, SilenceRemover};
@@ -56,7 +56,7 @@ pub async fn analyze_audio_segments(
     input_path: &Path,
     config: SilenceRemovalConfig,
 ) -> AnalysisResult<Vec<Segment>> {
-    info!(
+    debug!(
         path = %input_path.display(),
         vad_threshold = config.vad_threshold,
         min_silence_ms = config.min_silence_ms,
@@ -86,7 +86,7 @@ pub async fn analyze_audio_segments(
         return Err(AnalysisError::AudioTooShort);
     }
 
-    info!(
+    debug!(
         samples = samples.len(),
         duration_ms = total_duration_ms,
         "Loaded audio samples"
@@ -115,7 +115,7 @@ pub async fn analyze_audio_segments(
 
     // Log statistics
     let stats = compute_segment_stats(&segments);
-    info!(
+    debug!(
         keep_ms = stats.total_keep_ms,
         cut_ms = stats.total_cut_ms,
         keep_ratio = format!("{:.1}%", stats.keep_ratio * 100.0),

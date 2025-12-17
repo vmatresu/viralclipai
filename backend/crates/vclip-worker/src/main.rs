@@ -22,7 +22,9 @@ async fn main() {
         .unwrap_or(false);
 
     let env_filter = EnvFilter::from_default_env()
-        .add_directive("vclip=info".parse().unwrap());
+        .add_directive("vclip=info".parse().unwrap())
+        .add_directive("ort=warn".parse().unwrap())
+        .add_directive("onnxruntime=warn".parse().unwrap());
 
     if use_json {
         tracing_subscriber::registry()

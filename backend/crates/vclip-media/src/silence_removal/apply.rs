@@ -15,7 +15,7 @@ use std::path::Path;
 
 use thiserror::Error;
 use tokio::process::Command;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use super::config::SilenceRemovalConfig;
 use super::segmenter::{compute_segment_stats, Segment, SegmentLabel};
@@ -82,7 +82,7 @@ pub fn should_apply_silence_removal(segments: &[Segment], config: &SilenceRemova
         return false;
     }
 
-    info!(
+    debug!(
         keep_ratio = format!("{:.1}%", stats.keep_ratio * 100.0),
         cut_ratio = format!("{:.1}%", cut_ratio * 100.0),
         keep_segments = stats.keep_count,
@@ -116,7 +116,7 @@ pub async fn apply_silence_removal(
         return Err(ApplyError::NoSegmentsToKeep);
     }
 
-    info!(
+    debug!(
         input = %input_path.display(),
         output = %output_path.display(),
         keep_segments = keep_segments.len(),
@@ -397,7 +397,7 @@ async fn apply_concat_demuxer(
         )));
     }
 
-    info!(
+    debug!(
         segments = segments.len(),
         "Concat demuxer approach completed"
     );

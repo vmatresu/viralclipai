@@ -18,8 +18,6 @@
 //!
 //! The analyze module handles conversion from any input format.
 
-use std::sync::Arc;
-
 use thiserror::Error;
 use tracing::{debug, trace};
 use voice_activity_detector::VoiceActivityDetector;
@@ -140,39 +138,6 @@ impl SileroVad {
 
         Ok(prob)
     }
-
-    /// Reset the internal state of the VAD.
-    ///
-    /// Call this when starting to process a new audio stream to avoid
-    /// state pollution from previous streams.
-    pub fn reset(&mut self) {
-        // Recreate the VAD to reset state
-        // The voice_activity_detector crate doesn't have a reset method
-        if let Ok(new_vad) = VoiceActivityDetector::builder()
-            .sample_rate(self.sample_rate as i64)
-            .chunk_size(self.frame_size)
-            .build()
-        {
-            self.vad = new_vad;
-            debug!("VAD state reset");
-        }
-    }
-
-    /// Get the sample rate this VAD is configured for.
-    pub fn sample_rate(&self) -> usize {
-        self.sample_rate
-    }
-}
-
-/// Thread-safe VAD instance that can be shared across async tasks.
-///
-/// Note: The underlying VAD maintains state between frames, so you should
-/// only share this across tasks if they're processing independent streams.
-pub type SharedVad = Arc<tokio::sync::Mutex<SileroVad>>;
-
-/// Create a thread-safe VAD instance.
-pub fn create_shared_vad(sample_rate: usize) -> VadResult<SharedVad> {
-    Ok(Arc::new(tokio::sync::Mutex::new(SileroVad::new(sample_rate)?)))
 }
 
 #[cfg(test)]

@@ -943,7 +943,7 @@ async fn process_selected_scenes(
             }
         }
 
-        info!(
+        debug!(
             scene_id = scene_id,
             raw_segment = ?raw_segment,
             raw_created = raw_created,
@@ -955,7 +955,7 @@ async fn process_selected_scenes(
         let raw_segment = if should_cut_silent {
             match apply_silence_removal_to_segment(ctx, &raw_segment, scene_id, &job.job_id).await {
                 Ok(Some(silence_removed_path)) => {
-                    info!(
+                    debug!(
                         scene_id = scene_id,
                         "Using silence-removed segment"
                     );
@@ -1463,7 +1463,7 @@ async fn apply_silence_removal_to_segment(
     scene_id: u32,
     job_id: &vclip_models::JobId,
 ) -> WorkerResult<Option<PathBuf>> {
-    info!(
+    debug!(
         scene_id = scene_id,
         segment = ?raw_segment,
         "Analyzing audio for silence detection"
@@ -1519,7 +1519,7 @@ async fn apply_silence_removal_to_segment(
         .map(|m| m.len())
         .unwrap_or(0);
     let reduction_pct = if original_size > 0 {
-        ((original_size - new_size) as f64 / original_size as f64) * 100.0
+        ((original_size as f64 - new_size as f64) / original_size as f64) * 100.0
     } else {
         0.0
     };
