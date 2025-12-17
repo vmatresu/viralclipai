@@ -101,6 +101,7 @@ export function stylesToSelection(
     staticPosition,
     streamerSplitConfig: fallback.streamerSplitConfig,
     topScenesEnabled,
+    cutSilentParts: fallback.cutSilentParts,
   };
 }
 

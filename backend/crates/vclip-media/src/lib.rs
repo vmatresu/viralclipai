@@ -20,6 +20,7 @@ pub mod fs_utils;
 pub mod intelligent;
 pub mod probe;
 pub mod progress;
+pub mod silence_removal;
 pub mod styles;
 pub mod thumbnail;
 

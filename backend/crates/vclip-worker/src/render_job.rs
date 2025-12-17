@@ -408,6 +408,7 @@ async fn process_render_clip_inner(
         pad_after: 0.0,
         streamer_split_params: None, // TODO: Pass from RenderSceneStyleJob if needed
         streamer_params: None,
+        cut_silent_parts: true, // TODO: Add to RenderSceneStyleJob if per-clip control needed
     };
 
     // Step 3: Process the clip using the raw segment as input

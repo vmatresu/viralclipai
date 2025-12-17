@@ -40,5 +40,8 @@ ort = { version = "2.0.0-rc.10", features = ["half", "download-binaries"], defau
 opencv = { version = "0.93", default-features = false, features = ["objdetect", "imgproc", "videoio", "dnn", "imgcodecs"], optional = true }
 rayon = "1.10"
 
+# Silero VAD v5 for silence/speech detection
+voice_activity_detector = "0.2"
+
 [dev-dependencies]
 tokio-test = { workspace = true }

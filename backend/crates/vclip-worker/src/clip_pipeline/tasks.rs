@@ -29,6 +29,7 @@ pub fn generate_clip_tasks(
                 pad_after: highlight.pad_after_seconds,
                 streamer_split_params: None,
                 streamer_params: None,
+                cut_silent_parts: true,
             };
             tasks.push(task);
         }
@@ -63,6 +64,7 @@ pub fn generate_clip_tasks_from_highlights(
                 pad_after: highlight.pad_after_seconds,
                 streamer_split_params: None,
                 streamer_params: None,
+                cut_silent_parts: true,
             });
         }
     }
@@ -94,6 +96,25 @@ pub fn generate_clip_tasks_from_firestore_highlights_with_params(
     target_aspect: &AspectRatio,
     streamer_split_params: Option<vclip_models::StreamerSplitParams>,
 ) -> Vec<ClipTask> {
+    generate_clip_tasks_from_firestore_highlights_full(
+        highlights,
+        styles,
+        crop_mode,
+        target_aspect,
+        streamer_split_params,
+        true, // cut_silent_parts default
+    )
+}
+
+/// Generate clip tasks from Firestore VideoHighlights with full parameters.
+pub fn generate_clip_tasks_from_firestore_highlights_full(
+    highlights: &[&vclip_models::Highlight],
+    styles: &[Style],
+    crop_mode: &CropMode,
+    target_aspect: &AspectRatio,
+    streamer_split_params: Option<vclip_models::StreamerSplitParams>,
+    cut_silent_parts: bool,
+) -> Vec<ClipTask> {
     let mut tasks = Vec::new();
 
     for highlight in highlights {
@@ -119,6 +140,7 @@ pub fn generate_clip_tasks_from_firestore_highlights_with_params(
                 pad_after: highlight.pad_after,
                 streamer_split_params: params,
                 streamer_params: None,
+                cut_silent_parts,
             });
         }
     }

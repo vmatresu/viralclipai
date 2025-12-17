@@ -92,7 +92,8 @@ export function useReprocessing({
       enableObjectDetection: boolean = false,
       overwrite: boolean = false,
       streamerSplitParams?: StreamerSplitParams,
-      topScenesCompilation: boolean = false
+      topScenesCompilation: boolean = false,
+      cutSilentParts: boolean = true
     ) => {
       if (state.isProcessing) {
         toast.error("Reprocessing already in progress");
@@ -252,6 +253,7 @@ export function useReprocessing({
             overwrite,
             streamerSplitParams,
             topScenesCompilation,
+            cutSilentParts,
           },
           callbacks
         );

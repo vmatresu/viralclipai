@@ -40,6 +40,10 @@ interface StyleQualitySelectorProps {
   sceneTitles?: Map<number, string>;
   /** Callback when user removes a scene from the compilation */
   onRemoveCompilationScene?: (sceneId: number) => void;
+  /** Cut silent parts from clips using VAD */
+  cutSilentParts?: boolean;
+  /** Callback when cutSilentParts changes */
+  onCutSilentPartsChange?: (enabled: boolean) => void;
 }
 
 export function StyleQualitySelector({
@@ -56,6 +60,8 @@ export function StyleQualitySelector({
   compilationScenes,
   sceneTitles,
   onRemoveCompilationScene,
+  cutSilentParts,
+  onCutSilentPartsChange,
 }: StyleQualitySelectorProps) {
   const hasStudioPlan = userPlan === "studio";
   const hasProPlan = userPlan === "pro" || userPlan === "studio";
@@ -178,6 +184,33 @@ export function StyleQualitySelector({
                 </div>
               )}
           </div>
+        </div>
+
+        {/* Cut silent parts checkbox */}
+        <div className="space-y-3 rounded-xl border border-white/10 bg-slate-900/60 p-4">
+          <label
+            className="flex items-start gap-3 text-sm text-white"
+            htmlFor="cut-silent-parts"
+          >
+            <Checkbox
+              checked={cutSilentParts ?? selection.cutSilentParts}
+              onCheckedChange={(checked) => {
+                const enabled = Boolean(checked);
+                onCutSilentPartsChange?.(enabled);
+                updateSelection({ cutSilentParts: enabled });
+              }}
+              id="cut-silent-parts"
+              disabled={disabled}
+            />
+            <div className="space-y-0.5">
+              <div className="font-medium">
+                Cut silent parts for more dynamic scenes
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Remove sections without speech (applies to all styles)
+              </p>
+            </div>
+          </label>
         </div>
 
         {/* Original checkbox */}

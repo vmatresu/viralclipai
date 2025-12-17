@@ -151,6 +151,13 @@ pub struct ReprocessScenesJob {
     /// Enable Top Scenes compilation mode (creates single video from all scenes with countdown overlay)
     #[serde(default)]
     pub top_scenes_compilation: bool,
+    /// Cut silent parts from clips using VAD (default: true for more dynamic content)
+    #[serde(default = "default_cut_silent_parts")]
+    pub cut_silent_parts: bool,
+}
+
+fn default_cut_silent_parts() -> bool {
+    true
 }
 
 impl ReprocessScenesJob {
@@ -172,7 +179,14 @@ impl ReprocessScenesJob {
             overwrite: false,
             streamer_split_params: None,
             top_scenes_compilation: false,
+            cut_silent_parts: true,
         }
+    }
+
+    /// Set cut silent parts option.
+    pub fn with_cut_silent_parts(mut self, enabled: bool) -> Self {
+        self.cut_silent_parts = enabled;
+        self
     }
 
     /// Check if this job is a Top Scenes compilation.

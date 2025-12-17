@@ -16,6 +16,7 @@ interface SettingsResponse {
   settings: {
     tiktok_access_token?: string;
     tiktok_account_id?: string;
+    cut_silent_parts_default?: boolean;
     [key: string]: unknown;
   };
 }
@@ -28,6 +29,9 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+
+  // Processing defaults
+  const [cutSilentPartsDefault, setCutSilentPartsDefault] = useState(true);
 
   // Admin prompt state
   const [prompt, setPrompt] = useState("");
@@ -60,6 +64,7 @@ export default function SettingsPage() {
             setData(res);
             setAccessToken(res.settings?.tiktok_access_token ?? "");
             setAccountId(res.settings?.tiktok_account_id ?? "");
+            setCutSilentPartsDefault(res.settings?.cut_silent_parts_default ?? true);
           }
         } catch (err: unknown) {
           if (!cancelled) {
@@ -128,6 +133,7 @@ export default function SettingsPage() {
         settings: {
           tiktok_access_token: accessToken,
           tiktok_account_id: accountId,
+          cut_silent_parts_default: cutSilentPartsDefault,
         },
       };
       await apiFetch("/api/settings", {
@@ -334,6 +340,54 @@ export default function SettingsPage() {
             </button>
           </div>
         </form>
+      </section>
+
+      <section className="glass rounded-2xl p-6 space-y-4">
+        <h2 className="text-xl font-semibold text-foreground">Processing Defaults</h2>
+        <p className="text-sm text-muted-foreground">
+          Configure default settings for video processing.
+        </p>
+
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 text-sm">
+            <input
+              type="checkbox"
+              id="cut-silent-parts-default"
+              checked={cutSilentPartsDefault}
+              onChange={(e) => setCutSilentPartsDefault(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500 cursor-pointer"
+              aria-describedby="cut-silent-parts-description"
+            />
+            <div className="space-y-0.5">
+              <label
+                htmlFor="cut-silent-parts-default"
+                className="font-medium text-foreground cursor-pointer"
+              >
+                Cut silent parts by default
+              </label>
+              <p
+                id="cut-silent-parts-description"
+                className="text-xs text-muted-foreground"
+              >
+                When enabled, &quot;Cut silent parts&quot; will be checked by default in
+                the scene processor. This removes sections without speech for more
+                dynamic clips.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between mt-4 text-sm">
+          <div className="text-muted-foreground">{status}</div>
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={saving}
+            className="px-4 h-11 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-colors shadow-sm shadow-brand-500/20"
+          >
+            {saving ? "Saving..." : "Save Settings"}
+          </button>
+        </div>
       </section>
 
       {data?.role === "superadmin" && (

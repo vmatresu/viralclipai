@@ -362,6 +362,14 @@ pub struct ClipTask {
     /// Used for Top Scenes compilation and other Streamer-specific settings.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub streamer_params: Option<StreamerParams>,
+
+    /// Whether to cut silent parts using VAD (default: true)
+    #[serde(default = "default_cut_silent_parts")]
+    pub cut_silent_parts: bool,
+}
+
+fn default_cut_silent_parts() -> bool {
+    true
 }
 
 impl ClipTask {
@@ -387,6 +395,7 @@ impl ClipTask {
             pad_after: 0.0,
             streamer_split_params: None,
             streamer_params: None,
+            cut_silent_parts: true,
         }
     }
 

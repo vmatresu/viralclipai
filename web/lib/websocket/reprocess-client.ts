@@ -131,6 +131,8 @@ export interface ReprocessOptions {
   streamerSplitParams?: StreamerSplitParams;
   /** Enable Top Scenes compilation (creates single video with countdown overlay) */
   topScenesCompilation?: boolean;
+  /** Cut silent parts from clips using VAD (default: true) */
+  cutSilentParts?: boolean;
 }
 
 const MAX_MESSAGE_SIZE = 1024 * 1024; // 1MB
@@ -187,6 +189,7 @@ export function reprocessScenesWebSocket(
     overwrite = false,
     streamerSplitParams,
     topScenesCompilation = false,
+    cutSilentParts = true,
   } = options;
 
   // Validation
@@ -240,6 +243,7 @@ export function reprocessScenesWebSocket(
           overwrite,
           streamer_split_params: streamerSplitParams,
           top_scenes_compilation: topScenesCompilation,
+          cut_silent_parts: cutSilentParts,
         })
       );
     } catch (error) {

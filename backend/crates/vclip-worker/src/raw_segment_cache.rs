@@ -298,6 +298,9 @@ impl RawSegmentCacheService {
     }
 
     /// Check if raw segment exists in R2.
+    ///
+    /// Returns `true` if the segment exists, `false` if it doesn't exist or if
+    /// there was a transient error (network/auth issues are handled gracefully).
     pub async fn check_raw_exists(&self, r2_key: &str) -> bool {
         match self.storage.exists(r2_key).await {
             Ok(true) => {
@@ -309,7 +312,14 @@ impl RawSegmentCacheService {
                 false
             }
             Err(e) => {
-                warn!("Error checking raw segment existence: {}", e);
+                // Log at debug level for transient errors - this is expected during
+                // concurrent operations and the code handles it by falling back to
+                // extraction. Only log at warn if debugging is needed.
+                debug!(
+                    r2_key = r2_key,
+                    error = %e,
+                    "R2 existence check failed (falling back to extraction)"
+                );
                 false
             }
         }

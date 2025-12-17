@@ -15,9 +15,13 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use vclip_media::download_video;
+use vclip_media::silence_removal::{
+    analyze_audio_segments, apply_silence_removal, should_apply_silence_removal,
+    SilenceRemovalConfig,
+};
 use vclip_models::{ClipStatus, ClipTask, Highlight};
 use vclip_queue::ReprocessScenesJob;
 
@@ -117,12 +121,13 @@ pub async fn reprocess_scenes(
 
     // Generate clip tasks from selected highlights
     let selected_refs: Vec<&Highlight> = selected_highlights.iter().collect();
-    let clip_tasks = clip_pipeline::tasks::generate_clip_tasks_from_firestore_highlights_with_params(
+    let clip_tasks = clip_pipeline::tasks::generate_clip_tasks_from_firestore_highlights_full(
         &selected_refs,
         &job.styles,
         &job.crop_mode,
         &job.target_aspect,
         job.streamer_split_params.clone(),
+        job.cut_silent_parts,
     );
 
     ctx.progress
@@ -945,8 +950,49 @@ async fn process_selected_scenes(
             "Using raw segment for scene processing"
         );
 
+        // Apply silence removal if requested by any task for this scene
+        let should_cut_silent = scene_tasks.iter().any(|t| t.cut_silent_parts);
+        let raw_segment = if should_cut_silent {
+            match apply_silence_removal_to_segment(ctx, &raw_segment, scene_id, &job.job_id).await {
+                Ok(Some(silence_removed_path)) => {
+                    info!(
+                        scene_id = scene_id,
+                        "Using silence-removed segment"
+                    );
+                    silence_removed_path
+                }
+                Ok(None) => {
+                    debug!(
+                        scene_id = scene_id,
+                        "Silence removal not applied (no significant silence or too short)"
+                    );
+                    raw_segment
+                }
+                Err(e) => {
+                    warn!(
+                        scene_id = scene_id,
+                        error = %e,
+                        "Silence removal failed, using original segment"
+                    );
+                    raw_segment
+                }
+            }
+        } else {
+            raw_segment
+        };
+
+        // Recalculate segment duration after potential silence removal
+        let segment_duration = if should_cut_silent {
+            // Get actual duration from the (potentially modified) segment
+            match vclip_media::probe::get_duration(&raw_segment).await {
+                Ok(d) => d,
+                Err(_) => padded_end - padded_start, // Fallback to original calculation
+            }
+        } else {
+            padded_end - padded_start
+        };
+
         // Create modified tasks that use the raw segment (timestamps relative to segment start)
-        let segment_duration = padded_end - padded_start;
         let modified_tasks: Vec<ClipTask> = scene_tasks
             .iter()
             .map(|task| ClipTask {
@@ -965,6 +1011,7 @@ async fn process_selected_scenes(
                 pad_after: 0.0,
                 streamer_split_params: task.streamer_split_params.clone(),
                 streamer_params: task.streamer_params.clone(),
+                cut_silent_parts: task.cut_silent_parts,
             })
             .collect();
 
@@ -1143,6 +1190,51 @@ async fn process_top_scenes_compilation(
 
     ctx.progress.progress(&job.job_id, 30).await.ok();
 
+    // Apply silence removal if requested
+    let final_segment_paths = if job.cut_silent_parts {
+        ctx.progress
+            .log(&job.job_id, "Removing silent parts from segments...")
+            .await
+            .ok();
+
+        let mut processed_paths: Vec<PathBuf> = Vec::new();
+        for (idx, (raw_path, highlight)) in raw_segment_paths.iter().zip(ordered_highlights.iter()).enumerate() {
+            let scene_id = highlight.id;
+            match apply_silence_removal_to_segment(ctx, raw_path, scene_id, &job.job_id).await {
+                Ok(Some(silence_removed_path)) => {
+                    info!(
+                        scene_id = scene_id,
+                        idx = idx,
+                        "Using silence-removed segment for Top Scenes compilation"
+                    );
+                    processed_paths.push(silence_removed_path);
+                }
+                Ok(None) => {
+                    debug!(
+                        scene_id = scene_id,
+                        idx = idx,
+                        "Silence removal not applied (no significant silence or too short)"
+                    );
+                    processed_paths.push(raw_path.clone());
+                }
+                Err(e) => {
+                    warn!(
+                        scene_id = scene_id,
+                        idx = idx,
+                        error = %e,
+                        "Silence removal failed, using original segment"
+                    );
+                    processed_paths.push(raw_path.clone());
+                }
+            }
+        }
+        processed_paths
+    } else {
+        raw_segment_paths
+    };
+
+    ctx.progress.progress(&job.job_id, 40).await.ok();
+
     // Build TopSceneEntry list for the streamer processor
     let top_scenes: Vec<TopSceneEntry> = ordered_highlights
         .iter()
@@ -1173,11 +1265,12 @@ async fn process_top_scenes_compilation(
     // Log all segment paths for debugging
     info!(
         video_id = %job.video_id,
-        segment_count = raw_segment_paths.len(),
+        segment_count = final_segment_paths.len(),
         top_scenes_count = top_scenes.len(),
+        cut_silent_parts = job.cut_silent_parts,
         "Preparing to render Top Scenes compilation"
     );
-    for (idx, path) in raw_segment_paths.iter().enumerate() {
+    for (idx, path) in final_segment_paths.iter().enumerate() {
         let exists = path.exists();
         let size = if exists {
             tokio::fs::metadata(path).await.map(|m| m.len()).unwrap_or(0)
@@ -1189,11 +1282,11 @@ async fn process_top_scenes_compilation(
             path = ?path,
             exists = exists,
             size_bytes = size,
-            "Raw segment path"
+            "Segment path for compilation"
         );
         if !exists {
             return Err(WorkerError::job_failed(&format!(
-                "Raw segment {} does not exist at {:?}",
+                "Segment {} does not exist at {:?}",
                 idx, path
             )));
         }
@@ -1204,13 +1297,13 @@ async fn process_top_scenes_compilation(
         .await
         .ok();
 
-    // Call the streamer top scenes processor with raw segment paths
+    // Call the streamer top scenes processor with processed segment paths
     let streamer_params = StreamerParams::top_scenes(top_scenes);
     let encoding = EncodingConfig::default().with_crf(24);
 
     // Process the compilation using the streamer pipeline
     vclip_media::styles::streamer::process_top_scenes_from_segments(
-        &raw_segment_paths,
+        &final_segment_paths,
         &output_path,
         &encoding,
         &streamer_params,
@@ -1357,6 +1450,89 @@ fn format_timestamp(seconds: f64) -> String {
     let minutes = ((seconds % 3600.0) / 60.0).floor() as u32;
     let secs = seconds % 60.0;
     format!("{:02}:{:02}:{:06.3}", hours, minutes, secs)
+}
+
+/// Apply silence removal to a raw segment.
+///
+/// Returns `Ok(Some(path))` if silence removal was applied and a new file was created.
+/// Returns `Ok(None)` if silence removal was not needed (no significant silence).
+/// Returns `Err` if analysis or processing failed.
+async fn apply_silence_removal_to_segment(
+    ctx: &EnhancedProcessingContext,
+    raw_segment: &PathBuf,
+    scene_id: u32,
+    job_id: &vclip_models::JobId,
+) -> WorkerResult<Option<PathBuf>> {
+    info!(
+        scene_id = scene_id,
+        segment = ?raw_segment,
+        "Analyzing audio for silence detection"
+    );
+
+    // Analyze audio segments
+    let config = SilenceRemovalConfig::default();
+    let segments = match analyze_audio_segments(raw_segment, config.clone()).await {
+        Ok(s) => s,
+        Err(e) => {
+            // Analysis failures are recoverable - just skip silence removal
+            debug!(
+                scene_id = scene_id,
+                error = %e,
+                "Silence analysis failed (may be too short or no audio)"
+            );
+            return Ok(None);
+        }
+    };
+
+    // Check if silence removal should be applied
+    if !should_apply_silence_removal(&segments, &config) {
+        return Ok(None);
+    }
+
+    // Log progress
+    ctx.progress
+        .log(job_id, format!("Removing silent parts from scene {}...", scene_id))
+        .await
+        .ok();
+
+    // Create output path for silence-removed segment
+    let parent = raw_segment.parent().unwrap_or(std::path::Path::new("."));
+    let output_path = parent.join(format!("raw_{}_silence_removed.mp4", scene_id));
+
+    // Apply silence removal
+    apply_silence_removal(raw_segment, &output_path, &segments)
+        .await
+        .map_err(|e| WorkerError::job_failed(&format!("Silence removal failed: {}", e)))?;
+
+    // Verify output exists
+    if !output_path.exists() {
+        return Err(WorkerError::job_failed("Silence removal output file not created"));
+    }
+
+    // Log statistics
+    let original_size = tokio::fs::metadata(raw_segment)
+        .await
+        .map(|m| m.len())
+        .unwrap_or(0);
+    let new_size = tokio::fs::metadata(&output_path)
+        .await
+        .map(|m| m.len())
+        .unwrap_or(0);
+    let reduction_pct = if original_size > 0 {
+        ((original_size - new_size) as f64 / original_size as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    info!(
+        scene_id = scene_id,
+        original_size_mb = original_size as f64 / 1_048_576.0,
+        new_size_mb = new_size as f64 / 1_048_576.0,
+        reduction_pct = format!("{:.1}%", reduction_pct),
+        "Silence removal completed"
+    );
+
+    Ok(Some(output_path))
 }
 
 /// Update video clip count in Firestore.

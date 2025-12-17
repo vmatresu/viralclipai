@@ -36,6 +36,8 @@ export type LayoutQualitySelection = {
   streamerSplitConfig: StreamerSplitConfig;
   /** Enable Top Scenes compilation for Streamer style (max 5 scenes with countdown) */
   topScenesEnabled: boolean;
+  /** Cut silent parts from clips using VAD (default: true for more dynamic content) */
+  cutSilentParts: boolean;
 };
 
 export const DEFAULT_SELECTION: LayoutQualitySelection = {
@@ -47,6 +49,7 @@ export const DEFAULT_SELECTION: LayoutQualitySelection = {
   includeOriginal: false,
   streamerSplitConfig: DEFAULT_STREAMER_SPLIT_CONFIG,
   topScenesEnabled: false,
+  cutSilentParts: true,
 };
 
 /** Map static position to backend style name */

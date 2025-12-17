@@ -168,6 +168,13 @@ pub struct WsReprocessRequest {
     /// Enable Top Scenes compilation (creates single video with countdown overlay)
     #[serde(default)]
     pub top_scenes_compilation: bool,
+    /// Cut silent parts from clips using VAD (default: true)
+    #[serde(default = "default_true")]
+    pub cut_silent_parts: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// WebSocket process endpoint.
@@ -807,7 +814,8 @@ async fn handle_reprocess_socket(socket: WebSocket, state: AppState) {
         .with_crop_mode(crop_mode)
         .with_target_aspect(target_aspect)
         .with_overwrite(request.overwrite)
-        .with_top_scenes_compilation(request.top_scenes_compilation);
+        .with_top_scenes_compilation(request.top_scenes_compilation)
+        .with_cut_silent_parts(request.cut_silent_parts);
     // Pass enable_object_detection flag to the job
     job.enable_object_detection = request.enable_object_detection;
     let job_id = job.job_id.clone();

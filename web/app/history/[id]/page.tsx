@@ -71,7 +71,10 @@ interface UserSettings {
   max_clips_per_month: number;
   clips_used_this_month: number;
   role?: string;
-  settings: Record<string, unknown>;
+  settings: {
+    cut_silent_parts_default?: boolean;
+    [key: string]: unknown;
+  };
 }
 
 interface HighlightsData {
@@ -177,6 +180,8 @@ export default function HistoryDetailPage() {
   );
   /** Track whether Top Scenes compilation mode is enabled */
   const [topScenesEnabled, setTopScenesEnabled] = useState<boolean>(false);
+  /** Track whether to cut silent parts from clips */
+  const [cutSilentParts, setCutSilentParts] = useState<boolean>(true);
   /** Track the order of selected scenes for Top Scenes compilation */
   const [compilationSceneOrder, setCompilationSceneOrder] = useState<number[]>([]);
   const {
@@ -352,10 +357,17 @@ export default function HistoryDetailPage() {
         hasCinematic && enableObjectDetection,
         overwrite,
         streamerParams,
-        isTopScenesCompilation
+        isTopScenesCompilation,
+        cutSilentParts
       );
     },
-    [reprocess, enableObjectDetection, streamerSplitConfig, compilationSceneOrder]
+    [
+      reprocess,
+      enableObjectDetection,
+      streamerSplitConfig,
+      compilationSceneOrder,
+      cutSilentParts,
+    ]
   );
 
   const handleConfirmOverwrite = useCallback(async () => {
@@ -447,6 +459,13 @@ export default function HistoryDetailPage() {
     void loadData();
     void loadUserSettings();
   }, [loadData, loadUserSettings]);
+
+  // Initialize cutSilentParts from user settings when loaded
+  useEffect(() => {
+    if (userSettings?.settings?.cut_silent_parts_default !== undefined) {
+      setCutSilentParts(userSettings.settings.cut_silent_parts_default);
+    }
+  }, [userSettings]);
 
   // Load persisted overwrite prompt preference (session-scoped)
   useEffect(() => {
@@ -946,6 +965,8 @@ export default function HistoryDetailPage() {
               compilationScenes={compilationSceneOrder}
               sceneTitles={sceneTitleById}
               onRemoveCompilationScene={handleRemoveCompilationScene}
+              cutSilentParts={cutSilentParts}
+              onCutSilentPartsChange={setCutSilentParts}
             />
 
             <div className="space-y-3">

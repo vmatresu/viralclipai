@@ -21,7 +21,10 @@
       "Bash(docker logs:*)",
       "Bash(docker inspect:*)",
       "Bash(docker events:*)",
-      "Bash(docker exec:*)"
+      "Bash(docker exec:*)",
+      "WebFetch(domain:docs.rs)",
+      "WebFetch(domain:crates.io)",
+      "Bash(cargo search:*)"
     ],
     "deny": [],
     "ask": []

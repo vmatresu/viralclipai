@@ -54,13 +54,13 @@ export function TopScenesSelectionList({
         {isAtLimit && <span className="text-xs text-amber-400">Maximum reached</span>}
       </div>
 
-      {/* Ordered scene list */}
+      {/* Ordered scene list - displayed in video output order (last selected first with highest countdown) */}
       <div className="flex flex-wrap gap-1.5">
-        {orderedSceneIds.map((sceneId, index) => {
+        {[...orderedSceneIds].reverse().map((sceneId, index) => {
           const title = sceneTitles.get(sceneId) ?? `Scene ${sceneId}`;
           const truncatedTitle =
             title.length > 20 ? `${title.substring(0, 18)}…` : title;
-          // Countdown number: last selected scene gets highest number
+          // Countdown number: matches video output order (highest first)
           const countdownNum = orderedSceneIds.length - index;
 
           return (
