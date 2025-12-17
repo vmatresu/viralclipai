@@ -368,15 +368,20 @@ function HistorySceneItem({
     }
   }, [styles]);
 
-  const tierSummaries = useMemo(() => {
-    const seen = new Map<TierColor, string>();
+  // Show all unique styles (by name, not tier color) so both "Cinematic" and "Active Speaker" appear
+  const styleSummaries = useMemo(() => {
+    const seen = new Map<string, { color: TierColor; label: string }>();
     scene.clips.forEach((clip) => {
-      const meta = getStyleTier(clip.style);
-      if (meta && !seen.has(meta.color)) {
-        seen.set(meta.color, meta.label);
+      const normalizedStyle = normalizeStyleForSelection(clip.style) || clip.style;
+      if (!seen.has(normalizedStyle)) {
+        const meta = getStyleTier(clip.style);
+        seen.set(normalizedStyle, {
+          color: meta?.color ?? "legacy",
+          label: getStyleLabel(clip.style) ?? clip.style,
+        });
       }
     });
-    return Array.from(seen.entries()).map(([color, label]) => ({ color, label }));
+    return Array.from(seen.values());
   }, [scene.clips]);
 
   const handleConfirmDeleteClip = useCallback(async () => {
@@ -458,13 +463,13 @@ function HistorySceneItem({
                   )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  {tierSummaries.map((tier) => (
+                  {styleSummaries.map((style) => (
                     <Badge
-                      key={tier.color}
-                      className={cn("border", getTierBadgeClasses(tier.color))}
+                      key={style.label}
+                      className={cn("border", getTierBadgeClasses(style.color))}
                       variant="outline"
                     >
-                      {tier.label}
+                      {style.label}
                     </Badge>
                   ))}
                 </div>

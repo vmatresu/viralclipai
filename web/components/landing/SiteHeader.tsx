@@ -8,12 +8,12 @@ import { SignInDialog } from "@/components/SignInDialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -171,7 +171,7 @@ export function SiteHeader() {
       {/* Mobile Menu */}
       <div
         className={cn(
-          "md:hidden fixed top-20 left-0 right-0 bg-brand-dark/98 backdrop-blur-xl border-b border-white/10 transition-all duration-300",
+          "md:hidden fixed top-20 left-0 right-0 bg-background border-b border-border transition-all duration-300",
           isMobileMenuOpen
             ? "opacity-100 translate-y-0"
             : "opacity-0 -translate-y-4 pointer-events-none"
@@ -183,7 +183,7 @@ export function SiteHeader() {
               key={link.href}
               href={link.href}
               onClick={(e) => handleNavClick(e, link.href)}
-              className="block text-lg font-medium text-muted-foreground hover:text-foreground py-2 border-b border-white/5"
+              className="block text-lg font-medium text-muted-foreground hover:text-foreground py-2 border-b border-border"
             >
               {link.label}
             </a>

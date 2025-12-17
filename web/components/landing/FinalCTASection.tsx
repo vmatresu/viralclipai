@@ -25,11 +25,11 @@ export function FinalCTASection() {
       <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand-400/30 dark:via-brand-400/50 to-transparent" />
       <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand-400/30 dark:via-brand-400/50 to-transparent" />
 
-      <div className="relative glass-card rounded-3xl p-12 max-w-3xl mx-auto text-center">
-        <h2 className="text-3xl md:text-4xl font-bold mb-6">
+      <div className="relative glass-card rounded-3xl p-6 md:p-12 max-w-3xl mx-auto text-center">
+        <h2 className="text-3xl md:text-4xl font-bold mb-4 md:mb-6">
           Your ideas deserve <span className="gradient-text">momentum.</span>
         </h2>
-        <p className="text-xl text-muted-foreground mb-8">
+        <p className="text-lg md:text-xl text-muted-foreground mb-6 md:mb-8">
           Let Viral Clip AI turn your long videos into an always-on growth engine.
         </p>
         <Button

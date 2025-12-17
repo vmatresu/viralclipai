@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, Crown, Sparkles, TrendingUp } from "lucide-react";
+import { AlertCircle, CornerRightDown, Crown, Sparkles, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -8,12 +8,12 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -24,12 +24,12 @@ import { frontendLogger } from "@/lib/logger";
 import { sanitizePrompt, validateVideoUrl } from "@/lib/security";
 import { cn } from "@/lib/utils";
 import {
-  createWebSocketConnection,
-  getWebSocketUrl,
-  handleWSMessage,
-  type ClipProcessingStep,
-  type MessageHandlerCallbacks,
-  type SceneProgress,
+    createWebSocketConnection,
+    getWebSocketUrl,
+    handleWSMessage,
+    type ClipProcessingStep,
+    type MessageHandlerCallbacks,
+    type SceneProgress,
 } from "@/lib/websocket";
 
 import { DetailedProcessingStatus } from "../shared/DetailedProcessingStatus";
@@ -452,7 +452,7 @@ export function ProcessVideoInterface() {
   };
 
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-8 p-6 md:p-8 rounded-3xl glass-card relative overflow-hidden dark:bg-black/40">
+    <div className="w-full max-w-4xl mx-auto space-y-8 p-6 md:p-8 rounded-3xl glass-card relative overflow-hidden bg-white/95 dark:bg-black/80">
       {/* Glow effect background (Updated to match mockup-glow) */}
       <div className="absolute inset-[-2px] bg-gradient-to-r from-[#A45CFF] to-[#5CFFF9] rounded-3xl opacity-10 dark:opacity-20 blur-[40px] -z-10 animate-pulse pointer-events-none" />
 
@@ -563,16 +563,28 @@ export function ProcessVideoInterface() {
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
         />
-        <div className="flex flex-wrap gap-2 pt-2">
-          {predefinedPrompts.map((p) => (
-            <button
-              key={p.label}
-              onClick={() => handlePromptClick(p.prompt)}
-              className="text-xs px-3 py-1.5 rounded-full border transition-all font-medium bg-[#A45CFF]/5 dark:bg-[#A45CFF]/10 text-[#A45CFF] border-[#A45CFF]/20 hover:border-[#A45CFF]/40 hover:bg-[#A45CFF]/10 dark:hover:bg-[#A45CFF]/20"
-            >
-              + {p.label}
-            </button>
-          ))}
+        
+        {/* Chips with Sticker */}
+        <div className="relative mt-8">
+          <div className="absolute -top-6 left-1 hidden md:flex items-end gap-2 pointer-events-none select-none z-10">
+            <div className="bg-gradient-to-r from-[#A45CFF] to-[#5CFFF9] text-[#05060D] text-[10px] uppercase tracking-wider font-bold px-3 py-1 rounded-sm -rotate-3 shadow-[0_2px_10px_rgba(164,92,255,0.3)] border border-white/20 flex items-center gap-1.5 animate-in fade-in slide-in-from-bottom-2 duration-500">
+              <Sparkles className="w-3 h-3" />
+              Try these:
+            </div>
+            <CornerRightDown className="w-4 h-4 text-[#A45CFF] translate-y-2 -translate-x-1" strokeWidth={2.5} />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {predefinedPrompts.map((p) => (
+              <button
+                key={p.label}
+                onClick={() => handlePromptClick(p.prompt)}
+                className="text-xs px-3 py-1.5 rounded-full border transition-all font-medium bg-[#A45CFF]/5 dark:bg-[#A45CFF]/10 text-[#A45CFF] border-[#A45CFF]/20 hover:border-[#A45CFF]/40 hover:bg-[#A45CFF]/10 dark:hover:bg-[#A45CFF]/20 active:scale-95"
+              >
+                + {p.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
