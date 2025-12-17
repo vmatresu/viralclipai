@@ -29,7 +29,7 @@ const VERTICAL_POSITIONS: { value: VerticalPosition; label: string }[] = [
 ];
 
 // Generate zoom levels from 1x to 15x with 0.5x increments
-const ZOOM_LEVELS: number[] = Array.from({ length: 29 }, (_, i) => 1.0 + i * 0.5);
+const ZOOM_LEVELS: number[] = Array.from({ length: 39 }, (_, i) => 1.0 + i * 0.5);
 
 export function StreamerSplitConfigurator({
   config,
@@ -61,7 +61,7 @@ export function StreamerSplitConfigurator({
       data-interactive="true"
     >
       <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
-        Bottom Panel Crop Position
+        Top Panel – Webcam Position
       </div>
 
       {/* Position Grid - 3x3 visual selector */}
@@ -106,7 +106,7 @@ export function StreamerSplitConfigurator({
             </span>
           </div>
           <div className="text-[10px] text-muted-foreground">
-            Select where your webcam overlay is located
+            Select where your webcam is in the original video
           </div>
         </div>
       </div>

@@ -1,13 +1,13 @@
 //! Streamer Split style processor.
 //!
-//! Creates a split view optimized for gaming/explainer content:
-//! - Top panel: Original landscape gameplay/content (letterboxed to fit 9:8 panel)
-//! - Bottom panel: User-specified crop region (webcam area) or static image
+//! Creates a split view optimized for gaming/streaming content:
+//! - Top panel: User-specified webcam crop region (scaled to 9:8)
+//! - Bottom panel: Center-cropped gaming content (no black bars, 9:8)
 //!
-//! Audio comes only from the original video (top panel).
+//! Audio comes only from the original video.
 //!
 //! This style is FREE (no AI detection required) and uses user-specified
-//! parameters for the bottom panel crop position and zoom level.
+//! parameters for the top panel webcam position and zoom level.
 
 use async_trait::async_trait;
 use std::path::Path;
@@ -32,8 +32,8 @@ const PANEL_HEIGHT: u32 = SPLIT_PANEL_HEIGHT;
 /// Processor for streamer split video style.
 ///
 /// Creates a split view with:
-/// - Original gameplay/content letterboxed on top
-/// - User-specified crop region on bottom (no AI detection)
+/// - User-specified webcam region on top (scaled to 9:8)
+/// - Center-cropped gaming content on bottom (no black bars, 9:8)
 #[derive(Clone, Default)]
 pub struct StreamerSplitProcessor;
 
@@ -150,8 +150,8 @@ impl StyleProcessor for StreamerSplitProcessor {
 /// Process a video into streamer split format.
 ///
 /// Creates a 9:16 output with:
-/// - Top panel (9:8): Original content letterboxed
-/// - Bottom panel (9:8): User-specified crop region
+/// - Top panel (9:8): User-specified webcam region
+/// - Bottom panel (9:8): Center-cropped gaming content (no black bars)
 async fn process_streamer_split(
     input: &Path,
     output: &Path,
@@ -228,7 +228,7 @@ async fn process_streamer_split(
     Ok(())
 }
 
-/// Crop region for the bottom panel.
+/// Crop region for the top panel (webcam area).
 #[derive(Debug, Clone, Copy)]
 struct CropRegion {
     x: u32,
@@ -279,8 +279,8 @@ fn compute_crop_from_params(params: &StreamerSplitParams, width: u32, height: u3
 /// Render the streamer split video.
 ///
 /// Creates a single-pass FFmpeg command that:
-/// 1. Letterboxes the original content to fit top panel (9:8)
-/// 2. Crops and scales user-specified region for bottom panel (9:8)
+/// 1. Crops and scales user-specified webcam region for top panel (9:8)
+/// 2. Center-crops the gaming content for bottom panel (9:8, no black bars)
 /// 3. Stacks them vertically
 /// 4. Uses audio only from the original (input)
 async fn render_streamer_split(
@@ -290,15 +290,21 @@ async fn render_streamer_split(
     encoding: &EncodingConfig,
 ) -> MediaResult<()> {
     // Build filter complex:
-    // - Top panel: Original video letterboxed to 9:8 (pad with black bars)
-    // - Bottom panel: User-specified region cropped and scaled to 9:8
+    // - Top panel: User-specified webcam region cropped and scaled to 9:8
+    // - Bottom panel: Center of video cropped to 9:8 (no black bars)
     // - Stack vertically
     // - Audio from original only
+    //
+    // Bottom panel crop calculation:
+    // - We want a 9:8 aspect ratio from the center of the frame
+    // - crop_width = height * 9 / 8 (to maintain 9:8 aspect)
+    // - crop_x = (width - crop_width) / 2 (center horizontally)
+    // - crop_y = (height - height) / 2 = 0 (use full height, crop horizontally)
     let filter_complex = format!(
-        "[0:v]scale={pw}:{ph}:force_original_aspect_ratio=decrease,\
-         pad={pw}:{ph}:(ow-iw)/2:(oh-ih)/2:black,\
+        "[0:v]crop={cw}:{ch}:{cx}:{cy},\
+         scale={pw}:{ph}:flags=lanczos,\
          setsar=1,format=yuv420p[top];\
-         [0:v]crop={cw}:{ch}:{cx}:{cy},\
+         [0:v]crop=ih*9/8:ih:(iw-ih*9/8)/2:0,\
          scale={pw}:{ph}:flags=lanczos,\
          setsar=1,format=yuv420p[bottom];\
          [top][bottom]vstack=inputs=2[vout]",

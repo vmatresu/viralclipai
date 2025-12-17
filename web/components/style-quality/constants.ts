@@ -1,11 +1,11 @@
 import {
-  Activity,
-  Film,
-  Gamepad2,
-  Monitor,
-  ScanFace,
-  Sparkles,
-  Zap,
+    Activity,
+    Film,
+    Gamepad2,
+    Monitor,
+    ScanFace,
+    Sparkles,
+    Zap,
 } from "lucide-react";
 
 import type { QualityLevel } from "./types";
@@ -26,7 +26,7 @@ export const SPLIT_LEVELS: QualityLevel[] = [
   {
     value: "streamer_split",
     label: "Streamer Split",
-    helper: "Original on top, custom crop on bottom",
+    helper: "Webcam on top, center gameplay on bottom",
     icon: Monitor,
   },
   {

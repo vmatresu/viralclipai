@@ -1358,6 +1358,7 @@ pub struct ReprocessScenesResponse {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub job_id: Option<String>,
+    pub total_clips: u32,
 }
 
 /// Initiate scene reprocessing (POST endpoint).
@@ -1538,6 +1539,7 @@ pub async fn reprocess_scenes(
             request.styles.len()
         ),
         job_id: Some(job_id.to_string()),
+        total_clips,
     }))
 }
 

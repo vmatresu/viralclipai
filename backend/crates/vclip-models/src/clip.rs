@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{AspectRatio, CropMode, Style, VideoId};
 
-/// Horizontal position for StreamerSplit bottom panel crop.
+/// Horizontal position for StreamerSplit top panel webcam crop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum HorizontalPosition {
@@ -27,7 +27,7 @@ impl HorizontalPosition {
     }
 }
 
-/// Vertical position for StreamerSplit bottom panel crop.
+/// Vertical position for StreamerSplit top panel webcam crop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum VerticalPosition {
@@ -48,9 +48,9 @@ impl VerticalPosition {
     }
 }
 
-/// Parameters for StreamerSplit style - user-specified crop for bottom panel.
+/// Parameters for StreamerSplit style - user-specified crop for top panel webcam.
 ///
-/// This allows users to manually select where to crop the bottom panel
+/// This allows users to manually select where to crop the top panel (webcam area)
 /// instead of relying on face detection (which can be unreliable for
 /// gaming content with multiple faces/avatars).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -463,6 +463,9 @@ mod tests {
             priority: 1,
             pad_before: 0.0,
             pad_after: 0.0,
+            streamer_split_params: None,
+            streamer_params: None,
+            cut_silent_parts: false,
         };
 
         let filename = task.output_filename();
