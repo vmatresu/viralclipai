@@ -3,6 +3,7 @@
 import { type FormEvent, useEffect, useState } from "react";
 
 import { UserManagement } from "@/components/admin/UserManagement";
+import { PageWrapper } from "@/components/landing";
 import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { type StorageInfo } from "@/types/storage";
@@ -176,7 +177,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="space-y-8">
+    <PageWrapper>
       <section className="glass rounded-2xl p-6 space-y-4">
         <h2 className="text-xl font-semibold text-foreground">Plan &amp; Usage</h2>
         {(() => {
@@ -449,6 +450,6 @@ export default function SettingsPage() {
           )}
         </section>
       )}
-    </div>
+    </PageWrapper>
   );
 }

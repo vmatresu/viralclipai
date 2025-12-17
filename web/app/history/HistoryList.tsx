@@ -1,23 +1,22 @@
 "use client";
 
 import {
-  AlertCircle,
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
-  Check,
-  CheckSquare,
-  Clock,
-  Copy,
-  Film,
-  MoreHorizontal,
-  Square,
-  Trash2,
-  TrendingUp,
-  Zap,
+    AlertCircle,
+    ArrowDown,
+    ArrowUp,
+    ArrowUpDown,
+    Check,
+    CheckSquare,
+    Clock,
+    Copy,
+    Film,
+    MoreHorizontal,
+    Square,
+    Trash2,
+    TrendingUp,
+    Zap,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -25,34 +24,34 @@ import { EditableTitle } from "@/components/EditableTitle";
 import { SignInDialog } from "@/components/SignInDialog";
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
 } from "@/components/ui/card";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
 } from "@/components/ui/table";
 import { VideoStatusBadge } from "@/components/VideoStatusBadge";
 import { useVideoPolling } from "@/hooks/useVideoPolling";
 import {
-  apiFetch,
-  bulkDeleteVideos,
-  deleteVideo,
-  getUserVideos,
-  updateVideoTitle,
+    apiFetch,
+    bulkDeleteVideos,
+    deleteVideo,
+    getUserVideos,
+    updateVideoTitle,
 } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { invalidateClipsCache, invalidateClipsCacheMany } from "@/lib/cache";
@@ -61,12 +60,12 @@ import { cn } from "@/lib/utils";
 
 import { DeleteConfirmDialog } from "./components";
 import {
-  type DeleteTarget,
-  type PlanUsage,
-  type SortDirection,
-  type SortField,
-  type UserVideo,
-  parseSizeToBytes,
+    type DeleteTarget,
+    type PlanUsage,
+    type SortDirection,
+    type SortField,
+    type UserVideo,
+    parseSizeToBytes,
 } from "./types";
 
 export default function HistoryList() {
@@ -76,7 +75,8 @@ export default function HistoryList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [nextPageToken, setNextPageToken] = useState<string | null>(null);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [pageTokens, setPageTokens] = useState<(string | null)[]>([null]);
+  const [currentPage, setCurrentPage] = useState(0);
   const [selectedVideos, setSelectedVideos] = useState<Set<string>>(new Set());
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
@@ -86,7 +86,6 @@ export default function HistoryList() {
   const [loadingUsage, setLoadingUsage] = useState(true);
   const [sortField, setSortField] = useState<SortField>("date");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
-  const router = useRouter();
 
   // Sort videos based on current sort field and direction
   const sortedVideos = useMemo(() => {
@@ -126,16 +125,17 @@ export default function HistoryList() {
     });
   }, [videos, sortField, sortDirection]);
 
-  const handleSort = useCallback((field: SortField) => {
-    setSortField((currentField) => {
-      if (currentField === field) {
-        setSortDirection((dir) => (dir === "asc" ? "desc" : "asc"));
-        return field;
+  const handleSort = useCallback(
+    (field: SortField) => {
+      if (field === sortField) {
+        setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+      } else {
+        setSortField(field);
+        setSortDirection("asc");
       }
-      setSortDirection("desc");
-      return field;
-    });
-  }, []);
+    },
+    [sortField]
+  );
 
   const SortableHeader = useCallback(
     ({ field, children }: { field: SortField; children: React.ReactNode }) => {
@@ -160,76 +160,49 @@ export default function HistoryList() {
     [sortField, sortDirection, handleSort]
   );
 
-  const loadVideos = useCallback(async () => {
-    if (authLoading || !user) {
-      setLoading(false);
-      return;
-    }
 
-    try {
-      const token = await getIdToken();
-      if (!token) {
-        throw new Error("Failed to get authentication token");
-      }
 
-      const data = await getUserVideos<UserVideo>(token, {
-        limit: 25,
-        pageToken: null,
-      });
-      setVideos(data.videos ?? []);
-      setNextPageToken((data.next_page_token as string | null) ?? null);
-      setError(null);
-      setSelectedVideos(new Set()); // Clear selections when reloading
-    } catch (err: unknown) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Failed to load history";
-      setError(errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  }, [getIdToken, user, authLoading]);
+  const fetchVideos = useCallback(
+    async (pageToken: string | null) => {
+      if (!user) return;
+      setLoading(true);
+      try {
+        const token = await getIdToken();
+        if (!token) throw new Error("Failed to get authentication token");
 
-  const loadMoreVideos = useCallback(async () => {
-    if (authLoading || !user) {
-      return;
-    }
-    if (!nextPageToken || loadingMore) {
-      return;
-    }
-
-    setLoadingMore(true);
-    try {
-      const token = await getIdToken();
-      if (!token) {
-        throw new Error("Failed to get authentication token");
-      }
-      const data = await getUserVideos<UserVideo>(token, {
-        limit: 25,
-        pageToken: nextPageToken,
-      });
-
-      setVideos((prev) => {
-        const existing = new Set(
-          prev.map((v) => v.video_id ?? v.id ?? "").filter(Boolean)
-        );
-        const merged = [...prev];
-        (data.videos ?? []).forEach((v) => {
-          const id = v.video_id ?? v.id ?? "";
-          if (!id || existing.has(id)) return;
-          existing.add(id);
-          merged.push(v);
+        const data = await getUserVideos<UserVideo>(token, {
+          limit: 10, // Reduced from 25 for better pagination UX
+          pageToken,
         });
-        return merged;
-      });
-      setNextPageToken((data.next_page_token as string | null) ?? null);
-    } catch (err: unknown) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Failed to load more history";
-      setError(errorMessage);
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [authLoading, user, nextPageToken, loadingMore, getIdToken]);
+        setVideos(data.videos ?? []);
+        setNextPageToken((data.next_page_token as string | null) ?? null);
+        setError(null);
+        setSelectedVideos(new Set());
+      } catch (err: unknown) {
+        const errorMessage =
+          err instanceof Error ? err.message : "Failed to load history";
+        setError(errorMessage);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [getIdToken, user]
+  );
+
+  const handleNextPage = async () => {
+    if (!nextPageToken) return;
+    const nextTokens = [...pageTokens, nextPageToken];
+    setPageTokens(nextTokens);
+    setCurrentPage(currentPage + 1);
+    await fetchVideos(nextPageToken);
+  };
+
+  const handlePrevPage = async () => {
+    if (currentPage === 0) return;
+    const prevPage = currentPage - 1;
+    setCurrentPage(prevPage);
+    await fetchVideos(pageTokens[prevPage] ?? null);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -238,7 +211,6 @@ export default function HistoryList() {
       if (authLoading) return;
 
       if (!user) {
-        // Not logged in - stop loading but don't error yet (let UI handle it)
         if (!cancelled) {
           setLoading(false);
           setLoadingUsage(false);
@@ -246,41 +218,22 @@ export default function HistoryList() {
         return;
       }
 
+      // Initial load
+      void fetchVideos(null);
+
+      // Load usage separately
       try {
         const token = await getIdToken();
-        if (!token) {
-          throw new Error("Failed to get authentication token");
+        if (token) {
+          const usageData = await apiFetch<PlanUsage>("/api/settings", { token });
+          if (!cancelled) {
+            setPlanUsage(usageData);
+          }
         }
-
-        // Load videos and plan usage in parallel
-        const [videosData, usageData] = await Promise.all([
-          getUserVideos<UserVideo>(token, {
-            limit: 25,
-            pageToken: null,
-          }),
-          apiFetch<PlanUsage>("/api/settings", { token }),
-        ]);
-
-        if (!cancelled) {
-          setVideos((videosData as { videos: UserVideo[] }).videos ?? []);
-          setNextPageToken(
-            ((videosData as { next_page_token?: string | null }).next_page_token as
-              | string
-              | null) ?? null
-          );
-          setPlanUsage(usageData);
-          setError(null);
-          setSelectedVideos(new Set()); // Clear selections when reloading
-        }
-      } catch (err: unknown) {
-        if (!cancelled) {
-          const errorMessage =
-            err instanceof Error ? err.message : "Failed to load history";
-          setError(errorMessage);
-        }
+      } catch (e) {
+        console.error("Failed to load usage", e);
       } finally {
         if (!cancelled) {
-          setLoading(false);
           setLoadingUsage(false);
         }
       }
@@ -289,7 +242,7 @@ export default function HistoryList() {
     return () => {
       cancelled = true;
     };
-  }, [getIdToken, user, authLoading]);
+  }, [getIdToken, user, authLoading, fetchVideos]);
 
   // Poll for processing videos using custom hook
   useVideoPolling({
@@ -377,7 +330,7 @@ export default function HistoryList() {
         err instanceof Error ? err.message : "Failed to delete video(s)";
       setError(errorMessage);
       // Reload videos to sync state
-      await loadVideos();
+      await fetchVideos(pageTokens[currentPage] ?? null);
     } finally {
       setDeleting(false);
     }
@@ -686,11 +639,13 @@ export default function HistoryList() {
   };
 
   return (
-    <div className="space-y-6 page-container">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold tracking-tight">History</h1>
+    <div className="w-full max-w-7xl mx-auto space-y-8 p-6 md:p-8 rounded-3xl glass-card relative overflow-hidden">
+      <div className="flex items-center justify-between mb-8">
+        <h1 className="text-3xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-white/70">
+          History
+        </h1>
         <div className="flex items-center gap-4">
-          <p className="text-muted-foreground text-sm">
+          <p className="text-muted-foreground text-sm font-medium">
             {videos.length} videos processed
           </p>
           {videos.length > 0 && (
@@ -701,6 +656,7 @@ export default function HistoryList() {
                   size="sm"
                   onClick={() => handleDeleteClick("bulk")}
                   disabled={deleting}
+                  className="bg-destructive/10 text-destructive border-destructive/20 hover:bg-destructive/20"
                 >
                   <Trash2 className="h-4 w-4 mr-2" />
                   Delete Selected ({selectedVideos.size})
@@ -711,6 +667,7 @@ export default function HistoryList() {
                 size="sm"
                 onClick={() => handleDeleteClick("all")}
                 disabled={deleting}
+                className="bg-destructive/10 text-destructive border-destructive/20 hover:bg-destructive/20"
               >
                 <Trash2 className="h-4 w-4 mr-2" />
                 Delete All
@@ -723,7 +680,7 @@ export default function HistoryList() {
       {/* Plan Usage Card */}
       {user && (
         <Card
-          className={`glass ${isHighUsage ? "border-destructive/50 bg-destructive/5" : ""}`}
+          className={`glass border-white/5 bg-white/5 ${isHighUsage ? "border-destructive/50 bg-destructive/5" : ""}`}
         >
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -768,10 +725,10 @@ export default function HistoryList() {
         </Card>
       )}
 
-      <div className="rounded-md border bg-background/50 backdrop-blur-sm">
+      <div className="rounded-xl border border-white/10 bg-white/[0.02] backdrop-blur-sm overflow-hidden">
         <Table>
-          <TableHeader>
-            <TableRow>
+          <TableHeader className="bg-white/[0.02]">
+            <TableRow className="border-white/5 hover:bg-transparent">
               <TableHead className="w-[50px]">
                 <button
                   onClick={handleSelectAll}
@@ -786,53 +743,40 @@ export default function HistoryList() {
                   )}
                 </button>
               </TableHead>
-              <TableHead className="w-[400px]">
+              <TableHead className="w-[280px]">
                 <SortableHeader field="title">Video Details</SortableHeader>
               </TableHead>
-              <TableHead>
+              <TableHead className="w-[140px]">
                 <SortableHeader field="status">Status</SortableHeader>
               </TableHead>
-              <TableHead>
+              <TableHead className="w-[120px]">
                 <SortableHeader field="size">Size</SortableHeader>
               </TableHead>
-              <TableHead>
+              <TableHead className="w-[140px]">
                 <SortableHeader field="date">Date</SortableHeader>
               </TableHead>
-              <TableHead className="w-[100px] text-right">Actions</TableHead>
+              <TableHead className="w-[50px] text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sortedVideos.map((v) => {
-              const id = v.video_id ?? v.id ?? "";
-              const isSelected = selectedVideos.has(id);
-              let dateStr = v.created_at ?? "";
-              try {
-                if (dateStr) {
-                  const dateObj = new Date(dateStr);
-                  dateStr = dateObj.toLocaleDateString(undefined, {
-                    year: "numeric",
-                    month: "short",
-                    day: "numeric",
-                  });
-                }
-              } catch (_e) {
-                // keep original string if parse fails
-              }
+            {sortedVideos.map((video) => {
+              const videoId = video.video_id ?? video.id ?? "";
+              const isSelected = selectedVideos.has(videoId);
+              const isProcessing = video.status === "processing";
 
               return (
                 <TableRow
-                  key={id}
-                  className={`group cursor-pointer hover:bg-muted/50 transition-colors ${
-                    isSelected ? "bg-muted/50" : ""
-                  }`}
-                  onClick={() => router.push(`/history/${encodeURIComponent(id)}`)}
+                  key={videoId}
+                  className={cn(
+                    "border-white/5 transition-colors",
+                    isSelected
+                      ? "bg-primary/5 hover:bg-primary/10"
+                      : "hover:bg-white/[0.02]"
+                  )}
                 >
                   <TableCell>
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleSelectVideo(id);
-                      }}
+                      onClick={() => handleSelectVideo(videoId)}
                       className="flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
                       type="button"
                       aria-label={isSelected ? "Deselect video" : "Select video"}
@@ -845,74 +789,93 @@ export default function HistoryList() {
                     </button>
                   </TableCell>
                   <TableCell>
-                    <div className="space-y-1.5">
-                      <EditableTitle
-                        title={v.video_title ?? "Untitled Video"}
-                        onSave={(newTitle) => handleTitleUpdate(id, newTitle)}
-                        renderTitle={(title) => (
-                          <Link
-                            href={`/history/${encodeURIComponent(id)}`}
-                            className="font-medium hover:underline block max-w-[300px] truncate"
-                            title={title}
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {title}
-                          </Link>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        {isProcessing ? (
+                          <span className="font-medium text-foreground max-w-[240px] truncate block">
+                            {video.video_title || "Untitled Video"}
+                          </span>
+                        ) : (
+                          <div className="w-full max-w-[240px] group/title">
+                            <EditableTitle
+                              title={video.video_title || "Untitled Video"}
+                              onSave={(newTitle) =>
+                                handleTitleUpdate(videoId, newTitle)
+                              }
+                              className="w-full"
+                              renderTitle={(title) => (
+                                <Link
+                                  href={`/history/${encodeURIComponent(videoId)}`}
+                                  className="font-medium text-foreground hover:text-primary transition-colors hover:underline truncate block"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {title}
+                                </Link>
+                              )}
+                            />
+                          </div>
                         )}
-                      />
-
+                      </div>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span className="font-mono bg-muted px-1.5 py-0.5 rounded">
-                          {id.substring(0, 8)}
-                        </span>
-                        {v.video_url && (
-                          <div className="flex items-center gap-1 group/url max-w-[200px]">
-                            <span className="truncate">{v.video_url}</span>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-4 w-4 opacity-0 group-hover/url:opacity-100 transition-opacity"
+                        {video.video_url && (
+                          <>
+                            <a
+                              href={video.video_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="hover:text-foreground transition-colors flex items-center gap-1 max-w-[200px] truncate"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {video.video_url}
+                            </a>
+                            <button
                               onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                if (v.video_url) {
-                                  void handleCopyUrl(v.video_url, e);
+                                if (video.video_url) {
+                                  void handleCopyUrl(video.video_url, e);
                                 }
                               }}
-                              aria-label="Copy URL"
+                              className="opacity-0 group-hover:opacity-100 transition-opacity hover:text-foreground"
+                              title="Copy URL"
                             >
-                              {copiedUrl === v.video_url ? (
+                              {copiedUrl === video.video_url ? (
                                 <Check className="h-3 w-3 text-green-500" />
                               ) : (
                                 <Copy className="h-3 w-3" />
                               )}
-                            </Button>
-                          </div>
+                            </button>
+                          </>
                         )}
                       </div>
-
-                      {v.custom_prompt && (
+                      {video.custom_prompt && (
                         <p
                           className="text-xs text-muted-foreground italic truncate max-w-[350px]"
-                          title={v.custom_prompt}
+                          title={video.custom_prompt}
                         >
-                          Prompt: {v.custom_prompt}
+                          Prompt: {video.custom_prompt}
                         </p>
                       )}
                     </div>
                   </TableCell>
                   <TableCell>
                     <VideoStatusBadge
-                      videoId={id}
-                      status={v.status}
-                      clipsCount={v.clips_count}
+                      videoId={videoId}
+                      status={video.status}
+                      clipsCount={video.clips_count}
                     />
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">
-                    {v.total_size_formatted ?? "—"}
+                    {video.total_size_formatted ?? "—"}
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">
-                    {dateStr}
+                    {video.created_at
+                      ? new Date(video.created_at).toLocaleDateString("en-GB", {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        })
+                      : "—"}
                   </TableCell>
                   <TableCell className="text-right">
                     <DropdownMenu>
@@ -920,33 +883,40 @@ export default function HistoryList() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8"
+                          className="h-8 w-8 hover:bg-white/5"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <MoreHorizontal className="h-4 w-4" />
-                          <span className="sr-only">Actions</span>
+                          <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+                          <span className="sr-only">Open menu</span>
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
+                      <DropdownMenuContent
+                        align="end"
+                        className="bg-[#0B0E1A] border-white/10 text-foreground"
+                      >
                         <DropdownMenuItem asChild>
-                          <Link href={`/history/${encodeURIComponent(id)}`}>
+                          <Link
+                            href={`/history/${encodeURIComponent(videoId)}`}
+                            className="cursor-pointer"
+                          >
                             View Details
                           </Link>
                         </DropdownMenuItem>
-                        {v.video_url && (
+                        {video.video_url && (
                           <DropdownMenuItem
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              window.open(v.video_url, "_blank", "noopener,noreferrer");
+                              window.open(video.video_url, "_blank", "noopener,noreferrer");
                             }}
+                            className="cursor-pointer"
                           >
                             Open Original Video
                           </DropdownMenuItem>
                         )}
                         <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
-                          onClick={() => handleDeleteClick("single", id)}
+                          className="text-destructive focus:text-destructive cursor-pointer"
+                          onClick={() => handleDeleteClick("single", videoId)}
                         >
                           Delete Video
                         </DropdownMenuItem>
@@ -960,13 +930,32 @@ export default function HistoryList() {
         </Table>
       </div>
 
-      {nextPageToken && (
-        <div className="flex justify-center pt-2">
-          <Button variant="outline" onClick={loadMoreVideos} disabled={loadingMore}>
-            {loadingMore ? "Loading..." : "Load more"}
+      {/* Pagination Controls */}
+      <div className="flex items-center justify-between mt-6">
+        <div className="text-sm text-muted-foreground">
+          Page {currentPage + 1}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handlePrevPage}
+            disabled={currentPage === 0 || loading}
+            className="border-white/10 hover:bg-white/5"
+          >
+            Previous
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleNextPage}
+            disabled={!nextPageToken || loading}
+            className="border-white/10 hover:bg-white/5"
+          >
+            Next
           </Button>
         </div>
-      )}
+      </div>
 
       <DeleteConfirmDialog
         open={deleteDialogOpen}

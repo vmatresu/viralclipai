@@ -1,14 +1,6 @@
 "use client";
 
-import {
-  AlertCircle,
-  ArrowRight,
-  Crown,
-  Link2,
-  Lock,
-  Sparkles,
-  TrendingUp,
-} from "lucide-react";
+import { AlertCircle, Crown, Sparkles, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -16,14 +8,13 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { analyticsEvents } from "@/lib/analytics";
@@ -33,12 +24,12 @@ import { frontendLogger } from "@/lib/logger";
 import { sanitizePrompt, validateVideoUrl } from "@/lib/security";
 import { cn } from "@/lib/utils";
 import {
-  createWebSocketConnection,
-  getWebSocketUrl,
-  handleWSMessage,
-  type ClipProcessingStep,
-  type MessageHandlerCallbacks,
-  type SceneProgress,
+    createWebSocketConnection,
+    getWebSocketUrl,
+    handleWSMessage,
+    type ClipProcessingStep,
+    type MessageHandlerCallbacks,
+    type SceneProgress,
 } from "@/lib/websocket";
 
 import { DetailedProcessingStatus } from "../shared/DetailedProcessingStatus";
@@ -461,15 +452,13 @@ export function ProcessVideoInterface() {
   };
 
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-8 p-4 md:p-8 rounded-2xl border border-brand-100/80 bg-white/90 backdrop-blur-xl shadow-[0_30px_80px_rgba(99,102,241,0.15)] relative overflow-hidden dark:border-white/10 dark:bg-background/50 dark:shadow-2xl">
-      {/* Glow effect background */}
-      <div className="absolute -top-20 -right-20 w-64 h-64 bg-primary/10 rounded-full blur-[80px] pointer-events-none" />
-      <div className="absolute -bottom-20 -left-20 w-64 h-64 bg-indigo-500/10 rounded-full blur-[80px] pointer-events-none" />
+    <div className="w-full max-w-4xl mx-auto space-y-8 p-6 md:p-8 rounded-3xl glass-card relative overflow-hidden">
+      {/* Glow effect background (Updated to match mockup-glow) */}
+      <div className="absolute inset-[-2px] bg-gradient-to-r from-[#A45CFF] to-[#5CFFF9] rounded-3xl opacity-20 blur-[40px] -z-10 animate-pulse pointer-events-none" />
 
       {/* Header */}
-      <div className="space-y-2 relative">
-        <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-primary" />
+      <div className="space-y-2 relative mb-6">
+        <h2 className="text-2xl font-bold tracking-tight text-white">
           Process Video
         </h2>
         <p className="text-muted-foreground">
@@ -479,7 +468,7 @@ export function ProcessVideoInterface() {
 
       {/* Over Quota Warning Banner */}
       {isOverQuota && quotaInfo && (
-        <div className="rounded-xl border border-destructive bg-destructive/10 p-4 space-y-3">
+        <div className="rounded-xl border border-destructive bg-destructive/10 p-4 space-y-3 mb-6">
           <div className="flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-destructive mt-0.5 flex-shrink-0" />
             <div className="flex-1 space-y-2">
@@ -517,74 +506,73 @@ export function ProcessVideoInterface() {
         </div>
       )}
 
-      {/* Step 1: Input */}
-      <div className="space-y-4">
-        <div className="relative group">
-          <div
-            className={cn(
-              "absolute -inset-0.5 rounded-xl bg-gradient-to-r from-primary to-indigo-500 opacity-20 blur transition duration-500",
-              shouldAnimateInput
-                ? "opacity-100 animate-pulse"
-                : "group-hover:opacity-40"
-            )}
-          />
-          <Input
+      {/* Main Input Area matching mockup-header */}
+      <div className="flex flex-col md:flex-row gap-4 mb-6">
+        {/* Input Field Wrapper matching .input-field */}
+        <div className="flex-1 flex items-center gap-3 bg-white/[0.03] backdrop-blur-[20px] border border-white/[0.08] rounded-lg p-4 shadow-inner group transition-all duration-300 focus-within:border-[#A45CFF]/50 focus-within:bg-white/[0.05]">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            className="w-[18px] h-[18px] text-muted-foreground opacity-50"
+          >
+            <path
+              d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          <input
             ref={inputRef}
-            placeholder="Paste YouTube URL here..."
-            className={cn(
-              "relative h-14 pl-12 text-lg shadow-sm transition-all duration-300 border border-brand-100/80 bg-white text-foreground placeholder:text-muted-foreground/70 focus:ring-2 focus:ring-brand-500/25 focus:border-brand-300 dark:bg-black/40 dark:border-white/10 dark:placeholder:text-white/60",
-              shouldAnimateInput
-                ? "ring-2 ring-primary border-primary animate-shake"
-                : undefined
-            )}
+            placeholder="Paste your YouTube link…"
+            className="flex-1 bg-transparent border-none p-0 text-sm text-foreground placeholder:text-muted-foreground focus:ring-0 focus:outline-none"
             value={url}
             onChange={(e) => {
               setUrl(e.target.value);
               if (shouldAnimateInput && e.target.value) setShouldAnimateInput(false);
             }}
           />
-          <Link2
-            className={cn(
-              "absolute left-4 top-1/2 -translate-y-1/2 w-6 h-6 transition-colors duration-300",
-              shouldAnimateInput ? "text-primary" : "text-muted-foreground"
-            )}
-          />
         </div>
 
-        {/* Optional Custom Prompt */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <Label className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">
-              Custom Instructions (Optional)
-            </Label>
-          </div>
+        {/* Analyze Button matching .analyze-btn */}
+        <button
+          onClick={handleLaunch}
+          disabled={isProcessing || isOverQuota}
+          className={cn(
+            "bg-gradient-to-br from-[#A45CFF] to-[#5CFFF9] text-[#05060D] px-6 py-4 rounded-lg font-semibold text-sm whitespace-nowrap transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
+            isProcessing && "opacity-70 cursor-wait"
+          )}
+        >
+          {isProcessing ? "Processing..." : "Analyze"}
+        </button>
+      </div>
 
-          <Textarea
-            placeholder="e.g. Find moments about crypto, funny jokes, or specific topics..."
-            className="min-h-[100px] rounded-xl border border-brand-100/80 bg-white p-4 text-base leading-relaxed shadow-sm focus:border-brand-300 focus:ring-2 focus:ring-brand-500/25 dark:border-white/10 dark:bg-white/5"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-          />
+      {/* Custom Prompt Section (Moved below but kept functional) */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <Label className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">
+            Custom Instructions (Optional)
+          </Label>
+        </div>
 
-          <div className="flex items-center gap-4 pt-2">
-            <div className="hidden md:flex items-center gap-2 text-primary animate-pulse">
-              <span className="text-xs font-bold uppercase tracking-widest whitespace-nowrap">
-                Try these
-              </span>
-              <ArrowRight className="w-3 h-3" />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {predefinedPrompts.map((p) => (
-                <button
-                  key={p.label}
-                  onClick={() => handlePromptClick(p.prompt)}
-                  className="text-xs px-3 py-1.5 rounded-full border transition-all font-medium bg-brand-50 text-brand-700 border-brand-100 hover:border-brand-200 hover:bg-brand-100/60 dark:bg-secondary/50 dark:text-secondary-foreground dark:border-white/5 dark:hover:border-white/20"
-                >
-                  + {p.label}
-                </button>
-              ))}
-            </div>
-          </div>
+        <Textarea
+          placeholder="e.g. Find moments about crypto, funny jokes, or specific topics..."
+          className="min-h-[80px] rounded-xl border border-white/10 bg-white/5 p-4 text-sm leading-relaxed shadow-sm focus:border-[#A45CFF]/50 focus:ring-2 focus:ring-[#A45CFF]/25"
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+        />
+        <div className="flex flex-wrap gap-2 pt-2">
+          {predefinedPrompts.map((p) => (
+            <button
+              key={p.label}
+              onClick={() => handlePromptClick(p.prompt)}
+              className="text-xs px-3 py-1.5 rounded-full border transition-all font-medium bg-[#A45CFF]/10 text-[#A45CFF] border-[#A45CFF]/20 hover:border-[#A45CFF]/40 hover:bg-[#A45CFF]/20"
+            >
+              + {p.label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -598,59 +586,6 @@ export function ProcessVideoInterface() {
           />
         </div>
       )}
-
-      <hr className="border-white/5" />
-
-      {/* Footer Actions */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pt-4">
-        <div className="flex items-center space-x-3" />
-
-        <Button
-          size="lg"
-          className={cn(
-            "w-full md:w-auto text-lg h-14 px-8 transition-all duration-300",
-            (() => {
-              if (isSelectedTierGated) {
-                return "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-[0_0_20px_-5px_theme(colors.amber.500)] hover:shadow-[0_0_30px_-5px_theme(colors.amber.500)]";
-              }
-              if (isOverQuota) {
-                return "bg-destructive/80 hover:bg-destructive/90";
-              }
-              return "shadow-[0_0_20px_-5px_theme(colors.primary.DEFAULT)] hover:shadow-[0_0_30px_-5px_theme(colors.primary.DEFAULT)]";
-            })()
-          )}
-          onClick={handleLaunch}
-          disabled={isProcessing || isOverQuota}
-        >
-          {(() => {
-            if (isProcessing) {
-              return "Processing...";
-            }
-            if (isOverQuota) {
-              return (
-                <>
-                  <AlertCircle className="mr-2 w-5 h-5" />
-                  Quota Exceeded
-                </>
-              );
-            }
-            if (isSelectedTierGated) {
-              return (
-                <>
-                  <Lock className="mr-2 w-5 h-5" />
-                  Upgrade to {requiredPlan}
-                </>
-              );
-            }
-            return (
-              <>
-                Launch Processor
-                <ArrowRight className="ml-2 w-5 h-5" />
-              </>
-            );
-          })()}
-        </Button>
-      </div>
 
       {/* Upgrade Dialog */}
       <Dialog open={showUpgradeDialog} onOpenChange={setShowUpgradeDialog}>

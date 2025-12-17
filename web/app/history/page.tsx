@@ -3,6 +3,8 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect } from "react";
 
+import { PageWrapper } from "@/components/landing";
+
 import HistoryList from "./HistoryList";
 
 /**
@@ -26,14 +28,20 @@ function HistoryPageContent() {
   // Show loading while redirecting
   if (videoId) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 space-y-4">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-        <p className="text-muted-foreground">Redirecting...</p>
-      </div>
+      <PageWrapper>
+        <div className="flex flex-col items-center justify-center py-24 space-y-4">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+          <p className="text-muted-foreground">Redirecting...</p>
+        </div>
+      </PageWrapper>
     );
   }
 
-  return <HistoryList />;
+  return (
+    <PageWrapper>
+      <HistoryList />
+    </PageWrapper>
+  );
 }
 
 export default function HistoryPage() {

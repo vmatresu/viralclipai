@@ -8,13 +8,11 @@
 
 import { type ReactNode } from "react";
 
-import { ProcessingBanner } from "@/components/ProcessingBanner";
 import { ProcessingProvider } from "@/lib/processing-context";
 
 export function ClientProviders({ children }: { children: ReactNode }) {
   return (
     <ProcessingProvider>
-      <ProcessingBanner />
       {children}
     </ProcessingProvider>
   );

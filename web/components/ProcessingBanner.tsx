@@ -79,7 +79,7 @@ function JobItem({ job, onClear }: { job: ProcessingJob; onClear: () => void }) 
 }
 
 export function ProcessingBanner() {
-  const { jobs, activeJobCount, clearJob, clearAllCompleted } = useProcessing();
+  const { jobs, activeJobCount, clearJob } = useProcessing();
   const [isExpanded, setIsExpanded] = useState(false);
 
   const allJobs = Array.from(jobs.values());
@@ -118,7 +118,7 @@ export function ProcessingBanner() {
           }}
         >
           <div className="flex items-center gap-3">
-            {activeJobCount > 0 ? (
+            {activeJobCount > 0 && (
               <>
                 <Loader2 className="h-4 w-4 animate-spin text-primary" />
                 <span>
@@ -128,28 +128,9 @@ export function ProcessingBanner() {
                   {Math.round(overallProgress)}%
                 </span>
               </>
-            ) : (
-              <>
-                <Film className="h-4 w-4 text-green-500" />
-                <span className="text-green-500">
-                  {completedJobs.length} video{completedJobs.length > 1 ? "s" : ""}{" "}
-                  ready
-                </span>
-              </>
             )}
           </div>
           <div className="flex items-center gap-2">
-            {completedJobs.length > 0 && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  clearAllCompleted();
-                }}
-                className="text-xs text-muted-foreground hover:text-foreground px-2 py-1"
-              >
-                Clear all
-              </button>
-            )}
             {isExpanded ? (
               <ChevronUp className="h-4 w-4" />
             ) : (
