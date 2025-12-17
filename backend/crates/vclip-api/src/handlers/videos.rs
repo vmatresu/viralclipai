@@ -10,16 +10,51 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-use vclip_models::{Style, VideoId};
+use vclip_models::{Style, VideoId, AspectRatio, CropMode};
+use vclip_queue::ProcessVideoJob;
 
 use crate::auth::AuthUser;
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
 
+/// Processing progress response for frontend polling.
+#[derive(Serialize)]
+pub struct ProcessingProgressResponse {
+    pub total_scenes: u32,
+    pub completed_scenes: u32,
+    pub total_clips: u32,
+    pub completed_clips: u32,
+    pub failed_clips: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_scene_id: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_scene_title: Option<String>,
+    pub started_at: String,
+    pub updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+}
+
 /// Video info response.
 #[derive(Serialize)]
 pub struct VideoInfoResponse {
     pub id: String,
+    /// Video status (pending, processing, completed, failed)
+    pub status: String,
+    /// Number of clips generated
+    pub clip_count: u32,
+    /// Processing progress (present only while processing)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processing_progress: Option<ProcessingProgressResponse>,
+    /// When the video was created
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    /// When the video was last updated
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+    /// Video title
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     pub clips: Vec<ClipInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_prompt: Option<String>,
@@ -251,8 +286,30 @@ pub async fn get_video_info(
     // Sort by name for consistent display
     clips.sort_by(|a, b| a.name.cmp(&b.name));
 
+    // Convert processing progress to API response format
+    let processing_progress = video_meta.processing_progress.as_ref().map(|p| {
+        ProcessingProgressResponse {
+            total_scenes: p.total_scenes,
+            completed_scenes: p.completed_scenes,
+            total_clips: p.total_clips,
+            completed_clips: p.completed_clips,
+            failed_clips: p.failed_clips,
+            current_scene_id: p.current_scene_id,
+            current_scene_title: p.current_scene_title.clone(),
+            started_at: p.started_at.to_rfc3339(),
+            updated_at: p.updated_at.to_rfc3339(),
+            error_message: p.error_message.clone(),
+        }
+    });
+
     Ok(Json(VideoInfoResponse {
         id: video_id,
+        status: video_meta.status.as_str().to_string(),
+        clip_count: clips.len() as u32,
+        processing_progress,
+        created_at: Some(video_meta.created_at.to_rfc3339()),
+        updated_at: Some(video_meta.updated_at.to_rfc3339()),
+        title: Some(video_meta.video_title.clone()),
         clips,
         custom_prompt: highlights.custom_prompt,
         video_title: highlights.video_title,
@@ -1476,11 +1533,160 @@ pub async fn reprocess_scenes(
         success: true,
         video_id: video_id.clone(),
         message: format!(
-            "Reprocessing job enqueued for {} scene(s) with {} style(s). Connect via WebSocket to monitor progress.",
+            "Reprocessing job enqueued for {} scene(s) with {} style(s). Refresh the page to check progress.",
             request.scene_ids.len(),
             request.styles.len()
         ),
         job_id: Some(job_id.to_string()),
+    }))
+}
+
+// ============================================================================
+// Process Video (REST endpoint to replace WebSocket)
+// ============================================================================
+
+/// Request for processing a new video via REST API.
+#[derive(Debug, Deserialize)]
+pub struct ProcessVideoRequest {
+    /// Video URL (YouTube, TikTok, etc.)
+    pub url: String,
+    /// Styles to apply
+    #[serde(default)]
+    pub styles: Vec<String>,
+    /// Custom prompt for AI analysis
+    #[serde(default)]
+    pub prompt: Option<String>,
+    /// Crop mode (none, auto, etc.)
+    #[serde(default = "default_crop_mode")]
+    pub crop_mode: String,
+    /// Target aspect ratio
+    #[serde(default = "default_target_aspect")]
+    pub target_aspect: String,
+}
+
+fn default_crop_mode() -> String {
+    "none".to_string()
+}
+
+fn default_target_aspect() -> String {
+    "9:16".to_string()
+}
+
+/// Response for processing a new video.
+#[derive(Serialize)]
+pub struct ProcessVideoResponse {
+    pub video_id: String,
+    pub job_id: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// Process a new video via REST API.
+/// 
+/// POST /api/videos/process
+/// 
+/// This replaces the WebSocket-based processing endpoint.
+/// The job is enqueued and the client can poll for progress via Firebase.
+pub async fn process_video(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(request): Json<ProcessVideoRequest>,
+) -> ApiResult<Json<ProcessVideoResponse>> {
+    use crate::security::{validate_video_url, sanitize_string, MAX_PROMPT_LENGTH};
+
+    // Validate video URL (SSRF protection)
+    let validated_url = validate_video_url(&request.url)
+        .into_result()
+        .map_err(|e| ApiError::bad_request(format!("Invalid video URL: {}", e)))?;
+
+    // Sanitize prompt
+    let sanitized_prompt = request.prompt.as_ref().map(|p| {
+        if p.len() > MAX_PROMPT_LENGTH {
+            warn!(user = %user.uid, "Prompt truncated from {} to {} chars", p.len(), MAX_PROMPT_LENGTH);
+        }
+        sanitize_string(p)
+    });
+
+    // Get or create user
+    if let Err(e) = state.user_service.get_or_create_user(&user.uid, user.email.as_deref()).await {
+        warn!("Failed to get/create user {}: {}", user.uid, e);
+    }
+
+    // Check monthly clip quota
+    let used = state.user_service.get_monthly_usage(&user.uid).await?;
+    let limits = state.user_service.get_plan_limits(&user.uid).await?;
+    if used >= limits.max_clips_per_month {
+        return Err(ApiError::forbidden(format!(
+            "Monthly clip limit exceeded. You've used {} of {} clips this month.",
+            used, limits.max_clips_per_month
+        )));
+    }
+
+    // Check storage quota
+    let storage_usage = state.user_service.get_storage_usage(&user.uid).await?;
+    if storage_usage.percentage() >= 100.0 {
+        return Err(ApiError::forbidden(format!(
+            "Storage limit exceeded. You've used {} of {} storage.",
+            storage_usage.format_total(), storage_usage.format_limit()
+        )));
+    }
+
+    // Parse styles with "all" expansion support
+    let style_strs = if request.styles.is_empty() {
+        vec!["intelligent".to_string()]
+    } else {
+        request.styles.clone()
+    };
+    let styles = Style::expand_styles(&style_strs);
+
+    if styles.is_empty() {
+        return Err(ApiError::bad_request("No valid styles specified"));
+    }
+
+    // Check pro plan requirement for Smart Face styles
+    const PRO_ONLY_STYLES: &[Style] = &[
+        Style::Intelligent,
+        Style::IntelligentSplit,
+        Style::IntelligentSpeaker,
+        Style::IntelligentSplitSpeaker,
+        Style::IntelligentSplitActivity,
+        Style::IntelligentCinematic,
+    ];
+    let requires_pro = styles.iter().any(|s| PRO_ONLY_STYLES.contains(s));
+    if requires_pro && !state.user_service.has_pro_or_studio_plan(&user.uid).await? {
+        return Err(ApiError::forbidden(
+            "Selected style(s) are only available for Pro and Studio plans."
+        ));
+    }
+
+    // Parse crop mode and target aspect
+    let crop_mode: CropMode = request.crop_mode.parse().unwrap_or_default();
+    let target_aspect: AspectRatio = request.target_aspect.parse().unwrap_or_default();
+
+    // Create job
+    let job = ProcessVideoJob::new(&user.uid, &validated_url, styles)
+        .with_crop_mode(crop_mode)
+        .with_target_aspect(target_aspect)
+        .with_custom_prompt(sanitized_prompt);
+    
+    let job_id = job.job_id.clone();
+    let video_id = job.video_id.clone();
+
+    // Enqueue job
+    state.queue.enqueue_process(job).await
+        .map_err(|e| ApiError::internal(format!("Failed to enqueue job: {}", e)))?;
+
+    info!(
+        "Process job {} enqueued for video {} by user {}",
+        job_id, video_id, user.uid
+    );
+
+    Ok(Json(ProcessVideoResponse {
+        video_id: video_id.to_string(),
+        job_id: job_id.to_string(),
+        status: "queued".to_string(),
+        message: Some("Video submitted for processing. Refresh the page to check progress.".to_string()),
     }))
 }
 

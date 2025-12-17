@@ -198,17 +198,23 @@ function FlowItem({
   label: string;
   variant: "input" | "engine" | "output";
 }) {
-  const variantClasses = {
-    input:
-      "bg-muted/50 dark:bg-white/5 border-border dark:border-white/10 text-brand-400",
-    engine: "btn-primary-gradient text-brand-dark",
-    output: "bg-brand-cyan/10 border-brand-cyan/20 text-brand-cyan",
-  };
+  let variantClassName =
+    "bg-muted/50 dark:bg-white/5 border-border dark:border-white/10 text-brand-400";
+  switch (variant) {
+    case "engine":
+      variantClassName = "btn-primary-gradient text-brand-dark";
+      break;
+    case "output":
+      variantClassName = "bg-brand-cyan/10 border-brand-cyan/20 text-brand-cyan";
+      break;
+    default:
+      break;
+  }
 
   return (
     <div className="flex flex-col items-center gap-2">
       <div
-        className={`w-12 h-12 rounded-xl flex items-center justify-center border ${variantClasses[variant]}`}
+        className={`w-12 h-12 rounded-xl flex items-center justify-center border ${variantClassName}`}
       >
         {icon}
       </div>

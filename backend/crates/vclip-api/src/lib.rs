@@ -1,8 +1,7 @@
-//! Axum HTTP/WS API server.
+//! Axum HTTP API server.
 //!
 //! This crate provides:
 //! - Full REST API parity with Python backend
-//! - WebSocket endpoints for processing
 //! - Firebase ID token verification
 //! - Rate limiting and security headers
 //! - Prometheus metrics
@@ -17,7 +16,7 @@ pub mod routes;
 pub mod security;
 pub mod services;
 pub mod state;
-pub mod ws;
+// WebSocket removed - using Firebase-only architecture for status updates
 
 pub use config::ApiConfig;
 pub use error::{ApiError, ApiResult};

@@ -2,7 +2,7 @@
  * Video Status Badge Component
  *
  * Displays the processing status of a video with appropriate styling.
- * Integrates with global processing context for real-time updates.
+ * Uses status passed from API/Firebase - no real-time updates.
  */
 
 "use client";
@@ -15,10 +15,12 @@ import { cn } from "@/lib/utils";
 
 interface VideoStatusBadgeProps {
   videoId: string;
-  status?: "processing" | "analyzed" | "completed" | "failed";
+  status?: "processing" | "analyzed" | "completed" | "failed" | "pending";
   clipsCount?: number;
   style?: string;
   className?: string;
+  /** Progress percentage (0-100) from Firebase processing_progress */
+  progress?: number;
 }
 
 export function VideoStatusBadge({
@@ -27,13 +29,15 @@ export function VideoStatusBadge({
   clipsCount,
   style,
   className = "",
+  progress = 0,
 }: VideoStatusBadgeProps) {
-  const { getJob } = useProcessing();
-  const job = getJob(videoId);
+  const { isProcessing } = useProcessing();
 
-  // Use job status from context if available, otherwise fall back to API status
-  const effectiveStatus = job?.status ?? status;
-  const progress = job?.progress ?? 0;
+  // Check if this video was initiated for processing this session
+  const initiatedThisSession = isProcessing(videoId);
+
+  // Use API status, or show as processing if initiated this session
+  const effectiveStatus = status ?? (initiatedThisSession ? "processing" : undefined);
   const styleLabel = getStyleLabel(style);
   const styleBadgeClasses = style
     ? getTierBadgeClasses(getStyleTier(style)?.color)

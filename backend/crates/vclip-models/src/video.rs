@@ -122,6 +122,91 @@ impl fmt::Display for SourceVideoStatus {
     }
 }
 
+/// Processing progress for a video (stored in Firestore for frontend polling).
+///
+/// This replaces WebSocket-based real-time progress reporting.
+/// The worker updates this at key intervals:
+/// - Job start: Initialize with total scenes/clips
+/// - After each scene: Update completed counts
+/// - Job end: Clear progress (status set separately)
+/// - On error: Set error message
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+pub struct ProcessingProgress {
+    /// Total number of scenes to process
+    pub total_scenes: u32,
+    /// Number of scenes completed
+    pub completed_scenes: u32,
+    /// Total number of clips to generate
+    pub total_clips: u32,
+    /// Number of clips successfully completed
+    pub completed_clips: u32,
+    /// Number of clips that failed
+    pub failed_clips: u32,
+    /// Current scene being processed (if any)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_scene_id: Option<u32>,
+    /// Title of current scene being processed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_scene_title: Option<String>,
+    /// When processing started
+    pub started_at: DateTime<Utc>,
+    /// Last progress update
+    pub updated_at: DateTime<Utc>,
+    /// Error message (if any)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+}
+
+impl ProcessingProgress {
+    /// Create a new progress tracker for a processing job.
+    pub fn new(total_scenes: u32, total_clips: u32) -> Self {
+        let now = Utc::now();
+        Self {
+            total_scenes,
+            completed_scenes: 0,
+            total_clips,
+            completed_clips: 0,
+            failed_clips: 0,
+            current_scene_id: None,
+            current_scene_title: None,
+            started_at: now,
+            updated_at: now,
+            error_message: None,
+        }
+    }
+
+    /// Update progress when a scene starts.
+    pub fn scene_started(&mut self, scene_id: u32, scene_title: Option<String>) {
+        self.current_scene_id = Some(scene_id);
+        self.current_scene_title = scene_title;
+        self.updated_at = Utc::now();
+    }
+
+    /// Update progress when a scene completes.
+    pub fn scene_completed(&mut self, clips_completed: u32, clips_failed: u32) {
+        self.completed_scenes += 1;
+        self.completed_clips += clips_completed;
+        self.failed_clips += clips_failed;
+        self.current_scene_id = None;
+        self.current_scene_title = None;
+        self.updated_at = Utc::now();
+    }
+
+    /// Set error message.
+    pub fn set_error(&mut self, message: impl Into<String>) {
+        self.error_message = Some(message.into());
+        self.updated_at = Utc::now();
+    }
+
+    /// Calculate progress percentage (0-100).
+    pub fn percentage(&self) -> u32 {
+        if self.total_clips == 0 {
+            return 0;
+        }
+        ((self.completed_clips as f64 / self.total_clips as f64) * 100.0) as u32
+    }
+}
+
 /// Video metadata stored in Firestore.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct VideoMetadata {
@@ -218,6 +303,13 @@ pub struct VideoMetadata {
     /// Error message if source video download failed
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_video_error: Option<String>,
+
+    // === Processing Progress Fields ===
+
+    /// Current processing progress (for frontend polling).
+    /// Set when processing starts, cleared when complete/failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub processing_progress: Option<ProcessingProgress>,
 }
 
 fn default_aspect() -> String {
@@ -263,6 +355,8 @@ impl VideoMetadata {
             source_video_status: None,
             source_video_expires_at: None,
             source_video_error: None,
+            // Processing progress - initialized as None
+            processing_progress: None,
         }
     }
 

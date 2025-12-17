@@ -430,3 +430,44 @@ export function getVideoSceneStyles(
     token,
   });
 }
+
+/**
+ * Reprocess scenes for an existing video via REST API.
+ * This replaces WebSocket-based reprocessing.
+ */
+export interface ReprocessRequest {
+  scene_ids: number[];
+  styles: string[];
+  overwrite?: boolean;
+  enable_object_detection?: boolean;
+  top_scenes_compilation?: boolean;
+  cut_silent_parts?: boolean;
+  streamer_split_params?: {
+    position_x: string;
+    position_y: string;
+    zoom: number;
+  };
+}
+
+export interface ReprocessResponse {
+  job_id: string;
+  video_id: string;
+  status: "queued" | "processing";
+  total_clips: number;
+  message?: string;
+}
+
+export function reprocessScenes(
+  videoId: string,
+  request: ReprocessRequest,
+  token: string
+): Promise<ReprocessResponse> {
+  return apiFetch<ReprocessResponse>(
+    `/api/videos/${encodeURIComponent(videoId)}/reprocess`,
+    {
+      method: "POST",
+      token,
+      body: request,
+    }
+  );
+}

@@ -51,13 +51,12 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useReprocessing } from "@/hooks/useReprocessing";
+import { calculateProgressPercentage, useVideoStatus } from "@/hooks/useVideoStatus";
 import {
   apiFetch,
   bulkDeleteClips,
   deleteAllClips,
   deleteClip as deleteClipApi,
-  getProcessingStatuses,
   getVideoDetails,
   getVideoHighlights,
   getVideoSceneStyles,
@@ -184,37 +183,16 @@ export default function HistoryDetailPage() {
   const [cutSilentParts, setCutSilentParts] = useState<boolean>(false);
   /** Track the order of selected scenes for Top Scenes compilation */
   const [compilationSceneOrder, setCompilationSceneOrder] = useState<number[]>([]);
-  const {
-    getJob,
-    completeJob: contextCompleteJob,
-    failJob: contextFailJob,
-  } = useProcessing();
+  const { startProcessing } = useProcessing();
+
+  // Fetch video status from Firebase (with caching)
+  const { status: videoStatus, refresh: refreshStatus } = useVideoStatus(videoId);
   const selectionInitializedRef = useRef(false);
 
-  const {
-    isProcessing: isReprocessing,
-    reprocess,
-    progress: reprocessProgress,
-    logs: reprocessLogs,
-    sceneProgress: reprocessSceneProgress,
-  } = useReprocessing({
-    videoId,
-    videoTitle: highlightsData?.video_title,
-    onComplete: () => {
-      setIsProcessing(false);
-      void loadData();
-    },
-    onError: () => {
-      setIsProcessing(false);
-    },
-  });
-
-  // Get job from global context for resuming/monitoring
-  const contextJob = getJob(videoId);
-  const effectiveProgress = isReprocessing
-    ? reprocessProgress
-    : (contextJob?.progress ?? 0);
-  const effectiveLogs = isReprocessing ? reprocessLogs : (contextJob?.logs ?? []);
+  // Get progress from Firebase status
+  const effectiveProgress = videoStatus?.processing_progress
+    ? calculateProgressPercentage(videoStatus.processing_progress)
+    : 0;
 
   const sceneTitleById = useMemo(() => {
     const map = new Map<number, string>();
@@ -325,48 +303,83 @@ export default function HistoryDetailPage() {
   const startReprocess = useCallback(
     async (plan: ReprocessPlan, overwrite: boolean = false) => {
       setIsProcessing(true);
-      // Pass enableObjectDetection only if Cinematic style is selected
-      const hasCinematic = plan.styles.some((s) =>
-        s.toLowerCase().includes("cinematic")
-      );
-      // Pass StreamerSplit params only if streamer_split style is selected
-      const hasStreamerSplit = plan.styles.some(
-        (s) => s.toLowerCase() === "streamer_split"
-      );
-      const streamerParams = hasStreamerSplit
-        ? {
-            position_x: streamerSplitConfig.positionX,
-            position_y: streamerSplitConfig.positionY,
-            zoom: streamerSplitConfig.zoom,
-          }
-        : undefined;
-      // Check if this is a Top Scenes compilation (streamer_top_scenes style)
-      const isTopScenesCompilation = plan.styles.some(
-        (s) => s.toLowerCase() === "streamer_top_scenes"
-      );
 
-      // For Top Scenes compilation, use the ordered scene IDs from compilationSceneOrder
-      // The order determines the countdown numbers: first selected = #1, last selected = #N
-      const sceneIdsToProcess = isTopScenesCompilation
-        ? compilationSceneOrder.filter((id) => plan.sceneIds.includes(id))
-        : plan.sceneIds;
+      try {
+        const token = await getIdToken();
+        if (!token) {
+          toast.error("Please sign in to reprocess scenes.");
+          setIsProcessing(false);
+          return;
+        }
 
-      await reprocess(
-        sceneIdsToProcess,
-        plan.styles,
-        hasCinematic && enableObjectDetection,
-        overwrite,
-        streamerParams,
-        isTopScenesCompilation,
-        cutSilentParts
-      );
+        // Pass enableObjectDetection only if Cinematic style is selected
+        const hasCinematic = plan.styles.some((s) =>
+          s.toLowerCase().includes("cinematic")
+        );
+        // Pass StreamerSplit params only if streamer_split style is selected
+        const hasStreamerSplit = plan.styles.some(
+          (s) => s.toLowerCase() === "streamer_split"
+        );
+        const streamerParams = hasStreamerSplit
+          ? {
+              position_x: streamerSplitConfig.positionX,
+              position_y: streamerSplitConfig.positionY,
+              zoom: streamerSplitConfig.zoom,
+            }
+          : undefined;
+        // Check if this is a Top Scenes compilation (streamer_top_scenes style)
+        const isTopScenesCompilation = plan.styles.some(
+          (s) => s.toLowerCase() === "streamer_top_scenes"
+        );
+
+        // For Top Scenes compilation, use the ordered scene IDs from compilationSceneOrder
+        const sceneIdsToProcess = isTopScenesCompilation
+          ? compilationSceneOrder.filter((id) => plan.sceneIds.includes(id))
+          : plan.sceneIds;
+
+        // Submit reprocess job via REST API
+        const { reprocessScenes } = await import("@/lib/apiClient");
+        const result = await reprocessScenes(
+          videoId,
+          {
+            scene_ids: sceneIdsToProcess,
+            styles: plan.styles,
+            overwrite,
+            enable_object_detection: hasCinematic && enableObjectDetection,
+            top_scenes_compilation: isTopScenesCompilation,
+            cut_silent_parts: cutSilentParts,
+            streamer_split_params: streamerParams,
+          },
+          token
+        );
+
+        // Mark video as processing in context
+        startProcessing(videoId);
+
+        toast.success(
+          `Processing started! ${result.total_clips} clips will be generated. Refresh the page to check progress.`
+        );
+
+        // Refresh status after a short delay
+        setTimeout(() => {
+          void refreshStatus(true);
+        }, 2000);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Failed to start reprocessing";
+        toast.error(message);
+        setIsProcessing(false);
+      }
     },
     [
-      reprocess,
+      getIdToken,
+      videoId,
       enableObjectDetection,
       streamerSplitConfig,
       compilationSceneOrder,
       cutSilentParts,
+      startProcessing,
+      refreshStatus,
     ]
   );
 
@@ -475,80 +488,19 @@ export default function HistoryDetailPage() {
     }
   }, []);
 
-  // Check if video is processing with proper cleanup
+  // Sync processing state with Firebase status
   useEffect(() => {
-    if (!user || !videoId) {
-      return undefined;
-    }
+    if (videoStatus) {
+      const statusIsProcessing = videoStatus.status === "processing";
 
-    let cancelled = false;
-
-    const checkStatus = async () => {
-      if (cancelled) return;
-
-      try {
-        const token = await getIdToken();
-        if (!token || cancelled) return;
-
-        const data = await getProcessingStatuses(token, [videoId]);
-
-        if (cancelled) return;
-
-        const video = data.videos.find((v) => v.video_id === videoId);
-
-        // Set processing status based on API
-        // We trust the API status. If it says processing, we show the status window.
-        // This allows monitoring to persist across refreshes for both initial processing and reprocessing.
-        const statusIsProcessing = video?.status === "processing";
-
-        // Auto-refresh data when processing completes (either analyzed or fully completed)
-        if (
-          isProcessing &&
-          !statusIsProcessing &&
-          (video?.status === "completed" || video?.status === "analyzed")
-        ) {
-          void loadData();
-        }
-
-        // Sync processing context with API status
-        // If API says completed/failed/analyzed but context still says processing, update context
-        // This handles the case where WebSocket disconnects before 'done' message is received
-        const job = contextJob;
-        if (job && (job.status === "pending" || job.status === "processing")) {
-          if (video?.status === "completed" || video?.status === "analyzed") {
-            contextCompleteJob(videoId);
-          } else if (video?.status === "failed") {
-            contextFailJob(videoId, "Processing failed");
-          }
-        }
-
-        setIsProcessing(statusIsProcessing);
-      } catch (err) {
-        if (!cancelled) {
-          console.error("Failed to check video status:", err);
-          // On error, assume not processing to avoid false positives
-          setIsProcessing(false);
-        }
+      // If processing just finished, reload data
+      if (isProcessing && !statusIsProcessing) {
+        void loadData();
       }
-    };
 
-    void checkStatus();
-    const interval = setInterval(checkStatus, 5000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [
-    user,
-    videoId,
-    getIdToken,
-    isProcessing,
-    loadData,
-    contextJob,
-    contextCompleteJob,
-    contextFailJob,
-  ]);
+      setIsProcessing(statusIsProcessing);
+    }
+  }, [videoStatus, isProcessing, loadData]);
 
   const handleSceneToggle = useCallback(
     (sceneId: number) => {
@@ -770,7 +722,7 @@ export default function HistoryDetailPage() {
       return;
     }
 
-    if (isProcessing || isReprocessing) {
+    if (isProcessing) {
       toast.error("Video is currently processing. Please wait for it to complete.");
       return;
     }
@@ -816,7 +768,6 @@ export default function HistoryDetailPage() {
     selectedScenes,
     selectedStyles,
     isProcessing,
-    isReprocessing,
     buildReprocessPlan,
     startReprocess,
     overwritePromptEnabled,
@@ -841,13 +792,8 @@ export default function HistoryDetailPage() {
   }, [selectedScenes.size, selectedStyles.length]);
 
   const canReprocess = useMemo(() => {
-    return (
-      selectedScenes.size > 0 &&
-      selectedStyles.length > 0 &&
-      !isProcessing &&
-      !isReprocessing
-    );
-  }, [selectedScenes.size, selectedStyles.length, isProcessing, isReprocessing]);
+    return selectedScenes.size > 0 && selectedStyles.length > 0 && !isProcessing;
+  }, [selectedScenes.size, selectedStyles.length, isProcessing]);
 
   if (authLoading) {
     return (
@@ -912,12 +858,12 @@ export default function HistoryDetailPage() {
         </div>
       </div>
 
-      {(isProcessing || isReprocessing) && (
+      {isProcessing && (
         <DetailedProcessingStatus
           progress={effectiveProgress}
-          logs={effectiveLogs}
-          sceneProgress={isReprocessing ? reprocessSceneProgress : undefined}
-          isResuming={!isReprocessing && isProcessing}
+          logs={[]}
+          sceneProgress={undefined}
+          isResuming={false}
         />
       )}
 
@@ -955,7 +901,7 @@ export default function HistoryDetailPage() {
             <StyleQualitySelector
               selectedStyles={selectedStyles}
               onChange={handleStylesChange}
-              disabled={isProcessing || isReprocessing}
+              disabled={isProcessing}
               userPlan={userSettings?.plan}
               enableObjectDetection={enableObjectDetection}
               onEnableObjectDetectionChange={setEnableObjectDetection}
@@ -981,7 +927,7 @@ export default function HistoryDetailPage() {
                       key={highlight.id}
                       highlight={highlight}
                       selected={selectedScenes.has(highlight.id)}
-                      disabled={isProcessing || isReprocessing}
+                      disabled={isProcessing}
                       onToggle={handleSceneToggle}
                       formatTime={formatTime}
                       sceneNumber={index + 1}
@@ -1085,7 +1031,7 @@ export default function HistoryDetailPage() {
             <Stat label="Unique styles" value={uniqueStyleCount} />
             <Stat
               label="Processing status"
-              value={isProcessing || isReprocessing ? "Processing" : "Idle"}
+              value={isProcessing ? "Processing" : "Idle"}
             />
           </div>
 

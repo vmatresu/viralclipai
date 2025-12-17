@@ -26,13 +26,13 @@ use crate::handlers::settings::{get_settings, update_settings};
 use crate::handlers::storage::{check_storage_quota, get_storage_quota};
 use crate::handlers::videos::{
     bulk_delete_clips, bulk_delete_videos, delete_all_clips, delete_clip, delete_video, get_video_highlights, get_video_info,
-    get_video_scene_styles, list_user_videos, get_processing_status, reprocess_scenes, stream_clip, update_video_title,
+    get_video_scene_styles, list_user_videos, get_processing_status, process_video, reprocess_scenes, stream_clip, update_video_title,
     update_clip_title,
 };
 use crate::metrics::metrics_middleware;
 use crate::middleware::{cors_layer, rate_limit_middleware, request_id, request_logging, security_headers, RateLimiterCache};
 use crate::state::AppState;
-use crate::ws::{ws_process, ws_reprocess};
+// WebSocket routes removed - using Firebase-only architecture
 
 /// Create the API router.
 pub fn create_router(state: AppState, metrics_handle: Option<PrometheusHandle>) -> Router {
@@ -52,6 +52,8 @@ pub fn create_router(state: AppState, metrics_handle: Option<PrometheusHandle>) 
         .route("/drafts/:draft_id/estimate", get(estimate_processing));
 
     let video_routes = Router::new()
+        // Process new video (REST replacement for WebSocket)
+        .route("/videos/process", post(process_video))
         // Single video operations
         .route("/videos/:video_id", get(get_video_info))
         .route("/videos/:video_id", delete(delete_video))
@@ -147,9 +149,7 @@ pub fn create_router(state: AppState, metrics_handle: Option<PrometheusHandle>) 
             rate_limit_middleware,
         ));
 
-    let ws_routes = Router::new()
-        .route("/ws/process", get(ws_process))
-        .route("/ws/reprocess", get(ws_reprocess));
+    // WebSocket routes removed - using Firebase-only architecture for status updates
 
     let health_routes = Router::new()
         .route("/health", get(health))
@@ -166,7 +166,6 @@ pub fn create_router(state: AppState, metrics_handle: Option<PrometheusHandle>) 
     Router::new()
         .nest("/api", api_routes)
         .merge(share_routes) // Public /c/{share_slug} route
-        .merge(ws_routes)
         .merge(health_routes)
         .merge(metrics_routes)
         // SECURITY: Request body size limit to prevent DoS attacks

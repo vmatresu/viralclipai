@@ -16,11 +16,6 @@ import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
 import { useProcessing } from "@/lib/processing-context";
 import { limitLength, sanitizeUrl } from "@/lib/security/validation";
-import {
-  handleWSMessage,
-  type MessageHandlerCallbacks,
-} from "@/lib/websocket/messageHandler";
-import { createWebSocketConnection, getWebSocketUrl } from "@/lib/websocket-client";
 
 import { ErrorDisplay } from "./ErrorDisplay";
 import { useVideoProcessing } from "./hooks";
@@ -65,15 +60,11 @@ export function ProcessingClient() {
     setClips,
     setVideoTitle,
     setVideoUrl,
-    searchParams,
-    handleSceneStarted,
-    handleSceneCompleted,
-    handleClipProgress,
     resetSceneProgress,
   } = useVideoProcessing();
 
   const { getIdToken, loading: authLoading, user } = useAuth();
-  const { startJob, startJobPolling, completeJob } = useProcessing();
+  const { startProcessing } = useProcessing();
   const hasResults = clips.length > 0;
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
 
@@ -106,8 +97,7 @@ export function ProcessingClient() {
     setProgress(0);
     setClips([]);
     setVideoId(null);
-    resetSceneProgress(); // Reset scene progress for new processing
-    // Store processing parameters at start time for accurate analytics tracking
+    resetSceneProgress();
     processingStartTime.current = Date.now();
     processingStyles.current = [...styles];
     processingCustomPrompt.current = customPrompt;
@@ -140,98 +130,45 @@ export function ProcessingClient() {
         videoUrl: sanitizedUrl,
       });
 
-      const wsUrl = getWebSocketUrl(process.env.NEXT_PUBLIC_API_BASE_URL);
+      log("Submitting video for processing...", "info");
 
-      const ws = createWebSocketConnection(
-        wsUrl,
-        // onOpen
-        () => {
-          log("Connected to server...", "success");
-          ws.send(
-            JSON.stringify({
-              url: sanitizedUrl,
-              styles: styles.length > 0 ? styles : ["intelligent"], // Fallback to default if none selected
-              token,
-              prompt: sanitizedPrompt || undefined,
-            })
-          );
+      // Submit via REST API instead of WebSocket
+      const response = await apiFetch<{
+        video_id: string;
+        job_id: string;
+        status: string;
+        message?: string;
+      }>("/api/videos/process", {
+        method: "POST",
+        token,
+        body: {
+          url: sanitizedUrl,
+          styles: styles.length > 0 ? styles : ["intelligent"],
+          prompt: sanitizedPrompt || undefined,
         },
-        // onMessage
-        (message: unknown) => {
-          const callbacks: MessageHandlerCallbacks = {
-            onLog: (logMessage, timestamp) => {
-              log(logMessage, "info", timestamp);
-            },
-            onProgress: (progressValue) => {
-              setProgress(progressValue);
-            },
-            onError: (errorMessage, errorDetails) => {
-              ws.close();
-              setError(errorMessage);
-              setErrorDetails(errorDetails ?? null);
-              toast.error(errorMessage);
-              setSubmitting(false);
-              void analyticsEvents.videoProcessingFailed({
-                errorType: errorDetails ?? "unknown",
-                errorMessage,
-                style: styles.join(","),
-              });
-            },
-            onDone: (videoId) => {
-              ws.close();
-              setVideoId(videoId);
-              completeJob(videoId); // Mark job as complete in processing context
-              const newUrl = new URL(window.location.href);
-              newUrl.searchParams.set("id", videoId);
-              window.history.pushState({}, "", newUrl.toString());
-              toast.success("Video processed successfully!");
-              void loadResults(videoId);
-            },
-            onClipUploaded: (videoId, clipCount, totalClips) => {
-              // If we're currently viewing this video, force reload results (bypasses cache)
-              if (videoId === searchParams.get("id")) {
-                void loadResults(videoId, true); // forceRefresh=true to bypass cache
-              }
-              // Log progress
-              if (clipCount > 0 && totalClips > 0) {
-                log(`📦 Clip ${clipCount}/${totalClips} uploaded`, "success");
-              }
-            },
-            // Job tracking for polling fallback
-            onJobStarted: (jobId, videoId) => {
-              frontendLogger.info(`Job started: ${jobId} for video ${videoId}`);
-              // Start tracking the job in processing context with polling fallback
-              startJob(videoId);
-              startJobPolling(videoId, jobId, token);
-            },
-            // Detailed progress callbacks
-            onSceneStarted: handleSceneStarted,
-            onSceneCompleted: handleSceneCompleted,
-            onClipProgress: handleClipProgress,
-          };
+      });
 
-          const handled = handleWSMessage(message, callbacks, searchParams.get("id"));
-          if (!handled) {
-            // Invalid message - close connection for security
-            frontendLogger.error("Invalid WebSocket message format", { message });
-            ws.close();
-            setError("Invalid message format");
-            setSubmitting(false);
-          }
-        },
-        // onError
-        (ev) => {
-          frontendLogger.error("WebSocket error occurred", ev);
-          log("WebSocket error occurred.", "error");
-          toast.error("Connection error occurred");
-        },
-        // onClose
-        () => {
-          if (!hasResults && !error) {
-            setSubmitting(false);
-          }
-        }
+      // Mark as processing in context
+      startProcessing(response.video_id);
+      setVideoId(response.video_id);
+
+      // Update URL with video ID
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.set("id", response.video_id);
+      window.history.pushState({}, "", newUrl.toString());
+
+      log("Processing started! Refresh the page to check progress.", "success");
+      toast.success(
+        "Processing started! Your video is being analyzed. Refresh the page to check progress."
       );
+
+      setSubmitting(false);
+      setProgress(5); // Show initial progress
+
+      // Load initial results after a delay
+      setTimeout(() => {
+        void loadResults(response.video_id);
+      }, 3000);
     } catch (err: unknown) {
       frontendLogger.error("Failed to start processing", err);
       const errorMessage =

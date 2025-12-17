@@ -14,7 +14,7 @@
 
 use std::path::PathBuf;
 
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use vclip_models::{ClipTask, Highlight};
 use vclip_queue::ReprocessScenesJob;
@@ -82,6 +82,27 @@ pub async fn reprocess_scenes(
 
     // Calculate total clips (for non-compilation mode)
     let total_clips = selected_highlights.len() * job.styles.len();
+    let total_scenes = selected_highlights.len() as u32;
+
+    // Initialize Firebase progress tracking (replaces WebSocket real-time updates)
+    let video_repo = std::sync::Arc::new(vclip_firestore::VideoRepository::new(ctx.firestore.clone(), &job.user_id));
+    if let Err(e) = video_repo.start_processing(&job.video_id, total_scenes, total_clips as u32).await {
+        error!(
+            video_id = %job.video_id,
+            error = %e,
+            "Failed to initialize Firebase progress tracking"
+        );
+        // Continue anyway - this is not a fatal error
+    }
+
+    // Create progress tracker for scene renderer to report incremental progress
+    let progress_tracker = crate::scene_renderer::ProgressTracker::new(
+        video_repo.clone(),
+        job.video_id.clone(),
+        total_scenes,
+        total_clips as u32,
+    );
+
     ctx.progress
         .log(
             &job.job_id,
@@ -156,6 +177,7 @@ pub async fn reprocess_scenes(
             &cached_scenes,
             &video_highlights,
             total_clips,
+            &progress_tracker,
         )
         .await?;
     }
@@ -171,6 +193,7 @@ pub async fn reprocess_scenes(
             &video_highlights,
             video_url.as_deref(),
             total_clips,
+            &progress_tracker,
         )
         .await?;
     }
@@ -191,6 +214,7 @@ pub async fn reprocess_scenes(
             &cached_scenes,
             &video_highlights,
             total_clips,
+            &progress_tracker,
         )
         .await?;
         
@@ -205,6 +229,7 @@ pub async fn reprocess_scenes(
             &video_highlights,
             video_url.as_deref(),
             total_clips,
+            &progress_tracker,
         )
         .await?;
         
@@ -213,6 +238,16 @@ pub async fn reprocess_scenes(
 
     // Update video metadata - add new clips to existing count
     update_video_clip_count(ctx, job, final_completed).await?;
+
+    // Clear Firebase progress tracking (processing is complete)
+    if let Err(e) = video_repo.clear_progress(&job.video_id).await {
+        warn!(
+            video_id = %job.video_id,
+            error = %e,
+            "Failed to clear Firebase progress tracking"
+        );
+        // Continue anyway - video is already marked as complete
+    }
 
     // Cleanup work directory
     if work_dir.exists() {
@@ -278,6 +313,7 @@ async fn process_scenes_with_cache(
     cached_scenes: &[Highlight],
     highlights: &vclip_models::VideoHighlights,
     total_clips: usize,
+    progress_tracker: &crate::scene_renderer::ProgressTracker,
 ) -> WorkerResult<u32> {
     if cached_scenes.is_empty() {
         return Ok(0);
@@ -313,6 +349,7 @@ async fn process_scenes_with_cache(
         &cached_tasks,
         highlights,
         total_clips,
+        Some(progress_tracker),
     )
     .await
 }
@@ -330,6 +367,7 @@ async fn process_uncached_scenes_optimized(
     highlights: &vclip_models::VideoHighlights,
     video_url: Option<&str>,
     total_clips: usize,
+    progress_tracker: &crate::scene_renderer::ProgressTracker,
 ) -> WorkerResult<u32> {
     use vclip_media::intelligent::parse_timestamp;
     use crate::raw_segment_cache::raw_segment_r2_key;
@@ -501,6 +539,7 @@ async fn process_uncached_scenes_optimized(
         &uncached_tasks,
         highlights,
         total_clips,
+        Some(progress_tracker),
     )
     .await
 }

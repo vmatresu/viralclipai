@@ -1,6 +1,12 @@
 "use client";
 
-import { AlertCircle, CornerRightDown, Crown, Sparkles, TrendingUp } from "lucide-react";
+import {
+  AlertCircle,
+  CornerRightDown,
+  Crown,
+  Sparkles,
+  TrendingUp,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -8,12 +14,12 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -23,14 +29,7 @@ import { useAuth } from "@/lib/auth";
 import { frontendLogger } from "@/lib/logger";
 import { sanitizePrompt, validateVideoUrl } from "@/lib/security";
 import { cn } from "@/lib/utils";
-import {
-    createWebSocketConnection,
-    getWebSocketUrl,
-    handleWSMessage,
-    type ClipProcessingStep,
-    type MessageHandlerCallbacks,
-    type SceneProgress,
-} from "@/lib/websocket";
+import { type SceneProgress } from "@/types/processing";
 
 import { DetailedProcessingStatus } from "../shared/DetailedProcessingStatus";
 
@@ -188,69 +187,6 @@ export function ProcessVideoInterface() {
     setLogs((prev) => [...prev, `${timestampStr}${prefix} ${msg}`]);
   };
 
-  // Scene progress handlers
-  const handleSceneStarted = (
-    sceneId: number,
-    sceneTitle: string,
-    styleCount: number,
-    startSec: number,
-    durationSec: number
-  ) => {
-    setSceneProgress((prev) => {
-      const next = new Map(prev);
-      next.set(sceneId, {
-        sceneId,
-        sceneTitle,
-        styleCount,
-        startSec,
-        durationSec,
-        status: "processing",
-        clipsCompleted: 0,
-        clipsFailed: 0,
-        currentSteps: new Map(),
-      });
-      return next;
-    });
-  };
-
-  const handleSceneCompleted = (
-    sceneId: number,
-    clipsCompleted: number,
-    clipsFailed: number
-  ) => {
-    setSceneProgress((prev) => {
-      const next = new Map(prev);
-      const scene = next.get(sceneId);
-      if (scene) {
-        next.set(sceneId, {
-          ...scene,
-          status: clipsFailed > 0 ? "failed" : "completed",
-          clipsCompleted,
-          clipsFailed,
-        });
-      }
-      return next;
-    });
-  };
-
-  const handleClipProgress = (
-    sceneId: number,
-    style: string,
-    step: ClipProcessingStep,
-    details?: string
-  ) => {
-    setSceneProgress((prev) => {
-      const next = new Map(prev);
-      const scene = next.get(sceneId);
-      if (scene) {
-        const newSteps = new Map(scene.currentSteps);
-        newSteps.set(style, { step, details });
-        next.set(sceneId, { ...scene, currentSteps: newSteps });
-      }
-      return next;
-    });
-  };
-
   // Map UI selections to backend styles
   const getStylesFromSelection = (
     layout: LayoutOption,
@@ -349,7 +285,7 @@ export function ProcessVideoInterface() {
 
       const sanitizedPrompt = sanitizePrompt(prompt.trim());
       const styles = getStylesFromSelection(layout, aiLevel, staticCropSide);
-      const cropMode = exportOriginal ? "none" : "auto";
+      const cropMode = exportOriginal ? "none" : "intelligent";
 
       // Track processing start
       void analyticsEvents.videoProcessingStarted({
@@ -358,84 +294,37 @@ export function ProcessVideoInterface() {
         videoUrl: sanitizedUrl,
       });
 
-      // Create WebSocket connection
-      const wsUrl = getWebSocketUrl(process.env.NEXT_PUBLIC_API_BASE_URL);
-      const ws = createWebSocketConnection(
-        wsUrl,
-        // onOpen
-        () => {
-          frontendLogger.info("WebSocket connected, sending process request");
-          ws.send(
-            JSON.stringify({
-              url: sanitizedUrl,
-              styles,
-              token,
-              prompt: sanitizedPrompt || undefined,
-              crop_mode: cropMode,
-              target_aspect: "9:16",
-            })
-          );
-        },
-        // onMessage
-        (message: unknown) => {
-          const callbacks: MessageHandlerCallbacks = {
-            onLog: (logMessage, timestamp) => {
-              // Use timestamp from backend if provided
-              log(logMessage, "info", timestamp);
-            },
-            onProgress: (progressValue) => {
-              setProgress(progressValue);
-            },
-            onError: (errorMessage, errorDetails) => {
-              ws.close();
-              toast.error(errorMessage);
-              setIsProcessing(false);
-              void analyticsEvents.videoProcessingFailed({
-                errorType: errorDetails ?? "unknown",
-                errorMessage,
-                style: styles.join(","),
-              });
-            },
-            onDone: (videoId) => {
-              ws.close();
-              setIsProcessing(false);
-              toast.success("Video analyzed! Scenes are ready for processing.");
+      // Submit via REST API instead of WebSocket
+      log("Submitting video for processing...", "info");
 
-              // Navigate to history page with video ID
-              router.push(`/history/${videoId}`);
-            },
-            onClipUploaded: (_videoId, clipCount, totalClips) => {
-              if (clipCount > 0 && totalClips > 0) {
-                log(`📦 Clip ${clipCount}/${totalClips} uploaded`, "success");
-              }
-            },
-            onSceneStarted: handleSceneStarted,
-            onSceneCompleted: handleSceneCompleted,
-            onClipProgress: handleClipProgress,
-          };
+      const response = await apiFetch<{
+        video_id: string;
+        job_id: string;
+        status: string;
+        message?: string;
+      }>("/api/videos/process", {
+        method: "POST",
+        token,
+        body: {
+          url: sanitizedUrl,
+          styles,
+          prompt: sanitizedPrompt || undefined,
+          crop_mode: cropMode,
+          target_aspect: "9:16",
+        },
+      });
 
-          const handled = handleWSMessage(message, callbacks, null);
-          if (!handled) {
-            frontendLogger.error("Invalid WebSocket message format", { message });
-            ws.close();
-            toast.error("Invalid message format");
-            setIsProcessing(false);
-          }
-        },
-        // onError
-        () => {
-          frontendLogger.error("WebSocket error occurred");
-          toast.error("Connection error occurred");
-        },
-        // onClose
-        () => {
-          setIsProcessing(false);
-        }
+      log("Processing started! Redirecting to history page...", "success");
+      setProgress(10);
+
+      toast.success(
+        "Video submitted for processing! You'll be redirected to track progress."
       );
 
-      // Register job in processing context for global tracking
-      // We don't have the videoId yet, but we'll track it when we get the Done message
-      // For now, just mark that processing has started
+      // Navigate to history page with video ID
+      setTimeout(() => {
+        router.push(`/history/${response.video_id}`);
+      }, 1500);
     } catch (err: unknown) {
       frontendLogger.error("Failed to start processing", err);
       const errorMessage =
@@ -563,7 +452,7 @@ export function ProcessVideoInterface() {
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
         />
-        
+
         {/* Chips with Sticker */}
         <div className="relative mt-8">
           <div className="absolute -top-6 left-1 hidden md:flex items-end gap-2 pointer-events-none select-none z-10">
@@ -571,7 +460,10 @@ export function ProcessVideoInterface() {
               <Sparkles className="w-3 h-3" />
               Try these:
             </div>
-            <CornerRightDown className="w-4 h-4 text-[#A45CFF] translate-y-2 -translate-x-1" strokeWidth={2.5} />
+            <CornerRightDown
+              className="w-4 h-4 text-[#A45CFF] translate-y-2 -translate-x-1"
+              strokeWidth={2.5}
+            />
           </div>
 
           <div className="flex flex-wrap gap-2">

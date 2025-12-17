@@ -16,6 +16,8 @@ export function HeroSection() {
   const [textIndex, setTextIndex] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
 
+  const rotatingText = ROTATING_TEXTS.at(textIndex) ?? "";
+
   useEffect(() => {
     const interval = setInterval(() => {
       setIsAnimating(true);
@@ -63,7 +65,7 @@ export function HeroSection() {
                   isAnimating ? "opacity-0 translate-y-2" : "opacity-100 translate-y-0"
                 }`}
               >
-                {ROTATING_TEXTS[textIndex]}
+                {rotatingText}
               </span>
             </h1>
 

@@ -11,6 +11,7 @@ import {
   Copy,
   Film,
   MoreHorizontal,
+  RefreshCw,
   Square,
   Trash2,
   TrendingUp,
@@ -45,7 +46,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { VideoStatusBadge } from "@/components/VideoStatusBadge";
-import { useVideoPolling } from "@/hooks/useVideoPolling";
 import {
   apiFetch,
   bulkDeleteVideos,
@@ -199,7 +199,7 @@ export default function HistoryList() {
     if (currentPage === 0) return;
     const prevPage = currentPage - 1;
     setCurrentPage(prevPage);
-    await fetchVideos(pageTokens[prevPage] ?? null);
+    await fetchVideos(pageTokens.at(prevPage) ?? null);
   };
 
   useEffect(() => {
@@ -241,16 +241,6 @@ export default function HistoryList() {
       cancelled = true;
     };
   }, [getIdToken, user, authLoading, fetchVideos]);
-
-  // Poll for processing videos using custom hook
-  useVideoPolling({
-    videos,
-    enabled: !authLoading && Boolean(user),
-    getIdToken,
-    onVideosUpdate: setVideos,
-    pollInterval: 5000,
-    maxInterval: 30000,
-  });
 
   const handleSelectVideo = (videoId: string) => {
     setSelectedVideos((prev) => {
@@ -328,7 +318,7 @@ export default function HistoryList() {
         err instanceof Error ? err.message : "Failed to delete video(s)";
       setError(errorMessage);
       // Reload videos to sync state
-      await fetchVideos(pageTokens[currentPage] ?? null);
+      await fetchVideos(pageTokens.at(currentPage) ?? null);
     } finally {
       setDeleting(false);
     }
@@ -646,6 +636,15 @@ export default function HistoryList() {
           <p className="text-muted-foreground text-sm font-medium">
             {videos.length} videos processed
           </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fetchVideos(pageTokens.at(currentPage) ?? null)}
+            disabled={loading}
+          >
+            <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} />
+            Refresh
+          </Button>
           {videos.length > 0 && (
             <div className="flex items-center gap-2">
               {selectedVideos.size > 0 && (
@@ -791,12 +790,18 @@ export default function HistoryList() {
                       <div className="flex items-center gap-2">
                         {isProcessing ? (
                           <span className="font-medium text-foreground max-w-[240px] truncate block">
-                            {video.video_title || "Untitled Video"}
+                            {video.video_title?.trim()
+                              ? video.video_title
+                              : "Untitled Video"}
                           </span>
                         ) : (
                           <div className="w-full max-w-[240px] group/title">
                             <EditableTitle
-                              title={video.video_title || "Untitled Video"}
+                              title={
+                                video.video_title?.trim()
+                                  ? video.video_title
+                                  : "Untitled Video"
+                              }
                               onSave={(newTitle) =>
                                 handleTitleUpdate(videoId, newTitle)
                               }

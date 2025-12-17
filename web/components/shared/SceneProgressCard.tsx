@@ -1,8 +1,29 @@
 import { CheckCircle2, Clock, Loader2, XCircle } from "lucide-react";
 import { type JSX } from "react";
 
-import { getStepLabel } from "@/lib/websocket/messageHandler";
-import { type SceneProgress } from "@/types/processing";
+import { type ClipProcessingStep, type SceneProgress } from "@/types/processing";
+
+/**
+ * Get human-readable label for a processing step
+ */
+function getStepLabel(step: ClipProcessingStep): string {
+  switch (step) {
+    case "queued":
+      return "Queued";
+    case "downloading":
+      return "Downloading";
+    case "encoding":
+      return "Encoding";
+    case "uploading":
+      return "Uploading";
+    case "done":
+      return "Complete";
+    case "failed":
+      return "Failed";
+    default:
+      return step;
+  }
+}
 
 /**
  * Format duration in seconds to a human-readable string
@@ -25,7 +46,7 @@ export function SceneProgressCard({ scene }: { scene: SceneProgress }) {
   };
 
   const completedStyles = Array.from(scene.currentSteps.values()).filter(
-    (v) => v.step === "complete"
+    (v) => v.step === "done"
   ).length;
 
   return (

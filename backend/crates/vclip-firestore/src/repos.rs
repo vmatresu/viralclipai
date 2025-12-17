@@ -6,7 +6,7 @@ use chrono::Utc;
 use metrics::counter;
 use tracing::{info, warn, debug};
 
-use vclip_models::{ClipMetadata, ClipStatus, SourceVideoStatus, VideoId, VideoMetadata, VideoStatus};
+use vclip_models::{ClipMetadata, ClipStatus, ProcessingProgress, SourceVideoStatus, VideoId, VideoMetadata, VideoStatus};
 
 use crate::client::FirestoreClient;
 use crate::error::{FirestoreError, FirestoreResult};
@@ -755,6 +755,155 @@ impl VideoRepository {
         info!("Set source video status to expired: {}", video_id);
         Ok(())
     }
+
+    // ========================================================================
+    // Processing Progress Methods (Replaces WebSocket real-time updates)
+    // ========================================================================
+
+    /// Start processing: Initialize progress tracking.
+    /// Called when a processing job starts.
+    pub async fn start_processing(
+        &self,
+        video_id: &VideoId,
+        total_scenes: u32,
+        total_clips: u32,
+    ) -> FirestoreResult<()> {
+        let progress = ProcessingProgress::new(total_scenes, total_clips);
+        let progress_value = progress_to_firestore_value(&progress);
+
+        let mut fields = HashMap::new();
+        fields.insert("processing_progress".to_string(), progress_value);
+        fields.insert(
+            "status".to_string(),
+            VideoStatus::Processing.as_str().to_firestore_value(),
+        );
+        fields.insert("updated_at".to_string(), Utc::now().to_firestore_value());
+
+        self.client
+            .update_document(
+                &self.collection(),
+                video_id.as_str(),
+                fields,
+                Some(vec![
+                    "processing_progress".to_string(),
+                    "status".to_string(),
+                    "updated_at".to_string(),
+                ]),
+            )
+            .await?;
+
+        info!(
+            "Started processing for video {}: {} scenes, {} clips",
+            video_id, total_scenes, total_clips
+        );
+        Ok(())
+    }
+
+    /// Update processing progress.
+    /// Called after each scene completes or at regular intervals.
+    pub async fn update_progress(
+        &self,
+        video_id: &VideoId,
+        progress: &ProcessingProgress,
+    ) -> FirestoreResult<()> {
+        let progress_value = progress_to_firestore_value(progress);
+
+        let mut fields = HashMap::new();
+        fields.insert("processing_progress".to_string(), progress_value);
+        fields.insert("updated_at".to_string(), Utc::now().to_firestore_value());
+
+        self.client
+            .update_document(
+                &self.collection(),
+                video_id.as_str(),
+                fields,
+                Some(vec![
+                    "processing_progress".to_string(),
+                    "updated_at".to_string(),
+                ]),
+            )
+            .await?;
+
+        debug!(
+            "Updated progress for video {}: {}/{} clips ({}/{} scenes)",
+            video_id,
+            progress.completed_clips,
+            progress.total_clips,
+            progress.completed_scenes,
+            progress.total_scenes
+        );
+        Ok(())
+    }
+
+    /// Clear processing progress.
+    /// Called when processing completes or fails.
+    pub async fn clear_progress(&self, video_id: &VideoId) -> FirestoreResult<()> {
+        // Set processing_progress to null by using an empty map value
+        // Firestore doesn't have a direct "delete field" in REST, so we set it to null
+        let mut fields = HashMap::new();
+        fields.insert(
+            "processing_progress".to_string(),
+            Value::NullValue(()),
+        );
+        fields.insert("updated_at".to_string(), Utc::now().to_firestore_value());
+
+        self.client
+            .update_document(
+                &self.collection(),
+                video_id.as_str(),
+                fields,
+                Some(vec![
+                    "processing_progress".to_string(),
+                    "updated_at".to_string(),
+                ]),
+            )
+            .await?;
+
+        info!("Cleared processing progress for video {}", video_id);
+        Ok(())
+    }
+
+    /// Set error in processing progress without clearing it.
+    /// Useful for showing error details to user on refresh.
+    pub async fn set_progress_error(
+        &self,
+        video_id: &VideoId,
+        error_message: &str,
+    ) -> FirestoreResult<()> {
+        // First get current progress
+        let doc = self.client.get_document(&self.collection(), video_id.as_str()).await?;
+
+        let mut progress = if let Some(ref d) = doc {
+            d.fields.as_ref()
+                .and_then(|f| f.get("processing_progress"))
+                .and_then(progress_from_firestore_value)
+                .unwrap_or_default()
+        } else {
+            ProcessingProgress::default()
+        };
+
+        progress.set_error(error_message);
+
+        let progress_value = progress_to_firestore_value(&progress);
+        let mut fields = HashMap::new();
+        fields.insert("processing_progress".to_string(), progress_value);
+        fields.insert("updated_at".to_string(), Utc::now().to_firestore_value());
+
+        self.client
+            .update_document(
+                &self.collection(),
+                video_id.as_str(),
+                fields,
+                Some(vec![
+                    "processing_progress".to_string(),
+                    "updated_at".to_string(),
+                ]),
+            )
+            .await?;
+
+        info!("Set progress error for video {}: {}", video_id, error_message);
+        Ok(())
+    }
 }
 
 /// Repository for clip documents.
@@ -1007,6 +1156,11 @@ fn video_metadata_to_fields(video: &VideoMetadata) -> HashMap<String, Value> {
         fields.insert("source_video_error".to_string(), error.to_firestore_value());
     }
 
+    // Processing progress (if present)
+    if let Some(ref progress) = video.processing_progress {
+        fields.insert("processing_progress".to_string(), progress_to_firestore_value(progress));
+    }
+
     fields
 }
 
@@ -1123,7 +1277,72 @@ fn document_to_video_metadata(
         source_video_error: fields
             .get("source_video_error")
             .and_then(|v| String::from_firestore_value(v)),
+        processing_progress: fields
+            .get("processing_progress")
+            .and_then(progress_from_firestore_value),
     })
+}
+
+/// Convert ProcessingProgress to Firestore Value (map).
+fn progress_to_firestore_value(progress: &ProcessingProgress) -> Value {
+    use crate::types::MapValue;
+
+    let mut fields = HashMap::new();
+    fields.insert("total_scenes".to_string(), progress.total_scenes.to_firestore_value());
+    fields.insert("completed_scenes".to_string(), progress.completed_scenes.to_firestore_value());
+    fields.insert("total_clips".to_string(), progress.total_clips.to_firestore_value());
+    fields.insert("completed_clips".to_string(), progress.completed_clips.to_firestore_value());
+    fields.insert("failed_clips".to_string(), progress.failed_clips.to_firestore_value());
+    fields.insert("started_at".to_string(), progress.started_at.to_firestore_value());
+    fields.insert("updated_at".to_string(), progress.updated_at.to_firestore_value());
+
+    if let Some(scene_id) = progress.current_scene_id {
+        fields.insert("current_scene_id".to_string(), scene_id.to_firestore_value());
+    }
+    if let Some(ref title) = progress.current_scene_title {
+        fields.insert("current_scene_title".to_string(), title.as_str().to_firestore_value());
+    }
+    if let Some(ref error) = progress.error_message {
+        fields.insert("error_message".to_string(), error.as_str().to_firestore_value());
+    }
+
+    Value::MapValue(MapValue { fields: Some(fields) })
+}
+
+/// Convert Firestore Value to ProcessingProgress.
+fn progress_from_firestore_value(value: &Value) -> Option<ProcessingProgress> {
+    match value {
+        Value::MapValue(map) => {
+            let fields = map.fields.as_ref()?;
+
+            let get_u32 = |key: &str| -> u32 {
+                fields.get(key)
+                    .and_then(|v| u32::from_firestore_value(v))
+                    .unwrap_or(0)
+            };
+
+            Some(ProcessingProgress {
+                total_scenes: get_u32("total_scenes"),
+                completed_scenes: get_u32("completed_scenes"),
+                total_clips: get_u32("total_clips"),
+                completed_clips: get_u32("completed_clips"),
+                failed_clips: get_u32("failed_clips"),
+                current_scene_id: fields.get("current_scene_id")
+                    .and_then(|v| u32::from_firestore_value(v)),
+                current_scene_title: fields.get("current_scene_title")
+                    .and_then(|v| String::from_firestore_value(v)),
+                started_at: fields.get("started_at")
+                    .and_then(|v| chrono::DateTime::from_firestore_value(v))
+                    .unwrap_or_else(Utc::now),
+                updated_at: fields.get("updated_at")
+                    .and_then(|v| chrono::DateTime::from_firestore_value(v))
+                    .unwrap_or_else(Utc::now),
+                error_message: fields.get("error_message")
+                    .and_then(|v| String::from_firestore_value(v)),
+            })
+        }
+        _ => None,
+    }
 }
 
 fn clip_metadata_to_fields(clip: &ClipMetadata) -> HashMap<String, Value> {

@@ -1,4 +1,13 @@
-import { type ClipProcessingStep } from "@/lib/websocket/types";
+/**
+ * Clip processing step types (moved from deleted websocket/types.ts)
+ */
+export type ClipProcessingStep =
+  | "queued"
+  | "downloading"
+  | "encoding"
+  | "uploading"
+  | "done"
+  | "failed";
 
 /**
  * Scene progress tracking

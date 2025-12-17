@@ -11,8 +11,7 @@ import { analyticsEvents } from "@/lib/analytics";
 import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { getCachedClips, invalidateClipsCache, setCachedClips } from "@/lib/cache";
-import { type ClipProcessingStep } from "@/lib/websocket/types";
-import { type SceneProgress } from "@/types/processing";
+import { type ClipProcessingStep, type SceneProgress } from "@/types/processing";
 
 import { type Clip } from "../ClipGrid";
 

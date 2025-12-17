@@ -14,10 +14,14 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
 
 use tracing::{debug, info, warn};
 
-use vclip_models::{ClipStatus, ClipTask, VideoHighlights};
+use vclip_models::{ClipStatus, ClipTask, ProcessingProgress, VideoHighlights};
 use vclip_queue::ReprocessScenesJob;
 
 use crate::clip_pipeline;
@@ -25,6 +29,110 @@ use crate::error::WorkerResult;
 use crate::processor::EnhancedProcessingContext;
 use crate::raw_segment_cache::raw_segment_r2_key;
 use crate::silence_cache::apply_silence_removal_cached;
+
+/// Minimum interval between Firestore progress updates to avoid excessive writes.
+const PROGRESS_UPDATE_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Progress tracker for Firestore updates with throttling.
+pub struct ProgressTracker {
+    video_repo: Arc<vclip_firestore::VideoRepository>,
+    video_id: vclip_models::VideoId,
+    total_scenes: u32,
+    total_clips: u32,
+    completed_scenes: AtomicU32,
+    completed_clips: AtomicU32,
+    failed_clips: AtomicU32,
+    current_scene_id: Mutex<Option<u32>>,
+    current_scene_title: Mutex<Option<String>>,
+    last_update: Mutex<Instant>,
+    started_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl ProgressTracker {
+    /// Create a new progress tracker.
+    pub fn new(
+        video_repo: Arc<vclip_firestore::VideoRepository>,
+        video_id: vclip_models::VideoId,
+        total_scenes: u32,
+        total_clips: u32,
+    ) -> Self {
+        Self {
+            video_repo,
+            video_id,
+            total_scenes,
+            total_clips,
+            completed_scenes: AtomicU32::new(0),
+            completed_clips: AtomicU32::new(0),
+            failed_clips: AtomicU32::new(0),
+            current_scene_id: Mutex::new(None),
+            current_scene_title: Mutex::new(None),
+            last_update: Mutex::new(Instant::now() - PROGRESS_UPDATE_INTERVAL), // Allow immediate first update
+            started_at: chrono::Utc::now(),
+        }
+    }
+
+    /// Mark a scene as started.
+    pub async fn scene_started(&self, scene_id: u32, scene_title: Option<String>) {
+        *self.current_scene_id.lock().await = Some(scene_id);
+        *self.current_scene_title.lock().await = scene_title;
+        self.maybe_update_firestore().await;
+    }
+
+    /// Mark a scene as completed with clip counts.
+    pub async fn scene_completed(&self, clips_succeeded: u32, clips_failed: u32) {
+        self.completed_scenes.fetch_add(1, Ordering::Relaxed);
+        self.completed_clips.fetch_add(clips_succeeded, Ordering::Relaxed);
+        self.failed_clips.fetch_add(clips_failed, Ordering::Relaxed);
+        *self.current_scene_id.lock().await = None;
+        *self.current_scene_title.lock().await = None;
+        // Always update after scene completion (important milestone)
+        self.force_update_firestore().await;
+    }
+
+    /// Set an error message.
+    pub async fn set_error(&self, error_message: &str) {
+        if let Err(e) = self.video_repo.set_progress_error(&self.video_id, error_message).await {
+            warn!(video_id = %self.video_id, error = %e, "Failed to set progress error in Firestore");
+        }
+    }
+
+    /// Update Firestore if enough time has elapsed since last update.
+    async fn maybe_update_firestore(&self) {
+        let mut last_update = self.last_update.lock().await;
+        if last_update.elapsed() < PROGRESS_UPDATE_INTERVAL {
+            return;
+        }
+        *last_update = Instant::now();
+        drop(last_update);
+        self.do_update_firestore().await;
+    }
+
+    /// Force update Firestore regardless of throttling.
+    async fn force_update_firestore(&self) {
+        *self.last_update.lock().await = Instant::now();
+        self.do_update_firestore().await;
+    }
+
+    /// Perform the actual Firestore update.
+    async fn do_update_firestore(&self) {
+        let progress = ProcessingProgress {
+            total_scenes: self.total_scenes,
+            completed_scenes: self.completed_scenes.load(Ordering::Relaxed),
+            total_clips: self.total_clips,
+            completed_clips: self.completed_clips.load(Ordering::Relaxed),
+            failed_clips: self.failed_clips.load(Ordering::Relaxed),
+            current_scene_id: *self.current_scene_id.lock().await,
+            current_scene_title: self.current_scene_title.lock().await.clone(),
+            started_at: self.started_at,
+            updated_at: chrono::Utc::now(),
+            error_message: None,
+        };
+
+        if let Err(e) = self.video_repo.update_progress(&self.video_id, &progress).await {
+            warn!(video_id = %self.video_id, error = %e, "Failed to update progress in Firestore");
+        }
+    }
+}
 
 /// Result of processing a batch of scenes.
 #[derive(Debug, Default)]
@@ -39,6 +147,8 @@ pub struct SceneProcessingResult {
 ///
 /// Phase 4: Uses raw segment caching to avoid re-extracting segments
 /// when rendering multiple styles for the same scene.
+///
+/// If `progress_tracker` is provided, updates Firestore progress after each scene.
 pub async fn process_selected_scenes(
     ctx: &EnhancedProcessingContext,
     job: &ReprocessScenesJob,
@@ -47,6 +157,7 @@ pub async fn process_selected_scenes(
     clip_tasks: &[ClipTask],
     highlights: &VideoHighlights,
     total_clips: usize,
+    progress_tracker: Option<&ProgressTracker>,
 ) -> WorkerResult<u32> {
     use vclip_media::intelligent::parse_timestamp;
 
@@ -88,6 +199,11 @@ pub async fn process_selected_scenes(
 
         // Emit scene_started with ORIGINAL video timestamps
         emit_scene_started(ctx, job, scene_id, first_task, scene_tasks.len(), original_start_secs, original_duration).await;
+
+        // Notify progress tracker about scene start
+        if let Some(tracker) = progress_tracker {
+            tracker.scene_started(scene_id, Some(first_task.scene_title.clone())).await;
+        }
 
         // Get or create cached raw segment
         let (raw_segment, segment_duration) = prepare_raw_segment(
@@ -135,6 +251,14 @@ pub async fn process_selected_scenes(
 
         processed_count += scene_results.processed;
         completed_clips += scene_results.completed;
+
+        // Calculate failed clips for this scene
+        let scene_failed = (scene_tasks.len() as u32).saturating_sub(scene_results.completed);
+
+        // Update Firestore progress tracker after each scene
+        if let Some(tracker) = progress_tracker {
+            tracker.scene_completed(scene_results.completed, scene_failed).await;
+        }
 
         // Update progress after each scene (25% to 95%)
         let progress = 25 + (processed_count * 70 / total_clips) as u32;

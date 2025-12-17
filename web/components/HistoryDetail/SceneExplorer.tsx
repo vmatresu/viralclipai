@@ -372,7 +372,7 @@ function HistorySceneItem({
   const styleSummaries = useMemo(() => {
     const seen = new Map<string, { color: TierColor; label: string }>();
     scene.clips.forEach((clip) => {
-      const normalizedStyle = normalizeStyleForSelection(clip.style) || clip.style;
+      const normalizedStyle = normalizeStyleForSelection(clip.style) ?? clip.style;
       if (!seen.has(normalizedStyle)) {
         const meta = getStyleTier(clip.style);
         seen.set(normalizedStyle, {

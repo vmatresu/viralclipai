@@ -5,7 +5,7 @@
 //! - Video styles and crop modes
 //! - Encoding configuration
 //! - Detection tiers for intelligent processing
-//! - WebSocket message schemas
+//! - Redis pub/sub message schemas (legacy ws.rs, used for worker progress)
 //! - Plan configuration and storage limits
 //! - Share link configuration
 //! - Analysis workflow (drafts and scenes)
@@ -42,7 +42,7 @@ pub use plan::{FREE_STORAGE_LIMIT_BYTES, PRO_STORAGE_LIMIT_BYTES, STUDIO_STORAGE
 pub use share::{CreateShareRequest, ShareAccessLevel, ShareConfig, ShareResponse, is_valid_share_slug, MAX_SHARE_EXPIRY_HOURS};
 pub use style::{AspectRatio, CropMode, Style};
 pub use utils::{extract_youtube_id, extract_youtube_id_legacy, YoutubeIdError, YoutubeIdResult};
-pub use video::{SourceVideoStatus, VideoId, VideoMetadata, VideoStatus};
+pub use video::{ProcessingProgress, SourceVideoStatus, VideoId, VideoMetadata, VideoStatus};
 pub use ws::{ClipProcessingStep, WsMessage, WsMessageType};
 pub use youtube_url_config::{
     analyze_youtube_url, analyze_youtube_url_json, LiveCaptureMode, LiveHandling, SubtitlePlan,
