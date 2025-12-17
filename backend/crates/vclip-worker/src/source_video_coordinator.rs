@@ -16,6 +16,7 @@ use tracing::{debug, info, warn};
 const DEFAULT_KEY_TTL_SECS: u64 = 24 * 60 * 60;
 
 /// Coordinator for managing source video lifecycle across workers.
+#[derive(Clone)]
 pub struct SourceVideoCoordinator {
     client: redis::Client,
     key_ttl: Duration,

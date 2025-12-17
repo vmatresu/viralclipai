@@ -45,7 +45,7 @@ mod vad;
 pub use analyze::analyze_audio_segments;
 pub use apply::{apply_silence_removal, should_apply_silence_removal};
 pub use config::SilenceRemovalConfig;
-pub use segmenter::{Segment, SegmentLabel, SilenceRemover};
+pub use segmenter::{compute_segment_stats, Segment, SegmentLabel, SegmentStats, SilenceRemover};
 
 /// Default configuration optimized for streamer content.
 ///

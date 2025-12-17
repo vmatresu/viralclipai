@@ -45,6 +45,7 @@ fn load_prompt_from_file() -> Option<String> {
 }
 
 /// Enhanced processing context with new architecture components.
+#[derive(Clone)]
 pub struct EnhancedProcessingContext {
     pub config: WorkerConfig,
     pub storage: R2Client,

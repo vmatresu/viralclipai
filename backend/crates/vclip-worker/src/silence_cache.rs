@@ -23,8 +23,8 @@ use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 
 use vclip_media::silence_removal::{
-    analyze_audio_segments, apply_silence_removal, should_apply_silence_removal,
-    SilenceRemovalConfig,
+    analyze_audio_segments, apply_silence_removal, compute_segment_stats, should_apply_silence_removal,
+    Segment, SilenceRemovalConfig,
 };
 use vclip_models::JobId;
 
@@ -270,33 +270,36 @@ impl<'a> SilenceRemovalService<'a> {
             return Err(WorkerError::job_failed("Silence removal output file not created"));
         }
 
-        // Log statistics
-        self.log_statistics(raw_segment, output_path, scene_id).await;
+        // Log duration statistics (meaningful metric for silence removal)
+        self.log_duration_statistics(&segments, scene_id);
 
         Ok(SilenceRemovalResult::Applied(output_path.to_path_buf()))
     }
 
-    /// Log file size statistics after silence removal.
-    async fn log_statistics(&self, original: &Path, processed: &Path, scene_id: u32) {
-        let original_size = tokio::fs::metadata(original)
-            .await
-            .map(|m| m.len())
-            .unwrap_or(0);
-        let new_size = tokio::fs::metadata(processed)
-            .await
-            .map(|m| m.len())
-            .unwrap_or(0);
-
-        let reduction_pct = if original_size > 0 {
-            ((original_size as f64 - new_size as f64) / original_size as f64) * 100.0
+    /// Log duration statistics after silence removal.
+    /// 
+    /// Note: We log duration reduction, not file size, because:
+    /// - Silence removal re-encodes with ultrafast preset for frame-accurate cuts
+    /// - This can produce larger intermediate files than the original
+    /// - The final output is re-encoded again with proper compression
+    /// - Duration reduction is the meaningful metric for silence removal
+    fn log_duration_statistics(&self, segments: &[Segment], scene_id: u32) {
+        let stats = compute_segment_stats(segments);
+        
+        let total_duration_sec = (stats.total_keep_ms + stats.total_cut_ms) as f64 / 1000.0;
+        let kept_duration_sec = stats.total_keep_ms as f64 / 1000.0;
+        let cut_duration_sec = stats.total_cut_ms as f64 / 1000.0;
+        let reduction_pct = if total_duration_sec > 0.0 {
+            (cut_duration_sec / total_duration_sec) * 100.0
         } else {
             0.0
         };
 
         info!(
             scene_id = scene_id,
-            original_size_mb = original_size as f64 / 1_048_576.0,
-            new_size_mb = new_size as f64 / 1_048_576.0,
+            original_duration_sec = format!("{:.1}s", total_duration_sec),
+            kept_duration_sec = format!("{:.1}s", kept_duration_sec),
+            silence_cut_sec = format!("{:.1}s", cut_duration_sec),
             reduction_pct = format!("{:.1}%", reduction_pct),
             "Silence removal completed"
         );

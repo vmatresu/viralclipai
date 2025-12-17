@@ -65,6 +65,7 @@ impl QueueConfig {
 }
 
 /// Job queue client.
+#[derive(Clone)]
 pub struct JobQueue {
     client: redis::Client,
     config: QueueConfig,
