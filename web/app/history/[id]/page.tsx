@@ -1,14 +1,15 @@
 "use client";
 
 import {
-  AlertCircle,
-  ArrowLeft,
-  ChevronDown,
-  ChevronRight,
-  Copy,
-  Play,
-  Sparkles,
-  Trash2,
+    AlertCircle,
+    ArrowLeft,
+    ChevronDown,
+    ChevronRight,
+    Copy,
+    Loader2,
+    Play,
+    Sparkles,
+    Trash2,
 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -16,50 +17,50 @@ import { toast } from "sonner";
 
 import { type Clip } from "@/components/ClipGrid";
 import {
-  OverwriteConfirmationDialog,
-  type OverwriteTarget,
+    OverwriteConfirmationDialog,
+    type OverwriteTarget,
 } from "@/components/HistoryDetail/OverwriteConfirmationDialog";
 import { SceneCard, type Highlight } from "@/components/HistoryDetail/SceneCard";
 import {
-  HistorySceneExplorer,
-  groupClipsByScene,
-  type HistoryClip,
+    HistorySceneExplorer,
+    groupClipsByScene,
+    type HistoryClip,
 } from "@/components/HistoryDetail/SceneExplorer";
 import { DetailedProcessingStatus } from "@/components/shared/DetailedProcessingStatus";
 import {
-  DEFAULT_STREAMER_SPLIT_CONFIG,
-  StyleQualitySelector,
-  type StreamerSplitConfig,
+    DEFAULT_STREAMER_SPLIT_CONFIG,
+    StyleQualitySelector,
+    type StreamerSplitConfig,
 } from "@/components/style-quality/StyleQualitySelector";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
 } from "@/components/ui/card";
 import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
+    Dialog,
+    DialogClose,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { calculateProgressPercentage, useVideoStatus } from "@/hooks/useVideoStatus";
 import {
-  apiFetch,
-  bulkDeleteClips,
-  deleteAllClips,
-  deleteClip as deleteClipApi,
-  getVideoDetails,
-  getVideoHighlights,
-  getVideoSceneStyles,
+    apiFetch,
+    bulkDeleteClips,
+    deleteAllClips,
+    deleteClip as deleteClipApi,
+    getVideoDetails,
+    getVideoHighlights,
+    getVideoSceneStyles,
 } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 import { useProcessing } from "@/lib/processing-context";
@@ -840,6 +841,51 @@ export default function HistoryDetailPage() {
         <Button variant="outline" onClick={() => router.back()}>
           Go Back
         </Button>
+      </div>
+    );
+  }
+
+  // Video is still being analyzed (empty highlights)
+  if (highlightsData.highlights.length === 0) {
+    return (
+      <div className="space-y-6 page-container">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={() => router.back()}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div className="flex-1">
+            <p className="text-sm text-muted-foreground">History · {videoId}</p>
+            <h1 className="text-3xl font-bold tracking-tight">
+              {highlightsData.video_title ?? "Video Analysis"}
+            </h1>
+          </div>
+        </div>
+
+        <Card className="glass">
+          <CardContent className="flex flex-col items-center justify-center py-16 space-y-6 text-center">
+            <div className="relative">
+              <div className="absolute inset-0 bg-primary/20 rounded-full animate-ping" />
+              <div className="relative bg-primary/10 p-6 rounded-full">
+                <Loader2 className="h-12 w-12 text-primary animate-spin" />
+              </div>
+            </div>
+            <div className="space-y-2 max-w-md">
+              <h3 className="text-xl font-semibold">Analyzing your video...</h3>
+              <p className="text-muted-foreground">
+                Our AI is finding the best viral moments in your video. This usually takes
+                1-3 minutes depending on video length.
+              </p>
+              <p className="text-sm text-muted-foreground mt-4">
+                You can safely leave this page and come back later. Your analysis will
+                continue in the background.
+              </p>
+            </div>
+            <Button variant="outline" onClick={() => void loadData()}>
+              <Loader2 className="h-4 w-4 mr-2" />
+              Check Progress
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }

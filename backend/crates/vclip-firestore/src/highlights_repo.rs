@@ -162,14 +162,20 @@ fn document_to_video_highlights(
         FirestoreError::InvalidResponse("Document has no fields".to_string())
     })?;
 
-    // Parse highlights array
-    let highlights = fields
+    // Parse highlights array - handle empty/missing arrays gracefully
+    let highlights_values = fields
         .get("highlights")
         .and_then(|v| match v {
-            Value::ArrayValue(ArrayValue { values: Some(values) }) => Some(values),
+            // Handle case where array exists with values
+            Value::ArrayValue(ArrayValue { values: Some(values) }) => Some(values.clone()),
+            // Handle case where array exists but is empty (values = None)
+            Value::ArrayValue(ArrayValue { values: None }) => Some(vec![]),
             _ => None,
         })
-        .ok_or_else(|| FirestoreError::InvalidResponse("Missing highlights array".to_string()))?
+        // Default to empty vec if highlights field is missing entirely
+        .unwrap_or_default();
+    
+    let highlights = highlights_values
         .iter()
         .filter_map(|v| match v {
             Value::MapValue(MapValue { fields: Some(fields) }) => {

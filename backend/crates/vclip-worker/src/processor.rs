@@ -15,7 +15,7 @@ use vclip_media::{
     styles::StyleProcessorFactory as MediaStyleProcessorFactory,
 };
 use vclip_models::{AnalysisStatus, DraftScene, VideoMetadata};
-use vclip_queue::{AnalyzeVideoJob, DownloadSourceJob, ProcessVideoJob, ProgressChannel, RenderSceneStyleJob, ReprocessScenesJob};
+use vclip_queue::{AnalyzeVideoJob, ProcessVideoJob, ProgressChannel, RenderSceneStyleJob, ReprocessScenesJob};
 use vclip_storage::R2Client;
 
 use crate::config::WorkerConfig;
@@ -183,6 +183,9 @@ impl VideoProcessor {
             .ok();
         ctx.progress.progress(&job.job_id, 5).await.ok();
 
+        // Note: Empty highlights record is created by the API endpoint before job enqueueing
+        // to ensure it exists immediately when the user is redirected to the history page.
+
         // Get transcript and video metadata (NO video download)
         let transcript_data = self.fetch_transcript_and_metadata(ctx, job).await?;
         ctx.progress.progress(&job.job_id, 20).await.ok();
@@ -250,35 +253,9 @@ impl VideoProcessor {
             .await
             .map_err(|e| WorkerError::Firestore(e))?;
 
-        // Enqueue background source download using shared queue client
-        if let Some(ref queue) = ctx.job_queue {
-            let download_job = DownloadSourceJob {
-                job_id: vclip_models::JobId::new(),
-                user_id: job.user_id.clone(),
-                video_id: job.video_id.clone(),
-                video_url: transcript_data.url.clone(),
-                created_at: chrono::Utc::now(),
-            };
-            let download_video_id = download_job.video_id.clone();
-
-            // Enqueue synchronously (non-blocking Redis call, fast enough for hot path)
-            match queue.enqueue_download_source(download_job).await {
-                Ok(message_id) => {
-                    tracing::info!(
-                        video_id = %download_video_id,
-                        message_id = %message_id,
-                        "Enqueued DownloadSourceJob after analysis"
-                    );
-                }
-                Err(e) => {
-                    tracing::debug!(
-                        video_id = %download_video_id,
-                        error = %e,
-                        "Failed to enqueue DownloadSourceJob after analysis (non-critical)"
-                    );
-                }
-            }
-        }
+        // Note: Source video download is no longer triggered after analysis.
+        // The source video is only downloaded when the user starts processing scenes
+        // via ReprocessScenes or RenderSceneStyle jobs.
 
         ctx.progress.progress(&job.job_id, 100).await.ok();
         ctx.progress

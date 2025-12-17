@@ -342,8 +342,6 @@ export function ProcessVideoInterface() {
 
   return (
     <div className="w-full max-w-4xl mx-auto space-y-8 p-6 md:p-8 rounded-3xl glass-card relative overflow-hidden bg-white/95 dark:bg-black/80">
-      {/* Glow effect background (Updated to match mockup-glow) */}
-      <div className="absolute inset-[-2px] bg-gradient-to-r from-[#A45CFF] to-[#5CFFF9] rounded-3xl opacity-10 dark:opacity-20 blur-[40px] -z-10 animate-pulse pointer-events-none" />
 
       {/* Header */}
       <div className="space-y-2 relative mb-6">
@@ -454,14 +452,20 @@ export function ProcessVideoInterface() {
         />
 
         {/* Chips with Sticker */}
-        <div className="relative mt-8">
-          <div className="absolute -top-6 left-1 hidden md:flex items-end gap-2 pointer-events-none select-none z-10">
-            <div className="bg-gradient-to-r from-[#A45CFF] to-[#5CFFF9] text-[#05060D] text-[10px] uppercase tracking-wider font-bold px-3 py-1 rounded-sm -rotate-3 shadow-[0_2px_10px_rgba(164,92,255,0.3)] border border-white/20 flex items-center gap-1.5 animate-in fade-in slide-in-from-bottom-2 duration-500">
+        <div className="relative mt-4 pt-4">
+          <div className="flex items-center gap-2 mb-3 md:hidden">
+            <div className="bg-gradient-to-r from-[#A45CFF] to-[#5CFFF9] text-[#05060D] text-[10px] uppercase tracking-wider font-bold px-3 py-1 rounded-sm shadow-sm border border-white/20 flex items-center gap-1.5">
+              <Sparkles className="w-3 h-3" />
+              Try these:
+            </div>
+          </div>
+          <div className="hidden md:flex items-center gap-2 mb-3">
+            <div className="bg-gradient-to-r from-[#A45CFF] to-[#5CFFF9] text-[#05060D] text-[10px] uppercase tracking-wider font-bold px-3 py-1 rounded-sm -rotate-2 shadow-sm border border-white/20 flex items-center gap-1.5">
               <Sparkles className="w-3 h-3" />
               Try these:
             </div>
             <CornerRightDown
-              className="w-4 h-4 text-[#A45CFF] translate-y-2 -translate-x-1"
+              className="w-4 h-4 text-[#A45CFF]"
               strokeWidth={2.5}
             />
           </div>

@@ -1668,10 +1668,53 @@ pub async fn process_video(
     let job = ProcessVideoJob::new(&user.uid, &validated_url, styles)
         .with_crop_mode(crop_mode)
         .with_target_aspect(target_aspect)
-        .with_custom_prompt(sanitized_prompt);
+        .with_custom_prompt(sanitized_prompt.clone());
     
     let job_id = job.job_id.clone();
     let video_id = job.video_id.clone();
+
+    // Create empty highlights document BEFORE enqueueing the job
+    // This ensures the document exists when the user is redirected to the history page
+    let empty_highlights = vclip_models::highlight::VideoHighlights {
+        video_id: video_id.to_string(),
+        highlights: vec![], // Empty - will be populated by worker after AI analysis
+        video_url: Some(validated_url.clone()),
+        video_title: None, // Will be set by worker after metadata fetch
+        custom_prompt: sanitized_prompt,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+    let highlights_repo = vclip_firestore::HighlightsRepository::new(
+        (*state.firestore).clone(),
+        &user.uid,
+    );
+    highlights_repo
+        .upsert(&empty_highlights)
+        .await
+        .map_err(|e| {
+            warn!("Failed to create empty highlights: {}", e);
+            ApiError::internal(format!("Failed to initialize video: {}", e))
+        })?;
+
+    // Also create the video record so user_owns_video check passes
+    // This record will be updated by the worker with the actual video title
+    let video_meta = vclip_models::VideoMetadata::new(
+        video_id.clone(),
+        &user.uid,
+        &validated_url,
+        "Analyzing...", // Placeholder title until worker gets the real one
+    );
+    let video_repo = vclip_firestore::VideoRepository::new(
+        (*state.firestore).clone(),
+        &user.uid,
+    );
+    video_repo
+        .create(&video_meta)
+        .await
+        .map_err(|e| {
+            warn!("Failed to create video record: {}", e);
+            ApiError::internal(format!("Failed to initialize video: {}", e))
+        })?;
 
     // Enqueue job
     state.queue.enqueue_process(job).await
