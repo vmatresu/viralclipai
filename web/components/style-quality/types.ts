@@ -49,7 +49,7 @@ export const DEFAULT_SELECTION: LayoutQualitySelection = {
   includeOriginal: false,
   streamerSplitConfig: DEFAULT_STREAMER_SPLIT_CONFIG,
   topScenesEnabled: false,
-  cutSilentParts: true,
+  cutSilentParts: false,
 };
 
 /** Map static position to backend style name */

@@ -181,7 +181,7 @@ export default function HistoryDetailPage() {
   /** Track whether Top Scenes compilation mode is enabled */
   const [topScenesEnabled, setTopScenesEnabled] = useState<boolean>(false);
   /** Track whether to cut silent parts from clips */
-  const [cutSilentParts, setCutSilentParts] = useState<boolean>(true);
+  const [cutSilentParts, setCutSilentParts] = useState<boolean>(false);
   /** Track the order of selected scenes for Top Scenes compilation */
   const [compilationSceneOrder, setCompilationSceneOrder] = useState<number[]>([]);
   const {

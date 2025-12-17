@@ -369,7 +369,7 @@ pub struct ClipTask {
 }
 
 fn default_cut_silent_parts() -> bool {
-    true
+    false
 }
 
 impl ClipTask {
@@ -395,7 +395,7 @@ impl ClipTask {
             pad_after: 0.0,
             streamer_split_params: None,
             streamer_params: None,
-            cut_silent_parts: true,
+            cut_silent_parts: false,
         }
     }
 

@@ -189,7 +189,7 @@ export function reprocessScenesWebSocket(
     overwrite = false,
     streamerSplitParams,
     topScenesCompilation = false,
-    cutSilentParts = true,
+    cutSilentParts = false,
   } = options;
 
   // Validation

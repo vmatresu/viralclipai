@@ -157,7 +157,7 @@ pub struct ReprocessScenesJob {
 }
 
 fn default_cut_silent_parts() -> bool {
-    true
+    false
 }
 
 impl ReprocessScenesJob {
@@ -179,7 +179,7 @@ impl ReprocessScenesJob {
             overwrite: false,
             streamer_split_params: None,
             top_scenes_compilation: false,
-            cut_silent_parts: true,
+            cut_silent_parts: false,
         }
     }
 

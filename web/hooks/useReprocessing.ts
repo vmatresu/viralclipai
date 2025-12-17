@@ -93,7 +93,7 @@ export function useReprocessing({
       overwrite: boolean = false,
       streamerSplitParams?: StreamerSplitParams,
       topScenesCompilation: boolean = false,
-      cutSilentParts: boolean = true
+      cutSilentParts: boolean = false
     ) => {
       if (state.isProcessing) {
         toast.error("Reprocessing already in progress");

@@ -31,7 +31,7 @@ export default function SettingsPage() {
   const [status, setStatus] = useState<string | null>(null);
 
   // Processing defaults
-  const [cutSilentPartsDefault, setCutSilentPartsDefault] = useState(true);
+  const [cutSilentPartsDefault, setCutSilentPartsDefault] = useState(false);
 
   // Admin prompt state
   const [prompt, setPrompt] = useState("");
@@ -64,7 +64,7 @@ export default function SettingsPage() {
             setData(res);
             setAccessToken(res.settings?.tiktok_access_token ?? "");
             setAccountId(res.settings?.tiktok_account_id ?? "");
-            setCutSilentPartsDefault(res.settings?.cut_silent_parts_default ?? true);
+            setCutSilentPartsDefault(res.settings?.cut_silent_parts_default ?? false);
           }
         } catch (err: unknown) {
           if (!cancelled) {
