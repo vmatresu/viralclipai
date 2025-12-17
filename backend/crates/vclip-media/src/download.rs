@@ -2,13 +2,57 @@
 
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::OnceLock;
 use tokio::process::Command;
+use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 use crate::error::{MediaError, MediaResult};
 
 /// Minimum video file size threshold (50MB) to consider download complete.
 const MIN_VIDEO_FILE_SIZE: u64 = 50 * 1024 * 1024;
+
+/// Source cookies path (mounted read-only in Docker).
+const SOURCE_COOKIES_PATH: &str = "/app/youtube-cookies.txt";
+
+/// Writable temp path for cookies (allows yt-dlp to save cookies).
+const TEMP_COOKIES_PATH: &str = "/tmp/youtube-cookies.txt";
+
+/// Guards concurrent access to cookies file copy.
+static COOKIES_LOCK: OnceLock<Mutex<bool>> = OnceLock::new();
+
+/// Get path to a writable cookies file.
+/// 
+/// Copies the source cookies file to a temp location if needed,
+/// since yt-dlp tries to save cookies back after use.
+pub async fn get_writable_cookies_path() -> Option<String> {
+    let source_path = Path::new(SOURCE_COOKIES_PATH);
+    
+    if !source_path.exists() {
+        return None;
+    }
+    
+    let temp_path = Path::new(TEMP_COOKIES_PATH);
+    let lock = COOKIES_LOCK.get_or_init(|| Mutex::new(false));
+    
+    let mut copied = lock.lock().await;
+    
+    // Copy if not yet copied or temp file doesn't exist
+    if !*copied || !temp_path.exists() {
+        match tokio::fs::copy(source_path, temp_path).await {
+            Ok(_) => {
+                debug!("Copied cookies file to writable location: {}", TEMP_COOKIES_PATH);
+                *copied = true;
+            }
+            Err(e) => {
+                warn!("Failed to copy cookies file to temp: {}", e);
+                return None;
+            }
+        }
+    }
+    
+    Some(TEMP_COOKIES_PATH.to_string())
+}
 
 /// Download a video from URL using yt-dlp.
 pub async fn download_video(url: &str, output_path: impl AsRef<Path>) -> MediaResult<()> {
@@ -35,20 +79,22 @@ pub async fn download_video(url: &str, output_path: impl AsRef<Path>) -> MediaRe
 
     info!("Downloading video from {} to {}", url, output_path.display());
 
-    // Use cookies file if available for YouTube authentication
-    let cookies_path = "/app/youtube-cookies.txt";
+    // Use cookies file if available for YouTube authentication (copy to writable location)
+    let cookies_path = get_writable_cookies_path().await;
+    let output_path_str = output_path.to_string_lossy();
+    
     let mut args = vec![
         "--remote-components", "ejs:github",
         "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "-o",
     ];
     
-    let output_path_str = output_path.to_string_lossy();
     args.push(&output_path_str);
     
-    if Path::new(cookies_path).exists() {
+    let cookies_ref = cookies_path.as_deref();
+    if let Some(cp) = cookies_ref {
         args.push("--cookies");
-        args.push(cookies_path);
+        args.push(cp);
     }
     args.push(url);
 
@@ -152,8 +198,8 @@ pub async fn download_segment(
         "Attempting segment download with yt-dlp --download-sections"
     );
 
-    // Use cookies file if available for YouTube authentication
-    let cookies_path = "/app/youtube-cookies.txt";
+    // Use cookies file if available for YouTube authentication (copy to writable location)
+    let cookies_path = get_writable_cookies_path().await;
     let output_path_str = output_path.to_string_lossy();
     
     let mut args = vec![
@@ -173,9 +219,9 @@ pub async fn download_segment(
         args.push("--force-keyframes-at-cuts".to_string());
     }
 
-    if Path::new(cookies_path).exists() {
+    if let Some(cp) = &cookies_path {
         args.push("--cookies".to_string());
-        args.push(cookies_path.to_string());
+        args.push(cp.clone());
     }
     args.push(url.to_string());
 

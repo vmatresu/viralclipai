@@ -33,7 +33,15 @@ export interface ProcessingProgress {
 export interface VideoStatus {
   id: string;
   title?: string;
-  status: "pending" | "processing" | "completed" | "failed";
+  /**
+   * Video status:
+   * - pending: Initial state, not yet started
+   * - processing: Currently being processed (analysis or clip rendering)
+   * - analyzed: AI analysis complete, scenes available for selection (no clips rendered)
+   * - completed: Clips have been rendered successfully
+   * - failed: Processing failed
+   */
+  status: "pending" | "processing" | "analyzed" | "completed" | "failed";
   clip_count: number;
   created_at: string;
   updated_at: string;
@@ -174,8 +182,12 @@ export function useVideoStatus(
           const ttl = calculateTtl(cached.fetchCount);
           const age = Date.now() - cached.timestamp;
 
-          if (age < ttl) {
-            // Cache is still valid
+          // IMPORTANT: Never trust cache if status is "processing" - it's transient and
+          // likely to have changed. Always fetch fresh data to ensure we show current state.
+          const isProcessingStatus = cached.data.status === "processing";
+
+          if (age < ttl && !isProcessingStatus) {
+            // Cache is still valid and not in processing state
             setStatus(cached.data);
             setLoading(false);
             fetchCountRef.current = cached.fetchCount;

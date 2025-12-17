@@ -15,18 +15,11 @@ pub fn init_metrics() -> PrometheusHandle {
         .expect("Failed to install Prometheus recorder")
 }
 
-/// Metric names as constants for consistency.
 pub mod names {
     // HTTP metrics
     pub const HTTP_REQUESTS_TOTAL: &str = "vclip_http_requests_total";
     pub const HTTP_REQUEST_DURATION_SECONDS: &str = "vclip_http_request_duration_seconds";
     pub const HTTP_REQUESTS_IN_FLIGHT: &str = "vclip_http_requests_in_flight";
-
-    // WebSocket metrics
-    pub const WS_CONNECTIONS_TOTAL: &str = "vclip_ws_connections_total";
-    pub const WS_CONNECTIONS_ACTIVE: &str = "vclip_ws_connections_active";
-    pub const WS_MESSAGES_SENT: &str = "vclip_ws_messages_sent_total";
-    pub const WS_MESSAGES_RECEIVED: &str = "vclip_ws_messages_received_total";
 
     // Queue metrics
     pub const QUEUE_LENGTH: &str = "vclip_queue_length";
@@ -55,32 +48,6 @@ pub fn record_http_request(method: &str, path: &str, status: u16, duration_secs:
 
     counter!(names::HTTP_REQUESTS_TOTAL, &labels).increment(1);
     histogram!(names::HTTP_REQUEST_DURATION_SECONDS, &labels).record(duration_secs);
-}
-
-/// Record WebSocket connection.
-pub fn record_ws_connection(endpoint: &str) {
-    let labels = [("endpoint", endpoint.to_string())];
-    counter!(names::WS_CONNECTIONS_TOTAL, &labels).increment(1);
-}
-
-/// Update active WebSocket connections gauge.
-pub fn set_ws_active_connections(count: i64) {
-    gauge!(names::WS_CONNECTIONS_ACTIVE).set(count as f64);
-}
-
-/// Record WebSocket message sent.
-pub fn record_ws_message_sent(endpoint: &str, message_type: &str) {
-    let labels = [
-        ("endpoint", endpoint.to_string()),
-        ("type", message_type.to_string()),
-    ];
-    counter!(names::WS_MESSAGES_SENT, &labels).increment(1);
-}
-
-/// Record WebSocket message received.
-pub fn record_ws_message_received(endpoint: &str) {
-    let labels = [("endpoint", endpoint.to_string())];
-    counter!(names::WS_MESSAGES_RECEIVED, &labels).increment(1);
 }
 
 /// Update queue length gauge.

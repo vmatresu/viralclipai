@@ -163,24 +163,39 @@ async fn create_test_router() -> axum::Router {
     }
 }
 
-/// Test WebSocket connection (basic).
+/// Test REST processing endpoint (basic).
 #[tokio::test]
-#[ignore = "requires full app setup with WebSocket support"]
-async fn test_websocket_connection() {
-    use tokio_tungstenite::connect_async;
-
+#[ignore = "requires full app setup"]
+async fn test_process_video_endpoint() {
     dotenvy::dotenv().ok();
 
-    // This test requires the server to be running
-    let url = "ws://localhost:8000/ws/process";
-    
-    match connect_async(url).await {
-        Ok((ws_stream, _)) => {
-            println!("WebSocket connected successfully");
-            drop(ws_stream);
+    // This test requires the server to be running.
+    // Optional: provide a valid Firebase ID token via env var for an authenticated request.
+    let base_url =
+        std::env::var("VCLIP_TEST_API_BASE_URL").unwrap_or_else(|_| "http://localhost:8000".to_string());
+    let token = std::env::var("VCLIP_TEST_ID_TOKEN").unwrap_or_default();
+
+    let client = reqwest::Client::new();
+    let mut request = client
+        .post(format!("{}/api/videos/process", base_url))
+        .json(&serde_json::json!({
+            "url": "https://youtube.com/watch?v=abc123def45",
+            "styles": ["intelligent"],
+            "crop_mode": "none",
+            "target_aspect": "9:16"
+        }));
+
+    if !token.is_empty() {
+        request = request.bearer_auth(token);
+    }
+
+    match request.send().await {
+        Ok(resp) => {
+            println!("REST process endpoint responded with status {}", resp.status());
+            assert_ne!(resp.status(), StatusCode::NOT_FOUND);
         }
         Err(e) => {
-            println!("WebSocket connection failed (expected if server not running): {}", e);
+            println!("REST request failed (expected if server not running): {}", e);
         }
     }
 }

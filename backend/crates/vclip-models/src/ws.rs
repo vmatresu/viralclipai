@@ -1,12 +1,18 @@
-//! WebSocket message types.
+//! Progress message types for Redis pub/sub.
 //!
-//! These messages maintain compatibility with the existing Python API.
+//! These message types are used for worker-to-Redis progress reporting.
+//! They are published to Redis channels for job progress tracking and
+//! stored in Redis sorted sets for history/recovery.
+//!
+//! Note: Despite the "Ws" prefix in type names (kept for backward compatibility),
+//! these are used for Redis pub/sub, not WebSocket communication.
+//! Frontend communicates with the backend via REST API and polls Firestore for progress.
 
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-/// WebSocket message types (matching Python implementation).
+/// Progress message types for Redis pub/sub (Ws prefix kept for compatibility).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum WsMessageType {
@@ -37,7 +43,7 @@ impl WsMessageType {
     }
 }
 
-/// WebSocket message envelope.
+/// Progress message envelope for Redis pub/sub.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WsMessage {
@@ -136,12 +142,13 @@ pub enum WsMessage {
         reason: String,
     },
 
-    /// Job started notification (for polling fallback)
+    /// Job started notification
     ///
     /// Sent immediately after job is enqueued to enable polling-based
-    /// progress tracking as a fallback when WebSocket disconnects.
+    /// progress tracking. Frontend polls Firestore for real-time status.
     JobStarted {
         /// Job ID for polling the /api/jobs/:job_id/status endpoint
+
         #[serde(rename = "jobId")]
         job_id: String,
         /// Video ID associated with this job
@@ -338,7 +345,7 @@ impl WsMessage {
     }
 }
 
-/// Request to process a video via WebSocket.
+/// Request to process a video (legacy schema, kept for compatibility).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct WsProcessRequest {
     /// Firebase auth token
@@ -376,7 +383,7 @@ fn default_clip_credits() -> u32 {
     1
 }
 
-/// Request to reprocess scenes via WebSocket.
+/// Request to reprocess scenes (legacy schema, kept for compatibility).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct WsReprocessRequest {
     /// Firebase auth token

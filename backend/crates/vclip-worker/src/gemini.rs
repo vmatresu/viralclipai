@@ -112,8 +112,8 @@ impl GeminiClient {
     pub async fn get_video_metadata(&self, video_url: &str) -> WorkerResult<(String, String)> {
         info!("Getting video metadata for {} using yt-dlp", video_url);
 
-        // Use cookies file if available for YouTube authentication
-        let cookies_path = "/app/youtube-cookies.txt";
+        // Use cookies file if available for YouTube authentication (copy to writable location)
+        let cookies_path = vclip_media::get_writable_cookies_path().await;
         let mut args = vec![
             "--remote-components",
             "ejs:github",
@@ -125,9 +125,10 @@ impl GeminiClient {
             "--no-playlist",
         ];
 
-        if std::path::Path::new(cookies_path).exists() {
+        let cookies_ref = cookies_path.as_deref();
+        if let Some(cp) = cookies_ref {
             args.push("--cookies");
-            args.push(cookies_path);
+            args.push(cp);
         }
         args.push(video_url);
 
@@ -193,6 +194,7 @@ impl GeminiClient {
 
         // 3. Call Gemini API with fallback models
         let models = vec![
+            "gemini-3-flash-preview",
             "gemini-2.5-flash",
             "gemini-2.5-flash-lite",
             "gemini-2.5-pro",
@@ -229,8 +231,8 @@ impl GeminiClient {
         let output_template = workdir.join("%(id)s");
 
         // Run yt-dlp to download subtitles
-        // Use cookies file if available for YouTube authentication
-        let cookies_path = "/app/youtube-cookies.txt";
+        // Use cookies file if available for YouTube authentication (copy to writable location)
+        let cookies_path = vclip_media::get_writable_cookies_path().await;
         let output_template_str = output_template.to_string_lossy();
         let mut args = vec![
             "--remote-components",
@@ -246,9 +248,10 @@ impl GeminiClient {
             &output_template_str,
         ];
 
-        if std::path::Path::new(cookies_path).exists() {
+        let cookies_ref = cookies_path.as_deref();
+        if let Some(cp) = cookies_ref {
             args.push("--cookies");
-            args.push(cookies_path);
+            args.push(cp);
         }
         args.push(video_url);
 

@@ -159,82 +159,94 @@ pub async fn reprocess_scenes(
     // 3. For scenes where yt-dlp fails, download full source and extract
     
     let video_url = video_highlights.video_url.clone();
-    let final_completed: u32;
     
-    // If all scenes are cached, process them directly
-    if uncached_scenes.is_empty() {
-        info!(
-            video_id = %job.video_id,
-            "All scenes cached, processing directly without source download"
-        );
-        
-        final_completed = process_scenes_with_cache(
-            ctx,
-            job,
-            &clips_dir,
-            &work_dir,
-            &clip_tasks,
-            &cached_scenes,
-            &video_highlights,
-            total_clips,
-            &progress_tracker,
-        )
-        .await?;
-    }
-    // If all scenes are uncached, try yt-dlp then fall back to full source
-    else if cached_scenes.is_empty() {
-        final_completed = process_uncached_scenes_optimized(
-            ctx,
-            job,
-            &clips_dir,
-            &work_dir,
-            &clip_tasks,
-            &uncached_scenes,
-            &video_highlights,
-            video_url.as_deref(),
-            total_clips,
-            &progress_tracker,
-        )
-        .await?;
-    }
-    // Mixed: process cached scenes first, then uncached scenes
-    else {
-        info!(
-            video_id = %job.video_id,
-            "Processing cached scenes first, then acquiring uncached scenes"
-        );
-        
-        // Process cached scenes first (they're ready immediately)
-        let cached_completed = process_scenes_with_cache(
-            ctx,
-            job,
-            &clips_dir,
-            &work_dir,
-            &clip_tasks,
-            &cached_scenes,
-            &video_highlights,
-            total_clips,
-            &progress_tracker,
-        )
-        .await?;
-        
-        // Then acquire and process uncached scenes (tries yt-dlp first)
-        let uncached_completed = process_uncached_scenes_optimized(
-            ctx,
-            job,
-            &clips_dir,
-            &work_dir,
-            &clip_tasks,
-            &uncached_scenes,
-            &video_highlights,
-            video_url.as_deref(),
-            total_clips,
-            &progress_tracker,
-        )
-        .await?;
-        
-        final_completed = cached_completed + uncached_completed;
-    }
+    // Execute processing and capture errors to report via progress tracker
+    let processing_result: WorkerResult<u32> = async {
+        // If all scenes are cached, process them directly
+        if uncached_scenes.is_empty() {
+            info!(
+                video_id = %job.video_id,
+                "All scenes cached, processing directly without source download"
+            );
+            
+            process_scenes_with_cache(
+                ctx,
+                job,
+                &clips_dir,
+                &work_dir,
+                &clip_tasks,
+                &cached_scenes,
+                &video_highlights,
+                total_clips,
+                &progress_tracker,
+            )
+            .await
+        }
+        // If all scenes are uncached, try yt-dlp then fall back to full source
+        else if cached_scenes.is_empty() {
+            process_uncached_scenes_optimized(
+                ctx,
+                job,
+                &clips_dir,
+                &work_dir,
+                &clip_tasks,
+                &uncached_scenes,
+                &video_highlights,
+                video_url.as_deref(),
+                total_clips,
+                &progress_tracker,
+            )
+            .await
+        }
+        // Mixed: process cached scenes first, then uncached scenes
+        else {
+            info!(
+                video_id = %job.video_id,
+                "Processing cached scenes first, then acquiring uncached scenes"
+            );
+            
+            // Process cached scenes first (they're ready immediately)
+            let cached_completed = process_scenes_with_cache(
+                ctx,
+                job,
+                &clips_dir,
+                &work_dir,
+                &clip_tasks,
+                &cached_scenes,
+                &video_highlights,
+                total_clips,
+                &progress_tracker,
+            )
+            .await?;
+            
+            // Then acquire and process uncached scenes (tries yt-dlp first)
+            let uncached_completed = process_uncached_scenes_optimized(
+                ctx,
+                job,
+                &clips_dir,
+                &work_dir,
+                &clip_tasks,
+                &uncached_scenes,
+                &video_highlights,
+                video_url.as_deref(),
+                total_clips,
+                &progress_tracker,
+            )
+            .await?;
+            
+            Ok(cached_completed + uncached_completed)
+        }
+    }.await;
+    
+    // Handle processing errors - report to Firestore progress tracker
+    let final_completed = match processing_result {
+        Ok(count) => count,
+        Err(e) => {
+            // Report error to Firestore for user visibility
+            progress_tracker.set_error(&e.to_string()).await;
+            return Err(e);
+        }
+    };
 
     // Update video metadata - add new clips to existing count
     update_video_clip_count(ctx, job, final_completed).await?;

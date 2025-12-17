@@ -165,6 +165,8 @@ services:
       - worker-temp:/tmp/videos
       # Firebase credentials
       - ./firebase-credentials.json:/app/firebase-credentials.json:ro
+      # YouTube cookies for yt-dlp authentication
+      - ./youtube-cookies.txt:/app/youtube-cookies.txt:ro
       # Object detection models (read-only)
       - ./backend/models:/app/models:ro
 

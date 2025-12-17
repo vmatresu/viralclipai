@@ -86,7 +86,9 @@ export function DetailedProcessingStatus({
           <div className="bg-muted/50 rounded-xl p-4 font-mono text-sm h-48 overflow-y-auto border space-y-1">
             {logs.length === 0 && (
               <div className="text-muted-foreground italic">
-                {isResuming ? "Retrieving logs..." : "Waiting for task..."}
+                {isResuming
+                  ? "Retrieving logs..."
+                  : "Processing continues in background..."}
               </div>
             )}
             {/* Log entries don't have unique IDs, using content+index as key */}

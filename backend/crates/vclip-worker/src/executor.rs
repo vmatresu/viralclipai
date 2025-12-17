@@ -376,17 +376,25 @@ impl JobExecutor {
                         warn!("Failed to clear dedup key for job {}: {}", job_id, e);
                     }
 
+                    let error_msg = format!("Job failed after {} retries: {}", max_retries, e);
+
                     // Update video status to "Failed" in Firestore so it doesn't stay stuck in "processing"
                     // Note: AnalyzeVideo jobs don't have a video_id, they use draft_id instead
                     if let Some(video_id) = job.video_id() {
                         let user_id = job.user_id();
                         let video_repo =
                             vclip_firestore::VideoRepository::new(ctx.firestore.clone(), user_id);
+
+                        if let Err(progress_err) =
+                            video_repo.set_progress_error(video_id, &error_msg).await
+                        {
+                            warn!(
+                                "Failed to set progress error for video {}: {}",
+                                video_id, progress_err
+                            );
+                        }
                         if let Err(fail_err) = video_repo
-                            .fail(
-                                video_id,
-                                &format!("Job failed after {} retries: {}", max_retries, e),
-                            )
+                            .fail(video_id, &error_msg)
                             .await
                         {
                             error!("Failed to mark video {} as failed: {}", video_id, fail_err);
@@ -400,12 +408,11 @@ impl JobExecutor {
                             ctx.firestore.clone(),
                             user_id,
                         );
-                        let error_msg = format!("Job failed after {} retries: {}", max_retries, e);
                         if let Err(fail_err) = draft_repo
                             .update_status(
                                 draft_id,
                                 vclip_models::AnalysisStatus::Failed,
-                                Some(error_msg),
+                                Some(error_msg.clone()),
                             )
                             .await
                         {
@@ -420,7 +427,7 @@ impl JobExecutor {
                     ctx.progress
                         .error(
                             job.job_id(),
-                            format!("Job failed after {} retries: {}", max_retries, e),
+                            error_msg,
                         )
                         .await
                         .ok();

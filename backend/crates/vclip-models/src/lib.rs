@@ -5,7 +5,7 @@
 //! - Video styles and crop modes
 //! - Encoding configuration
 //! - Detection tiers for intelligent processing
-//! - Redis pub/sub message schemas (legacy ws.rs, used for worker progress)
+//! - Redis pub/sub progress message schemas (ws.rs, used for worker progress)
 //! - Plan configuration and storage limits
 //! - Share link configuration
 //! - Analysis workflow (drafts and scenes)

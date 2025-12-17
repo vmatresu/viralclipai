@@ -342,7 +342,6 @@ export function ProcessVideoInterface() {
 
   return (
     <div className="w-full max-w-4xl mx-auto space-y-8 p-6 md:p-8 rounded-3xl glass-card relative overflow-hidden bg-white/95 dark:bg-black/80">
-
       {/* Header */}
       <div className="space-y-2 relative mb-6">
         <h2 className="text-2xl font-bold tracking-tight text-foreground">
@@ -464,10 +463,7 @@ export function ProcessVideoInterface() {
               <Sparkles className="w-3 h-3" />
               Try these:
             </div>
-            <CornerRightDown
-              className="w-4 h-4 text-[#A45CFF]"
-              strokeWidth={2.5}
-            />
+            <CornerRightDown className="w-4 h-4 text-[#A45CFF]" strokeWidth={2.5} />
           </div>
 
           <div className="flex flex-wrap gap-2">
