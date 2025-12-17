@@ -36,6 +36,13 @@ pub fn raw_segment_r2_key(user_id: &str, video_id: &str, scene_id: u32) -> Strin
     format!("clips/{}/{}/raw/{}.mp4", user_id, video_id, scene_id)
 }
 
+/// Generate R2 key for silence-removed segment.
+///
+/// Format: `clips/{user_id}/{video_id}/silence_removed/{scene_id}.mp4`
+pub fn silence_removed_r2_key(user_id: &str, video_id: &str, scene_id: u32) -> String {
+    format!("clips/{}/{}/silence_removed/{}.mp4", user_id, video_id, scene_id)
+}
+
 /// Generate Redis lock key for single-flight extraction.
 fn lock_key(user_id: &str, video_id: &str, scene_id: u32) -> String {
     format!("{}:{}:{}:{}", LOCK_KEY_PREFIX, user_id, video_id, scene_id)

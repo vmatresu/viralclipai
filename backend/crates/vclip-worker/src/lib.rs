@@ -26,7 +26,11 @@ pub mod render_job;
 pub mod reprocessing;
 pub mod retry;
 pub mod scene_analysis;
+pub mod scene_renderer;
+pub mod silence_cache;
+pub mod source_download;
 pub mod source_video_coordinator;
+pub mod top_scenes;
 
 pub use config::WorkerConfig;
 pub use error::{WorkerError, WorkerResult};

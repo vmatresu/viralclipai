@@ -311,29 +311,45 @@ function HistorySceneItem({
     return (normalized ?? trimmed).toLowerCase();
   }, []);
 
-  const clipsByStyle = useMemo(() => {
+  // For compilation clips (sceneId === 0), use clip ID as key to show all clips separately
+  // For regular scenes, use style as key (one clip per style)
+  const clipsByKey = useMemo(() => {
     const map = new Map<string, HistoryClip>();
     scene.clips.forEach((clip) => {
-      const key = canonicalizeStyle(clip.style) || "unknown";
-      if (!map.has(key)) {
-        map.set(key, clip);
+      if (scene.sceneId === 0) {
+        // Compilation: show each clip separately (use clip ID as key)
+        map.set(clip.id, clip);
+      } else {
+        // Regular scene: group by style (one clip per style)
+        const key = canonicalizeStyle(clip.style) || "unknown";
+        if (!map.has(key)) {
+          map.set(key, clip);
+        }
       }
     });
     return map;
-  }, [scene.clips, canonicalizeStyle]);
+  }, [scene.clips, scene.sceneId, canonicalizeStyle]);
 
   const styles = useMemo(() => {
-    return Array.from(clipsByStyle.keys()).sort((a, b) => {
-      const tierA = getStyleTier(a)?.color ?? "legacy";
-      const tierB = getStyleTier(b)?.color ?? "legacy";
+    return Array.from(clipsByKey.keys()).sort((a, b) => {
+      const clipA = clipsByKey.get(a);
+      const clipB = clipsByKey.get(b);
+      const tierA = getStyleTier(clipA?.style)?.color ?? "legacy";
+      const tierB = getStyleTier(clipB?.style)?.color ?? "legacy";
       const weightA = getTierWeight(tierA);
       const weightB = getTierWeight(tierB);
       if (weightA === weightB) {
+        // For compilations, sort by clip name/title
+        if (scene.sceneId === 0) {
+          const nameA = clipA?.clipName ?? clipA?.title ?? a;
+          const nameB = clipB?.clipName ?? clipB?.title ?? b;
+          return nameA.localeCompare(nameB);
+        }
         return a.localeCompare(b);
       }
       return weightA - weightB;
     });
-  }, [clipsByStyle]);
+  }, [clipsByKey, scene.sceneId]);
 
   const [activeStyle, setActiveStyle] = useState<string>(styles[0] ?? "");
   const [clipToDelete, setClipToDelete] = useState<HistoryClip | null>(null);
@@ -481,12 +497,21 @@ function HistorySceneItem({
           <div className="rounded-lg border bg-background/60 p-4 shadow-sm">
             <Tabs value={activeStyle} onValueChange={setActiveStyle}>
               <TabsList className="w-full flex flex-wrap gap-2">
-                {styles.map((style) => {
-                  const meta = getStyleTier(style);
+                {styles.map((styleKey) => {
+                  const tabClip = clipsByKey.get(styleKey);
+                  const meta = getStyleTier(tabClip?.style);
+                  // For compilations, show clip name; for regular scenes, show style label
+                  const displayLabel =
+                    scene.sceneId === 0
+                      ? (tabClip?.sceneTitle ??
+                        tabClip?.clipName ??
+                        getStyleLabel(tabClip?.style) ??
+                        styleKey)
+                      : (getStyleLabel(tabClip?.style) ?? meta?.label ?? styleKey);
                   return (
                     <TabsTrigger
-                      key={style}
-                      value={style}
+                      key={styleKey}
+                      value={styleKey}
                       className={cn(
                         "flex items-center rounded-full px-0 py-0 bg-transparent shadow-none",
                         "data-[state=active]:bg-transparent data-[state=active]:text-primary"
@@ -499,20 +524,24 @@ function HistorySceneItem({
                         )}
                         variant="outline"
                       >
-                        {getStyleLabel(style) ?? meta?.label ?? style}
+                        {displayLabel}
                       </Badge>
                     </TabsTrigger>
                   );
                 })}
               </TabsList>
 
-              {styles.map((style) => {
-                const clip = clipsByStyle.get(style);
+              {styles.map((styleKey) => {
+                const clip = clipsByKey.get(styleKey);
                 if (!clip) return null;
-                const meta = getStyleTier(style);
+                const meta = getStyleTier(clip.style);
 
                 return (
-                  <TabsContent key={style} value={style} className="mt-4 space-y-4">
+                  <TabsContent
+                    key={styleKey}
+                    value={styleKey}
+                    className="mt-4 space-y-4"
+                  >
                     <div className="grid gap-4 md:grid-cols-[2fr_1.2fr]">
                       <Card className="overflow-hidden">
                         <CardContent className="space-y-3 p-3 md:p-4">
@@ -531,7 +560,12 @@ function HistorySceneItem({
                               {meta?.label ?? "Legacy"}
                             </Badge>
                             <span className="font-medium text-foreground">
-                              {getStyleLabel(style) ?? style}
+                              {scene.sceneId === 0
+                                ? (clip.sceneTitle ??
+                                  clip.clipName ??
+                                  getStyleLabel(clip.style) ??
+                                  clip.style)
+                                : (getStyleLabel(clip.style) ?? clip.style)}
                             </span>
                             <span>• Scene {sceneNumber}</span>
                             <span>• {formatRange(scene)}</span>
@@ -651,8 +685,8 @@ function HistorySceneItem({
                                     <DialogTitle>Delete this clip?</DialogTitle>
                                     <DialogDescription>
                                       This will delete only the{" "}
-                                      {getStyleLabel(style) ?? style} clip for this
-                                      scene. This cannot be undone.
+                                      {getStyleLabel(clip.style) ?? clip.style} clip for
+                                      this scene. This cannot be undone.
                                     </DialogDescription>
                                   </DialogHeader>
                                   <DialogFooter className="gap-2 sm:justify-end">
@@ -693,9 +727,17 @@ function HistorySceneItem({
                         <CardContent className="space-y-3">
                           <div className="grid gap-3 sm:grid-cols-2">
                             {styles.map((s) => {
-                              const thumbClip = clipsByStyle.get(s);
-                              const thumbMeta = getStyleTier(s);
+                              const thumbClip = clipsByKey.get(s);
+                              const thumbMeta = getStyleTier(thumbClip?.style);
                               if (!thumbClip) return null;
+                              // For compilations, show clip title; for regular scenes, show style
+                              const thumbLabel =
+                                scene.sceneId === 0
+                                  ? (thumbClip.sceneTitle ??
+                                    thumbClip.clipName ??
+                                    getStyleLabel(thumbClip.style) ??
+                                    s)
+                                  : (getStyleLabel(thumbClip.style) ?? s);
                               return (
                                 <button
                                   key={s}
@@ -709,7 +751,7 @@ function HistorySceneItem({
                                 >
                                   <ClipThumbnail
                                     clipId={thumbClip.id}
-                                    alt={`${getStyleLabel(s) ?? s} thumbnail`}
+                                    alt={`${thumbLabel} thumbnail`}
                                     className="h-28 w-full"
                                   />
                                   <div className="absolute left-2 top-2">
@@ -727,7 +769,7 @@ function HistorySceneItem({
                                   </div>
                                   <div className="space-y-1 p-2">
                                     <p className="text-xs font-semibold leading-tight">
-                                      {getStyleLabel(s) ?? s}
+                                      {thumbLabel}
                                     </p>
                                     <p className="text-[11px] text-muted-foreground">
                                       {formatRange(scene)}
