@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, LogOut, Menu, X } from "lucide-react";
+import { ChevronDown, LogOut, Menu, Settings, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -8,12 +8,12 @@ import { SignInDialog } from "@/components/SignInDialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -137,6 +137,13 @@ export function SiteHeader() {
                       </p>
                     </div>
                   </DropdownMenuLabel>
+                  <DropdownMenuSeparator className="bg-gray-200 dark:bg-white/10" />
+                  <DropdownMenuItem asChild>
+                    <Link href="/settings" className="cursor-pointer w-full">
+                      <Settings className="mr-2 h-4 w-4" />
+                      <span>Settings</span>
+                    </Link>
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator className="bg-gray-200 dark:bg-white/10" />
                   <DropdownMenuItem
                     onClick={signOut}
