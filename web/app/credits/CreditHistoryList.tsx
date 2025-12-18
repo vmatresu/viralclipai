@@ -54,6 +54,7 @@ const OPERATION_LABELS: Record<CreditOperationType, string> = {
   silent_remover: "Silent Remover",
   object_detection: "Object Detection",
   scene_originals: "Scene Originals",
+  generate_more_scenes: "Generate More Scenes",
   admin_adjustment: "Admin Adjustment",
 };
 

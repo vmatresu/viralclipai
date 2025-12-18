@@ -483,7 +483,175 @@ export type CreditOperationType =
   | "silent_remover"
   | "object_detection"
   | "scene_originals"
+  | "generate_more_scenes"
   | "admin_adjustment";
+
+// ============================================================================
+// Highlight Management Types and Functions
+// ============================================================================
+
+export interface HighlightInfo {
+  id: number;
+  title: string;
+  start: string;
+  end: string;
+  duration: number;
+  reason?: string;
+  description?: string;
+  hook_category?: string;
+}
+
+export interface UpdateSceneTimestampsResponse {
+  success: boolean;
+  video_id: string;
+  scene_id: number;
+  start: string;
+  end: string;
+  duration: number;
+}
+
+/**
+ * Update a scene's timestamps (FREE)
+ */
+export function updateSceneTimestamps(
+  videoId: string,
+  sceneId: number,
+  start: string,
+  end: string,
+  token: string
+): Promise<UpdateSceneTimestampsResponse> {
+  return apiFetch<UpdateSceneTimestampsResponse>(
+    `/api/videos/${encodeURIComponent(videoId)}/highlights/${sceneId}`,
+    {
+      method: "PATCH",
+      token,
+      body: { start, end },
+    }
+  );
+}
+
+export interface AddSceneRequest {
+  title: string;
+  reason: string;
+  start: string;
+  end: string;
+  description?: string;
+  hook_category?: string;
+}
+
+export interface AddSceneResponse {
+  success: boolean;
+  video_id: string;
+  scene: HighlightInfo;
+}
+
+/**
+ * Add a single scene (FREE)
+ */
+export function addScene(
+  videoId: string,
+  scene: AddSceneRequest,
+  token: string
+): Promise<AddSceneResponse> {
+  return apiFetch<AddSceneResponse>(
+    `/api/videos/${encodeURIComponent(videoId)}/highlights`,
+    {
+      method: "POST",
+      token,
+      body: scene,
+    }
+  );
+}
+
+export interface BulkSceneEntry {
+  title: string;
+  reason: string;
+  start: string;
+  end: string;
+  description?: string;
+  hook_category?: string;
+}
+
+export interface SceneValidationError {
+  index: number;
+  error: string;
+}
+
+export interface BulkAddScenesResponse {
+  success: boolean;
+  video_id: string;
+  added_count: number;
+  scenes: HighlightInfo[];
+  errors: SceneValidationError[];
+}
+
+/**
+ * Bulk add scenes (up to 30, FREE)
+ */
+export function bulkAddScenes(
+  videoId: string,
+  scenes: BulkSceneEntry[],
+  token: string
+): Promise<BulkAddScenesResponse> {
+  return apiFetch<BulkAddScenesResponse>(
+    `/api/videos/${encodeURIComponent(videoId)}/highlights/bulk`,
+    {
+      method: "POST",
+      token,
+      body: { scenes },
+    }
+  );
+}
+
+export interface GenerateMoreScenesResponse {
+  success: boolean;
+  video_id: string;
+  generated_count: number;
+  scenes: HighlightInfo[];
+  credits_charged: number;
+}
+
+/**
+ * Generate more scenes using AI (costs 3 credits)
+ */
+export function generateMoreScenes(
+  videoId: string,
+  count: number,
+  idempotencyKey: string,
+  token: string
+): Promise<GenerateMoreScenesResponse> {
+  return apiFetch<GenerateMoreScenesResponse>(
+    `/api/videos/${encodeURIComponent(videoId)}/highlights/generate-more`,
+    {
+      method: "POST",
+      token,
+      body: { count, idempotency_key: idempotencyKey },
+    }
+  );
+}
+
+export interface DeleteSceneResponse {
+  success: boolean;
+  video_id: string;
+  scene_id: number;
+}
+
+/**
+ * Delete a scene from highlights
+ */
+export function deleteHighlightScene(
+  videoId: string,
+  sceneId: number,
+  token: string
+): Promise<DeleteSceneResponse> {
+  return apiFetch<DeleteSceneResponse>(
+    `/api/videos/${encodeURIComponent(videoId)}/highlights/${sceneId}`,
+    {
+      method: "DELETE",
+      token,
+    }
+  );
+}
 
 export interface CreditTransaction {
   id: string;

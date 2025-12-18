@@ -102,6 +102,7 @@ mod tests {
                 pad_after: 0.0,
                 streamer_split_params: None,
                 streamer_params: None,
+                cut_silent_parts: false,
             },
             input_path,
             temp_dir.path().join("output.mp4"),

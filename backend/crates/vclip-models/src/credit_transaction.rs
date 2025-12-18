@@ -26,6 +26,8 @@ pub enum CreditOperationType {
     ObjectDetection,
     /// Scene originals download
     SceneOriginals,
+    /// Generate more scenes via AI (3 credits)
+    GenerateMoreScenes,
     /// Manual admin adjustment (refund, correction, etc.)
     AdminAdjustment,
 }
@@ -40,6 +42,7 @@ impl CreditOperationType {
             Self::SilentRemover => "silent_remover",
             Self::ObjectDetection => "object_detection",
             Self::SceneOriginals => "scene_originals",
+            Self::GenerateMoreScenes => "generate_more_scenes",
             Self::AdminAdjustment => "admin_adjustment",
         }
     }
@@ -53,6 +56,7 @@ impl CreditOperationType {
             Self::SilentRemover => "Silent Remover",
             Self::ObjectDetection => "Object Detection",
             Self::SceneOriginals => "Scene Originals",
+            Self::GenerateMoreScenes => "Generate More Scenes",
             Self::AdminAdjustment => "Admin Adjustment",
         }
     }
@@ -66,6 +70,7 @@ impl CreditOperationType {
             "silent_remover" => Some(Self::SilentRemover),
             "object_detection" => Some(Self::ObjectDetection),
             "scene_originals" => Some(Self::SceneOriginals),
+            "generate_more_scenes" => Some(Self::GenerateMoreScenes),
             "admin_adjustment" => Some(Self::AdminAdjustment),
             _ => None,
         }

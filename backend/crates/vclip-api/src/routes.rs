@@ -30,6 +30,9 @@ use crate::handlers::videos::{
     get_video_scene_styles, list_user_videos, get_processing_status, process_video, reprocess_scenes, stream_clip, update_video_title,
     update_clip_title,
 };
+use crate::handlers::highlights::{
+    add_scene, bulk_add_scenes, delete_scene, generate_more_scenes, update_scene_timestamps,
+};
 use crate::metrics::metrics_middleware;
 use crate::middleware::{cors_layer, rate_limit_middleware, request_id, request_logging, security_headers, RateLimiterCache};
 use crate::state::AppState;
@@ -66,8 +69,14 @@ pub fn create_router(state: AppState, metrics_handle: Option<PrometheusHandle>) 
         // Bulk clip operations
         .route("/videos/:video_id/clips", delete(bulk_delete_clips))
         .route("/videos/:video_id/clips/all", delete(delete_all_clips))
-        // Highlights
+        // Highlights (GET existing)
         .route("/videos/:video_id/highlights", get(get_video_highlights))
+        // Highlight management (add, edit, delete, generate)
+        .route("/videos/:video_id/highlights", post(add_scene))
+        .route("/videos/:video_id/highlights/bulk", post(bulk_add_scenes))
+        .route("/videos/:video_id/highlights/generate-more", post(generate_more_scenes))
+        .route("/videos/:video_id/highlights/:scene_id", patch(update_scene_timestamps))
+        .route("/videos/:video_id/highlights/:scene_id", delete(delete_scene))
         // Scene/style index for overwrite detection
         .route("/videos/:video_id/scene-styles", get(get_video_scene_styles))
         // Title update

@@ -24,6 +24,7 @@ pub mod neural_analysis;
 pub mod plan;
 pub mod share;
 pub mod style;
+pub mod timestamp;
 pub mod utils;
 pub mod video;
 pub mod ws;
@@ -69,6 +70,10 @@ pub use cinematic_analysis::{
 };
 pub use job_status::{JobStatus, JobStatusCache};
 pub use credit_transaction::{CreditContext, CreditOperationType, CreditTransaction};
+pub use timestamp::{
+    parse_timestamp, normalize_timestamp, validate_timestamps, format_seconds,
+    ValidatedTimestamps, TimestampError, MAX_VIDEO_DURATION_SECS,
+};
 pub mod rect;
 
 pub use rect::NormalizedRect;

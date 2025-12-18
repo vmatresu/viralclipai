@@ -437,6 +437,8 @@ mod tests {
             position_y: VerticalPosition::Top,
             zoom: 2.0,
             static_image_url: None,
+            manual_crop: None,
+            split_ratio: None,
         };
         let crop = compute_crop_from_params(&params, 1920, 1080);
         
@@ -454,6 +456,8 @@ mod tests {
             position_y: VerticalPosition::Middle,
             zoom: 1.0,
             static_image_url: None,
+            manual_crop: None,
+            split_ratio: None,
         };
         let crop = compute_crop_from_params(&params, 1920, 1080);
         
@@ -470,6 +474,8 @@ mod tests {
             position_y: VerticalPosition::Bottom,
             zoom: 2.0,
             static_image_url: None,
+            manual_crop: None,
+            split_ratio: None,
         };
         let crop = compute_crop_from_params(&params, 1920, 1080);
         
@@ -510,6 +516,8 @@ mod tests {
             position_y: VerticalPosition::Middle,
             zoom: 0.5, // Below minimum
             static_image_url: None,
+            manual_crop: None,
+            split_ratio: None,
         };
         let crop_low = compute_crop_from_params(&params_low, 1920, 1080);
         // Should be clamped to 1.0 (full frame)
@@ -520,6 +528,8 @@ mod tests {
             position_y: VerticalPosition::Middle,
             zoom: 10.0, // Above maximum
             static_image_url: None,
+            manual_crop: None,
+            split_ratio: None,
         };
         let crop_high = compute_crop_from_params(&params_high, 1920, 1080);
         // Should be clamped to 4.0 (quarter frame)

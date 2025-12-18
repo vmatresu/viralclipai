@@ -4,6 +4,7 @@ import * as AccordionPrimitive from "@radix-ui/react-accordion";
 import {
   AlertCircle,
   ChevronDown,
+  Clock,
   Copy,
   Download,
   ExternalLink,
@@ -53,6 +54,7 @@ import { cn } from "@/lib/utils";
 import { formatBytes, parseSizeToBytes } from "../../types/storage";
 
 import { buildHighlightCopyText, type Highlight } from "./SceneCard";
+import { EditTimestampsDialog } from "./SceneManagement";
 
 export type HistoryClip = {
   id: string;
@@ -165,6 +167,7 @@ interface HistorySceneExplorerProps {
   onDeleteClip?: (clip: HistoryClip) => Promise<void>;
   onDeleteScene?: (sceneId: number) => Promise<void>;
   onClipTitleUpdated?: (clipId: string, newTitle: string) => void;
+  onTimestampsUpdated?: () => void;
 }
 
 export function HistorySceneExplorer({
@@ -173,6 +176,7 @@ export function HistorySceneExplorer({
   onDeleteClip,
   onDeleteScene,
   onClipTitleUpdated,
+  onTimestampsUpdated,
 }: HistorySceneExplorerProps) {
   const { getIdToken } = useAuth();
 
@@ -266,12 +270,14 @@ export function HistorySceneExplorer({
             <HistorySceneItem
               key={scene.sceneId}
               scene={scene}
+              videoId={videoId}
               resolvePlaybackUrl={resolvePlaybackUrl}
               onDownload={handleDownload}
               onCopyShareLink={handleCopyShareLink}
               onDeleteClip={onDeleteClip}
               onDeleteScene={onDeleteScene}
               onUpdateTitle={handleUpdateTitle}
+              onTimestampsUpdated={onTimestampsUpdated}
             />
           ))}
         </Accordion>
@@ -282,22 +288,26 @@ export function HistorySceneExplorer({
 
 interface HistorySceneItemProps {
   scene: SceneGroup;
+  videoId: string;
   resolvePlaybackUrl: (clip: HistoryClip) => Promise<string>;
   onDownload: (clip: HistoryClip) => Promise<void>;
   onCopyShareLink: (clip: HistoryClip) => Promise<void>;
   onDeleteClip?: (clip: HistoryClip) => Promise<void>;
   onDeleteScene?: (sceneId: number) => Promise<void>;
   onUpdateTitle?: (clip: HistoryClip, newTitle: string) => Promise<void>;
+  onTimestampsUpdated?: () => void;
 }
 
 function HistorySceneItem({
   scene,
+  videoId,
   resolvePlaybackUrl,
   onDownload,
   onCopyShareLink,
   onDeleteClip,
   onDeleteScene,
   onUpdateTitle,
+  onTimestampsUpdated,
 }: HistorySceneItemProps) {
   // Use actual scene ID for display, not index position
   const sceneNumber = scene.sceneId;
@@ -442,6 +452,26 @@ function HistorySceneItem({
                   <span className="text-sm text-muted-foreground">
                     {formatRange(scene)}
                   </span>
+                  {scene.sceneId !== 0 && scene.highlight && onTimestampsUpdated && (
+                    <EditTimestampsDialog
+                      videoId={videoId}
+                      sceneId={scene.sceneId}
+                      currentStart={scene.highlight.start}
+                      currentEnd={scene.highlight.end}
+                      onSuccess={onTimestampsUpdated}
+                      trigger={
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 gap-1"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Clock className="h-3 w-3" />
+                          <span className="text-xs">Edit</span>
+                        </Button>
+                      }
+                    />
+                  )}
                   <Badge variant="secondary">{styles.length} styles</Badge>
                   {scene.totalSizeBytes && scene.totalSizeBytes > 0 && (
                     <Badge variant="outline" className="text-muted-foreground">

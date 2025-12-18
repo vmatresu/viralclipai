@@ -26,6 +26,7 @@ import {
   groupClipsByScene,
   type HistoryClip,
 } from "@/components/HistoryDetail/SceneExplorer";
+import { SceneManagementToolbar } from "@/components/HistoryDetail/SceneManagement";
 import { DetailedProcessingStatus } from "@/components/shared/DetailedProcessingStatus";
 import {
   DEFAULT_STREAMER_SPLIT_CONFIG,
@@ -1085,6 +1086,8 @@ export default function HistoryDetailPage() {
               </Button>
             </div>
           )}
+
+          <SceneManagementToolbar videoId={videoId} onScenesUpdated={loadData} />
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
@@ -1146,7 +1149,7 @@ export default function HistoryDetailPage() {
       </Card>
 
       <Card className="shadow-sm">
-        <CardHeader className="pb-3">
+        <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-primary" />
             Scenes & styles
@@ -1166,6 +1169,7 @@ export default function HistoryDetailPage() {
               // Refresh clips to show updated title
               void loadData();
             }}
+            onTimestampsUpdated={loadData}
           />
         </CardContent>
       </Card>
