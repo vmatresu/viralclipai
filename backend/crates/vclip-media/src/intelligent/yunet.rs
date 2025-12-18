@@ -598,7 +598,6 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
     frame_height: u32,
     sample_fps: f64,
 ) -> MediaResult<Vec<Vec<(BoundingBox, f64)>>> {
-    use std::time::{Duration, Instant};
     use opencv::videoio::{VideoCapture, CAP_PROP_POS_MSEC, CAP_PROP_FRAME_WIDTH, CAP_PROP_FRAME_HEIGHT};
     use opencv::core::Mat;
     use opencv::prelude::{VideoCaptureTraitConst, VideoCaptureTrait, MatTraitConst};
@@ -661,9 +660,6 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
     let mut current_time = start_time;
     let mut consecutive_failures = 0;
     const MAX_CONSECUTIVE_FAILURES: usize = 3;
-    let started_at = Instant::now();
-    let max_wall = Duration::from_secs_f64(duration.min(120.0).max(30.0)); // bound wall time even on long clips
-
     info!(
         "Detecting faces with YuNet: {} frames at {:.1} fps (cap {}), threshold={}, input={}x{}",
         num_samples, sample_fps, max_samples, SCORE_THRESHOLD,
@@ -671,13 +667,6 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
     );
 
     for frame_idx in 0..max_samples {
-        if started_at.elapsed() > max_wall {
-            warn!(
-                elapsed = ?started_at.elapsed(),
-                "Stopping YuNet early due to wall-clock budget"
-            );
-            break;
-        }
 
         // Seek to current time
         if let Err(e) = cap.set(CAP_PROP_POS_MSEC, current_time * 1000.0) {

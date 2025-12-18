@@ -396,6 +396,11 @@ async fn prepare_raw_segment(
 
     // Apply silence removal if requested
     let should_cut_silent = scene_tasks.iter().any(|t| t.cut_silent_parts);
+    info!(
+        scene_id = scene_id,
+        should_cut_silent = should_cut_silent,
+        "Checking silence removal flag"
+    );
     let raw_segment = if should_cut_silent {
         apply_silence_to_segment(ctx, job, &raw_segment, scene_id).await
     } else {
@@ -454,11 +459,11 @@ async fn apply_silence_to_segment(
     .await
     {
         Ok(Some(silence_removed_path)) => {
-            debug!(scene_id = scene_id, "Using silence-removed segment");
+            info!(scene_id = scene_id, "Using silence-removed segment");
             silence_removed_path
         }
         Ok(None) => {
-            debug!(
+            info!(
                 scene_id = scene_id,
                 "Silence removal not applied (no significant silence or too short)"
             );
