@@ -451,14 +451,18 @@ export default function HistoryList() {
 
   const usagePercentage = planUsage
     ? Math.min(
-        (planUsage.clips_used_this_month / planUsage.max_clips_per_month) * 100,
+        (planUsage.credits_used_this_month / planUsage.monthly_credits_limit) *
+          100,
         100
       )
     : 0;
   const isHighUsage = usagePercentage >= 80;
   const isNearLimit = usagePercentage >= 90;
-  const remainingClips = planUsage
-    ? Math.max(0, planUsage.max_clips_per_month - planUsage.clips_used_this_month)
+  const remainingCredits = planUsage
+    ? Math.max(
+        0,
+        planUsage.monthly_credits_limit - planUsage.credits_used_this_month
+      )
     : 0;
 
   // Storage usage
@@ -490,16 +494,19 @@ export default function HistoryList() {
 
     return (
       <>
-        {/* Monthly Clips Usage */}
+        {/* Monthly Credits Usage */}
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">Monthly Clips</span>
+            <span className="text-muted-foreground">Monthly Credits</span>
             <span
               className={
-                isHighUsage ? "text-destructive font-semibold" : "text-muted-foreground"
+                isHighUsage
+                  ? "text-destructive font-semibold"
+                  : "text-muted-foreground"
               }
             >
-              {planUsage.clips_used_this_month} / {planUsage.max_clips_per_month}
+              {planUsage.credits_used_this_month.toLocaleString()} /{" "}
+              {planUsage.monthly_credits_limit.toLocaleString()}
             </span>
           </div>
           <div className="relative h-3 w-full overflow-hidden rounded-full bg-muted">
@@ -557,7 +564,7 @@ export default function HistoryList() {
                 </p>
                 <p className="text-sm text-muted-foreground">
                   {usagePercentage >= 100 &&
-                    `You've used ${planUsage?.clips_used_this_month} of ${planUsage?.max_clips_per_month} monthly clips. `}
+                    `You've used ${planUsage?.credits_used_this_month?.toLocaleString()} of ${planUsage?.monthly_credits_limit?.toLocaleString()} monthly credits. `}
                   {storagePercentage >= 100 &&
                     `Storage is full (${planUsage?.storage?.used_formatted} / ${planUsage?.storage?.limit_formatted}). `}
                   You cannot create new clips until you upgrade or delete existing
@@ -590,7 +597,7 @@ export default function HistoryList() {
                   </p>
                   <p className="text-sm text-muted-foreground">
                     {isNearLimit &&
-                      `Only ${remainingClips} clip${remainingClips !== 1 ? "s" : ""} remaining this month. `}
+                      `Only ${remainingCredits.toLocaleString()} credits remaining this month. `}
                     {isNearStorageLimit &&
                       `Only ${planUsage.storage?.remaining_formatted} storage remaining. `}
                     Upgrade to Pro for more capacity!
@@ -607,12 +614,12 @@ export default function HistoryList() {
           )}
         {!isHighUsage &&
           !isHighStorage &&
-          remainingClips < 10 &&
-          remainingClips > 0 && (
+          remainingCredits < 100 &&
+          remainingCredits > 0 && (
             <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
               <p className="text-sm text-muted-foreground">
                 <span className="font-semibold text-foreground">
-                  {remainingClips} clips remaining
+                  {remainingCredits.toLocaleString()} credits remaining
                 </span>{" "}
                 this month.{" "}
                 <Link href="/pricing" className="text-primary hover:underline">
@@ -695,9 +702,11 @@ export default function HistoryList() {
                 <CardDescription>
                   {planUsage ? (
                     <>
-                      {planUsage.clips_used_this_month} of{" "}
-                      {planUsage.max_clips_per_month} clips used this month
-                      {remainingClips > 0 && ` • ${remainingClips} remaining`}
+                      {planUsage.credits_used_this_month.toLocaleString()} of{" "}
+                      {planUsage.monthly_credits_limit.toLocaleString()} credits
+                      used this month
+                      {remainingCredits > 0 &&
+                        ` • ${remainingCredits.toLocaleString()} remaining`}
                     </>
                   ) : (
                     "Loading usage information..."

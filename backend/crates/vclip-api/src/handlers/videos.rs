@@ -10,7 +10,7 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-use vclip_models::{Style, VideoId, AspectRatio, CropMode};
+use vclip_models::{Style, VideoId, AspectRatio, CropMode, DetectionTier, ANALYSIS_CREDIT_COST};
 use vclip_queue::ProcessVideoJob;
 
 use crate::auth::AuthUser;
@@ -1323,6 +1323,15 @@ pub struct ReprocessScenesRequest {
     /// When true, overwrite existing clips instead of skipping them (default: false)
     #[serde(default)]
     pub overwrite: bool,
+    /// Enable object detection for cinematic styles (default: false)
+    #[serde(default)]
+    pub enable_object_detection: bool,
+    /// Enable Top Scenes compilation mode (default: false)
+    #[serde(default)]
+    pub top_scenes_compilation: bool,
+    /// Cut silent parts from clips using VAD (default: false)
+    #[serde(default)]
+    pub cut_silent_parts: bool,
     /// Optional StreamerSplit parameters for user-controlled crop position/zoom.
     /// Only used when styles includes "streamer_split".
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1407,35 +1416,26 @@ pub async fn reprocess_scenes(
         return Err(ApiError::bad_request("No valid styles specified"));
     }
 
-    // Enforce style availability by plan (match frontend rules)
-    // - Motion styles are allowed for Free
-    // - Smart Face / Active Speaker / Cinematic require Pro/Studio
-    const PRO_ONLY_STYLES: &[Style] = &[
-        Style::Intelligent,
-        Style::IntelligentSplit,
-        Style::IntelligentSpeaker,
-        Style::IntelligentSplitSpeaker,
-        Style::IntelligentSplitActivity,
-        Style::IntelligentCinematic,
-    ];
-    let requires_pro = styles.iter().any(|s| PRO_ONLY_STYLES.contains(s));
-    if requires_pro && !state.user_service.has_pro_or_studio_plan(&user.uid).await? {
-        return Err(ApiError::forbidden(
-            "Selected style(s) are only available for Pro and Studio plans. Please upgrade to access this feature.",
-        ));
-    }
-
-    // Check if user has exceeded monthly clip quota
-    let used = state.user_service.get_monthly_usage(&user.uid).await?;
+    // Get plan limits for tier validation
     let limits = state.user_service.get_plan_limits(&user.uid).await?;
-    if used >= limits.max_clips_per_month {
-        return Err(ApiError::forbidden(format!(
-            "Monthly clip limit exceeded. You've used {} of {} clips this month. Please upgrade your plan or wait until next month.",
-            used, limits.max_clips_per_month
-        )));
+
+    // Validate detection tiers are allowed by the user's plan
+    for style in &styles {
+        let tier = style.detection_tier();
+        if !limits.allows_detection_tier(tier) {
+            let required_plan = match tier {
+                DetectionTier::Cinematic => "Studio",
+                DetectionTier::MotionAware | DetectionTier::SpeakerAware => "Pro",
+                _ => "Pro",
+            };
+            return Err(ApiError::forbidden(format!(
+                "Style '{}' requires a {} plan or higher. Please upgrade to access this feature.",
+                style, required_plan
+            )));
+        }
     }
 
-    // Check storage quota
+    // Check storage quota first (doesn't cost credits)
     let storage_usage = state.user_service.get_storage_usage(&user.uid).await?;
     if storage_usage.percentage() >= 100.0 {
         return Err(ApiError::forbidden(format!(
@@ -1444,9 +1444,27 @@ pub async fn reprocess_scenes(
         )));
     }
 
-    // Validate plan limits for the number of clips being created
-    let total_clips = request.scene_ids.len() as u32 * styles.len() as u32;
-    state.user_service.validate_plan_limits(&user.uid, total_clips).await?;
+    // Calculate total clips and credits needed for this operation
+    let num_scenes = request.scene_ids.len() as u32;
+    let num_styles = styles.len() as u32;
+    let total_clips = num_scenes * num_styles;
+
+    // Each scene × style combination costs credits based on the style's detection tier
+    let mut total_credits: u32 = styles.iter().map(|s| s.credit_cost() * num_scenes).sum();
+    
+    // Add silent remover cost (+5 credits per scene) if enabled
+    const SILENT_REMOVER_COST_PER_SCENE: u32 = 5;
+    if request.cut_silent_parts {
+        total_credits += SILENT_REMOVER_COST_PER_SCENE * num_scenes;
+    }
+
+    // Check and reserve credits (validates quota + charges upfront)
+    state.user_service.check_and_reserve_credits(&user.uid, total_credits).await?;
+
+    info!(
+        "Reserved {} credits for reprocessing {} scenes ({} clips) with {} styles for user {} (cut_silent_parts: {})",
+        total_credits, num_scenes, total_clips, num_styles, user.uid, request.cut_silent_parts
+    );
 
     // Load highlights from Firestore to validate scene IDs
     let highlights_repo = vclip_firestore::HighlightsRepository::new(
@@ -1515,7 +1533,10 @@ pub async fn reprocess_scenes(
     .with_crop_mode(crop_mode)
     .with_target_aspect(target_aspect)
     .with_overwrite(request.overwrite)
-    .with_streamer_split_params(streamer_split_params);
+    .with_streamer_split_params(streamer_split_params)
+    .with_cut_silent_parts(request.cut_silent_parts)
+    .with_object_detection(request.enable_object_detection)
+    .with_top_scenes_compilation(request.top_scenes_compilation);
     
     let job_id = job.job_id.clone();
 
@@ -1623,24 +1644,8 @@ pub async fn process_video(
         warn!("Failed to get/create user {}: {}", user.uid, e);
     }
 
-    // Check monthly clip quota
-    let used = state.user_service.get_monthly_usage(&user.uid).await?;
+    // Get plan limits for tier validation
     let limits = state.user_service.get_plan_limits(&user.uid).await?;
-    if used >= limits.max_clips_per_month {
-        return Err(ApiError::forbidden(format!(
-            "Monthly clip limit exceeded. You've used {} of {} clips this month.",
-            used, limits.max_clips_per_month
-        )));
-    }
-
-    // Check storage quota
-    let storage_usage = state.user_service.get_storage_usage(&user.uid).await?;
-    if storage_usage.percentage() >= 100.0 {
-        return Err(ApiError::forbidden(format!(
-            "Storage limit exceeded. You've used {} of {} storage.",
-            storage_usage.format_total(), storage_usage.format_limit()
-        )));
-    }
 
     // Parse styles with "all" expansion support
     let style_strs = if request.styles.is_empty() {
@@ -1654,21 +1659,34 @@ pub async fn process_video(
         return Err(ApiError::bad_request("No valid styles specified"));
     }
 
-    // Check pro plan requirement for Smart Face styles
-    const PRO_ONLY_STYLES: &[Style] = &[
-        Style::Intelligent,
-        Style::IntelligentSplit,
-        Style::IntelligentSpeaker,
-        Style::IntelligentSplitSpeaker,
-        Style::IntelligentSplitActivity,
-        Style::IntelligentCinematic,
-    ];
-    let requires_pro = styles.iter().any(|s| PRO_ONLY_STYLES.contains(s));
-    if requires_pro && !state.user_service.has_pro_or_studio_plan(&user.uid).await? {
-        return Err(ApiError::forbidden(
-            "Selected style(s) are only available for Pro and Studio plans."
-        ));
+    // Validate detection tiers are allowed by the user's plan
+    for style in &styles {
+        let tier = style.detection_tier();
+        if !limits.allows_detection_tier(tier) {
+            let required_plan = match tier {
+                DetectionTier::Cinematic => "Studio",
+                DetectionTier::MotionAware | DetectionTier::SpeakerAware => "Pro",
+                _ => "Pro", // Basic and above
+            };
+            return Err(ApiError::forbidden(format!(
+                "Style '{}' requires a {} plan or higher. Please upgrade to access this feature.",
+                style, required_plan
+            )));
+        }
     }
+
+    // Check storage quota first (doesn't cost credits to check)
+    let storage_usage = state.user_service.get_storage_usage(&user.uid).await?;
+    if storage_usage.percentage() >= 100.0 {
+        return Err(ApiError::forbidden(format!(
+            "Storage limit exceeded. You've used {} of {} storage.",
+            storage_usage.format_total(), storage_usage.format_limit()
+        )));
+    }
+
+    // Video analysis costs credits - charge upfront
+    // NOTE: This is the initial analysis job, not rendering. Analysis = 3 credits.
+    state.user_service.check_and_reserve_credits(&user.uid, ANALYSIS_CREDIT_COST).await?;
 
     // Parse crop mode and target aspect
     let crop_mode: CropMode = request.crop_mode.parse().unwrap_or_default();

@@ -237,9 +237,9 @@ export default function PrivacyPage() {
               or email{" "}
               <a
                 className="underline text-primary"
-                href="mailto:support@viralvideoai.io"
+                href="mailto:contact@viralclipai.io"
               >
-                support@viralvideoai.io
+                contact@viralclipai.io
               </a>
               .
             </p>

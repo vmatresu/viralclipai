@@ -25,7 +25,8 @@
       "WebFetch(domain:docs.rs)",
       "WebFetch(domain:crates.io)",
       "Bash(cargo search:*)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "Bash(npx tsc:*)"
     ],
     "deny": [],
     "ask": []

@@ -223,8 +223,10 @@ pub struct AdminUserResponse {
     pub email: Option<String>,
     pub plan: String,
     pub role: Option<String>,
-    pub clips_used_this_month: u32,
-    pub max_clips_per_month: u32,
+    /// Credits used this month.
+    pub credits_used_this_month: u32,
+    /// Monthly credits limit.
+    pub monthly_credits_limit: u32,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -246,13 +248,13 @@ pub struct ListUsersResponse {
     pub next_page_token: Option<String>,
 }
 
-/// Get max clips for a plan (hardcoded fallback for list view performance).
-fn get_plan_max_clips(plan: &str) -> u32 {
+/// Get monthly credits limit for a plan (hardcoded fallback for list view performance).
+fn get_plan_monthly_credits(plan: &str) -> u32 {
     match plan {
-        "free" => 20,
-        "pro" => 100,
-        "studio" => 10000,
-        _ => 20,
+        "free" => vclip_models::plan::FREE_MONTHLY_CREDITS,
+        "pro" => vclip_models::plan::PRO_MONTHLY_CREDITS,
+        "studio" => vclip_models::plan::STUDIO_MONTHLY_CREDITS,
+        _ => vclip_models::plan::FREE_MONTHLY_CREDITS,
     }
 }
 
@@ -271,14 +273,14 @@ pub async fn list_users(
         .await?;
 
     let users: Vec<AdminUserResponse> = users.into_iter().map(|u| {
-        let max_clips = get_plan_max_clips(&u.plan);
+        let monthly_credits = get_plan_monthly_credits(&u.plan);
         AdminUserResponse {
             uid: u.uid,
             email: u.email,
             plan: u.plan,
             role: u.role,
-            clips_used_this_month: u.clips_used_this_month,
-            max_clips_per_month: max_clips,
+            credits_used_this_month: u.credits_used_this_month,
+            monthly_credits_limit: monthly_credits,
             created_at: u.created_at.to_rfc3339(),
             updated_at: u.updated_at.to_rfc3339(),
         }
@@ -310,8 +312,8 @@ pub async fn get_user(
         email: target.email,
         plan: target.plan,
         role: target.role,
-        clips_used_this_month: target.clips_used_this_month,
-        max_clips_per_month: limits.max_clips_per_month,
+        credits_used_this_month: target.credits_used_this_month,
+        monthly_credits_limit: limits.monthly_credits_included,
         created_at: target.created_at.to_rfc3339(),
         updated_at: target.updated_at.to_rfc3339(),
     }))
@@ -369,7 +371,8 @@ pub async fn update_user_plan(
 /// Update user usage request.
 #[derive(Debug, Deserialize)]
 pub struct UpdateUserUsageRequest {
-    pub clips_used: u32,
+    /// Credits to set as used this month.
+    pub credits_used: u32,
 }
 
 /// Update user usage response.
@@ -377,7 +380,7 @@ pub struct UpdateUserUsageRequest {
 pub struct UpdateUserUsageResponse {
     pub success: bool,
     pub uid: String,
-    pub clips_used_this_month: u32,
+    pub credits_used_this_month: u32,
     pub message: String,
 }
 
@@ -393,16 +396,16 @@ pub async fn update_user_usage(
     }
 
     let updated = state.user_service
-        .set_usage(&target_uid, request.clips_used)
+        .set_credits(&target_uid, request.credits_used)
         .await?;
 
-    info!("Admin {} set user {} usage to {}", user.uid, target_uid, request.clips_used);
+    info!("Admin {} set user {} credits usage to {}", user.uid, target_uid, request.credits_used);
 
     Ok(Json(UpdateUserUsageResponse {
         success: true,
         uid: updated.uid,
-        clips_used_this_month: updated.clips_used_this_month,
-        message: format!("Usage set to {}", request.clips_used),
+        credits_used_this_month: updated.credits_used_this_month,
+        message: format!("Credits usage set to {}", request.credits_used),
     }))
 }
 

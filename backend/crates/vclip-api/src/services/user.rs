@@ -38,8 +38,9 @@ pub struct UserRecord {
     pub settings: UserSettings,
     #[serde(default)]
     pub role: Option<String>,
+    /// Credits used this billing month.
     #[serde(default)]
-    pub clips_used_this_month: u32,
+    pub credits_used_this_month: u32,
     #[serde(default)]
     pub usage_reset_month: Option<String>,
     /// Total storage used in bytes across all videos/clips.
@@ -60,7 +61,7 @@ impl Default for UserRecord {
             updated_at: Utc::now(),
             settings: UserSettings::default(),
             role: None,
-            clips_used_this_month: 0,
+            credits_used_this_month: 0,
             usage_reset_month: None,
             total_storage_bytes: 0,
             total_clips_count: 0,
@@ -69,24 +70,41 @@ impl Default for UserRecord {
 }
 
 /// Plan limits configuration.
+///
+/// This mirrors `vclip_models::PlanLimits` but is kept separate for API layer concerns.
 #[derive(Debug, Clone)]
 pub struct PlanLimits {
     pub plan_id: String,
-    pub max_clips_per_month: u32,
+    /// Monthly credits included in plan.
+    pub monthly_credits_included: u32,
+    /// Maximum clip length in seconds (90s for all plans).
+    pub max_clip_length_seconds: u32,
     pub max_highlights_per_video: u32,
     pub max_styles_per_video: u32,
     pub can_reprocess: bool,
     /// Storage limit in bytes.
     pub storage_limit_bytes: u64,
+    /// Whether exports include watermark.
+    pub watermark_exports: bool,
+    /// Whether API access is enabled.
+    pub api_access: bool,
+    /// Number of monitored channels included.
+    pub channel_monitoring_included: u32,
+    /// Maximum connected social accounts.
+    pub connected_social_accounts_limit: u32,
+    /// Whether priority processing is enabled.
+    pub priority_processing: bool,
+    /// Plan tier for feature checks.
+    pub tier: vclip_models::PlanTier,
 }
 
 /// Result of unified quota check.
 #[derive(Debug, Clone)]
 pub struct QuotaCheckResult {
-    /// Clips used this month.
-    pub clips_used: u32,
-    /// Monthly clip limit.
-    pub clips_limit: u32,
+    /// Credits used this month.
+    pub credits_used: u32,
+    /// Monthly credit limit.
+    pub credits_limit: u32,
     /// Storage used in bytes.
     pub storage_used_bytes: u64,
     /// Storage limit in bytes.
@@ -101,12 +119,26 @@ impl Default for PlanLimits {
     fn default() -> Self {
         Self {
             plan_id: "free".to_string(),
-            max_clips_per_month: 20,
+            monthly_credits_included: vclip_models::FREE_MONTHLY_CREDITS,
+            max_clip_length_seconds: vclip_models::MAX_CLIP_LENGTH_SECONDS,
             max_highlights_per_video: 3,
             max_styles_per_video: 2,
             can_reprocess: false,
             storage_limit_bytes: vclip_models::FREE_STORAGE_LIMIT_BYTES,
+            watermark_exports: true,
+            api_access: false,
+            channel_monitoring_included: 0,
+            connected_social_accounts_limit: 1,
+            priority_processing: false,
+            tier: vclip_models::PlanTier::Free,
         }
+    }
+}
+
+impl PlanLimits {
+    /// Check if a detection tier is allowed on this plan.
+    pub fn allows_detection_tier(&self, tier: vclip_models::DetectionTier) -> bool {
+        self.tier.allows_detection_tier(tier)
     }
 }
 
@@ -151,7 +183,7 @@ impl UserService {
                     updated_at: Utc::now(),
                     settings: UserSettings::default(),
                     role: None,
-                    clips_used_this_month: 0,
+                    credits_used_this_month: 0,
                     usage_reset_month: Some(current_month_key()),
                     total_storage_bytes: 0,
                     total_clips_count: 0,
@@ -287,49 +319,189 @@ impl UserService {
         }
     }
 
-    /// Get monthly usage for a user.
-    pub async fn get_monthly_usage(&self, uid: &str) -> ApiResult<u32> {
+    /// Get monthly credits usage for a user.
+    pub async fn get_credits_usage(&self, uid: &str) -> ApiResult<u32> {
         let user = self.get_or_create_user(uid, None).await?;
-        
+
         // Check if we need to reset the counter
         let current_month = current_month_key();
         if user.usage_reset_month.as_deref() != Some(&current_month) {
             // Reset counter for new month
             return Ok(0);
         }
-        
-        Ok(user.clips_used_this_month)
+
+        Ok(user.credits_used_this_month)
     }
 
-    /// Increment monthly usage.
-    pub async fn increment_usage(&self, uid: &str, count: u32) -> ApiResult<()> {
+
+
+    /// Increment credits usage.
+    ///
+    /// This is the primary method for tracking usage. Credits are NOT refunded on deletion.
+    pub async fn increment_credits(&self, uid: &str, credits: u32) -> ApiResult<()> {
         let mut user = self.get_or_create_user(uid, None).await?;
-        
+
         let current_month = current_month_key();
         if user.usage_reset_month.as_deref() != Some(&current_month) {
             // Reset for new month
-            user.clips_used_this_month = count;
+            user.credits_used_this_month = credits;
             user.usage_reset_month = Some(current_month);
         } else {
-            user.clips_used_this_month += count;
+            user.credits_used_this_month += credits;
         }
         user.updated_at = Utc::now();
-        
+
         self.update_user(&user).await?;
+        info!("Charged {} credits to user {}, total now: {}", credits, uid, user.credits_used_this_month);
         Ok(())
     }
 
-    /// Set monthly usage to a specific value (admin only).
-    pub async fn set_usage(&self, uid: &str, usage: u32) -> ApiResult<UserRecord> {
-        let mut user = self.get_or_create_user(uid, None).await?;
-        
+
+
+    /// Maximum retries for atomic credit reservation.
+    const MAX_CREDIT_RESERVE_RETRIES: u32 = 5;
+
+    /// Check if user has sufficient credits and reserve them atomically.
+    ///
+    /// This is the single source of truth for credit enforcement.
+    /// Uses optimistic locking with Firestore's Document.update_time precondition
+    /// to prevent race conditions where concurrent requests could overspend credits.
+    ///
+    /// Returns `Ok(())` if credits are available and reserved, or `Err` with user-friendly message.
+    ///
+    /// IMPORTANT: Credits are charged upfront. They are NOT refunded if the job fails.
+    pub async fn check_and_reserve_credits(&self, uid: &str, credits_needed: u32) -> ApiResult<()> {
+        let limits = self.get_plan_limits(uid).await?;
         let current_month = current_month_key();
-        user.clips_used_this_month = usage;
+        let mut last_error: Option<vclip_firestore::FirestoreError> = None;
+
+        for attempt in 0..Self::MAX_CREDIT_RESERVE_RETRIES {
+            // Fetch document directly to get server-side update_time for precondition
+            let doc = self.firestore
+                .get_document("users", uid)
+                .await
+                .map_err(|e| ApiError::internal(format!("Firestore error: {}", e)))?;
+
+            // Extract credits and update_time from document
+            let (credits_used, usage_reset_month, update_time) = match &doc {
+                Some(d) => {
+                    let fields = d.fields.as_ref();
+                    let credits = fields
+                        .and_then(|f| f.get("credits_used_this_month"))
+                        .and_then(|v| u32::from_firestore_value(v))
+                        .unwrap_or(0);
+                    let reset_month = fields
+                        .and_then(|f| f.get("usage_reset_month"))
+                        .and_then(|v| String::from_firestore_value(v));
+                    (credits, reset_month, d.update_time.clone())
+                }
+                None => {
+                    // User doesn't exist, create them first
+                    let _ = self.get_or_create_user(uid, None).await?;
+                    (0u32, None, None)
+                }
+            };
+
+            // Check if we need to reset for new month
+            let effective_credits_used = if usage_reset_month.as_deref() == Some(&current_month) {
+                credits_used
+            } else {
+                0 // Will reset on this write
+            };
+
+            // Check if we have enough credits
+            let remaining = limits.monthly_credits_included.saturating_sub(effective_credits_used);
+            if credits_needed > remaining {
+                return Err(ApiError::forbidden(format!(
+                    "Insufficient credits. You need {} credits but only have {} remaining ({} used of {} monthly limit). Please upgrade your plan.",
+                    credits_needed, remaining, effective_credits_used, limits.monthly_credits_included
+                )));
+            }
+
+            // Calculate new credit value
+            let new_credits = if usage_reset_month.as_deref() == Some(&current_month) {
+                credits_used.saturating_add(credits_needed)
+            } else {
+                // New month - reset counter
+                credits_needed
+            };
+
+            // Build update fields
+            let mut fields = std::collections::HashMap::new();
+            fields.insert(
+                "credits_used_this_month".to_string(),
+                new_credits.to_firestore_value(),
+            );
+            fields.insert(
+                "usage_reset_month".to_string(),
+                current_month.to_firestore_value(),
+            );
+            fields.insert(
+                "updated_at".to_string(),
+                Utc::now().to_firestore_value(),
+            );
+
+            let update_mask = vec![
+                "credits_used_this_month".to_string(),
+                "usage_reset_month".to_string(),
+                "updated_at".to_string(),
+            ];
+
+            // Attempt atomic update with Firestore's server-side update_time precondition
+            match self.firestore
+                .update_document_with_precondition(
+                    "users",
+                    uid,
+                    fields,
+                    Some(update_mask),
+                    update_time.as_deref(),
+                )
+                .await
+            {
+                Ok(_) => {
+                    info!(
+                        "Reserved {} credits for user {} (total now: {})",
+                        credits_needed, uid, new_credits
+                    );
+                    return Ok(());
+                }
+                Err(e) if e.is_precondition_failed() => {
+                    // Another writer updated the document; retry with exponential backoff
+                    debug!(
+                        "Credit reservation precondition failed for user {} (attempt {}), retrying",
+                        uid, attempt + 1
+                    );
+                    last_error = Some(e);
+                    // Exponential backoff: 50ms, 100ms, 150ms, 200ms, 250ms
+                    tokio::time::sleep(tokio::time::Duration::from_millis(50 * (attempt as u64 + 1))).await;
+                    continue;
+                }
+                Err(e) => {
+                    warn!("Failed to reserve credits for user {}: {}", uid, e);
+                    return Err(ApiError::internal("Failed to reserve credits"));
+                }
+            }
+        }
+
+        // Exhausted retries
+        warn!(
+            "Credit reservation failed after {} retries for user {}: {:?}",
+            Self::MAX_CREDIT_RESERVE_RETRIES, uid, last_error
+        );
+        Err(ApiError::internal("Failed to reserve credits due to concurrent updates. Please try again."))
+    }
+
+    /// Set credits to a specific value (admin only).
+    pub async fn set_credits(&self, uid: &str, credits: u32) -> ApiResult<UserRecord> {
+        let mut user = self.get_or_create_user(uid, None).await?;
+
+        let current_month = current_month_key();
+        user.credits_used_this_month = credits;
         user.usage_reset_month = Some(current_month);
         user.updated_at = Utc::now();
-        
+
         self.update_user(&user).await?;
-        info!("Set user {} usage to {}", uid, usage);
+        info!("Set user {} credits to {}", uid, credits);
         Ok(user)
     }
 
@@ -444,18 +616,22 @@ impl UserService {
         Ok((users, response.next_page_token))
     }
 
-    /// Validate plan limits before processing.
-    pub async fn validate_plan_limits(&self, uid: &str, clip_count: u32) -> ApiResult<()> {
+
+
+    /// Validate that user has sufficient credits for an operation.
+    /// This does NOT reserve credits - use `check_and_reserve_credits()` for that.
+    pub async fn validate_credits(&self, uid: &str, credits_needed: u32) -> ApiResult<()> {
         let limits = self.get_plan_limits(uid).await?;
-        let used = self.get_monthly_usage(uid).await?;
-        
-        if used + clip_count > limits.max_clips_per_month {
+        let used = self.get_credits_usage(uid).await?;
+
+        if used + credits_needed > limits.monthly_credits_included {
+            let remaining = limits.monthly_credits_included.saturating_sub(used);
             return Err(ApiError::forbidden(format!(
-                "Monthly clip limit exceeded. Used: {}, Limit: {}, Requested: {}",
-                used, limits.max_clips_per_month, clip_count
+                "Insufficient credits. You need {} credits but only have {} remaining. Please upgrade your plan.",
+                credits_needed, remaining
             )));
         }
-        
+
         Ok(())
     }
 
@@ -680,39 +856,42 @@ impl UserService {
     }
 
     /// Unified quota enforcement check for clip creation.
-    /// 
+    ///
     /// This is the single source of truth for quota checks, used by both
     /// HTTP handlers and WebSocket handlers to ensure consistent enforcement.
-    /// 
+    ///
     /// Checks:
-    /// 1. Monthly clip quota
-    /// 2. Storage quota  
-    /// 3. Plan-specific clip limits for the requested number of clips
-    /// 
+    /// 1. Monthly credit quota
+    /// 2. Storage quota
+    ///
+    /// NOTE: This does NOT reserve credits. Call `check_and_reserve_credits()` after
+    /// calculating the exact credit cost for the operation.
+    ///
     /// Returns `Ok(QuotaCheckResult)` with current usage info, or `Err` with
     /// a user-friendly error message if any quota would be exceeded.
-    pub async fn check_all_quotas(&self, uid: &str, clips_to_create: u32) -> ApiResult<QuotaCheckResult> {
+    pub async fn check_all_quotas(&self, uid: &str, credits_to_use: u32) -> ApiResult<QuotaCheckResult> {
         // Get all quota information upfront
         let limits = self.get_plan_limits(uid).await?;
-        let used = self.get_monthly_usage(uid).await?;
+        let credits_used = self.get_credits_usage(uid).await?;
         let storage_usage = self.get_storage_usage(uid).await?;
-        
-        // Check monthly clip quota
-        if used >= limits.max_clips_per_month {
+
+        // Check monthly credit quota
+        if credits_used >= limits.monthly_credits_included {
             return Err(ApiError::forbidden(format!(
-                "Monthly clip limit exceeded. You've used {} of {} clips this month. Please upgrade your plan or wait until next month.",
-                used, limits.max_clips_per_month
+                "Monthly credit limit exceeded. You've used {} of {} credits this month. Please upgrade your plan or wait until next month.",
+                credits_used, limits.monthly_credits_included
             )));
         }
-        
+
         // Check if this request would exceed monthly quota
-        if used.saturating_add(clips_to_create) > limits.max_clips_per_month {
+        if credits_used.saturating_add(credits_to_use) > limits.monthly_credits_included {
+            let remaining = limits.monthly_credits_included.saturating_sub(credits_used);
             return Err(ApiError::forbidden(format!(
-                "This would exceed your monthly clip limit. Used: {}, Limit: {}, Requested: {}",
-                used, limits.max_clips_per_month, clips_to_create
+                "Insufficient credits. You need {} credits but only have {} remaining ({} used of {} monthly limit).",
+                credits_to_use, remaining, credits_used, limits.monthly_credits_included
             )));
         }
-        
+
         // Check storage quota
         if storage_usage.percentage() >= 100.0 {
             return Err(ApiError::forbidden(format!(
@@ -720,10 +899,10 @@ impl UserService {
                 storage_usage.format_total(), storage_usage.format_limit()
             )));
         }
-        
+
         Ok(QuotaCheckResult {
-            clips_used: used,
-            clips_limit: limits.max_clips_per_month,
+            credits_used,
+            credits_limit: limits.monthly_credits_included,
             storage_used_bytes: storage_usage.total_bytes,
             storage_limit_bytes: storage_usage.limit_bytes,
             storage_percentage: storage_usage.percentage(),
@@ -830,7 +1009,7 @@ fn parse_user_document(doc: &vclip_firestore::Document) -> ApiResult<UserRecord>
             .unwrap_or_else(Utc::now),
         settings: UserSettings::default(), // TODO: parse nested settings
         role: get_string("role"),
-        clips_used_this_month: get_u32("clips_used_this_month"),
+        credits_used_this_month: get_u32("credits_used_this_month"),
         usage_reset_month: get_string("usage_reset_month"),
         total_storage_bytes: get_u64("total_storage_bytes"),
         total_clips_count: get_u32("total_clips_count"),
@@ -849,54 +1028,75 @@ fn parse_plan_limits(plan_doc: &vclip_firestore::Document) -> ApiResult<PlanLimi
         .and_then(|v| String::from_firestore_value(v))
         .unwrap_or_else(|| "unknown".to_string());
 
+    // Determine plan tier from ID
+    let tier = vclip_models::PlanTier::from_str(&plan_id);
+
     // Get limits map
-    let (max_clips_per_month, storage_limit_bytes) = if let Some(Value::MapValue(limits_map)) = fields.get("limits") {
-        let clips = limits_map
-            .fields
-            .as_ref()
-            .and_then(|fields| fields.get("max_clips_per_month"))
-            .and_then(|v| u32::from_firestore_value(v))
-            .unwrap_or(20);
-        let storage = limits_map
-            .fields
-            .as_ref()
-            .and_then(|fields| fields.get("storage_limit_bytes"))
-            .and_then(|v| u64::from_firestore_value(v))
-            .unwrap_or_else(|| {
-                // Fallback to plan-based defaults if not in Firestore
-                match plan_id.as_str() {
-                    "pro" => vclip_models::PRO_STORAGE_LIMIT_BYTES,
-                    "studio" => vclip_models::STUDIO_STORAGE_LIMIT_BYTES,
-                    _ => vclip_models::FREE_STORAGE_LIMIT_BYTES,
-                }
-            });
-        (clips, storage)
+    let limits_map = if let Some(Value::MapValue(map)) = fields.get("limits") {
+        map.fields.as_ref()
     } else {
-        // Fallback to plan-based defaults
-        let storage = match plan_id.as_str() {
-            "pro" => vclip_models::PRO_STORAGE_LIMIT_BYTES,
-            "studio" => vclip_models::STUDIO_STORAGE_LIMIT_BYTES,
-            _ => vclip_models::FREE_STORAGE_LIMIT_BYTES,
-        };
-        (20, storage)
+        None
     };
 
+    // Parse credits (with fallback to tier defaults)
+    let monthly_credits_included = limits_map
+        .and_then(|f| f.get("monthly_credits_included"))
+        .and_then(|v| u32::from_firestore_value(v))
+        .unwrap_or_else(|| tier.monthly_credits());
+
+    // Parse storage limit (with fallback to tier defaults)
+    let storage_limit_bytes = limits_map
+        .and_then(|f| f.get("storage_limit_bytes"))
+        .and_then(|v| u64::from_firestore_value(v))
+        .unwrap_or_else(|| tier.storage_limit_bytes());
+
+    // Parse feature flags (with tier-based defaults)
+    let watermark_exports = limits_map
+        .and_then(|f| f.get("watermark_exports"))
+        .and_then(|v| bool::from_firestore_value(v))
+        .unwrap_or_else(|| tier.has_watermark());
+
+    let api_access = limits_map
+        .and_then(|f| f.get("api_access"))
+        .and_then(|v| bool::from_firestore_value(v))
+        .unwrap_or_else(|| tier.has_api_access());
+
+    let channel_monitoring_included = limits_map
+        .and_then(|f| f.get("channel_monitoring_included"))
+        .and_then(|v| u32::from_firestore_value(v))
+        .unwrap_or_else(|| tier.channels_included());
+
+    let connected_social_accounts_limit = limits_map
+        .and_then(|f| f.get("connected_social_accounts_limit"))
+        .and_then(|v| u32::from_firestore_value(v))
+        .unwrap_or_else(|| tier.connected_accounts_limit());
+
+    let priority_processing = limits_map
+        .and_then(|f| f.get("priority_processing"))
+        .and_then(|v| bool::from_firestore_value(v))
+        .unwrap_or(matches!(tier, vclip_models::PlanTier::Pro | vclip_models::PlanTier::Studio));
+
     // For now, use reasonable defaults for other limits based on plan tier
-    // TODO: Store these in Firestore as well
-    let (max_highlights_per_video, max_styles_per_video, can_reprocess) = match plan_id.as_str() {
-        "free" => (3, 2, false),
-        "pro" => (10, 5, true),
-        "studio" => (25, 10, true),
-        _ => (3, 2, false),
+    let (max_highlights_per_video, max_styles_per_video, can_reprocess) = match tier {
+        vclip_models::PlanTier::Free => (3, 2, false),
+        vclip_models::PlanTier::Pro => (10, 5, true),
+        vclip_models::PlanTier::Studio => (25, 10, true),
     };
 
     Ok(PlanLimits {
         plan_id,
-        max_clips_per_month,
+        monthly_credits_included,
+        max_clip_length_seconds: vclip_models::MAX_CLIP_LENGTH_SECONDS,
         max_highlights_per_video,
         max_styles_per_video,
         can_reprocess,
         storage_limit_bytes,
+        watermark_exports,
+        api_access,
+        channel_monitoring_included,
+        connected_social_accounts_limit,
+        priority_processing,
+        tier,
     })
 }
 
@@ -914,8 +1114,8 @@ fn user_to_fields(user: &UserRecord) -> HashMap<String, Value> {
         fields.insert("role".to_string(), role.to_firestore_value());
     }
     fields.insert(
-        "clips_used_this_month".to_string(),
-        user.clips_used_this_month.to_firestore_value(),
+        "credits_used_this_month".to_string(),
+        user.credits_used_this_month.to_firestore_value(),
     );
     if let Some(ref month) = user.usage_reset_month {
         fields.insert("usage_reset_month".to_string(), month.to_firestore_value());

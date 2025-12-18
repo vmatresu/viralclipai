@@ -63,13 +63,14 @@ import {
     getVideoSceneStyles,
 } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
+import { formatCredits, getStyleCreditCost } from "@/lib/credits/pricing";
 import { useProcessing } from "@/lib/processing-context";
 import { normalizeStyleForSelection } from "@/lib/styleTiers";
 
 interface UserSettings {
   plan: string;
-  max_clips_per_month: number;
-  clips_used_this_month: number;
+  monthly_credits_limit: number;
+  credits_used_this_month: number;
   role?: string;
   settings: {
     cut_silent_parts_default?: boolean;
@@ -794,6 +795,20 @@ export default function HistoryDetailPage() {
     return selectedScenes.size * selectedStyles.length;
   }, [selectedScenes.size, selectedStyles.length]);
 
+  // Calculate total credit cost for reprocessing
+  const creditCost = useMemo(() => {
+    if (selectedScenes.size === 0 || selectedStyles.length === 0) return 0;
+    let total = 0;
+    for (const style of selectedStyles) {
+      total += getStyleCreditCost(style) * selectedScenes.size;
+    }
+    // Add silent remover cost (+5 credits per scene)
+    if (cutSilentParts) {
+      total += 5 * selectedScenes.size;
+    }
+    return total;
+  }, [selectedScenes.size, selectedStyles, cutSilentParts]);
+
   const canReprocess = useMemo(() => {
     return selectedScenes.size > 0 && selectedStyles.length > 0 && !isProcessing;
   }, [selectedScenes.size, selectedStyles.length, isProcessing]);
@@ -992,7 +1007,9 @@ export default function HistoryDetailPage() {
               </p>
               <Button onClick={handleReprocess} disabled={!canReprocess} size="lg">
                 <Play className="h-4 w-4 mr-2" />
-                Process Selected Scenes
+                {canReprocess
+                  ? `Process — ${formatCredits(creditCost)}`
+                  : "Process Selected Scenes"}
               </Button>
             </div>
           </CardContent>

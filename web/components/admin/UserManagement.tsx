@@ -5,11 +5,11 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
 } from "@/components/ui/select";
 import { apiFetch } from "@/lib/apiClient";
 
@@ -18,8 +18,8 @@ interface AdminUser {
   email: string | null;
   plan: string;
   role: string | null;
-  clips_used_this_month: number;
-  max_clips_per_month: number;
+  credits_used_this_month: number;
+  monthly_credits_limit: number;
   created_at: string;
   updated_at: string;
 }
@@ -131,15 +131,15 @@ export function UserManagement({ getIdToken }: UserManagementProps) {
       await apiFetch(`/api/admin/users/${encodeURIComponent(uid)}/usage`, {
         method: "PATCH",
         token,
-        body: { clips_used: newUsage },
+        body: { credits_used: newUsage },
       });
 
       // Update local state
       setUsers((prev) =>
-        prev.map((u) => (u.uid === uid ? { ...u, clips_used_this_month: newUsage } : u))
+        prev.map((u) => (u.uid === uid ? { ...u, credits_used_this_month: newUsage } : u))
       );
       if (searchResult?.uid === uid) {
-        setSearchResult({ ...searchResult, clips_used_this_month: newUsage });
+        setSearchResult({ ...searchResult, credits_used_this_month: newUsage });
       }
 
       setEditingUsage(null);
@@ -220,7 +220,7 @@ export function UserManagement({ getIdToken }: UserManagementProps) {
                   disabled={updating === user.uid}
                 />
                 <span className="text-sm text-muted-foreground">
-                  /{user.max_clips_per_month}
+                  /{user.monthly_credits_limit}
                 </span>
                 <Button
                   size="sm"
@@ -244,15 +244,15 @@ export function UserManagement({ getIdToken }: UserManagementProps) {
             ) : (
               <button
                 type="button"
-                onClick={() => startEditingUsage(user.uid, user.clips_used_this_month)}
+                onClick={() => startEditingUsage(user.uid, user.credits_used_this_month)}
                 className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                 title="Click to edit"
               >
                 <span className="font-medium text-foreground">
-                  {user.clips_used_this_month}
+                  {user.credits_used_this_month}
                 </span>
                 <span className="text-muted-foreground">
-                  /{user.max_clips_per_month}
+                  /{user.monthly_credits_limit}
                 </span>
               </button>
             )}
@@ -317,7 +317,7 @@ export function UserManagement({ getIdToken }: UserManagementProps) {
             <tr className="border-b border-white/10 text-xs uppercase text-muted-foreground">
               <th className="py-2 px-4 font-medium">User</th>
               <th className="py-2 px-4 font-medium">Plan</th>
-              <th className="py-2 px-4 font-medium">Clips</th>
+              <th className="py-2 px-4 font-medium">Credits</th>
               <th className="py-2 px-4 font-medium">Role</th>
               <th className="py-2 px-4 font-medium">Created</th>
             </tr>

@@ -240,9 +240,28 @@ impl Style {
 
     /// Credits required to generate a single clip in this style.
     ///
-    /// Kept at 1 for all styles today, but structured for future per-style pricing.
+    /// Credit costs are based on detection tier:
+    /// - Static (None): 10 credits
+    /// - Basic (YuNet): 10 credits
+    /// - Smart (Motion/Speaker): 20 credits
+    /// - Premium (Cinematic): 30 credits
+    ///
+    /// Special styles:
+    /// - Streamer: 10 credits (static, no AI)
+    /// - StreamerSplit: 10 credits per scene
+    /// - StreamerTopScenes: 10 credits (static compilation)
+    /// - IntelligentSplitMotion: 10 credits (special pricing)
     pub fn credit_cost(&self) -> u32 {
-        1
+        match self {
+            // Streamer styles have special pricing
+            Style::Streamer | Style::StreamerSplit | Style::StreamerTopScenes => {
+                crate::plan::STREAMER_SPLIT_STYLE_COST
+            }
+            // IntelligentSplitMotion has special pricing (10 credits instead of 20)
+            Style::IntelligentSplitMotion => 10,
+            // All other styles use tier-based pricing
+            _ => crate::plan::credits_for_detection_tier(self.detection_tier()),
+        }
     }
 
     /// Returns true if this is a split-view style.
@@ -528,15 +547,34 @@ mod tests {
     }
 
     #[test]
-    fn test_style_credit_cost_defaults_to_one() {
-        for style in Style::ALL.iter() {
-            assert_eq!(
-                style.credit_cost(),
-                1,
-                "unexpected credit cost for {:?}",
-                style
-            );
-        }
+    fn test_style_credit_cost_by_tier() {
+        // Static styles (DetectionTier::None) = 10 credits
+        assert_eq!(Style::Original.credit_cost(), 10);
+        assert_eq!(Style::Split.credit_cost(), 10);
+        assert_eq!(Style::LeftFocus.credit_cost(), 10);
+        assert_eq!(Style::RightFocus.credit_cost(), 10);
+        assert_eq!(Style::CenterFocus.credit_cost(), 10);
+        assert_eq!(Style::SplitFast.credit_cost(), 10);
+
+        // Basic styles (DetectionTier::Basic) = 10 credits
+        assert_eq!(Style::Intelligent.credit_cost(), 10);
+        assert_eq!(Style::IntelligentSplit.credit_cost(), 10);
+
+        // Smart styles (DetectionTier::MotionAware/SpeakerAware) = 20 credits
+        assert_eq!(Style::IntelligentMotion.credit_cost(), 20);
+        // IntelligentSplitMotion has special pricing = 10 credits
+        assert_eq!(Style::IntelligentSplitMotion.credit_cost(), 10);
+        assert_eq!(Style::IntelligentSpeaker.credit_cost(), 20);
+        assert_eq!(Style::IntelligentSplitSpeaker.credit_cost(), 20);
+        assert_eq!(Style::IntelligentSplitActivity.credit_cost(), 20);
+
+        // Premium styles (DetectionTier::Cinematic) = 30 credits
+        assert_eq!(Style::IntelligentCinematic.credit_cost(), 30);
+
+        // Streamer styles = 10 credits (special pricing)
+        assert_eq!(Style::Streamer.credit_cost(), 10);
+        assert_eq!(Style::StreamerSplit.credit_cost(), 10);
+        assert_eq!(Style::StreamerTopScenes.credit_cost(), 10);
     }
 
     #[test]

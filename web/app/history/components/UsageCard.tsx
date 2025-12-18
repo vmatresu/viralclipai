@@ -17,6 +17,11 @@ interface UsageCardProps {
   loadingUsage: boolean;
 }
 
+// Format large numbers with commas for display
+function formatNumber(num: number): string {
+  return num.toLocaleString();
+}
+
 export function UsageCard({ planUsage, loadingUsage }: UsageCardProps) {
   if (!planUsage) {
     if (loadingUsage) {
@@ -53,16 +58,14 @@ export function UsageCard({ planUsage, loadingUsage }: UsageCardProps) {
     );
   }
 
-  const usagePercentage = Math.min(
-    (planUsage.clips_used_this_month / planUsage.max_clips_per_month) * 100,
-    100
-  );
+  // Credits are the primary quota metric
+  const creditsUsed = planUsage.credits_used_this_month;
+  const creditsLimit = planUsage.monthly_credits_limit;
+
+  const usagePercentage = Math.min((creditsUsed / creditsLimit) * 100, 100);
   const isHighUsage = usagePercentage >= 80;
   const isNearLimit = usagePercentage >= 90;
-  const remainingClips = Math.max(
-    0,
-    planUsage.max_clips_per_month - planUsage.clips_used_this_month
-  );
+  const remainingCredits = Math.max(0, creditsLimit - creditsUsed);
 
   const storagePercentage = planUsage.storage?.percentage ?? 0;
   const isHighStorage = storagePercentage >= 80;
@@ -95,16 +98,16 @@ export function UsageCard({ planUsage, loadingUsage }: UsageCardProps) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Monthly Clips Usage */}
+        {/* Monthly Credits Usage */}
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">Monthly Clips</span>
+            <span className="text-muted-foreground">Monthly Credits</span>
             <span
               className={
                 isHighUsage ? "text-destructive font-semibold" : "text-muted-foreground"
               }
             >
-              {planUsage.clips_used_this_month} / {planUsage.max_clips_per_month}
+              {formatNumber(creditsUsed)} / {formatNumber(creditsLimit)}
             </span>
           </div>
           <div className="relative h-3 w-full overflow-hidden rounded-full bg-muted">
@@ -116,7 +119,7 @@ export function UsageCard({ planUsage, loadingUsage }: UsageCardProps) {
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
               <TrendingUp className="h-3 w-3" />
-              {remainingClips} remaining
+              {formatNumber(remainingCredits)} credits remaining
             </span>
             {isHighUsage && (
               <span className="text-destructive">

@@ -1,11 +1,11 @@
 "use client";
 
 import {
-  AlertCircle,
-  CornerRightDown,
-  Crown,
-  Sparkles,
-  TrendingUp,
+    AlertCircle,
+    CornerRightDown,
+    Crown,
+    Sparkles,
+    TrendingUp,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -14,18 +14,19 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { analyticsEvents } from "@/lib/analytics";
 import { apiFetch } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
+import { ANALYSIS_CREDIT_COST } from "@/lib/credits/pricing";
 import { frontendLogger } from "@/lib/logger";
 import { sanitizePrompt, validateVideoUrl } from "@/lib/security";
 import { cn } from "@/lib/utils";
@@ -45,8 +46,10 @@ interface StorageInfo {
 
 interface UserSettings {
   plan: string;
-  max_clips_per_month: number;
-  clips_used_this_month: number;
+  /** Monthly credits included in plan. */
+  monthly_credits_limit: number;
+  /** Credits used this billing month. */
+  credits_used_this_month: number;
   storage: StorageInfo;
 }
 
@@ -72,8 +75,8 @@ export function ProcessVideoInterface() {
 
   // Quota tracking state
   const [quotaInfo, setQuotaInfo] = useState<{
-    clipsUsed: number;
-    clipsLimit: number;
+    creditsUsed: number;
+    creditsLimit: number;
     storageUsed: number;
     storageLimit: number;
     storageUsedFormatted: string;
@@ -103,9 +106,10 @@ export function ProcessVideoInterface() {
       }
       const settings = await apiFetch<UserSettings>("/api/settings", { token });
       setUserPlan(settings.plan);
+      // Credits are the primary quota metric
       setQuotaInfo({
-        clipsUsed: settings.clips_used_this_month,
-        clipsLimit: settings.max_clips_per_month,
+        creditsUsed: settings.credits_used_this_month,
+        creditsLimit: settings.monthly_credits_limit,
         storageUsed: settings.storage.used_bytes,
         storageLimit: settings.storage.limit_bytes,
         storageUsedFormatted: settings.storage.used_formatted,
@@ -221,14 +225,14 @@ export function ProcessVideoInterface() {
   const isSelectedTierGated = isTierGated(aiLevel, userPlan);
   const requiredPlan = getRequiredPlan(aiLevel);
 
-  // Check if user is over quota (clips or storage)
-  const isOverClipQuota = quotaInfo
-    ? quotaInfo.clipsUsed >= quotaInfo.clipsLimit
+  // Check if user is over quota (credits or storage)
+  const isOverCreditsQuota = quotaInfo
+    ? quotaInfo.creditsUsed >= quotaInfo.creditsLimit
     : false;
   const isOverStorageQuota = quotaInfo
     ? quotaInfo.storageUsed >= quotaInfo.storageLimit
     : false;
-  const isOverQuota = isOverClipQuota || isOverStorageQuota;
+  const isOverQuota = isOverCreditsQuota || isOverStorageQuota;
 
   const handleLaunch = async () => {
     if (!url) {
@@ -362,10 +366,10 @@ export function ProcessVideoInterface() {
                 You&apos;ve exceeded your plan limits!
               </p>
               <p className="text-sm text-muted-foreground">
-                {isOverClipQuota && (
+                {isOverCreditsQuota && (
                   <>
-                    You&apos;ve used {quotaInfo.clipsUsed} of {quotaInfo.clipsLimit}{" "}
-                    monthly clips.{" "}
+                    You&apos;ve used {quotaInfo.creditsUsed.toLocaleString()} of{" "}
+                    {quotaInfo.creditsLimit.toLocaleString()} monthly credits.{" "}
                   </>
                 )}
                 {isOverStorageQuota && (
@@ -431,7 +435,7 @@ export function ProcessVideoInterface() {
             isProcessing && "opacity-70 cursor-wait"
           )}
         >
-          {isProcessing ? "Processing..." : "Analyze"}
+          {isProcessing ? "Processing..." : `Analyze — ${ANALYSIS_CREDIT_COST} credits`}
         </button>
       </div>
 

@@ -1,12 +1,85 @@
-//! Plan configuration and storage limits.
+//! Plan configuration, storage limits, and credit-based usage tracking.
+//!
+//! ## Credit System
+//!
+//! Credits are charged per finished clip based on the detection tier:
+//! - Tier 1 (Static): 10 credits - No AI detection
+//! - Tier 2 (Basic): 10 credits - YuNet face detection
+//! - Tier 3 (Smart): 20 credits - Motion/Speaker-aware detection
+//! - Tier 4 (Premium): 30 credits - Cinematic tier with trajectory optimization
+//!
+//! Additional feature costs:
+//! - Video analysis (get scenes): 3 credits
+//! - Scene originals download: 5 credits per scene
+//! - Streamer style: 10 credits
+//! - Streamer Split style: 10 credits per scene
+//! - Silent remover add-on: +5 credits per scene
+//! - Object detection add-on (Cinematic): +10 credits
+//!
+//! ## Monthly Credits by Plan
+//!
+//! - Free: 200 credits
+//! - Pro: 4,000 credits
+//! - Studio: 12,000 credits
+//!
+//! ## Important
+//!
+//! Deleting clips does NOT refund credits.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-/// Storage limits in bytes for each plan tier.
-pub const FREE_STORAGE_LIMIT_BYTES: u64 = 100 * 1024 * 1024; // 100 MB
-pub const PRO_STORAGE_LIMIT_BYTES: u64 = 1024 * 1024 * 1024; // 1 GB
-pub const STUDIO_STORAGE_LIMIT_BYTES: u64 = 5 * 1024 * 1024 * 1024; // 5 GB
+use crate::detection_tier::DetectionTier;
+
+/// Storage limits in bytes for each plan tier (v1 spec).
+pub const FREE_STORAGE_LIMIT_BYTES: u64 = 1024 * 1024 * 1024; // 1 GB
+pub const PRO_STORAGE_LIMIT_BYTES: u64 = 30 * 1024 * 1024 * 1024; // 30 GB
+pub const STUDIO_STORAGE_LIMIT_BYTES: u64 = 150 * 1024 * 1024 * 1024; // 150 GB
+
+/// Monthly credits included by plan tier.
+pub const FREE_MONTHLY_CREDITS: u32 = 200;
+pub const PRO_MONTHLY_CREDITS: u32 = 4000;
+pub const STUDIO_MONTHLY_CREDITS: u32 = 12000;
+
+/// Maximum clip length in seconds (applies to all plans).
+pub const MAX_CLIP_LENGTH_SECONDS: u32 = 90;
+
+// =============================================================================
+// Credit Costs
+// =============================================================================
+
+/// Credit cost for video analysis (getting scenes).
+pub const ANALYSIS_CREDIT_COST: u32 = 3;
+
+/// Credit cost for downloading scene originals (per scene).
+pub const SCENE_ORIGINALS_DOWNLOAD_COST: u32 = 5;
+
+/// Credit cost for Streamer style.
+pub const STREAMER_STYLE_COST: u32 = 10;
+
+/// Credit cost for StreamerSplit style (per scene).
+pub const STREAMER_SPLIT_STYLE_COST: u32 = 10;
+
+/// Extra credit cost for silent remover add-on (per scene).
+pub const SILENT_REMOVER_ADDON_COST: u32 = 5;
+
+/// Extra credit cost for object detection add-on (Cinematic).
+pub const OBJECT_DETECTION_ADDON_COST: u32 = 10;
+
+/// Get credit cost for a detection tier.
+///
+/// - None (Static): 10 credits
+/// - Basic: 10 credits
+/// - MotionAware/SpeakerAware (Smart): 20 credits
+/// - Cinematic (Premium): 30 credits
+pub fn credits_for_detection_tier(tier: DetectionTier) -> u32 {
+    match tier {
+        DetectionTier::None => 10,
+        DetectionTier::Basic => 10,
+        DetectionTier::MotionAware | DetectionTier::SpeakerAware => 20,
+        DetectionTier::Cinematic => 30,
+    }
+}
 
 /// Plan tier enumeration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, Default)]
@@ -37,12 +110,68 @@ impl PlanTier {
         }
     }
 
+    /// Get monthly credits included for this plan.
+    pub fn monthly_credits(&self) -> u32 {
+        match self {
+            PlanTier::Free => FREE_MONTHLY_CREDITS,
+            PlanTier::Pro => PRO_MONTHLY_CREDITS,
+            PlanTier::Studio => STUDIO_MONTHLY_CREDITS,
+        }
+    }
+
     /// Get the plan name as a string.
     pub fn as_str(&self) -> &'static str {
         match self {
             PlanTier::Free => "free",
             PlanTier::Pro => "pro",
             PlanTier::Studio => "studio",
+        }
+    }
+
+    /// Whether exports from this plan include a watermark.
+    pub fn has_watermark(&self) -> bool {
+        matches!(self, PlanTier::Free)
+    }
+
+    /// Whether this plan has API access.
+    pub fn has_api_access(&self) -> bool {
+        matches!(self, PlanTier::Studio)
+    }
+
+    /// Whether this plan has channel monitoring.
+    pub fn has_channel_monitoring(&self) -> bool {
+        matches!(self, PlanTier::Studio)
+    }
+
+    /// Number of monitored channels included (Studio only).
+    pub fn channels_included(&self) -> u32 {
+        match self {
+            PlanTier::Studio => 2,
+            _ => 0,
+        }
+    }
+
+    /// Maximum connected social accounts.
+    pub fn connected_accounts_limit(&self) -> u32 {
+        match self {
+            PlanTier::Free => 1,
+            PlanTier::Pro => 3,
+            PlanTier::Studio => 10,
+        }
+    }
+
+    /// Check if a detection tier is allowed on this plan.
+    pub fn allows_detection_tier(&self, tier: DetectionTier) -> bool {
+        match self {
+            PlanTier::Free => matches!(tier, DetectionTier::None | DetectionTier::Basic),
+            PlanTier::Pro => matches!(
+                tier,
+                DetectionTier::None
+                    | DetectionTier::Basic
+                    | DetectionTier::MotionAware
+                    | DetectionTier::SpeakerAware
+            ),
+            PlanTier::Studio => true, // All tiers allowed
         }
     }
 }
@@ -58,8 +187,10 @@ impl std::fmt::Display for PlanTier {
 pub struct PlanLimits {
     /// Plan identifier.
     pub plan_id: String,
-    /// Maximum clips per month.
-    pub max_clips_per_month: u32,
+    /// Monthly credits included.
+    pub monthly_credits_included: u32,
+    /// Maximum clip length in seconds.
+    pub max_clip_length_seconds: u32,
     /// Maximum highlights per video.
     pub max_highlights_per_video: u32,
     /// Maximum styles per video.
@@ -68,17 +199,37 @@ pub struct PlanLimits {
     pub can_reprocess: bool,
     /// Storage limit in bytes.
     pub storage_limit_bytes: u64,
+    /// Whether exports include watermark.
+    pub watermark_exports: bool,
+    /// Whether API access is enabled.
+    pub api_access: bool,
+    /// Number of monitored channels included.
+    pub channel_monitoring_included: u32,
+    /// Maximum connected social accounts.
+    pub connected_social_accounts_limit: u32,
+    /// Whether priority processing is enabled.
+    pub priority_processing: bool,
+    /// Plan tier for tier-based feature checks.
+    #[serde(default)]
+    pub tier: PlanTier,
 }
 
 impl Default for PlanLimits {
     fn default() -> Self {
         Self {
             plan_id: "free".to_string(),
-            max_clips_per_month: 20,
+            monthly_credits_included: FREE_MONTHLY_CREDITS,
+            max_clip_length_seconds: MAX_CLIP_LENGTH_SECONDS,
             max_highlights_per_video: 3,
             max_styles_per_video: 2,
             can_reprocess: false,
             storage_limit_bytes: FREE_STORAGE_LIMIT_BYTES,
+            watermark_exports: true,
+            api_access: false,
+            channel_monitoring_included: 0,
+            connected_social_accounts_limit: 1,
+            priority_processing: false,
+            tier: PlanTier::Free,
         }
     }
 }
@@ -90,21 +241,40 @@ impl PlanLimits {
             PlanTier::Free => Self::default(),
             PlanTier::Pro => Self {
                 plan_id: "pro".to_string(),
-                max_clips_per_month: 500,
+                monthly_credits_included: PRO_MONTHLY_CREDITS,
+                max_clip_length_seconds: MAX_CLIP_LENGTH_SECONDS,
                 max_highlights_per_video: 10,
                 max_styles_per_video: 5,
                 can_reprocess: true,
                 storage_limit_bytes: PRO_STORAGE_LIMIT_BYTES,
+                watermark_exports: false,
+                api_access: false,
+                channel_monitoring_included: 0,
+                connected_social_accounts_limit: 3,
+                priority_processing: true,
+                tier: PlanTier::Pro,
             },
             PlanTier::Studio => Self {
                 plan_id: "studio".to_string(),
-                max_clips_per_month: 2000,
+                monthly_credits_included: STUDIO_MONTHLY_CREDITS,
+                max_clip_length_seconds: MAX_CLIP_LENGTH_SECONDS,
                 max_highlights_per_video: 25,
                 max_styles_per_video: 10,
                 can_reprocess: true,
                 storage_limit_bytes: STUDIO_STORAGE_LIMIT_BYTES,
+                watermark_exports: false,
+                api_access: true,
+                channel_monitoring_included: 2,
+                connected_social_accounts_limit: 10,
+                priority_processing: true,
+                tier: PlanTier::Studio,
             },
         }
+    }
+
+    /// Check if a detection tier is allowed on this plan.
+    pub fn allows_detection_tier(&self, tier: DetectionTier) -> bool {
+        self.tier.allows_detection_tier(tier)
     }
 }
 
@@ -316,11 +486,12 @@ mod tests {
 
     #[test]
     fn test_plan_tier_storage_limits() {
-        assert_eq!(PlanTier::Free.storage_limit_bytes(), 100 * 1024 * 1024);
-        assert_eq!(PlanTier::Pro.storage_limit_bytes(), 1024 * 1024 * 1024);
+        // v1 spec: Free=1GB, Pro=30GB, Studio=150GB
+        assert_eq!(PlanTier::Free.storage_limit_bytes(), 1024 * 1024 * 1024);
+        assert_eq!(PlanTier::Pro.storage_limit_bytes(), 30 * 1024 * 1024 * 1024);
         assert_eq!(
             PlanTier::Studio.storage_limit_bytes(),
-            5 * 1024 * 1024 * 1024
+            150 * 1024 * 1024 * 1024
         );
     }
 
@@ -336,6 +507,62 @@ mod tests {
             STUDIO_STORAGE_LIMIT_BYTES,
             PlanTier::Studio.storage_limit_bytes()
         );
+    }
+
+    #[test]
+    fn test_monthly_credits() {
+        assert_eq!(PlanTier::Free.monthly_credits(), 200);
+        assert_eq!(PlanTier::Pro.monthly_credits(), 4000);
+        assert_eq!(PlanTier::Studio.monthly_credits(), 12000);
+    }
+
+    #[test]
+    fn test_credits_for_detection_tier() {
+        assert_eq!(credits_for_detection_tier(DetectionTier::None), 10);
+        assert_eq!(credits_for_detection_tier(DetectionTier::Basic), 10);
+        assert_eq!(credits_for_detection_tier(DetectionTier::MotionAware), 20);
+        assert_eq!(credits_for_detection_tier(DetectionTier::SpeakerAware), 20);
+        assert_eq!(credits_for_detection_tier(DetectionTier::Cinematic), 30);
+    }
+
+    #[test]
+    fn test_plan_tier_allows_detection_tier() {
+        // Free: only None and Basic
+        assert!(PlanTier::Free.allows_detection_tier(DetectionTier::None));
+        assert!(PlanTier::Free.allows_detection_tier(DetectionTier::Basic));
+        assert!(!PlanTier::Free.allows_detection_tier(DetectionTier::MotionAware));
+        assert!(!PlanTier::Free.allows_detection_tier(DetectionTier::SpeakerAware));
+        assert!(!PlanTier::Free.allows_detection_tier(DetectionTier::Cinematic));
+
+        // Pro: all except Cinematic
+        assert!(PlanTier::Pro.allows_detection_tier(DetectionTier::None));
+        assert!(PlanTier::Pro.allows_detection_tier(DetectionTier::Basic));
+        assert!(PlanTier::Pro.allows_detection_tier(DetectionTier::MotionAware));
+        assert!(PlanTier::Pro.allows_detection_tier(DetectionTier::SpeakerAware));
+        assert!(!PlanTier::Pro.allows_detection_tier(DetectionTier::Cinematic));
+
+        // Studio: all tiers
+        assert!(PlanTier::Studio.allows_detection_tier(DetectionTier::None));
+        assert!(PlanTier::Studio.allows_detection_tier(DetectionTier::Cinematic));
+    }
+
+    #[test]
+    fn test_plan_feature_flags() {
+        // Free
+        assert!(PlanTier::Free.has_watermark());
+        assert!(!PlanTier::Free.has_api_access());
+        assert!(!PlanTier::Free.has_channel_monitoring());
+
+        // Pro
+        assert!(!PlanTier::Pro.has_watermark());
+        assert!(!PlanTier::Pro.has_api_access());
+        assert!(!PlanTier::Pro.has_channel_monitoring());
+
+        // Studio
+        assert!(!PlanTier::Studio.has_watermark());
+        assert!(PlanTier::Studio.has_api_access());
+        assert!(PlanTier::Studio.has_channel_monitoring());
+        assert_eq!(PlanTier::Studio.channels_included(), 2);
     }
 
     #[test]

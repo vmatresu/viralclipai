@@ -12,13 +12,15 @@ use uuid::Uuid;
 
 use vclip_firestore::AnalysisDraftRepository;
 use vclip_models::{
-    AnalysisDraft, AnalysisStatus, AnalysisStatusResponse, DraftScene,
+    AnalysisDraft, AnalysisStatus, AnalysisStatusResponse, DetectionTier, DraftScene,
     ProcessDraftRequest, ProcessingEstimate, StartAnalysisResponse, Style,
+    ANALYSIS_CREDIT_COST,
 };
 use vclip_queue::{AnalyzeVideoJob, RenderSceneStyleJob};
 
 use crate::auth::AuthUser;
 use crate::error::{ApiError, ApiResult};
+use crate::security::{sanitize_string, validate_video_url};
 use crate::state::AppState;
 
 /// TTL in days for analysis drafts by plan tier.
@@ -48,18 +50,20 @@ pub async fn start_analysis(
     user: AuthUser,
     Json(request): Json<StartAnalysisRequest>,
 ) -> ApiResult<Json<StartAnalysisResponse>> {
-    // Validate URL
-    if request.url.is_empty() {
-        return Err(ApiError::bad_request("URL is required"));
-    }
+    // Validate URL using SSRF-safe whitelist validation
+    let validated_url = validate_video_url(&request.url)
+        .into_result()
+        .map_err(ApiError::bad_request)?;
 
-    // Basic YouTube URL validation
-    if !request.url.contains("youtube.com") && !request.url.contains("youtu.be") {
-        return Err(ApiError::bad_request("Only YouTube URLs are supported"));
-    }
+    // Charge credits for analysis (3 credits)
+    // This is charged upfront and not refunded if analysis fails
+    state
+        .user_service
+        .check_and_reserve_credits(&user.uid, ANALYSIS_CREDIT_COST)
+        .await?;
 
-    // Sanitize prompt if provided
-    let prompt = request.prompt.as_ref().map(|p| sanitize_prompt(p));
+    // Sanitize prompt if provided using unified security function
+    let prompt = request.prompt.as_ref().map(|p| sanitize_string(p));
 
     // Determine TTL based on user's plan
     let ttl_days = get_draft_ttl(&state, &user.uid).await;
@@ -68,8 +72,8 @@ pub async fn start_analysis(
     let draft_id = Uuid::new_v4().to_string();
     let request_id = Uuid::new_v4().to_string();
 
-    // Create the draft record
-    let mut draft = AnalysisDraft::new(&draft_id, &user.uid, &request.url, ttl_days)
+    // Create the draft record with validated URL
+    let mut draft = AnalysisDraft::new(&draft_id, &user.uid, &validated_url, ttl_days)
         .with_request_id(&request_id);
 
     if let Some(ref p) = prompt {
@@ -83,8 +87,8 @@ pub async fn start_analysis(
         ApiError::internal("Failed to create analysis draft")
     })?;
 
-    // Create and enqueue the analysis job
-    let mut job = AnalyzeVideoJob::new(&user.uid, &draft_id, &request.url);
+    // Create and enqueue the analysis job with validated URL
+    let mut job = AnalyzeVideoJob::new(&user.uid, &draft_id, &validated_url);
     if let Some(p) = prompt {
         job = job.with_prompt(p);
     }
@@ -406,6 +410,47 @@ pub async fn process_draft(
         ApiError::bad_request(format!("Invalid split style: {}", request.split_style))
     })?;
 
+    // Get plan limits for tier validation
+    let limits = state.user_service.get_plan_limits(&user.uid).await?;
+
+    // Validate detection tiers are allowed by the user's plan
+    for style in [full_style, split_style] {
+        let tier = style.detection_tier();
+        if !limits.allows_detection_tier(tier) {
+            let required_plan = match tier {
+                DetectionTier::Cinematic => "Studio",
+                DetectionTier::MotionAware | DetectionTier::SpeakerAware => "Pro",
+                _ => "Pro",
+            };
+            return Err(ApiError::forbidden(format!(
+                "Style '{}' requires a {} plan or higher. Please upgrade to access this feature.",
+                style, required_plan
+            )));
+        }
+    }
+
+    // Calculate total credits needed
+    let mut total_credits = 0u32;
+    for selection in &request.selected_scenes {
+        if selection.render_full {
+            total_credits += full_style.credit_cost();
+        }
+        if selection.render_split {
+            total_credits += split_style.credit_cost();
+        }
+    }
+
+    // Check and reserve credits (validates quota + charges upfront)
+    state
+        .user_service
+        .check_and_reserve_credits(&user.uid, total_credits)
+        .await?;
+
+    info!(
+        "Reserved {} credits for processing draft {} ({} clips)",
+        total_credits, draft_id, request.selected_scenes.len()
+    );
+
     // Generate video ID for this processing run
     let video_id = vclip_models::VideoId::new();
 
@@ -494,6 +539,12 @@ pub struct EstimateQuery {
     pub full_count: u32,
     /// Number of SPLIT renders
     pub split_count: u32,
+    /// Full style name (e.g., "SmartFace", "Cinematic")
+    #[serde(default)]
+    pub full_style: Option<String>,
+    /// Split style name (e.g., "Streamer", "StreamerSplit")
+    #[serde(default)]
+    pub split_style: Option<String>,
 }
 
 /// Get cost and time estimates for processing.
@@ -542,8 +593,23 @@ pub async fn estimate_processing(
     let total_duration_secs: u32 = selected_scenes.iter().map(|s| s.duration_secs).sum();
     let total_jobs = query.full_count + query.split_count;
 
-    // Estimate cost: 1 credit per job (could be style-dependent in the future)
-    let estimated_credits = total_jobs;
+    // Calculate credits based on actual style costs
+    let full_style_cost = query
+        .full_style
+        .as_ref()
+        .and_then(|s| s.parse::<Style>().ok())
+        .map(|s| s.credit_cost())
+        .unwrap_or(10); // Default to basic style cost (10 credits)
+
+    let split_style_cost = query
+        .split_style
+        .as_ref()
+        .and_then(|s| s.parse::<Style>().ok())
+        .map(|s| s.credit_cost())
+        .unwrap_or(10); // Default to streamer style cost (10 credits)
+
+    let estimated_credits =
+        (query.full_count * full_style_cost) + (query.split_count * split_style_cost);
 
     // Estimate time: ~30-60 seconds per job on average
     let estimated_time_min_secs = total_jobs * 30;
@@ -568,17 +634,6 @@ pub async fn estimate_processing(
 // Helper Functions
 // ============================================================================
 
-/// Sanitize user prompt to prevent injection attacks.
-fn sanitize_prompt(prompt: &str) -> String {
-    // Remove control characters and trim
-    prompt
-        .chars()
-        .filter(|c| !c.is_control() || *c == '\n' || *c == '\t')
-        .collect::<String>()
-        .trim()
-        .to_string()
-}
-
 /// Get draft TTL based on user's plan.
 async fn get_draft_ttl(state: &AppState, user_id: &str) -> i64 {
     // Check if user has a paid plan
@@ -596,12 +651,12 @@ async fn check_exceeds_quota(state: &AppState, user_id: &str, credits_needed: u3
         Err(_) => return false, // Default to allowing if we can't check
     };
 
-    // Get current usage
-    let usage = match state.user_service.get_monthly_usage(user_id).await {
+    // Get current credits usage
+    let credits_used = match state.user_service.get_credits_usage(user_id).await {
         Ok(u) => u,
         Err(_) => return false, // Default to allowing if we can't check
     };
 
-    usage + credits_needed > limits.max_clips_per_month
+    credits_used + credits_needed > limits.monthly_credits_included
 }
 

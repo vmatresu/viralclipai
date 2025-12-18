@@ -10,8 +10,8 @@ import { type StorageInfo } from "@/types/storage";
 
 interface SettingsResponse {
   plan: string;
-  max_clips_per_month: number;
-  clips_used_this_month: number;
+  monthly_credits_limit: number;
+  credits_used_this_month: number;
   role?: string;
   storage: StorageInfo;
   settings: {
@@ -193,8 +193,8 @@ export default function SettingsPage() {
             const isHighStorage = storagePercentage >= 80;
             const isNearLimit = storagePercentage >= 90;
 
-            const isOverClipLimit =
-              data.clips_used_this_month > data.max_clips_per_month;
+            const isOverCreditLimit =
+              data.credits_used_this_month > data.monthly_credits_limit;
             const isOverStorage =
               data.storage && data.storage.used_bytes > data.storage.limit_bytes;
 
@@ -209,18 +209,18 @@ export default function SettingsPage() {
                   </div>
                   <div>
                     <span className="font-semibold text-foreground">
-                      Clips This Month:
+                      Credits This Month:
                     </span>{" "}
                     <span
-                      className={isOverClipLimit ? "text-red-500 font-semibold" : ""}
+                      className={isOverCreditLimit ? "text-red-500 font-semibold" : ""}
                     >
-                      {data.clips_used_this_month}
+                      {data.credits_used_this_month}
                     </span>
                     {" / "}
-                    <span className="text-foreground">{data.max_clips_per_month}</span>
-                    {isOverClipLimit && (
+                    <span className="text-foreground">{data.monthly_credits_limit}</span>
+                    {isOverCreditLimit && (
                       <span className="text-red-500 text-xs ml-2">
-                        ({data.clips_used_this_month - data.max_clips_per_month} over
+                        ({data.credits_used_this_month - data.monthly_credits_limit} over
                         limit)
                       </span>
                     )}

@@ -28,8 +28,10 @@ export interface StorageInfo {
 
 export interface PlanUsage {
   plan: string;
-  max_clips_per_month: number;
-  clips_used_this_month: number;
+  /** Monthly credits included in plan. */
+  monthly_credits_limit: number;
+  /** Credits used this billing month. */
+  credits_used_this_month: number;
   storage?: StorageInfo;
 }
 

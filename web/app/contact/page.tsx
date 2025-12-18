@@ -1,3 +1,7 @@
+"use client";
+
+import Obfuscate from "react-obfuscate";
+
 export default function ContactPage() {
   return (
     <div className="space-y-6">
@@ -14,12 +18,9 @@ export default function ContactPage() {
           <p className="text-muted-foreground">
             You can contact us at:
             <br />
-            <a
-              href="mailto:support@viralvideoai.io"
-              className="text-brand-600 font-semibold underline hover:text-brand-700"
-            >
-              support@viralvideoai.io
-            </a>
+            <span className="text-brand-600 font-semibold underline hover:text-brand-700">
+              <Obfuscate email="contact@viralclipai.io" />
+            </span>
           </p>
         </section>
         <section className="glass rounded-2xl p-6 space-y-3">

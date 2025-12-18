@@ -39,6 +39,12 @@ pub use highlight::{Highlight, HighlightCategory, HighlightsData, VideoHighlight
 pub use job::{Job, JobId, JobState, JobType};
 pub use plan::{format_bytes, PlanLimits, PlanTier, StorageAccounting, StorageUsage};
 pub use plan::{FREE_STORAGE_LIMIT_BYTES, PRO_STORAGE_LIMIT_BYTES, STUDIO_STORAGE_LIMIT_BYTES};
+pub use plan::{
+    FREE_MONTHLY_CREDITS, PRO_MONTHLY_CREDITS, STUDIO_MONTHLY_CREDITS, MAX_CLIP_LENGTH_SECONDS,
+    ANALYSIS_CREDIT_COST, SCENE_ORIGINALS_DOWNLOAD_COST, STREAMER_STYLE_COST,
+    STREAMER_SPLIT_STYLE_COST, SILENT_REMOVER_ADDON_COST, OBJECT_DETECTION_ADDON_COST,
+    credits_for_detection_tier,
+};
 pub use share::{CreateShareRequest, ShareAccessLevel, ShareConfig, ShareResponse, is_valid_share_slug, MAX_SHARE_EXPIRY_HOURS};
 pub use style::{AspectRatio, CropMode, Style};
 pub use utils::{extract_youtube_id, extract_youtube_id_legacy, YoutubeIdError, YoutubeIdResult};

@@ -200,6 +200,12 @@ impl ReprocessScenesJob {
         self
     }
 
+    /// Set object detection enabled for cinematic styles.
+    pub fn with_object_detection(mut self, enabled: bool) -> Self {
+        self.enable_object_detection = enabled;
+        self
+    }
+
     /// Set crop mode.
     pub fn with_crop_mode(mut self, crop_mode: CropMode) -> Self {
         self.crop_mode = crop_mode;
