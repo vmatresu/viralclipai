@@ -56,8 +56,9 @@ services:
       - GOOGLE_APPLICATION_CREDENTIALS=/app/firebase-credentials.json
 
       # Redis (internal network with auth)
+      # Redis (with auth)
       # NOTE: REDIS_PASSWORD must be set in production!
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD required}@redis:6379
       - REDIS_POOL_SIZE=${REDIS_POOL_SIZE:-10}
 
       # Cloudflare R2 Storage
@@ -159,8 +160,9 @@ services:
       - GOOGLE_APPLICATION_CREDENTIALS=/app/firebase-credentials.json
 
       # Redis (with auth)
+      # Redis (with auth)
       # NOTE: REDIS_PASSWORD must be set in production!
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD required}@redis:6379
       - REDIS_POOL_SIZE=${REDIS_POOL_SIZE:-10}
 
       # Cloudflare R2 Storage
@@ -237,7 +239,7 @@ services:
       --tcp-backlog 511
       --timeout 0
       --tcp-keepalive 300
-      --requirepass ${REDIS_PASSWORD:-changeme}
+      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD required}
 
     # No external ports in production - only accessible via internal network
     # Uncomment for local debugging only:
@@ -256,7 +258,7 @@ services:
           "CMD",
           "redis-cli",
           "-a",
-          "${REDIS_PASSWORD:-changeme}",
+          "${REDIS_PASSWORD:?REDIS_PASSWORD required}",
           "--no-auth-warning",
           "ping",
         ]

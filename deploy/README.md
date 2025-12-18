@@ -62,21 +62,27 @@ Production deployment guide for ViralClipAI backend on DigitalOcean with separat
 - Region: NYC1
 - Hostname: `viralclipai-worker-nyc1-01`
 
-### 2. Run Hardening Scripts
+### 2. Run Setup Script (Unified)
+
+This single script handles hardening (UFW, Fail2ban), installs Docker, creates the deploy user, and **auto-generates secure secrets** (Redis password, JWT secret) in a new `.env` file.
 
 ```bash
-# API Server (as root)
-ssh root@<api-ip>
-curl -O https://raw.githubusercontent.com/vmatresu/viralclipai/main/deploy/server-hardening.sh
-chmod +x server-hardening.sh
-./server-hardening.sh deploy
-
-# Worker Server (as root)
-ssh root@<worker-ip>
-curl -O https://raw.githubusercontent.com/vmatresu/viralclipai/main/deploy/server-hardening-worker.sh
-chmod +x server-hardening-worker.sh
-./server-hardening-worker.sh deploy
+# On BOTH servers (run as root):
+ssh root@<server-ip>
+curl -O https://raw.githubusercontent.com/vmatresu/viralclipai/main/deploy/setup-server.sh
+chmod +x setup-server.sh
+./setup-server.sh
 ```
+
+**After running:**
+1.  **Edit the `.env` file**: The script creates `/var/www/viralclipai-backend/.env`. You **must** edit it to fill in your Cloudflare R2 keys and Firebase Project ID.
+    ```bash
+    nano /var/www/viralclipai-backend/.env
+    ```
+2.  **Test SSH**: Ensure you can log in as `deploy` before closing your root session.
+    ```bash
+    ssh deploy@<server-ip>
+    ```
 
 ### 3. Setup GitHub Deploy Keys
 

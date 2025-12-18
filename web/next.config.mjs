@@ -26,8 +26,8 @@ const nextConfig = {
     const isDev = process.env.NODE_ENV === "development";
 
     // Content Security Policy
-    // Note: 'unsafe-inline' and 'unsafe-eval' are required for Next.js
-    // In production, consider using nonces or hashes for stricter CSP
+    // Note: 'unsafe-inline' is required for Next.js App Router inline styles/scripts.
+    // 'unsafe-eval' is only allowed in development for hot reloading.
     const cspDirectives = [
       "default-src 'self'",
       `script-src 'self' 'unsafe-inline' ${isDev ? "'unsafe-eval'" : ""} https://www.googletagmanager.com https://www.google-analytics.com https://apis.google.com https://accounts.google.com`,
@@ -43,7 +43,9 @@ const nextConfig = {
       "form-action 'self'",
       "frame-ancestors 'none'",
       "upgrade-insecure-requests",
-    ].join("; ");
+    ]
+      .filter(Boolean)
+      .join("; ");
 
     // Permissions Policy (formerly Feature Policy)
     const permissionsPolicy = [
