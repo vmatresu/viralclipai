@@ -1,11 +1,11 @@
 import {
-    Activity,
-    Film,
-    Gamepad2,
-    Monitor,
-    ScanFace,
-    Sparkles,
-    Zap,
+  Activity,
+  Film,
+  Gamepad2,
+  Monitor,
+  ScanFace,
+  Sparkles,
+  Zap,
 } from "lucide-react";
 
 import type { QualityLevel } from "./types";

@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
 import * as Slider from "@radix-ui/react-slider";
+import { useEffect, useState } from "react";
 
 import { cn } from "@/lib/utils";
 

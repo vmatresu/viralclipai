@@ -12,9 +12,9 @@ use uuid::Uuid;
 
 use vclip_firestore::AnalysisDraftRepository;
 use vclip_models::{
-    AnalysisDraft, AnalysisStatus, AnalysisStatusResponse, DetectionTier, DraftScene,
-    ProcessDraftRequest, ProcessingEstimate, StartAnalysisResponse, Style,
-    ANALYSIS_CREDIT_COST,
+    AnalysisDraft, AnalysisStatus, AnalysisStatusResponse, CreditContext, CreditOperationType,
+    DetectionTier, DraftScene, ProcessDraftRequest, ProcessingEstimate, StartAnalysisResponse,
+    Style, ANALYSIS_CREDIT_COST,
 };
 use vclip_queue::{AnalyzeVideoJob, RenderSceneStyleJob};
 
@@ -55,13 +55,6 @@ pub async fn start_analysis(
         .into_result()
         .map_err(ApiError::bad_request)?;
 
-    // Charge credits for analysis (3 credits)
-    // This is charged upfront and not refunded if analysis fails
-    state
-        .user_service
-        .check_and_reserve_credits(&user.uid, ANALYSIS_CREDIT_COST)
-        .await?;
-
     // Sanitize prompt if provided using unified security function
     let prompt = request.prompt.as_ref().map(|p| sanitize_string(p));
 
@@ -70,6 +63,18 @@ pub async fn start_analysis(
 
     // Generate IDs
     let draft_id = Uuid::new_v4().to_string();
+
+    // Charge credits for analysis (3 credits)
+    // This is charged upfront and not refunded if analysis fails
+    let credit_context = CreditContext::new(
+        CreditOperationType::Analysis,
+        "Video analysis",
+    ).with_draft_id(&draft_id);
+
+    state
+        .user_service
+        .check_and_reserve_credits_with_context(&user.uid, ANALYSIS_CREDIT_COST, credit_context)
+        .await?;
     let request_id = Uuid::new_v4().to_string();
 
     // Create the draft record with validated URL
@@ -440,19 +445,45 @@ pub async fn process_draft(
         }
     }
 
+    // Generate video ID for this processing run
+    let video_id = vclip_models::VideoId::new();
+
+    // Build description for credit transaction
+    let scene_count = request.selected_scenes.len();
+    let styles_used: Vec<&str> = [
+        request.selected_scenes.iter().any(|s| s.render_full).then_some(full_style.as_filename_part()),
+        request.selected_scenes.iter().any(|s| s.render_split).then_some(split_style.as_filename_part()),
+    ].into_iter().flatten().collect();
+    let description = format!(
+        "Process {} scene{} ({})",
+        scene_count,
+        if scene_count == 1 { "" } else { "s" },
+        styles_used.join(", ")
+    );
+
+    // Build metadata for the transaction
+    let mut metadata = std::collections::HashMap::new();
+    metadata.insert("scene_count".to_string(), scene_count.to_string());
+    metadata.insert("styles".to_string(), styles_used.join(","));
+
+    let credit_context = CreditContext::new(
+        CreditOperationType::SceneProcessing,
+        description,
+    )
+    .with_video_id(video_id.as_str())
+    .with_draft_id(&draft_id)
+    .with_metadata(metadata);
+
     // Check and reserve credits (validates quota + charges upfront)
     state
         .user_service
-        .check_and_reserve_credits(&user.uid, total_credits)
+        .check_and_reserve_credits_with_context(&user.uid, total_credits, credit_context)
         .await?;
 
     info!(
         "Reserved {} credits for processing draft {} ({} clips)",
-        total_credits, draft_id, request.selected_scenes.len()
+        total_credits, draft_id, scene_count
     );
-
-    // Generate video ID for this processing run
-    let video_id = vclip_models::VideoId::new();
 
     // Create and enqueue render jobs
     let mut jobs_enqueued = 0u32;

@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 
+import { useAuth } from "@/lib/auth";
+
 import { Logo } from "./Logo";
 
 const FOOTER_LINKS = [
@@ -14,6 +16,7 @@ const FOOTER_LINKS = [
 ];
 
 export function SiteFooter() {
+  const { user, loading } = useAuth();
   const currentYear = new Date().getFullYear();
 
   const handleNavClick = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
@@ -50,6 +53,15 @@ export function SiteFooter() {
                 {link.label}
               </Link>
             ))}
+            {!loading && user && (
+              <Link
+                href="/credits"
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                onClick={(e) => handleNavClick(e, "/credits")}
+              >
+                Credits
+              </Link>
+            )}
           </nav>
         </div>
 

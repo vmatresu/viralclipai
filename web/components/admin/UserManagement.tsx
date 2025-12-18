@@ -5,11 +5,11 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { apiFetch } from "@/lib/apiClient";
 
@@ -136,7 +136,9 @@ export function UserManagement({ getIdToken }: UserManagementProps) {
 
       // Update local state
       setUsers((prev) =>
-        prev.map((u) => (u.uid === uid ? { ...u, credits_used_this_month: newUsage } : u))
+        prev.map((u) =>
+          u.uid === uid ? { ...u, credits_used_this_month: newUsage } : u
+        )
       );
       if (searchResult?.uid === uid) {
         setSearchResult({ ...searchResult, credits_used_this_month: newUsage });
@@ -244,7 +246,9 @@ export function UserManagement({ getIdToken }: UserManagementProps) {
             ) : (
               <button
                 type="button"
-                onClick={() => startEditingUsage(user.uid, user.credits_used_this_month)}
+                onClick={() =>
+                  startEditingUsage(user.uid, user.credits_used_this_month)
+                }
                 className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                 title="Click to edit"
               >

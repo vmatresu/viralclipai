@@ -18,6 +18,7 @@ pub mod analysis_draft_repo;
 pub mod client;
 #[cfg(test)]
 mod client_tests;
+pub mod credit_transaction_repo;
 pub mod error;
 pub mod highlights_repo;
 pub mod metrics;
@@ -30,6 +31,7 @@ pub mod types;
 
 pub use analysis_draft_repo::AnalysisDraftRepository;
 pub use client::{FirestoreClient, FirestoreConfig};
+pub use credit_transaction_repo::CreditTransactionRepository;
 pub use error::{FirestoreError, FirestoreResult};
 pub use highlights_repo::HighlightsRepository;
 pub use repos::{ClipRepository, VideoRepository};

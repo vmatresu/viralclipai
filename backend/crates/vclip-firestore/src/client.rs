@@ -20,7 +20,8 @@ use crate::retry::RetryConfig;
 use crate::token_cache::TokenCache;
 use crate::types::{
     BatchGetDocumentsRequest, BatchGetDocumentsResponse, BatchWriteRequest, BatchWriteResponse,
-    Document, DocumentMask, ListDocumentsResponse, Value, Write,
+    Document, DocumentMask, ListDocumentsResponse, RunQueryRequest, RunQueryResponse,
+    StructuredQuery, Value, Write,
 };
 
 // =============================================================================
@@ -647,6 +648,82 @@ impl FirestoreClient {
         Fut: std::future::Future<Output = FirestoreResult<T>>,
     {
         crate::retry::with_retry(&self.config.retry, operation, op).await
+    }
+
+    // =========================================================================
+    // Query Operations
+    // =========================================================================
+
+    /// Run a structured query on a collection.
+    ///
+    /// The `parent_path` should be the path containing the collection, e.g.,
+    /// "users/USER_ID" for querying "users/USER_ID/credit_transactions".
+    pub async fn run_query(
+        &self,
+        parent_path: &str,
+        query: StructuredQuery,
+    ) -> FirestoreResult<Vec<Document>> {
+        let url = format!("{}/{}:runQuery", self.base_url, parent_path);
+        let request = RunQueryRequest {
+            structured_query: query,
+        };
+
+        self.execute_request("run_query", parent_path, None, async {
+            let mut token = self.get_token().await?;
+            let mut response = self
+                .http
+                .post(&url)
+                .bearer_auth(&token)
+                .json(&request)
+                .send()
+                .await?;
+            let mut status = response.status();
+
+            if status == StatusCode::UNAUTHORIZED {
+                let body = response.text().await.unwrap_or_default();
+                if Self::is_access_token_expired(&body) {
+                    self.token_cache.invalidate().await;
+                    token = self.get_token().await?;
+                    response = self
+                        .http
+                        .post(&url)
+                        .bearer_auth(&token)
+                        .json(&request)
+                        .send()
+                        .await?;
+                    status = response.status();
+                } else {
+                    return Err(FirestoreError::from_http_status(
+                        status.as_u16(),
+                        format!("{} failed: {}", url, body),
+                    ));
+                }
+            }
+
+            match status {
+                StatusCode::OK => {
+                    let body = response.text().await.unwrap_or_default();
+                    // runQuery returns a JSON array of RunQueryResponse objects
+                    let responses: Vec<RunQueryResponse> =
+                        serde_json::from_str(&body).map_err(|e| {
+                            FirestoreError::request_failed(format!(
+                                "Failed to parse runQuery response: {} (body prefix: {})",
+                                e,
+                                &body[..body.len().min(200)]
+                            ))
+                        })?;
+
+                    let docs: Vec<Document> = responses
+                        .into_iter()
+                        .filter_map(|r| r.document)
+                        .collect();
+
+                    Ok(docs)
+                }
+                _ => Err(Self::handle_error_response(status, &url, response).await),
+            }
+        })
+        .await
     }
 
     // =========================================================================

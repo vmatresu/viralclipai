@@ -324,7 +324,7 @@ async fn render_streamer_split(
     // We must ensure heights are even for libx264
     let total_height = crate::intelligent::output_format::PORTRAIT_HEIGHT;
     let top_height = crate::intelligent::output_format::make_even((total_height as f32 * ratio) as i32) as u32;
-    let bottom_height = total_height - top_height; // Ensures sum is exactly total_height
+
 
     // Build filter complex:
     // - Top panel: webcam region scaled preserving aspect ratio (no stretching)
@@ -477,6 +477,7 @@ mod tests {
         assert_eq!(crop.width, 960);
         // Crop should be at bottom-right
         assert_eq!(crop.x, 960); // 1920 - 960
+    }
         #[test]
     fn test_manual_crop_priority() {
         let params = StreamerSplitParams {
@@ -500,7 +501,6 @@ mod tests {
         assert_eq!(crop.width, 500);
         assert_eq!(crop.height, 500);
     }
-}
 
     #[test]
     fn test_zoom_clamping() {

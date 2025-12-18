@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, LogOut, Menu, Settings, X } from "lucide-react";
+import { ChevronDown, CreditCard, LogOut, Menu, Settings, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -81,6 +81,15 @@ export function SiteHeader() {
               <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-gradient-to-r from-brand-400 to-brand-cyan transition-all duration-300 group-hover:w-full" />
             </a>
           ))}
+          {!loading && user && (
+            <Link
+              href="/credits"
+              className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors relative group"
+            >
+              Credits
+              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-gradient-to-r from-brand-400 to-brand-cyan transition-all duration-300 group-hover:w-full" />
+            </Link>
+          )}
         </div>
 
         {/* Desktop Actions */}
@@ -144,6 +153,12 @@ export function SiteHeader() {
                       <span>Settings</span>
                     </Link>
                   </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/credits" className="cursor-pointer w-full">
+                      <CreditCard className="mr-2 h-4 w-4" />
+                      <span>Credits</span>
+                    </Link>
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator className="bg-gray-200 dark:bg-white/10" />
                   <DropdownMenuItem
                     onClick={signOut}
@@ -195,6 +210,14 @@ export function SiteHeader() {
               {link.label}
             </a>
           ))}
+          {!loading && user && (
+            <Link
+              href="/credits"
+              className="block text-lg font-medium text-muted-foreground hover:text-foreground py-2 border-b border-border"
+            >
+              Credits
+            </Link>
+          )}
           {!loading && !user && (
             <div className="pt-2">
               <SignInDialog />

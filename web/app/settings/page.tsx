@@ -217,11 +217,13 @@ export default function SettingsPage() {
                       {data.credits_used_this_month}
                     </span>
                     {" / "}
-                    <span className="text-foreground">{data.monthly_credits_limit}</span>
+                    <span className="text-foreground">
+                      {data.monthly_credits_limit}
+                    </span>
                     {isOverCreditLimit && (
                       <span className="text-red-500 text-xs ml-2">
-                        ({data.credits_used_this_month - data.monthly_credits_limit} over
-                        limit)
+                        ({data.credits_used_this_month - data.monthly_credits_limit}{" "}
+                        over limit)
                       </span>
                     )}
                   </div>

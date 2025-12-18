@@ -368,3 +368,124 @@ impl FromFirestoreValue for DateTime<Utc> {
         }
     }
 }
+
+// ============================================================================
+// StructuredQuery Types (for runQuery)
+// ============================================================================
+
+/// A structured query for Firestore.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StructuredQuery {
+    /// The collections to query.
+    pub from: Vec<CollectionSelector>,
+    /// The filter to apply.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r#where: Option<Filter>,
+    /// The order to apply to the query results.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order_by: Option<Vec<Order>>,
+    /// A potential prefix of a position in the result set to start the query at.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_at: Option<Cursor>,
+    /// The maximum number of results to return.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i32>,
+}
+
+/// Collection selector for queries.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectionSelector {
+    /// The collection ID.
+    pub collection_id: String,
+    /// When true, selects all descendant collections.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub all_descendants: Option<bool>,
+}
+
+/// A filter.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Filter {
+    /// A composite filter.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub composite_filter: Option<CompositeFilter>,
+    /// A filter on a document field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field_filter: Option<FieldFilter>,
+}
+
+/// A composite filter (AND/OR of multiple filters).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompositeFilter {
+    /// The operator for combining multiple filters.
+    pub op: String,
+    /// The list of filters to combine.
+    pub filters: Vec<Filter>,
+}
+
+/// A filter on a single field.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldFilter {
+    /// The field to filter by.
+    pub field: FieldReference,
+    /// The operator to filter by.
+    pub op: String,
+    /// The value to compare to.
+    pub value: Value,
+}
+
+/// Reference to a field.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldReference {
+    /// A reference to a field.
+    pub field_path: String,
+}
+
+/// An ordering.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Order {
+    /// The field to order by.
+    pub field: FieldReference,
+    /// The direction to order by.
+    pub direction: String,
+}
+
+/// A position in a query result set.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Cursor {
+    /// The values that represent a position.
+    pub values: Vec<Value>,
+    /// If true, position just before all results that equal the values.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before: Option<bool>,
+}
+
+/// Request body for runQuery.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunQueryRequest {
+    /// The structured query.
+    pub structured_query: StructuredQuery,
+}
+
+/// Response from runQuery (one per document).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunQueryResponse {
+    /// The document found.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub document: Option<Document>,
+    /// The time at which the document was read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_time: Option<String>,
+    /// If present, Firestore has completely finished the request and no more documents will be returned.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub done: Option<bool>,
+}

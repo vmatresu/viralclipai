@@ -5,8 +5,7 @@
 
 export { CreditBadge, type CreditBadgeProps } from "./CreditBadge";
 export {
-    CreditCostBreakdown,
-    type CreditCostBreakdownProps,
-    type CreditLineItem
+  CreditCostBreakdown,
+  type CreditCostBreakdownProps,
+  type CreditLineItem,
 } from "./CreditCostBreakdown";
-

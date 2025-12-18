@@ -451,18 +451,14 @@ export default function HistoryList() {
 
   const usagePercentage = planUsage
     ? Math.min(
-        (planUsage.credits_used_this_month / planUsage.monthly_credits_limit) *
-          100,
+        (planUsage.credits_used_this_month / planUsage.monthly_credits_limit) * 100,
         100
       )
     : 0;
   const isHighUsage = usagePercentage >= 80;
   const isNearLimit = usagePercentage >= 90;
   const remainingCredits = planUsage
-    ? Math.max(
-        0,
-        planUsage.monthly_credits_limit - planUsage.credits_used_this_month
-      )
+    ? Math.max(0, planUsage.monthly_credits_limit - planUsage.credits_used_this_month)
     : 0;
 
   // Storage usage
@@ -500,9 +496,7 @@ export default function HistoryList() {
             <span className="text-muted-foreground">Monthly Credits</span>
             <span
               className={
-                isHighUsage
-                  ? "text-destructive font-semibold"
-                  : "text-muted-foreground"
+                isHighUsage ? "text-destructive font-semibold" : "text-muted-foreground"
               }
             >
               {planUsage.credits_used_this_month.toLocaleString()} /{" "}
@@ -703,8 +697,8 @@ export default function HistoryList() {
                   {planUsage ? (
                     <>
                       {planUsage.credits_used_this_month.toLocaleString()} of{" "}
-                      {planUsage.monthly_credits_limit.toLocaleString()} credits
-                      used this month
+                      {planUsage.monthly_credits_limit.toLocaleString()} credits used
+                      this month
                       {remainingCredits > 0 &&
                         ` • ${remainingCredits.toLocaleString()} remaining`}
                     </>

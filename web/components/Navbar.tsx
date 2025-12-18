@@ -1,6 +1,14 @@
 "use client";
 
-import { DollarSign, History, Home, LogOut, Menu, Settings } from "lucide-react";
+import {
+  CreditCard,
+  DollarSign,
+  History,
+  Home,
+  LogOut,
+  Menu,
+  Settings,
+} from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import * as React from "react";
@@ -22,6 +30,7 @@ const NAV_LINKS = [
   { href: "/", label: "Home", icon: Home },
   { href: "/pricing", label: "Pricing", icon: DollarSign },
   { href: "/history", label: "History", icon: History },
+  { href: "/credits", label: "Credits", icon: CreditCard },
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
 

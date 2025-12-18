@@ -33,14 +33,10 @@ export function CreditBadge({
   };
 
   const variantClasses = {
-    default:
-      "bg-violet-500/10 text-violet-400 border-violet-500/20",
-    highlight:
-      "bg-violet-500/20 text-violet-300 border-violet-500/30 font-semibold",
-    warning:
-      "bg-amber-500/10 text-amber-400 border-amber-500/20",
-    muted:
-      "bg-slate-500/10 text-slate-400 border-slate-500/20",
+    default: "bg-violet-500/10 text-violet-400 border-violet-500/20",
+    highlight: "bg-violet-500/20 text-violet-300 border-violet-500/30 font-semibold",
+    warning: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    muted: "bg-slate-500/10 text-slate-400 border-slate-500/20",
   };
 
   return (

@@ -54,10 +54,7 @@ export function CreditCostBreakdown({
       {/* Line items */}
       <div className="space-y-2">
         {visibleItems.map((item, index) => (
-          <div
-            key={index}
-            className="flex items-center justify-between text-sm"
-          >
+          <div key={index} className="flex items-center justify-between text-sm">
             <div className="flex items-center gap-2">
               <span className="text-slate-300">{item.label}</span>
               {item.qty > 1 && (
@@ -65,13 +62,9 @@ export function CreditCostBreakdown({
                   ({item.qty} × {item.unitCost})
                 </span>
               )}
-              {item.note && (
-                <span className="text-xs text-slate-500">{item.note}</span>
-              )}
+              {item.note && <span className="text-xs text-slate-500">{item.note}</span>}
             </div>
-            <span className="font-medium text-slate-200">
-              {item.totalCost} credits
-            </span>
+            <span className="font-medium text-slate-200">{item.totalCost} credits</span>
           </div>
         ))}
       </div>
@@ -110,8 +103,8 @@ export function CreditCostBreakdown({
       {/* Warning if exceeds quota */}
       {exceedsQuota && (
         <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
-          This exceeds your monthly credit limit. Please upgrade your plan or
-          select fewer items.
+          This exceeds your monthly credit limit. Please upgrade your plan or select
+          fewer items.
         </div>
       )}
     </div>

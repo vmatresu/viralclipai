@@ -1,7 +1,7 @@
 /**
  * Credit pricing utilities and types.
  * Client-side helpers for calculating and displaying credit costs.
- * 
+ *
  * NOTE: These are for display only. The backend is the source of truth
  * for actual credit calculations and reservations.
  */
@@ -151,8 +151,7 @@ export function calculateSceneCostBreakdown(
   }
 
   if (options?.downloadOriginals && sceneCount > 0) {
-    const totalCost =
-      sceneCount * ADDON_CREDIT_COSTS.sceneOriginalsDownloadPerScene;
+    const totalCost = sceneCount * ADDON_CREDIT_COSTS.sceneOriginalsDownloadPerScene;
     lineItems.push({
       label: "Download originals",
       qty: sceneCount,

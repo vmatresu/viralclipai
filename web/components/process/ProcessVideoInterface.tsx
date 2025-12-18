@@ -1,11 +1,11 @@
 "use client";
 
 import {
-    AlertCircle,
-    CornerRightDown,
-    Crown,
-    Sparkles,
-    TrendingUp,
+  AlertCircle,
+  CornerRightDown,
+  Crown,
+  Sparkles,
+  TrendingUp,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -14,12 +14,12 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";

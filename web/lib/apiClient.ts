@@ -471,3 +471,79 @@ export function reprocessScenes(
     }
   );
 }
+
+// ============================================================================
+// Credit History Types and Functions
+// ============================================================================
+
+export type CreditOperationType =
+  | "analysis"
+  | "scene_processing"
+  | "reprocessing"
+  | "silent_remover"
+  | "object_detection"
+  | "scene_originals"
+  | "admin_adjustment";
+
+export interface CreditTransaction {
+  id: string;
+  timestamp: string;
+  operation_type: CreditOperationType;
+  credits_amount: number;
+  description: string;
+  balance_after: number;
+  video_id?: string;
+  draft_id?: string;
+  metadata?: Record<string, string>;
+}
+
+export interface MonthSummary {
+  month: string;
+  total_used: number;
+  monthly_limit: number;
+  remaining: number;
+  by_operation: Record<string, number>;
+}
+
+export interface CreditHistoryResponse {
+  transactions: CreditTransaction[];
+  next_page_token?: string;
+  summary: MonthSummary;
+}
+
+export interface CreditHistoryOptions {
+  /** Maximum number of transactions to return (clamped to 1..100 server-side) */
+  limit?: number;
+  /** Cursor timestamp for pagination (ISO8601 format from previous response) */
+  cursor?: string;
+  /** Filter by operation type */
+  operationType?: CreditOperationType;
+}
+
+/**
+ * Get credit usage history for the authenticated user.
+ *
+ * Uses cursor-based pagination with server-side ordering (newest first).
+ * The `next_page_token` in the response is now a timestamp cursor.
+ */
+export function getCreditHistory(
+  token: string,
+  options?: CreditHistoryOptions
+): Promise<CreditHistoryResponse> {
+  const params = new URLSearchParams();
+  if (options?.limit) {
+    params.set("limit", String(options.limit));
+  }
+  if (options?.cursor) {
+    params.set("cursor", options.cursor);
+  }
+  if (options?.operationType) {
+    params.set("operation_type", options.operationType);
+  }
+
+  const path = params.toString()
+    ? `/api/credits/history?${params.toString()}`
+    : "/api/credits/history";
+
+  return apiFetch<CreditHistoryResponse>(path, { token });
+}

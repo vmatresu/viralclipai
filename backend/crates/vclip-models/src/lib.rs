@@ -14,6 +14,7 @@
 pub mod analysis;
 pub mod cinematic_analysis;
 pub mod clip;
+pub mod credit_transaction;
 pub mod detection_tier;
 pub mod encoding;
 pub mod highlight;
@@ -67,6 +68,7 @@ pub use cinematic_analysis::{
     CinematicAnalysisStatus, cinematic_analysis_key, CINEMATIC_ANALYSIS_TIMEOUT_SECS,
 };
 pub use job_status::{JobStatus, JobStatusCache};
+pub use credit_transaction::{CreditContext, CreditOperationType, CreditTransaction};
 pub mod rect;
 
 pub use rect::NormalizedRect;

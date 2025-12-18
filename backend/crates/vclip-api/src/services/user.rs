@@ -1,16 +1,20 @@
 //! User and SaaS service for plan limits, ownership checks, and settings.
+//!
+//! This module handles user management, plan limits, and storage tracking.
+//! Credit operations are delegated to [`CreditService`](super::CreditService).
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use chrono::{DateTime, Datelike, Utc};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
 use vclip_firestore::{FirestoreClient, FromFirestoreValue, ToFirestoreValue, Value};
+use vclip_models::{CreditContext, CreditTransaction, VideoId, VideoStatus};
 use vclip_storage::R2Client;
-use vclip_models::{VideoId, VideoStatus};
 
+use super::credit::{current_month_key, CreditService};
 use crate::error::{ApiError, ApiResult};
 
 /// User settings stored in Firestore.
@@ -143,16 +147,30 @@ impl PlanLimits {
 }
 
 /// User service for SaaS operations.
+///
+/// Handles user management, plan limits, and storage tracking.
+/// Credit operations are delegated to the embedded [`CreditService`].
 #[derive(Clone)]
 pub struct UserService {
     firestore: Arc<FirestoreClient>,
     storage: Arc<R2Client>,
+    credit_service: CreditService,
 }
 
 impl UserService {
     /// Create a new user service.
     pub fn new(firestore: Arc<FirestoreClient>, storage: Arc<R2Client>) -> Self {
-        Self { firestore, storage }
+        let credit_service = CreditService::new(Arc::clone(&firestore));
+        Self {
+            firestore,
+            storage,
+            credit_service,
+        }
+    }
+
+    /// Get access to the credit service for direct credit operations.
+    pub fn credits(&self) -> &CreditService {
+        &self.credit_service
     }
 
     /// Get or create a user record.
@@ -358,137 +376,59 @@ impl UserService {
 
 
 
-    /// Maximum retries for atomic credit reservation.
-    const MAX_CREDIT_RESERVE_RETRIES: u32 = 5;
+    // =========================================================================
+    // Credit Operations (delegated to CreditService)
+    // =========================================================================
 
     /// Check if user has sufficient credits and reserve them atomically.
     ///
-    /// This is the single source of truth for credit enforcement.
-    /// Uses optimistic locking with Firestore's Document.update_time precondition
-    /// to prevent race conditions where concurrent requests could overspend credits.
-    ///
-    /// Returns `Ok(())` if credits are available and reserved, or `Err` with user-friendly message.
-    ///
-    /// IMPORTANT: Credits are charged upfront. They are NOT refunded if the job fails.
+    /// Delegates to [`CreditService::check_and_reserve_credits`].
     pub async fn check_and_reserve_credits(&self, uid: &str, credits_needed: u32) -> ApiResult<()> {
+        // Ensure user exists first
+        let _ = self.get_or_create_user(uid, None).await?;
         let limits = self.get_plan_limits(uid).await?;
-        let current_month = current_month_key();
-        let mut last_error: Option<vclip_firestore::FirestoreError> = None;
+        self.credit_service
+            .check_and_reserve_credits(uid, credits_needed, limits.monthly_credits_included)
+            .await
+            .map(|_| ())
+    }
 
-        for attempt in 0..Self::MAX_CREDIT_RESERVE_RETRIES {
-            // Fetch document directly to get server-side update_time for precondition
-            let doc = self.firestore
-                .get_document("users", uid)
-                .await
-                .map_err(|e| ApiError::internal(format!("Firestore error: {}", e)))?;
+    /// Check and reserve credits, then record the transaction.
+    ///
+    /// This is the primary method for credit-consuming operations.
+    pub async fn check_and_reserve_credits_with_context(
+        &self,
+        uid: &str,
+        credits_needed: u32,
+        context: CreditContext,
+    ) -> ApiResult<()> {
+        // Ensure user exists first
+        let _ = self.get_or_create_user(uid, None).await?;
+        let limits = self.get_plan_limits(uid).await?;
+        self.credit_service
+            .reserve_and_record(uid, credits_needed, limits.monthly_credits_included, context)
+            .await
+    }
 
-            // Extract credits and update_time from document
-            let (credits_used, usage_reset_month, update_time) = match &doc {
-                Some(d) => {
-                    let fields = d.fields.as_ref();
-                    let credits = fields
-                        .and_then(|f| f.get("credits_used_this_month"))
-                        .and_then(|v| u32::from_firestore_value(v))
-                        .unwrap_or(0);
-                    let reset_month = fields
-                        .and_then(|f| f.get("usage_reset_month"))
-                        .and_then(|v| String::from_firestore_value(v));
-                    (credits, reset_month, d.update_time.clone())
-                }
-                None => {
-                    // User doesn't exist, create them first
-                    let _ = self.get_or_create_user(uid, None).await?;
-                    (0u32, None, None)
-                }
-            };
+    /// Get credit transactions for a user with pagination.
+    pub async fn get_credit_history(
+        &self,
+        uid: &str,
+        limit: Option<u32>,
+        cursor_timestamp: Option<&str>,
+        operation_type: Option<&str>,
+    ) -> ApiResult<(Vec<CreditTransaction>, Option<String>)> {
+        self.credit_service
+            .get_history(uid, limit, cursor_timestamp, operation_type)
+            .await
+    }
 
-            // Check if we need to reset for new month
-            let effective_credits_used = if usage_reset_month.as_deref() == Some(&current_month) {
-                credits_used
-            } else {
-                0 // Will reset on this write
-            };
-
-            // Check if we have enough credits
-            let remaining = limits.monthly_credits_included.saturating_sub(effective_credits_used);
-            if credits_needed > remaining {
-                return Err(ApiError::forbidden(format!(
-                    "Insufficient credits. You need {} credits but only have {} remaining ({} used of {} monthly limit). Please upgrade your plan.",
-                    credits_needed, remaining, effective_credits_used, limits.monthly_credits_included
-                )));
-            }
-
-            // Calculate new credit value
-            let new_credits = if usage_reset_month.as_deref() == Some(&current_month) {
-                credits_used.saturating_add(credits_needed)
-            } else {
-                // New month - reset counter
-                credits_needed
-            };
-
-            // Build update fields
-            let mut fields = std::collections::HashMap::new();
-            fields.insert(
-                "credits_used_this_month".to_string(),
-                new_credits.to_firestore_value(),
-            );
-            fields.insert(
-                "usage_reset_month".to_string(),
-                current_month.to_firestore_value(),
-            );
-            fields.insert(
-                "updated_at".to_string(),
-                Utc::now().to_firestore_value(),
-            );
-
-            let update_mask = vec![
-                "credits_used_this_month".to_string(),
-                "usage_reset_month".to_string(),
-                "updated_at".to_string(),
-            ];
-
-            // Attempt atomic update with Firestore's server-side update_time precondition
-            match self.firestore
-                .update_document_with_precondition(
-                    "users",
-                    uid,
-                    fields,
-                    Some(update_mask),
-                    update_time.as_deref(),
-                )
-                .await
-            {
-                Ok(_) => {
-                    info!(
-                        "Reserved {} credits for user {} (total now: {})",
-                        credits_needed, uid, new_credits
-                    );
-                    return Ok(());
-                }
-                Err(e) if e.is_precondition_failed() => {
-                    // Another writer updated the document; retry with exponential backoff
-                    debug!(
-                        "Credit reservation precondition failed for user {} (attempt {}), retrying",
-                        uid, attempt + 1
-                    );
-                    last_error = Some(e);
-                    // Exponential backoff: 50ms, 100ms, 150ms, 200ms, 250ms
-                    tokio::time::sleep(tokio::time::Duration::from_millis(50 * (attempt as u64 + 1))).await;
-                    continue;
-                }
-                Err(e) => {
-                    warn!("Failed to reserve credits for user {}: {}", uid, e);
-                    return Err(ApiError::internal("Failed to reserve credits"));
-                }
-            }
-        }
-
-        // Exhausted retries
-        warn!(
-            "Credit reservation failed after {} retries for user {}: {:?}",
-            Self::MAX_CREDIT_RESERVE_RETRIES, uid, last_error
-        );
-        Err(ApiError::internal("Failed to reserve credits due to concurrent updates. Please try again."))
+    /// Get credit usage summary for the current month.
+    pub async fn get_credit_month_summary(
+        &self,
+        uid: &str,
+    ) -> ApiResult<HashMap<String, u32>> {
+        self.credit_service.get_month_summary(uid, None).await
     }
 
     /// Set credits to a specific value (admin only).
@@ -963,12 +903,6 @@ impl UserService {
         
         Ok((total_bytes, total_clips))
     }
-}
-
-/// Get current month key (YYYY-MM).
-fn current_month_key() -> String {
-    let now = Utc::now();
-    format!("{:04}-{:02}", now.year(), now.month())
 }
 
 /// Parse user document from Firestore.
