@@ -10,6 +10,11 @@
  * Usage:
  *   GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json node migrate-users-to-credits.js
  *
+ * cd backend/scripts
+ * npm install --no-save firebase-admin
+ * GOOGLE_APPLICATION_CREDENTIALS=/Users/valentin/work/viralclipai/firebase-credentials.json \
+ * GOOGLE_CLOUD_PROJECT=viralclipai-prod \
+ * node migrate-users-to-credits.js
  * Or with emulator:
  *   FIRESTORE_EMULATOR_HOST=localhost:8080 node migrate-users-to-credits.js
  */
