@@ -115,6 +115,19 @@ impl StorageAccountingRepository {
             .await
     }
 
+    /// Remove multiple styled clips at once (bulk deletion).
+    ///
+    /// More efficient than calling `remove_styled_clip` multiple times.
+    /// Uses optimistic concurrency for safe concurrent updates.
+    pub async fn remove_styled_clips(
+        &self,
+        bytes: u64,
+        count: u32,
+    ) -> FirestoreResult<StorageAccounting> {
+        self.update_with_retry(|acc| acc.remove_styled_clips(bytes, count))
+            .await
+    }
+
     /// Add source video storage (non-billable).
     pub async fn add_source_video(&self, bytes: u64) -> FirestoreResult<StorageAccounting> {
         self.update_with_retry(|acc| acc.add_source_video(bytes))

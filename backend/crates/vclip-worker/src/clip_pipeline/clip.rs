@@ -416,17 +416,24 @@ pub async fn process_single_clip_with_raw_key(
     }
 
     // Phase 5: Update storage accounting (billable styled clip)
-    // StorageAccounting is the CANONICAL source of truth for quota tracking
+    // StorageAccounting is the CANONICAL source of truth for quota tracking.
+    // This operation has built-in retry logic (5 attempts with exponential backoff).
+    // If it fails after all retries, we log a CRITICAL error for monitoring but
+    // don't fail the clip - the clip is already persisted. Use the admin
+    // recalculate_storage endpoint to reconcile if needed.
     let storage_repo = vclip_firestore::StorageAccountingRepository::new(
         ctx.firestore.clone(),
         user_id,
     );
     if let Err(e) = storage_repo.add_styled_clip(final_file_size_bytes).await {
-        tracing::warn!(
+        tracing::error!(
             user_id = %user_id,
+            video_id = %video_id,
+            clip_id = %clip_meta.clip_id,
             size_bytes = final_file_size_bytes,
             error = %e,
-            "Failed to update storage accounting for styled clip (non-critical)"
+            error_type = "storage_accounting_drift",
+            "CRITICAL: Failed to update storage accounting after all retries - quota tracking may be inaccurate"
         );
     }
 

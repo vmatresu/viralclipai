@@ -444,6 +444,16 @@ impl StorageAccounting {
         self.updated_at = Some(chrono::Utc::now());
     }
 
+    /// Remove multiple styled clips at once (bulk deletion).
+    ///
+    /// This is more efficient than calling `remove_styled_clip` multiple times
+    /// as it only updates the timestamp once.
+    pub fn remove_styled_clips(&mut self, bytes: u64, count: u32) {
+        self.styled_clips_bytes = self.styled_clips_bytes.saturating_sub(bytes);
+        self.styled_clips_count = self.styled_clips_count.saturating_sub(count);
+        self.updated_at = Some(chrono::Utc::now());
+    }
+
     /// Remove source video storage.
     pub fn remove_source_video(&mut self, bytes: u64) {
         self.source_videos_bytes = self.source_videos_bytes.saturating_sub(bytes);

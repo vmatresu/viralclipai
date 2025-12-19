@@ -349,24 +349,15 @@ pub async fn delete_video(
         return Err(ApiError::not_found("Video not found"));
     }
 
-    // Get video metadata to know the total size for storage tracking
-    let video_repo = vclip_firestore::VideoRepository::new(
-        (*state.firestore).clone(),
-        &user.uid,
-    );
-    let video_size = video_repo.get(&VideoId::from_string(&video_id)).await
-        .ok()
-        .flatten()
-        .map(|v| v.total_size_bytes)
-        .unwrap_or(0);
-
-    // Get clip count for storage tracking
+    // Get clip info BEFORE deletion for accurate storage accounting
     let clip_repo = vclip_firestore::ClipRepository::new(
         (*state.firestore).clone(),
         &user.uid,
         VideoId::from_string(&video_id),
     );
-    let clip_count = clip_repo.list(None).await.map(|c| c.len() as u32).unwrap_or(0);
+    let clips = clip_repo.list(None).await.unwrap_or_default();
+    let total_bytes: u64 = clips.iter().map(|c| c.file_size_bytes).sum();
+    let clip_count = clips.len() as u32;
 
     // Delete files from R2 (includes styled clips, raw segments, source video, neural cache)
     let files_deleted = state
@@ -375,21 +366,37 @@ pub async fn delete_video(
         .await?;
 
     // Delete from Firestore
+    let video_repo = vclip_firestore::VideoRepository::new(
+        (*state.firestore).clone(),
+        &user.uid,
+    );
     video_repo.delete(&VideoId::from_string(&video_id)).await?;
 
-    // Update user's total storage - recalculate to ensure consistency
-    if video_size > 0 || clip_count > 0 {
-        // Recalculate storage to ensure consistency after video deletion
-        if let Err(e) = state.user_service.recalculate_storage(&user.uid).await {
-            warn!("Failed to recalculate storage after deleting video {}: {}", video_id, e);
-        }
-    }
-
-    // Clear non-billable cache storage accounting (source video, raw segments, neural cache)
+    // Update storage accounting
     let storage_repo = vclip_firestore::StorageAccountingRepository::new(
         (*state.firestore).clone(),
         &user.uid,
     );
+
+    // Subtract billable storage (styled clips)
+    if total_bytes > 0 || clip_count > 0 {
+        if let Err(e) = storage_repo
+            .remove_styled_clips(total_bytes, clip_count)
+            .await
+        {
+            warn!(
+                "Failed to update storage accounting after deleting video {}: {} (bytes: {}, clips: {})",
+                video_id, e, total_bytes, clip_count
+            );
+        } else {
+            info!(
+                "Updated storage accounting for user {}: removed {} bytes, {} clips",
+                user.uid, total_bytes, clip_count
+            );
+        }
+    }
+
+    // Clear non-billable cache storage accounting (source video, raw segments, neural cache)
     if let Err(e) = storage_repo.clear_video_cache().await {
         warn!(
             "Failed to clear cache storage accounting after deleting video {}: {}",
@@ -398,8 +405,8 @@ pub async fn delete_video(
     }
 
     info!(
-        "Deleted video {} for user {} ({} files, {} bytes, including cached data)",
-        video_id, user.uid, files_deleted, video_size
+        "Deleted video {} for user {} ({} files, {} bytes, {} clips)",
+        video_id, user.uid, files_deleted, total_bytes, clip_count
     );
 
     Ok(Json(DeleteVideoResponse {
@@ -456,10 +463,14 @@ pub async fn bulk_delete_videos(
     let mut deleted_count = 0u32;
     let mut failed_count = 0u32;
 
+    // Track total storage to subtract for proper quota accounting
+    let mut total_bytes_deleted: u64 = 0;
+    let mut total_clips_deleted: u32 = 0;
+
     for video_id in &request.video_ids {
         // Check ownership
         let is_owner = state.user_service.user_owns_video(&user.uid, video_id).await.unwrap_or(false);
-        
+
         if !is_owner {
             results.insert(video_id.clone(), BulkDeleteResult {
                 success: false,
@@ -469,6 +480,16 @@ pub async fn bulk_delete_videos(
             failed_count += 1;
             continue;
         }
+
+        // Get clip info BEFORE deletion for accurate storage accounting
+        let clip_repo = vclip_firestore::ClipRepository::new(
+            (*state.firestore).clone(),
+            &user.uid,
+            VideoId::from_string(video_id),
+        );
+        let clips = clip_repo.list(None).await.unwrap_or_default();
+        let video_bytes: u64 = clips.iter().map(|c| c.file_size_bytes).sum();
+        let video_clips = clips.len() as u32;
 
         // Delete files from R2
         let files_deleted = match state.storage.delete_video_files(&user.uid, video_id).await {
@@ -484,16 +505,23 @@ pub async fn bulk_delete_videos(
             (*state.firestore).clone(),
             &user.uid,
         );
-        
+
         match video_repo.delete(&VideoId::from_string(video_id)).await {
             Ok(_) => {
+                // Track storage for successful deletions
+                total_bytes_deleted += video_bytes;
+                total_clips_deleted += video_clips;
+
                 results.insert(video_id.clone(), BulkDeleteResult {
                     success: true,
                     error: None,
                     files_deleted: Some(files_deleted),
                 });
                 deleted_count += 1;
-                info!("Deleted video {} for user {} ({} files, including cached data)", video_id, user.uid, files_deleted);
+                info!(
+                    "Deleted video {} for user {} ({} files, {} bytes, {} clips)",
+                    video_id, user.uid, files_deleted, video_bytes, video_clips
+                );
             }
             Err(e) => {
                 results.insert(video_id.clone(), BulkDeleteResult {
@@ -506,14 +534,32 @@ pub async fn bulk_delete_videos(
         }
     }
 
-    // Clear non-billable cache storage accounting after bulk delete
-    // Note: This clears ALL cache storage for the user, which is correct since
-    // delete_video_files already deleted all cached data for each video
+    // Update storage accounting for all deleted clips
     if deleted_count > 0 {
         let storage_repo = vclip_firestore::StorageAccountingRepository::new(
             (*state.firestore).clone(),
             &user.uid,
         );
+
+        // Subtract billable storage (styled clips)
+        if total_bytes_deleted > 0 || total_clips_deleted > 0 {
+            if let Err(e) = storage_repo
+                .remove_styled_clips(total_bytes_deleted, total_clips_deleted)
+                .await
+            {
+                warn!(
+                    "Failed to update storage accounting after bulk delete for user {}: {} (bytes: {}, clips: {})",
+                    user.uid, e, total_bytes_deleted, total_clips_deleted
+                );
+            } else {
+                info!(
+                    "Updated storage accounting for user {}: removed {} bytes, {} clips",
+                    user.uid, total_bytes_deleted, total_clips_deleted
+                );
+            }
+        }
+
+        // Clear non-billable cache storage accounting
         if let Err(e) = storage_repo.clear_video_cache().await {
             warn!(
                 "Failed to clear cache storage accounting after bulk delete for user {}: {}",

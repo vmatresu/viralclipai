@@ -909,13 +909,25 @@ async fn finalize_compilation(
     // Update video clip count
     crate::reprocessing::update_video_clip_count(ctx, job, 1).await?;
 
-    // Update storage accounting
+    // Update storage accounting.
+    // This operation has built-in retry logic (5 attempts with exponential backoff).
+    // If it fails after all retries, we log a CRITICAL error for monitoring but
+    // don't fail the clip - the clip is already persisted. Use the admin
+    // recalculate_storage endpoint to reconcile if needed.
     let storage_repo = vclip_firestore::StorageAccountingRepository::new(
         ctx.firestore.clone(),
         &job.user_id,
     );
     if let Err(e) = storage_repo.add_styled_clip(file_size).await {
-        warn!(error = %e, "Failed to update storage accounting (non-critical)");
+        tracing::error!(
+            user_id = %job.user_id,
+            video_id = %job.video_id,
+            clip_id = %clip_meta.clip_id,
+            size_bytes = file_size,
+            error = %e,
+            error_type = "storage_accounting_drift",
+            "CRITICAL: Failed to update storage accounting after all retries - quota tracking may be inaccurate"
+        );
     }
 
     // Cleanup work directory
