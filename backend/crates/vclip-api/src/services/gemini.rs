@@ -231,7 +231,7 @@ pub fn build_generate_more_prompt(
 IMPORTANT: Generate exactly {} NEW viral moments that are DIFFERENT from the existing scenes listed above.
 - Do NOT repeat or overlap with existing scenes
 - Find fresh, unique viral moments from other parts of the video
-- Ensure at least 30 seconds gap between new scenes and existing ones
+- Scenes typically range from 30 to 90 seconds. Avoid clips shorter than 20 seconds unless they are exceptionally punchy.
 - Focus on variety - try different categories and themes
 
 IMPORTANT: You must strictly follow this output format.
