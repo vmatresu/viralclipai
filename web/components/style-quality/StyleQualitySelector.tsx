@@ -3,18 +3,18 @@
 import { useMemo } from "react";
 
 import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import {
-    ADDON_CREDIT_COSTS,
-    formatCredits,
-    getStyleCreditCost,
+  ADDON_CREDIT_COSTS,
+  formatCredits,
+  getStyleCreditCost,
 } from "@/lib/credits/pricing";
 import { cn } from "@/lib/utils";
 
@@ -266,13 +266,12 @@ export const STYLE_LEVELS = {
 
 // Re-export types for backward compatibility
 export type {
-    HorizontalPosition,
-    LayoutQualitySelection,
-    StaticPosition,
-    StreamerSplitConfig,
-    VerticalPosition
+  HorizontalPosition,
+  LayoutQualitySelection,
+  StaticPosition,
+  StreamerSplitConfig,
+  VerticalPosition,
 } from "./types";
 
 export { DEFAULT_SELECTION, DEFAULT_STREAMER_SPLIT_CONFIG } from "./types";
 export { selectionToStyles, stylesToSelection } from "./utils";
-

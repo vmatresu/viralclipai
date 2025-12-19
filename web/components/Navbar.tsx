@@ -93,6 +93,11 @@ function MobileNav() {
           })}
         </nav>
 
+        <div className="mt-6 flex items-center justify-between px-1">
+          <span className="text-sm font-medium text-muted-foreground">Theme</span>
+          <ThemeSwitcher />
+        </div>
+
         <div className="absolute bottom-6 left-6 right-6 space-y-4">
           {!loading && !user && (
             <div

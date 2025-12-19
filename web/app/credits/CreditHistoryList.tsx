@@ -1,6 +1,14 @@
 "use client";
 
-import { AlertCircle, Clock, CreditCard, ExternalLink, Loader2, TrendingUp, Zap } from "lucide-react";
+import {
+  AlertCircle,
+  Clock,
+  CreditCard,
+  ExternalLink,
+  Loader2,
+  TrendingUp,
+  Zap,
+} from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -215,7 +223,7 @@ function getCostBreakdown(transaction: CreditTransaction): string | null {
   if (!metadata) return null;
 
   const parts: string[] = [];
-  
+
   // Per-style breakdown: "streamer_split:10,original:10" -> "streamer_split: 10, original: 10"
   const styleBreakdown = metadata.style_breakdown;
   if (styleBreakdown) {
@@ -255,7 +263,7 @@ function TransactionRow({ transaction }: TransactionRowProps) {
   const hasVideoLink = Boolean(transaction.video_id);
   const hasDraftLink = !hasVideoLink && Boolean(transaction.draft_id);
   const hasSourceLink = !hasVideoLink && !hasDraftLink && Boolean(sourceUrl);
-  
+
   // Get cost breakdown for display
   const costBreakdown = getCostBreakdown(transaction);
 
@@ -272,9 +280,7 @@ function TransactionRow({ transaction }: TransactionRowProps) {
       <TableCell>
         <div>{transaction.description}</div>
         {costBreakdown && (
-          <div className="text-xs text-muted-foreground mt-0.5">
-            {costBreakdown}
-          </div>
+          <div className="text-xs text-muted-foreground mt-0.5">{costBreakdown}</div>
         )}
       </TableCell>
       <TableCell className="text-right font-medium">

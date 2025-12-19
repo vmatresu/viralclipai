@@ -218,6 +218,10 @@ export function SiteHeader() {
               Credits
             </Link>
           )}
+          <div className="flex items-center justify-between py-2 border-b border-border">
+            <span className="text-sm font-medium text-muted-foreground">Theme</span>
+            <ThemeToggle />
+          </div>
           {!loading && !user && (
             <div className="pt-2">
               <SignInDialog />
