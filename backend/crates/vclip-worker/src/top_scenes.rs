@@ -766,12 +766,18 @@ async fn render_compilation(
     // Call the streamer top scenes processor
     let streamer_params = StreamerParams::top_scenes(top_scenes);
     let encoding = EncodingConfig::default().with_crf(24);
+    let watermark = if crate::watermark_check::user_requires_watermark(&ctx.firestore, &job.user_id).await {
+        Some(vclip_media::WatermarkConfig::default())
+    } else {
+        None
+    };
 
     vclip_media::styles::streamer::process_top_scenes_from_segments(
         final_segment_paths,
         &output_path,
         &encoding,
         &streamer_params,
+        watermark.as_ref(),
     )
     .await
     .map_err(|e| {

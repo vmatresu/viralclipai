@@ -225,31 +225,37 @@ export default function TermsPage() {
                     </tr>
                     <tr className="border-b border-border/50">
                       <td className="py-3 px-4">
-                        Static styles (Original, Split, Focus crops)
+                        Original export (no cropping)
+                      </td>
+                      <td className="py-3 px-4 text-right font-medium">5 per clip</td>
+                    </tr>
+                    <tr className="border-b border-border/50">
+                      <td className="py-3 px-4">
+                        Static styles (Split, Focus crops, Split Fast)
                       </td>
                       <td className="py-3 px-4 text-right font-medium">10 per clip</td>
                     </tr>
                     <tr className="border-b border-border/50">
                       <td className="py-3 px-4">
-                        Basic AI styles (Intelligent, Intelligent Split)
+                        Motion styles (Motion, Motion Split)
                       </td>
                       <td className="py-3 px-4 text-right font-medium">10 per clip</td>
+                    </tr>
+                    <tr className="border-b border-border/50">
+                      <td className="py-3 px-4">
+                        Smart Face styles (Smart Face, Smart Face Split)
+                      </td>
+                      <td className="py-3 px-4 text-right font-medium">20 per clip</td>
+                    </tr>
+                    <tr className="border-b border-border/50">
+                      <td className="py-3 px-4">
+                        Active Speaker styles (Active Speaker, Active Speaker Split)
+                      </td>
+                      <td className="py-3 px-4 text-right font-medium">20 per clip</td>
                     </tr>
                     <tr className="border-b border-border/50">
                       <td className="py-3 px-4">Streamer / Streamer Split styles</td>
                       <td className="py-3 px-4 text-right font-medium">10 per clip</td>
-                    </tr>
-                    <tr className="border-b border-border/50">
-                      <td className="py-3 px-4">
-                        Motion-aware Split (Intelligent Split Motion)
-                      </td>
-                      <td className="py-3 px-4 text-right font-medium">10 per clip</td>
-                    </tr>
-                    <tr className="border-b border-border/50">
-                      <td className="py-3 px-4">
-                        Smart AI styles (Motion-aware Full, Speaker-aware)
-                      </td>
-                      <td className="py-3 px-4 text-right font-medium">20 per clip</td>
                     </tr>
                     <tr className="border-b border-border/50">
                       <td className="py-3 px-4">Cinematic styles (Premium AI)</td>

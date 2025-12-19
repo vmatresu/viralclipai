@@ -10,6 +10,8 @@ use tokio::sync::Semaphore;
 
 use vclip_models::{ClipTask, EncodingConfig, Style};
 
+use crate::watermark::WatermarkConfig;
+
 use crate::error::MediaResult;
 
 // Re-export implementations
@@ -33,6 +35,7 @@ pub struct ProcessingRequest {
     pub encoding: EncodingConfig,
     pub request_id: String,
     pub user_id: String,
+    pub watermark: Option<WatermarkConfig>,
     /// Optional cached neural analysis for intelligent styles.
     /// When present, the intelligent cropper will skip ML inference and use these detections.
     pub cached_neural_analysis: Option<Arc<vclip_models::SceneNeuralAnalysis>>,
@@ -74,6 +77,7 @@ impl ProcessingRequest {
             encoding,
             request_id,
             user_id,
+            watermark: None,
             cached_neural_analysis: None,
         })
     }
@@ -82,6 +86,12 @@ impl ProcessingRequest {
     /// When set, intelligent styles will skip ML inference and use cached detections.
     pub fn with_cached_neural_analysis(mut self, analysis: vclip_models::SceneNeuralAnalysis) -> Self {
         self.cached_neural_analysis = Some(Arc::new(analysis));
+        self
+    }
+
+    /// Attach watermark configuration for this request.
+    pub fn with_watermark(mut self, config: WatermarkConfig) -> Self {
+        self.watermark = Some(config);
         self
     }
 

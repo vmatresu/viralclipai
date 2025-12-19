@@ -17,22 +17,24 @@ export const ANALYSIS_CREDIT_COST = 3;
 
 /** Credits per style (matching backend vclip_models::plan) */
 export const STYLE_CREDIT_COSTS: Record<string, number> = {
+  // Original export (special pricing)
+  original: 5,
   // Static styles (10 credits - DetectionTier::None)
-  original: 10,
   split: 10,
   left_focus: 10,
   right_focus: 10,
   center_focus: 10,
   split_fast: 10,
 
-  // Basic AI styles (10 credits - DetectionTier::Basic)
-  intelligent: 10,
-  intelligent_split: 10,
+  // Smart Face styles (20 credits)
+  intelligent: 20,
+  intelligent_split: 20,
 
-  // Smart AI styles (20 credits - MotionAware/SpeakerAware)
+  // Smart AI styles (20 credits - SpeakerAware)
   intelligent_speaker: 20,
   intelligent_split_speaker: 20,
-  intelligent_motion: 20,
+  // Motion styles (10 credits)
+  intelligent_motion: 10,
   // IntelligentSplitMotion has special pricing (10 credits)
   intelligent_split_motion: 10,
   intelligent_split_activity: 20,

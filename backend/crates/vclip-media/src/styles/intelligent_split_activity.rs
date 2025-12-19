@@ -82,6 +82,7 @@ impl StyleProcessor for IntelligentSplitActivityProcessor {
             &request.task,
             self.tier,
             &request.encoding,
+            request.watermark.as_ref(),
             |_progress| {
                 // Progress callback
             },

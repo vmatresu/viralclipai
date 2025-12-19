@@ -13,6 +13,7 @@ use super::detection_adapter::SplitLayoutInfo;
 use super::models::BoundingBox;
 use super::output_format::{clamp_crop_to_frame, SPLIT_PANEL_HEIGHT, SPLIT_PANEL_WIDTH};
 use crate::error::{MediaError, MediaResult};
+use crate::watermark::{append_watermark_filter_complex, WatermarkConfig};
 
 /// Render a speaker-aware split view using custom crop boxes.
 ///
@@ -37,6 +38,7 @@ pub async fn render_speaker_split(
     left_box: &BoundingBox,
     right_box: &BoundingBox,
     encoding: &EncodingConfig,
+    watermark: Option<&WatermarkConfig>,
 ) -> MediaResult<()> {
     let center_x = width as f64 / 2.0;
     let half_width = center_x;
@@ -202,7 +204,7 @@ pub async fn render_speaker_split(
             (w as i32, h, 0, y_adj)
         };
 
-    let filter_complex = format!(
+    let base_filter_complex = format!(
         "[0:v]split=2[left_in][right_in];\
          [left_in]crop={lw}:{lth}:{lx}:{ly},scale={pw}:{ph}:flags=lanczos,setsar=1,format=yuv420p[top];\
          [right_in]crop={rw}:{rth}:{rx}:{ry},scale={pw}:{ph}:flags=lanczos,setsar=1,format=yuv420p[bottom];\
@@ -219,7 +221,17 @@ pub async fn render_speaker_split(
         ph = SPLIT_PANEL_HEIGHT,
     );
 
-    run_ffmpeg_split(segment, output, &filter_complex, encoding).await
+    let (filter_complex, map_label) = if let Some(config) = watermark {
+        if let Some(watermarked) = append_watermark_filter_complex(&base_filter_complex, "vout", config) {
+            (watermarked.filter_complex, watermarked.output_label)
+        } else {
+            (base_filter_complex, "vout".to_string())
+        }
+    } else {
+        (base_filter_complex, "vout".to_string())
+    };
+
+    run_ffmpeg_split(segment, output, &filter_complex, encoding, &map_label).await
 }
 
 /// Render a standard split view with vertical bias positioning.
@@ -238,6 +250,7 @@ pub async fn render_standard_split(
     height: u32,
     split_info: &SplitLayoutInfo,
     encoding: &EncodingConfig,
+    watermark: Option<&WatermarkConfig>,
 ) -> MediaResult<()> {
     let left_bias = split_info.left_vertical_bias(height);
     let right_bias = split_info.right_vertical_bias(height);
@@ -250,9 +263,12 @@ pub async fn render_standard_split(
     );
 
     // Use SinglePassRenderer for standard split
-    let renderer = super::single_pass_renderer::SinglePassRenderer::new(
+    let mut renderer = super::single_pass_renderer::SinglePassRenderer::new(
         super::config::IntelligentCropConfig::default(),
     );
+    if let Some(config) = watermark {
+        renderer = renderer.with_watermark(config.clone());
+    }
     renderer
         .render_split(
             segment, output, width, height, 
@@ -269,6 +285,7 @@ async fn run_ffmpeg_split(
     output: &Path,
     filter_complex: &str,
     encoding: &EncodingConfig,
+    map_label: &str,
 ) -> MediaResult<()> {
     let mut cmd = Command::new("ffmpeg");
     cmd.args([
@@ -281,7 +298,7 @@ async fn run_ffmpeg_split(
         "-filter_complex",
         filter_complex,
         "-map",
-        "[vout]",
+        &format!("[{}]", map_label),
         "-map",
         "0:a?",
         "-c:v",

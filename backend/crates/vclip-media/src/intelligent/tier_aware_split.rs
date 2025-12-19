@@ -28,6 +28,7 @@ use super::detection_adapter::{
     get_detections,
 };
 use super::single_pass_renderer::SinglePassRenderer;
+use crate::watermark::WatermarkConfig;
 use super::split_renderer;
 use crate::clip::extract_segment;
 use crate::error::MediaResult;
@@ -72,7 +73,8 @@ impl TierAwareSplitProcessor {
         output: P,
         encoding: &EncodingConfig,
     ) -> MediaResult<()> {
-        self.process_with_cached_detections(segment, output, encoding, None).await
+        self.process_with_cached_detections(segment, output, encoding, None, None)
+            .await
     }
 
     /// Process a video segment with optional cached neural analysis.
@@ -94,6 +96,7 @@ impl TierAwareSplitProcessor {
         segment: P,
         output: P,
         encoding: &EncodingConfig,
+        watermark: Option<&WatermarkConfig>,
         cached_analysis: Option<&vclip_models::SceneNeuralAnalysis>,
     ) -> MediaResult<()> {
         let segment = segment.as_ref();
@@ -162,7 +165,7 @@ impl TierAwareSplitProcessor {
                 self.tier,
             );
             cropper
-                .process_with_cached_detections(segment, output, encoding, cached_analysis)
+                .process_with_cached_detections(segment, output, encoding, watermark, cached_analysis)
                 .await?;
 
             // Generate thumbnail
@@ -189,7 +192,7 @@ impl TierAwareSplitProcessor {
                     compute_speaker_split_boxes(analysis, width, height)
                 {
                     match split_renderer::render_speaker_split(
-                        segment, output, width, height, &left_box, &right_box, encoding,
+                        segment, output, width, height, &left_box, &right_box, encoding, watermark,
                     )
                     .await
                     {
@@ -232,7 +235,10 @@ impl TierAwareSplitProcessor {
             encoding.codec, encoding.preset, encoding.crf
         );
 
-        let renderer = SinglePassRenderer::new(self.config.clone());
+        let mut renderer = SinglePassRenderer::new(self.config.clone());
+        if let Some(config) = watermark {
+            renderer = renderer.with_watermark(config.clone());
+        }
         renderer
             .render_split(
                 segment,
@@ -286,6 +292,7 @@ pub async fn create_tier_aware_split_clip<P, F>(
     task: &ClipTask,
     tier: DetectionTier,
     encoding: &EncodingConfig,
+    watermark: Option<&WatermarkConfig>,
     progress_callback: F,
 ) -> MediaResult<()>
 where
@@ -299,6 +306,7 @@ where
         task,
         tier,
         encoding,
+        watermark,
         None,
         progress_callback,
     )
@@ -320,6 +328,7 @@ pub async fn create_tier_aware_split_clip_with_cache<P, F>(
     task: &ClipTask,
     tier: DetectionTier,
     encoding: &EncodingConfig,
+    watermark: Option<&WatermarkConfig>,
     cached_analysis: Option<&vclip_models::SceneNeuralAnalysis>,
     _progress_callback: F,
 ) -> MediaResult<()>
@@ -358,7 +367,13 @@ where
     let config = IntelligentCropConfig::for_tier(tier);
     let processor = TierAwareSplitProcessor::new(config, tier);
     let result = processor
-        .process_with_cached_detections(segment_path.as_path(), output, encoding, cached_analysis)
+        .process_with_cached_detections(
+            segment_path.as_path(),
+            output,
+            encoding,
+            watermark,
+            cached_analysis,
+        )
         .await;
 
     // Cleanup

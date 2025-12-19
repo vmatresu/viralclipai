@@ -414,8 +414,8 @@ pub async fn process_draft(
         if !limits.allows_detection_tier(tier) {
             let required_plan = match tier {
                 DetectionTier::Cinematic => "Studio",
-                DetectionTier::MotionAware | DetectionTier::SpeakerAware => "Pro",
-                _ => "Pro",
+                DetectionTier::SpeakerAware => "Pro",
+                _ => "Free",
             };
             return Err(ApiError::forbidden(format!(
                 "Style '{}' requires a {} plan or higher. Please upgrade to access this feature.",
@@ -680,4 +680,3 @@ async fn check_exceeds_quota(state: &AppState, user_id: &str, credits_needed: u3
 
     credits_used + credits_needed > limits.monthly_credits_included
 }
-

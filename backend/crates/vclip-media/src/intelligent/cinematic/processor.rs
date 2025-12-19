@@ -38,6 +38,7 @@ use crate::intelligent::models::{AspectRatio, BoundingBox, CameraKeyframe, Detec
 use crate::intelligent::single_pass_renderer::SinglePassRenderer;
 use crate::probe::probe_video;
 use crate::thumbnail::generate_thumbnail;
+use crate::watermark::WatermarkConfig;
 
 /// Cinematic processor for AutoAI-inspired smooth camera motion.
 ///
@@ -123,8 +124,9 @@ impl CinematicProcessor {
         segment: P,
         output: P,
         encoding: &EncodingConfig,
+        watermark: Option<&WatermarkConfig>,
     ) -> MediaResult<()> {
-        self.process_with_cache(segment, output, encoding, None).await
+        self.process_with_cache(segment, output, encoding, watermark, None).await
     }
 
     /// Process with optional cached neural analysis.
@@ -136,6 +138,7 @@ impl CinematicProcessor {
         segment: P,
         output: P,
         encoding: &EncodingConfig,
+        watermark: Option<&WatermarkConfig>,
         cached_analysis: Option<&SceneNeuralAnalysis>,
     ) -> MediaResult<()> {
         let segment = segment.as_ref();
@@ -476,7 +479,10 @@ impl CinematicProcessor {
         );
 
         // Render with single pass
-        let renderer = SinglePassRenderer::new(self.base_config.clone());
+        let mut renderer = SinglePassRenderer::new(self.base_config.clone());
+        if let Some(config) = watermark {
+            renderer = renderer.with_watermark(config.clone());
+        }
         renderer
             .render_full(segment, output, &crop_windows, encoding)
             .await?;
@@ -824,13 +830,14 @@ pub async fn create_cinematic_clip<P, F>(
     output: P,
     task: &vclip_models::ClipTask,
     encoding: &EncodingConfig,
+    watermark: Option<&WatermarkConfig>,
     _progress_callback: F,
 ) -> MediaResult<()>
 where
     P: AsRef<Path>,
     F: Fn(crate::progress::FfmpegProgress) + Send + 'static,
 {
-    create_cinematic_clip_with_cache(input, output, task, encoding, None, _progress_callback).await
+    create_cinematic_clip_with_cache(input, output, task, encoding, watermark, None, _progress_callback).await
 }
 
 /// Create a cinematic clip with optional cached analysis.
@@ -839,6 +846,7 @@ pub async fn create_cinematic_clip_with_cache<P, F>(
     output: P,
     task: &vclip_models::ClipTask,
     encoding: &EncodingConfig,
+    watermark: Option<&WatermarkConfig>,
     cached_analysis: Option<&SceneNeuralAnalysis>,
     _progress_callback: F,
 ) -> MediaResult<()>
@@ -878,7 +886,7 @@ where
 
     let processor = CinematicProcessor::new();
     let result = processor
-        .process_with_cache(segment_path.as_path(), output, encoding, cached_analysis)
+        .process_with_cache(segment_path.as_path(), output, encoding, watermark, cached_analysis)
         .await;
 
     // Cleanup temporary segment

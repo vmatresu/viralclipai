@@ -27,22 +27,25 @@ The core plan tiers are defined in Rust in `backend/crates/vclip-models/src/plan
 
 - **Free**
   - `PlanTier::Free`
-  - ~20 clips / month
-  - 100 MB storage (`FREE_STORAGE_LIMIT_BYTES`)
+  - 200 credits / month
+  - 1 GB storage (`FREE_STORAGE_LIMIT_BYTES`)
   - Limited highlights/styles per video
   - No reprocessing
+  - **Watermark on exports** (branded overlay applied)
 - **Pro**
   - `PlanTier::Pro`
-  - ~500 clips / month
-  - 1 GB storage (`PRO_STORAGE_LIMIT_BYTES`)
+  - 4,000 credits / month
+  - 30 GB storage (`PRO_STORAGE_LIMIT_BYTES`)
   - More highlights/styles per video
   - Reprocessing enabled
+  - Watermark-free exports
 - **Studio**
   - `PlanTier::Studio`
-  - ~2000 clips / month
-  - 5 GB storage (`STUDIO_STORAGE_LIMIT_BYTES`)
+  - 12,000 credits / month
+  - 150 GB storage (`STUDIO_STORAGE_LIMIT_BYTES`)
   - Highest highlights/styles limits
   - Reprocessing enabled
+  - Watermark-free exports
 
 The exact numeric defaults live in `PlanLimits::for_tier` and are surfaced through the `PlanLimits` struct exported from `vclip-models`.
 
@@ -72,10 +75,10 @@ If these fields are missing, the backend falls back to the in-code defaults base
 The frontend mirrors these limits for display only:
 
 - `web/types/storage.ts` defines `PLAN_STORAGE_LIMITS` with the same byte limits:
-  - Free – 100 MB
-  - Pro – 1 GB
-  - Studio – 5 GB
-- `web/app/pricing/page.tsx` lists the same storage values as part of the marketing copy (`"100 MB storage"`, `"1 GB storage"`, `"5 GB storage"`).
+  - Free – 1 GB
+  - Pro – 30 GB
+  - Studio – 150 GB
+- `web/app/pricing/page.tsx` lists the same storage values as part of the marketing copy (`"1 GB storage"`, `"30 GB storage"`, `"150 GB storage"`).
 
 The frontend must not enforce limits independently; it consumes the values returned by the backend and only **displays** usage / blocks actions based on server-validated state.
 
@@ -416,7 +419,7 @@ File: `web/components/HistoryDetail/SceneExplorer.tsx`.
 File: `web/app/pricing/page.tsx`.
 
 - Marketing-facing representation of plans.
-- Lists storage per plan in human-readable terms (`"100 MB storage"`, `"1 GB storage"`, `"5 GB storage"`).
+- Lists storage per plan in human-readable terms (`"1 GB storage"`, `"30 GB storage"`, `"150 GB storage"`).
 - Must remain aligned with the backend constants in `vclip-models::plan` and the frontend `PLAN_STORAGE_LIMITS`.
 
 ---

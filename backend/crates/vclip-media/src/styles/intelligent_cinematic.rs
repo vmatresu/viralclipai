@@ -98,6 +98,7 @@ impl StyleProcessor for IntelligentCinematicProcessor {
             request.output_path.as_ref(),
             &request.task,
             &request.encoding,
+            request.watermark.as_ref(),
             request.cached_neural_analysis.as_deref(),
             |_progress| {
                 // Could emit progress updates

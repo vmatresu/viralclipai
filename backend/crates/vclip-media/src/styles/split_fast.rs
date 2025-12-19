@@ -84,7 +84,9 @@ impl StyleProcessor for SplitFastProcessor {
         // Process with FastSplitEngine - convert Arc<Path> to Path ref
         let output_pathbuf = request.output_path.to_path_buf();
         let engine = FastSplitEngine::new();
-        engine.process(&segment_path, &output_pathbuf, &request.encoding).await?;
+        engine
+            .process(&segment_path, &output_pathbuf, &request.encoding, request.watermark.as_ref())
+            .await?;
 
         // Cleanup segment
         if segment_path.exists() {

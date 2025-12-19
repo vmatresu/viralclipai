@@ -15,6 +15,7 @@ use crate::intelligent::config::IntelligentCropConfig;
 use crate::intelligent::crop_planner::CropPlanner;
 use crate::intelligent::models::{AspectRatio, CropWindow, Detection, FrameDetections};
 use crate::intelligent::single_pass_renderer::SinglePassRenderer;
+use crate::watermark::WatermarkConfig;
 use crate::intelligent::smoother::CameraSmoother;
 use tracing::info;
 use vclip_models::EncodingConfig;
@@ -25,6 +26,7 @@ pub(crate) struct ActivitySplitRenderer {
     frame_width: u32,
     frame_height: u32,
     sample_interval: f64,
+    watermark: Option<WatermarkConfig>,
 }
 
 impl ActivitySplitRenderer {
@@ -34,6 +36,7 @@ impl ActivitySplitRenderer {
         frame_width: u32,
         frame_height: u32,
         sample_interval: f64,
+        watermark: Option<WatermarkConfig>,
     ) -> Self {
         Self {
             config,
@@ -41,6 +44,7 @@ impl ActivitySplitRenderer {
             frame_width,
             frame_height,
             sample_interval,
+            watermark,
         }
     }
 
@@ -88,7 +92,10 @@ impl ActivitySplitRenderer {
                     
                     self.extract_span_source(segment, &span_segment, span.start, span_duration).await?;
                     
-                    let renderer = SinglePassRenderer::new(self.config.clone());
+                    let mut renderer = SinglePassRenderer::new(self.config.clone());
+                    if let Some(config) = self.watermark.as_ref() {
+                        renderer = renderer.with_watermark(config.clone());
+                    }
                     renderer
                         .render_full(&span_segment, &target_path, &windows, &self.encoding)
                         .await?;
@@ -104,7 +111,10 @@ impl ActivitySplitRenderer {
                     self.extract_span_source(segment, &span_segment, span.start, span_duration).await?;
                     
                     // Use SinglePassRenderer for split (SINGLE ENCODE instead of 3)
-                    let renderer = SinglePassRenderer::new(self.config.clone());
+                    let mut renderer = SinglePassRenderer::new(self.config.clone());
+                    if let Some(config) = self.watermark.as_ref() {
+                        renderer = renderer.with_watermark(config.clone());
+                    }
                     renderer.render_split(
                         &span_segment,
                         &target_path,
@@ -314,4 +324,3 @@ impl ActivitySplitRenderer {
         Ok(())
     }
 }
-

@@ -196,7 +196,7 @@ impl IntelligentSplitProcessor {
             // Use full-frame intelligent crop which dynamically follows faces
             let cropper = TierAwareIntelligentCropper::new(self.config.clone(), self.tier);
             cropper
-                .process_with_cached_detections(segment, output, encoding, cached_analysis)
+                .process_with_cached_detections(segment, output, encoding, None, cached_analysis)
                 .await?;
             self.generate_thumbnail(output).await;
             info!("Intelligent split (full-frame path) complete: {:?}", output);

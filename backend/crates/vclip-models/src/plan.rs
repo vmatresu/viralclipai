@@ -5,8 +5,9 @@
 //! Credits are charged per finished clip based on the detection tier:
 //! - Tier 1 (Static): 10 credits - No AI detection
 //! - Tier 2 (Basic): 10 credits - YuNet face detection
-//! - Tier 3 (Smart): 20 credits - Motion/Speaker-aware detection
+//! - Tier 3 (Smart): 20 credits - Speaker-aware detection
 //! - Tier 4 (Premium): 30 credits - Cinematic tier with trajectory optimization
+//! - Exceptions: Original export = 5 credits; Motion styles = 10 credits
 //!
 //! Additional feature costs:
 //! - Video analysis (get scenes): 3 credits
@@ -70,7 +71,7 @@ pub const OBJECT_DETECTION_ADDON_COST: u32 = 10;
 ///
 /// - None (Static): 10 credits
 /// - Basic: 10 credits
-/// - MotionAware/SpeakerAware (Smart): 20 credits
+/// - MotionAware/SpeakerAware (Smart): 20 credits (note: Motion styles override to 10)
 /// - Cinematic (Premium): 30 credits
 pub fn credits_for_detection_tier(tier: DetectionTier) -> u32 {
     match tier {
@@ -133,6 +134,11 @@ impl PlanTier {
         matches!(self, PlanTier::Free)
     }
 
+    /// Alias for has_watermark - for clarity in watermark check code.
+    pub fn requires_watermark(&self) -> bool {
+        self.has_watermark()
+    }
+
     /// Whether this plan has API access.
     pub fn has_api_access(&self) -> bool {
         matches!(self, PlanTier::Studio)
@@ -163,7 +169,10 @@ impl PlanTier {
     /// Check if a detection tier is allowed on this plan.
     pub fn allows_detection_tier(&self, tier: DetectionTier) -> bool {
         match self {
-            PlanTier::Free => matches!(tier, DetectionTier::None | DetectionTier::Basic),
+            PlanTier::Free => matches!(
+                tier,
+                DetectionTier::None | DetectionTier::Basic | DetectionTier::MotionAware
+            ),
             PlanTier::Pro => matches!(
                 tier,
                 DetectionTier::None
@@ -527,10 +536,10 @@ mod tests {
 
     #[test]
     fn test_plan_tier_allows_detection_tier() {
-        // Free: only None and Basic
+        // Free: None, Basic, MotionAware
         assert!(PlanTier::Free.allows_detection_tier(DetectionTier::None));
         assert!(PlanTier::Free.allows_detection_tier(DetectionTier::Basic));
-        assert!(!PlanTier::Free.allows_detection_tier(DetectionTier::MotionAware));
+        assert!(PlanTier::Free.allows_detection_tier(DetectionTier::MotionAware));
         assert!(!PlanTier::Free.allows_detection_tier(DetectionTier::SpeakerAware));
         assert!(!PlanTier::Free.allows_detection_tier(DetectionTier::Cinematic));
 

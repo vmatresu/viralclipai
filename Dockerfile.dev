@@ -82,6 +82,9 @@ RUN pip3 install --no-cache-dir --break-system-packages yt-dlp
 # Models are committed to version control for reproducible builds
 COPY backend/models/face_detection/yunet /app/backend/models/face_detection/yunet
 
+# Copy watermark asset for free user exports
+COPY backend/assets/watermark.png /app/assets/watermark.png
+
 # Install cargo-watch for hot reload (single tool, fast install)
 RUN cargo install cargo-watch --locked
 

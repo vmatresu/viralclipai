@@ -530,7 +530,6 @@ mod tests {
             class_id: 0,
             confidence: 0.9,
         };
-        let b = a.clone();
         
         // Can't test compute_iou directly without detector, but we can verify area
         assert!((a.area() - 0.04).abs() < 0.001);

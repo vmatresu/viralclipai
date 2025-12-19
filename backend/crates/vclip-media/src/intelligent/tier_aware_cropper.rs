@@ -32,6 +32,7 @@ use super::detection_adapter::get_detections;
 use super::models::AspectRatio;
 use super::premium::{PremiumCameraPlanner, PremiumSpeakerConfig};
 use super::single_pass_renderer::SinglePassRenderer;
+use crate::watermark::WatermarkConfig;
 use super::tier_aware_smoother::TierAwareCameraSmoother;
 use crate::clip::extract_segment;
 use crate::error::MediaResult;
@@ -77,7 +78,8 @@ impl TierAwareIntelligentCropper {
         output: P,
         encoding: &EncodingConfig,
     ) -> MediaResult<()> {
-        self.process_with_cached_detections(segment, output, encoding, None).await
+        self.process_with_cached_detections(segment, output, encoding, None, None)
+            .await
     }
 
     /// Process a pre-cut video segment with optional cached neural analysis.
@@ -95,6 +97,7 @@ impl TierAwareIntelligentCropper {
         segment: P,
         output: P,
         encoding: &EncodingConfig,
+        watermark: Option<&WatermarkConfig>,
         cached_analysis: Option<&vclip_models::SceneNeuralAnalysis>,
     ) -> MediaResult<()> {
         let segment = segment.as_ref();
@@ -213,7 +216,10 @@ impl TierAwareIntelligentCropper {
         info!("[INTELLIGENT_FULL]   Encoding: {} preset={} crf={}", 
             encoding.codec, encoding.preset, encoding.crf);
         
-        let renderer = SinglePassRenderer::new(self.config.clone());
+        let mut renderer = SinglePassRenderer::new(self.config.clone());
+        if let Some(config) = watermark {
+            renderer = renderer.with_watermark(config.clone());
+        }
         renderer
             .render_full(segment, output, &crop_windows, encoding)
             .await?;
@@ -263,6 +269,7 @@ pub async fn create_tier_aware_intelligent_clip<P, F>(
     task: &ClipTask,
     tier: DetectionTier,
     encoding: &EncodingConfig,
+    watermark: Option<&WatermarkConfig>,
     progress_callback: F,
 ) -> MediaResult<()>
 where
@@ -276,6 +283,7 @@ where
         task,
         tier,
         encoding,
+        watermark,
         None,
         progress_callback,
     )
@@ -307,6 +315,7 @@ pub async fn create_tier_aware_intelligent_clip_with_cache<P, F>(
     task: &ClipTask,
     tier: DetectionTier,
     encoding: &EncodingConfig,
+    watermark: Option<&WatermarkConfig>,
     cached_analysis: Option<&vclip_models::SceneNeuralAnalysis>,
     _progress_callback: F,
 ) -> MediaResult<()>
@@ -346,7 +355,13 @@ where
     let config = IntelligentCropConfig::for_tier(tier);
     let cropper = TierAwareIntelligentCropper::new(config, tier);
     let result = cropper
-        .process_with_cached_detections(segment_path.as_path(), output, encoding, cached_analysis)
+        .process_with_cached_detections(
+            segment_path.as_path(),
+            output,
+            encoding,
+            watermark,
+            cached_analysis,
+        )
         .await;
 
     // Step 3: Cleanup temporary segment file

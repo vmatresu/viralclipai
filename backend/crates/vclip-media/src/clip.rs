@@ -27,6 +27,7 @@ use vclip_models::{ClipTask, CropMode, EncodingConfig, Style};
 use crate::command::{FfmpegCommand, FfmpegRunner};
 use crate::error::{MediaError, MediaResult};
 use crate::filters::build_video_filter;
+use crate::watermark::{build_vf_with_watermark, WatermarkConfig};
 use crate::progress::FfmpegProgress;
 use crate::thumbnail::generate_thumbnail;
 
@@ -142,6 +143,7 @@ pub async fn create_clip<P, F>(
     output: P,
     task: &ClipTask,
     encoding: &EncodingConfig,
+    watermark: Option<&WatermarkConfig>,
     progress_callback: F,
 ) -> MediaResult<()>
 where
@@ -172,7 +174,7 @@ where
     match (task.style, task.crop_mode) {
         // Original style always preserves original format
         (Style::Original, _) => {
-            create_basic_clip(input, output, start_secs, duration, None, encoding, progress_callback).await?;
+            create_basic_clip(input, output, start_secs, duration, None, encoding, watermark, progress_callback).await?;
         }
 
         // Intelligent style uses face tracking - should be handled by caller
@@ -199,7 +201,17 @@ where
         // Traditional styles (Split, LeftFocus, CenterFocus, RightFocus)
         _ => {
             let filter = build_video_filter(task.style);
-            create_basic_clip(input, output, start_secs, duration, filter.as_deref(), encoding, progress_callback).await?;
+            create_basic_clip(
+                input,
+                output,
+                start_secs,
+                duration,
+                filter.as_deref(),
+                encoding,
+                watermark,
+                progress_callback,
+            )
+            .await?;
         }
     }
 
@@ -221,6 +233,7 @@ async fn create_basic_clip<P, F>(
     duration: f64,
     filter: Option<&str>,
     encoding: &EncodingConfig,
+    watermark: Option<&WatermarkConfig>,
     progress_callback: F,
 ) -> MediaResult<()>
 where
@@ -236,7 +249,15 @@ where
         .audio_codec(&encoding.audio_codec)
         .audio_bitrate(&encoding.audio_bitrate);
 
-    if let Some(f) = filter {
+    let watermark_filter = if let Some(config) = watermark {
+        build_vf_with_watermark(filter, config)
+    } else {
+        None
+    };
+
+    if let Some(f) = watermark_filter {
+        cmd = cmd.video_filter(f);
+    } else if let Some(f) = filter {
         cmd = cmd.video_filter(f);
     }
 

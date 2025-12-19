@@ -359,7 +359,7 @@ mod tests {
         activities.insert(0, 0.5);
 
         // First call - no smoothing
-        let z1 = zoom.compute_zoom(&[d1.clone()], &activities);
+        let _ = zoom.compute_zoom(&[d1.clone()], &activities);
 
         // Second call with very different face size
         let d2 = make_detection(0, 500.0, 400.0, 50.0, 60.0);

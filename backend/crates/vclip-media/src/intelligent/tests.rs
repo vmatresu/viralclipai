@@ -146,7 +146,10 @@ mod premium_speaker_tests {
             make_detection(0.0, 1400.0, 400.0, 250.0, 2),
         ];
         let focus1 = selector.select_focus(&det1, 0.0);
-        let initial_track = focus1.track_id;
+        assert!(
+            focus1.track_id == 1 || focus1.track_id == 2,
+            "Initial focus should be a valid track"
+        );
 
         // At 0.5s, face 1 becomes larger - may or may not switch depending on implementation
         let det2 = vec![
@@ -154,6 +157,10 @@ mod premium_speaker_tests {
             make_detection(0.5, 1400.0, 400.0, 250.0, 2),
         ];
         let focus2 = selector.select_focus(&det2, 0.5);
+        assert!(
+            focus2.track_id == 1 || focus2.track_id == 2,
+            "Mid-dwell focus should be a valid track"
+        );
         
         // After dwell time, the selection should be stable
         let det3 = vec![

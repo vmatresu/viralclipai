@@ -173,6 +173,7 @@ pub mod utils {
             request.output_path.as_ref(),
             &request.task,
             &request.encoding,
+            request.watermark.as_ref(),
             |_progress| {},
         )
         .await?;

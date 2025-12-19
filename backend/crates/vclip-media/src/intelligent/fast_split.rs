@@ -24,6 +24,7 @@ use super::config::IntelligentCropConfig;
 use crate::error::MediaResult;
 use crate::probe::probe_video;
 use crate::thumbnail::generate_thumbnail;
+use crate::watermark::WatermarkConfig;
 use vclip_models::EncodingConfig;
 
 /// Configuration for the fast split engine.
@@ -88,6 +89,7 @@ impl FastSplitEngine {
         segment: P,
         output: P,
         encoding: &EncodingConfig,
+        watermark: Option<&WatermarkConfig>,
     ) -> MediaResult<()> {
         let segment = segment.as_ref();
         let output = output.as_ref();
@@ -112,7 +114,10 @@ impl FastSplitEngine {
             encoding.codec, encoding.preset, encoding.crf);
         
         let config = IntelligentCropConfig::default();
-        let renderer = SinglePassRenderer::new(config);
+        let mut renderer = SinglePassRenderer::new(config);
+        if let Some(config) = watermark {
+            renderer = renderer.with_watermark(config.clone());
+        }
         
         renderer.render_split(
             segment,

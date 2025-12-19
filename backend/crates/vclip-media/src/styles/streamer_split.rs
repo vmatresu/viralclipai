@@ -22,6 +22,7 @@ use crate::error::{MediaError, MediaResult};
 use crate::intelligent::output_format::{SPLIT_PANEL_HEIGHT, SPLIT_PANEL_WIDTH};
 use crate::probe::probe_video;
 use crate::thumbnail::generate_thumbnail;
+use crate::watermark::{append_watermark_filter_complex, WatermarkConfig};
 
 use super::utils;
 
@@ -102,6 +103,7 @@ impl StyleProcessor for StreamerSplitProcessor {
             &request.task,
             &request.encoding,
             &params,
+            request.watermark.as_ref(),
         )
         .await?;
 
@@ -158,6 +160,7 @@ async fn process_streamer_split(
     task: &vclip_models::ClipTask,
     encoding: &EncodingConfig,
     params: &StreamerSplitParams,
+    watermark: Option<&WatermarkConfig>,
 ) -> MediaResult<()> {
     let pipeline_start = std::time::Instant::now();
 
@@ -198,7 +201,7 @@ async fn process_streamer_split(
     // Step 4: Render the streamer split
     info!("[STREAMER_SPLIT] Rendering split view...");
 
-    render_streamer_split(&segment_path, output, &crop_region, encoding, params).await?;
+    render_streamer_split(&segment_path, output, &crop_region, encoding, params, watermark).await?;
 
     // Cleanup segment
     if segment_path.exists() {
@@ -315,6 +318,7 @@ async fn render_streamer_split(
     crop: &CropRegion,
     encoding: &EncodingConfig,
     params: &StreamerSplitParams,
+    watermark: Option<&WatermarkConfig>,
 ) -> MediaResult<()> {
     // Calculate split dimensions
     // Default 50/50 split (0.5), range 0.1 to 0.9
@@ -348,7 +352,7 @@ async fn render_streamer_split(
     let actual_webcam_height = crate::intelligent::output_format::make_even(actual_webcam_height as i32) as u32;
     let actual_bottom_height = crate::intelligent::output_format::make_even(actual_bottom_height as i32) as u32;
     
-    let filter_complex = format!(
+    let base_filter_complex = format!(
         "[0:v]crop={cw}:{ch}:{cx}:{cy},\
          scale={pw}:{wh}:flags=lanczos,\
          setsar=1,format=yuv420p[top];\
@@ -364,6 +368,15 @@ async fn render_streamer_split(
         cx = crop.x,
         cy = crop.y,
     );
+    let (filter_complex, map_label) = if let Some(config) = watermark {
+        if let Some(watermarked) = append_watermark_filter_complex(&base_filter_complex, "vout", config) {
+            (watermarked.filter_complex, watermarked.output_label)
+        } else {
+            (base_filter_complex, "vout".to_string())
+        }
+    } else {
+        (base_filter_complex, "vout".to_string())
+    };
 
     let mut cmd = Command::new("ffmpeg");
     cmd.args([
@@ -376,7 +389,7 @@ async fn render_streamer_split(
         "-filter_complex",
         &filter_complex,
         "-map",
-        "[vout]",
+        &format!("[{}]", map_label),
         "-map",
         "0:a?", // Audio from original only
         "-c:v",

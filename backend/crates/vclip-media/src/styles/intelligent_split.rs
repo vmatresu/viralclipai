@@ -126,6 +126,7 @@ impl StyleProcessor for IntelligentSplitProcessor {
             &request.task,
             self.tier,
             &request.encoding,
+            request.watermark.as_ref(),
             request.cached_neural_analysis.as_deref(),
             |_progress| {
                 // Could emit progress updates
@@ -222,4 +223,3 @@ mod tests {
         assert!(!processor.can_handle(Style::Split));
     }
 }
-

@@ -1,11 +1,11 @@
 use std::path::Path;
 
 use tracing::{debug, info};
-use vclip_firestore::{ClipRepository, FromFirestoreValue, StorageAccountingRepository};
+use vclip_firestore::{ClipRepository, StorageAccountingRepository};
 use vclip_media::core::{ProcessingContext as MediaProcessingContext, ProcessingRequest};
 use vclip_media::intelligent::parse_timestamp;
 use vclip_models::{
-    ClipMetadata, ClipProcessingStep, ClipTask, EncodingConfig, JobId, PlanTier, Style, VideoId,
+    ClipMetadata, ClipProcessingStep, ClipTask, EncodingConfig, JobId, Style, VideoId,
 };
 
 use crate::error::{WorkerError, WorkerResult};
@@ -214,6 +214,10 @@ pub async fn process_single_clip_with_raw_key(
         }
     }
 
+    if crate::watermark_check::user_requires_watermark(&ctx.firestore, user_id).await {
+        request = request.with_watermark(vclip_media::WatermarkConfig::default());
+    }
+
     // Create processing context (dependency injection pattern)
     let proc_ctx = MediaProcessingContext::new(
         request.request_id.clone(),
@@ -265,6 +269,8 @@ pub async fn process_single_clip_with_raw_key(
 
     // Stage 3: Render complete
     emit_progress!(ClipProcessingStep::RenderComplete, None);
+
+    let final_file_size_bytes = result.file_size_bytes;
 
     // Stage 4: Uploading
     emit_progress!(ClipProcessingStep::Uploading, Some(filename.clone()));
@@ -368,8 +374,8 @@ pub async fn process_single_clip_with_raw_key(
         start_time: task.start.clone(),
         end_time: task.end.clone(),
         duration_seconds: result.duration_seconds,
-        file_size_bytes: result.file_size_bytes,
-        file_size_mb: result.file_size_bytes as f64 / (1024.0 * 1024.0),
+        file_size_bytes: final_file_size_bytes,
+        file_size_mb: final_file_size_bytes as f64 / (1024.0 * 1024.0),
         has_thumbnail: result.thumbnail_path.is_some(),
         r2_key,
         thumbnail_r2_key: thumb_key,
@@ -398,12 +404,12 @@ pub async fn process_single_clip_with_raw_key(
     // Update video's total size (fire and forget - non-critical)
     let video_repo = vclip_firestore::VideoRepository::new(ctx.firestore.clone(), user_id);
     if let Err(e) = video_repo
-        .add_clip_size(video_id, result.file_size_bytes)
+        .add_clip_size(video_id, final_file_size_bytes)
         .await
     {
         tracing::warn!(
             video_id = %video_id,
-            size_bytes = result.file_size_bytes,
+            size_bytes = final_file_size_bytes,
             error = %e,
             "Failed to update video total size (non-critical)"
         );
@@ -415,10 +421,10 @@ pub async fn process_single_clip_with_raw_key(
         ctx.firestore.clone(),
         user_id,
     );
-    if let Err(e) = storage_repo.add_styled_clip(result.file_size_bytes).await {
+    if let Err(e) = storage_repo.add_styled_clip(final_file_size_bytes).await {
         tracing::warn!(
             user_id = %user_id,
-            size_bytes = result.file_size_bytes,
+            size_bytes = final_file_size_bytes,
             error = %e,
             "Failed to update storage accounting for styled clip (non-critical)"
         );
@@ -434,7 +440,7 @@ pub async fn process_single_clip_with_raw_key(
         style = %style_name,
         filename = %filename,
         duration_sec = result.duration_seconds,
-        file_size_mb = result.file_size_bytes as f64 / (1024.0 * 1024.0),
+        file_size_mb = final_file_size_bytes as f64 / (1024.0 * 1024.0),
         "Clip processing completed successfully"
     );
 
@@ -442,22 +448,11 @@ pub async fn process_single_clip_with_raw_key(
 }
 
 async fn enforce_quota(ctx: &EnhancedProcessingContext, user_id: &str) -> WorkerResult<()> {
-    let mut tier = PlanTier::Free;
+    // Use shared user_plan module for DRY plan resolution
+    let user_plan = crate::user_plan::resolve_user_plan(&ctx.firestore, user_id).await;
+    let tier = user_plan.tier;
+    let limit_bytes = user_plan.storage_limit_bytes;
 
-    if let Ok(Some(doc)) = ctx.firestore.get_document("users", user_id).await {
-        if let Some(fields) = doc.fields {
-            let plan = fields
-                .get("plan_tier")
-                .and_then(|v| String::from_firestore_value(v))
-                .or_else(|| fields.get("plan").and_then(|v| String::from_firestore_value(v)));
-
-            if let Some(plan) = plan {
-                tier = PlanTier::from_str(&plan);
-            }
-        }
-    }
-
-    let limit_bytes = tier.storage_limit_bytes();
     let repo = StorageAccountingRepository::new(ctx.firestore.clone(), user_id);
     match repo
         .would_exceed_quota(ESTIMATED_CLIP_SIZE_BYTES, limit_bytes)

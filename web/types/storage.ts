@@ -20,11 +20,12 @@ export interface StorageInfo {
 
 /**
  * Plan storage limits in bytes.
+ * These must match backend values in vclip-models/src/plan.rs
  */
 export const PLAN_STORAGE_LIMITS = {
-  free: 100 * 1024 * 1024, // 100 MB
-  pro: 1024 * 1024 * 1024, // 1 GB
-  studio: 5 * 1024 * 1024 * 1024, // 5 GB
+  free: 1 * 1024 * 1024 * 1024, // 1 GB
+  pro: 30 * 1024 * 1024 * 1024, // 30 GB
+  studio: 150 * 1024 * 1024 * 1024, // 150 GB
 } as const;
 
 /**

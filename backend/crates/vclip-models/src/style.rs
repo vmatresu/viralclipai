@@ -243,22 +243,31 @@ impl Style {
     /// Credit costs are based on detection tier:
     /// - Static (None): 10 credits
     /// - Basic (YuNet): 10 credits
-    /// - Smart (Motion/Speaker): 20 credits
+    /// - Smart Face: 20 credits
+    /// - Smart (Speaker): 20 credits
     /// - Premium (Cinematic): 30 credits
     ///
     /// Special styles:
     /// - Streamer: 10 credits (static, no AI)
     /// - StreamerSplit: 10 credits per scene
     /// - StreamerTopScenes: 10 credits (static compilation)
-    /// - IntelligentSplitMotion: 10 credits (special pricing)
+    /// - Original: 5 credits
+    /// - IntelligentMotion: 10 credits (motion heuristics)
+    /// - IntelligentSplitMotion: 10 credits (motion heuristics)
+    /// - Intelligent: 20 credits (Smart Face)
+    /// - IntelligentSplit: 20 credits (Smart Face)
     pub fn credit_cost(&self) -> u32 {
         match self {
             // Streamer styles have special pricing
             Style::Streamer | Style::StreamerSplit | Style::StreamerTopScenes => {
                 crate::plan::STREAMER_SPLIT_STYLE_COST
             }
-            // IntelligentSplitMotion has special pricing (10 credits instead of 20)
-            Style::IntelligentSplitMotion => 10,
+            // Original export has special pricing
+            Style::Original => 5,
+            // Motion heuristics have special pricing
+            Style::IntelligentMotion | Style::IntelligentSplitMotion => 10,
+            // Smart Face pricing
+            Style::Intelligent | Style::IntelligentSplit => 20,
             // All other styles use tier-based pricing
             _ => crate::plan::credits_for_detection_tier(self.detection_tier()),
         }
@@ -548,20 +557,22 @@ mod tests {
 
     #[test]
     fn test_style_credit_cost_by_tier() {
+        // Original export uses special pricing
+        assert_eq!(Style::Original.credit_cost(), 5);
+
         // Static styles (DetectionTier::None) = 10 credits
-        assert_eq!(Style::Original.credit_cost(), 10);
         assert_eq!(Style::Split.credit_cost(), 10);
         assert_eq!(Style::LeftFocus.credit_cost(), 10);
         assert_eq!(Style::RightFocus.credit_cost(), 10);
         assert_eq!(Style::CenterFocus.credit_cost(), 10);
         assert_eq!(Style::SplitFast.credit_cost(), 10);
 
-        // Basic styles (DetectionTier::Basic) = 10 credits
-        assert_eq!(Style::Intelligent.credit_cost(), 10);
-        assert_eq!(Style::IntelligentSplit.credit_cost(), 10);
+        // Smart Face pricing
+        assert_eq!(Style::Intelligent.credit_cost(), 20);
+        assert_eq!(Style::IntelligentSplit.credit_cost(), 20);
 
-        // Smart styles (DetectionTier::MotionAware/SpeakerAware) = 20 credits
-        assert_eq!(Style::IntelligentMotion.credit_cost(), 20);
+        // Motion-aware styles use special pricing
+        assert_eq!(Style::IntelligentMotion.credit_cost(), 10);
         // IntelligentSplitMotion has special pricing = 10 credits
         assert_eq!(Style::IntelligentSplitMotion.credit_cost(), 10);
         assert_eq!(Style::IntelligentSpeaker.credit_cost(), 20);

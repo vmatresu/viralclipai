@@ -236,8 +236,8 @@ mod tests {
         ).calculate();
         
         assert_eq!(cost.style_costs.len(), 2);
-        assert_eq!(cost.style_total, 40); // (10 + 10) * 2 scenes
-        assert_eq!(cost.total, 40);
+        assert_eq!(cost.style_total, 30); // (10 + 5) * 2 scenes
+        assert_eq!(cost.total, 30);
     }
     
     #[test]
@@ -272,10 +272,10 @@ mod tests {
         .with_object_detection(true)
         .calculate();
         
-        assert_eq!(cost.style_total, 20); // 10 + 10
+        assert_eq!(cost.style_total, 15); // 10 + 5
         assert_eq!(cost.silent_remover_cost, 5); // 5 * 1
         assert_eq!(cost.object_detection_cost, 10); // 10 * 1
-        assert_eq!(cost.total, 35);
+        assert_eq!(cost.total, 30);
     }
     
     #[test]

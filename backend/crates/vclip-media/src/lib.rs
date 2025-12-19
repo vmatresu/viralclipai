@@ -23,6 +23,7 @@ pub mod progress;
 pub mod silence_removal;
 pub mod styles;
 pub mod thumbnail;
+pub mod watermark;
 
 // Core architecture exports
 pub use core::{
@@ -49,3 +50,4 @@ pub use intelligent::create_intelligent_split_clip;
 pub use probe::{probe_video, VideoInfo};
 pub use progress::{FfmpegProgress, ProgressCallback};
 pub use thumbnail::generate_thumbnail;
+pub use watermark::{apply_watermark, apply_watermark_if_available, WatermarkConfig, DEFAULT_WATERMARK_PATH};

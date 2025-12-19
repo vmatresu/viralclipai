@@ -10,7 +10,10 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
-use vclip_firestore::{current_month_key, FirestoreClient, FromFirestoreValue, ToFirestoreValue, Value};
+use vclip_firestore::{
+    current_month_key, FirestoreClient, FromFirestoreValue, StorageAccountingRepository,
+    ToFirestoreValue, Value,
+};
 use vclip_models::{CreditContext, CreditTransaction, VideoId, VideoStatus};
 use vclip_storage::R2Client;
 
@@ -641,28 +644,48 @@ impl UserService {
 
     /// Get the user's current storage usage.
     pub async fn get_storage_usage(&self, uid: &str) -> ApiResult<vclip_models::StorageUsage> {
-        let user = self.get_or_create_user(uid, None).await?;
         let limits = self.get_plan_limits(uid).await?;
-        
-        Ok(vclip_models::StorageUsage::new(
-            user.total_storage_bytes,
-            user.total_clips_count,
-            limits.storage_limit_bytes,
-        ))
+        let repo = StorageAccountingRepository::new((*self.firestore).clone(), uid);
+        let accounting = repo
+            .get_or_create()
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get storage accounting: {}", e)))?;
+
+        Ok(accounting.to_quota_usage(limits.storage_limit_bytes))
     }
 
     /// Add storage usage when a clip is created (concurrency-safe).
     /// Uses optimistic locking with retry to handle concurrent updates.
     /// Returns the new total storage bytes.
     pub async fn add_storage(&self, uid: &str, size_bytes: u64) -> ApiResult<u64> {
-        self.update_storage_with_retry(uid, size_bytes as i64, 1).await
+        let repo = StorageAccountingRepository::new((*self.firestore).clone(), uid);
+        let accounting = repo
+            .add_styled_clip(size_bytes)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to update storage accounting: {}", e)))?;
+
+        let _ = self
+            .update_storage_with_retry(uid, size_bytes as i64, 1)
+            .await;
+
+        Ok(accounting.billable_bytes())
     }
 
     /// Subtract storage usage when a clip is deleted (concurrency-safe).
     /// Uses optimistic locking with retry to handle concurrent updates.
     /// Returns the new total storage bytes.
     pub async fn subtract_storage(&self, uid: &str, size_bytes: u64) -> ApiResult<u64> {
-        self.update_storage_with_retry(uid, -(size_bytes as i64), -1).await
+        let repo = StorageAccountingRepository::new((*self.firestore).clone(), uid);
+        let accounting = repo
+            .remove_styled_clip(size_bytes)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to update storage accounting: {}", e)))?;
+
+        let _ = self
+            .update_storage_with_retry(uid, -(size_bytes as i64), -1)
+            .await;
+
+        Ok(accounting.billable_bytes())
     }
 
     /// Internal helper for concurrency-safe storage updates with retry.
@@ -895,6 +918,18 @@ impl UserService {
         user.total_clips_count = total_clips;
         user.updated_at = Utc::now();
         self.update_user(&user).await?;
+
+        let repo = StorageAccountingRepository::new((*self.firestore).clone(), uid);
+        let mut accounting = repo
+            .get_or_create()
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get storage accounting: {}", e)))?;
+        accounting.styled_clips_bytes = total_bytes;
+        accounting.styled_clips_count = total_clips;
+        accounting.updated_at = Some(Utc::now());
+        repo.upsert(&accounting)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to update storage accounting: {}", e)))?;
         
         info!(
             "Recalculated storage for user {}: {} bytes, {} clips",

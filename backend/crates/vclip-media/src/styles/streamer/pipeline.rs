@@ -11,6 +11,7 @@ use crate::error::{MediaError, MediaResult};
 use crate::intelligent::parse_timestamp;
 use crate::probe::probe_video;
 use crate::thumbnail::generate_thumbnail;
+use crate::watermark::{append_watermark_filter_complex, WatermarkConfig};
 
 use super::config::StreamerConfig;
 use super::filters::build_streamer_filter;
@@ -22,6 +23,7 @@ pub async fn process_single(
     task: &ClipTask,
     encoding: &EncodingConfig,
     config: &StreamerConfig,
+    watermark: Option<&WatermarkConfig>,
 ) -> MediaResult<()> {
     let pipeline_start = std::time::Instant::now();
 
@@ -44,12 +46,13 @@ pub async fn process_single(
         let segment_path = output.with_extension("segment.mp4");
         extract_segment(input, &segment_path, start_secs, clip_duration).await?;
         // Render the streamer format
-        render_streamer_format(&segment_path, output, encoding, config, None, None).await?;
+        render_streamer_format(&segment_path, output, encoding, config, None, None, watermark)
+            .await?;
         // Cleanup segment
         cleanup_file(&segment_path).await;
     } else {
         // Render the streamer format
-        render_streamer_format(input, output, encoding, config, None, None).await?;
+        render_streamer_format(input, output, encoding, config, None, None, watermark).await?;
     }
     // Generate thumbnail
     generate_thumbnail_safe(output).await;
@@ -65,6 +68,7 @@ pub async fn process_top_scenes(
     encoding: &EncodingConfig,
     params: &StreamerParams,
     config: &StreamerConfig,
+    watermark: Option<&WatermarkConfig>,
 ) -> MediaResult<()> {
     let pipeline_start = std::time::Instant::now();
 
@@ -107,6 +111,7 @@ pub async fn process_top_scenes(
             temp_dir,
             encoding,
             config,
+            watermark,
         )
         .await?;
 
@@ -137,6 +142,7 @@ async fn process_scene_with_countdown(
     temp_dir: &Path,
     encoding: &EncodingConfig,
     config: &StreamerConfig,
+    watermark: Option<&WatermarkConfig>,
 ) -> MediaResult<std::path::PathBuf> {
     // Extract segment
     let start_secs = parse_timestamp(&scene.start)?;
@@ -161,6 +167,7 @@ async fn process_scene_with_countdown(
         config,
         Some(countdown_number),
         scene.title.as_deref(),
+        watermark,
     )
     .await?;
 
@@ -181,18 +188,28 @@ pub async fn render_streamer_format(
     config: &StreamerConfig,
     countdown_number: Option<u8>,
     scene_title: Option<&str>,
+    watermark: Option<&WatermarkConfig>,
 ) -> MediaResult<()> {
     // Get video dimensions
     let video_info = probe_video(segment).await?;
     
     // Build filter complex
-    let filter_complex = build_streamer_filter(
+    let base_filter_complex = build_streamer_filter(
         config,
         video_info.width,
         video_info.height,
         countdown_number,
         scene_title,
     );
+    let (filter_complex, map_label) = if let Some(config) = watermark {
+        if let Some(watermarked) = append_watermark_filter_complex(&base_filter_complex, "vout", config) {
+            (watermarked.filter_complex, watermarked.output_label)
+        } else {
+            (base_filter_complex, "vout".to_string())
+        }
+    } else {
+        (base_filter_complex, "vout".to_string())
+    };
 
     debug!("[STREAMER] Filter complex: {}", filter_complex);
 
@@ -206,7 +223,7 @@ pub async fn render_streamer_format(
         "-filter_complex".to_string(),
         filter_complex,
         "-map".to_string(),
-        "[vout]".to_string(),
+        format!("[{}]", map_label),
         "-map".to_string(),
         "0:a?".to_string(),
         "-c:v".to_string(),
@@ -413,6 +430,7 @@ pub async fn process_top_scenes_from_segments(
     output: &Path,
     encoding: &EncodingConfig,
     params: &StreamerParams,
+    watermark: Option<&WatermarkConfig>,
 ) -> MediaResult<()> {
     let pipeline_start = std::time::Instant::now();
     let config = super::config::StreamerConfig::default();
@@ -477,6 +495,7 @@ pub async fn process_top_scenes_from_segments(
             &config,
             Some(countdown_number),
             scene_entry.title.as_deref(),
+            watermark,
         )
         .await?;
 

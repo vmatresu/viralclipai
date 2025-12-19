@@ -119,6 +119,7 @@ impl StyleProcessor for StreamerProcessor {
                 &request.encoding,
                 &params,
                 &self.config,
+                request.watermark.as_ref(),
             )
             .await?;
         } else {
@@ -129,6 +130,7 @@ impl StyleProcessor for StreamerProcessor {
                 &request.task,
                 &request.encoding,
                 &self.config,
+                request.watermark.as_ref(),
             )
             .await?;
         }

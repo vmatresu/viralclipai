@@ -18,6 +18,7 @@ use crate::intelligent::detector::FaceDetector;
 use crate::intelligent::models::FrameDetections;
 use crate::probe::probe_video;
 use crate::thumbnail::generate_thumbnail;
+use crate::watermark::WatermarkConfig;
 
 /// Activity observation for a single sampled frame.
 #[derive(Debug, Clone)]
@@ -35,13 +36,23 @@ pub async fn create_activity_split_clip<P, F>(
     task: &ClipTask,
     tier: vclip_models::DetectionTier,
     encoding: &EncodingConfig,
+    watermark: Option<&WatermarkConfig>,
     progress_callback: F,
 ) -> MediaResult<()>
 where
     P: AsRef<Path>,
     F: Fn(crate::progress::FfmpegProgress) + Send + 'static,
 {
-    create_activity_split_clip_with_cache(input, output, task, tier, encoding, None, progress_callback)
+    create_activity_split_clip_with_cache(
+        input,
+        output,
+        task,
+        tier,
+        encoding,
+        watermark,
+        None,
+        progress_callback,
+    )
         .await
 }
 
@@ -55,6 +66,7 @@ pub async fn create_activity_split_clip_with_cache<P, F>(
     task: &ClipTask,
     tier: vclip_models::DetectionTier,
     encoding: &EncodingConfig,
+    watermark: Option<&WatermarkConfig>,
     cached_analysis: Option<&SceneNeuralAnalysis>,
     _progress_callback: F,
 ) -> MediaResult<()>
@@ -196,6 +208,7 @@ where
         width,
         height,
         sample_interval,
+        watermark.cloned(),
     );
     renderer
         .render(&segment_path, output, &detections, &spans)
@@ -263,4 +276,3 @@ async fn motion_fallback(
 
     Ok((detections, spans))
 }
-

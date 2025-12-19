@@ -1428,8 +1428,8 @@ pub async fn reprocess_scenes(
         if !limits.allows_detection_tier(tier) {
             let required_plan = match tier {
                 DetectionTier::Cinematic => "Studio",
-                DetectionTier::MotionAware | DetectionTier::SpeakerAware => "Pro",
-                _ => "Pro",
+                DetectionTier::SpeakerAware => "Pro",
+                _ => "Free",
             };
             return Err(ApiError::forbidden(format!(
                 "Style '{}' requires a {} plan or higher. Please upgrade to access this feature.",
@@ -1671,8 +1671,8 @@ pub async fn process_video(
         if !limits.allows_detection_tier(tier) {
             let required_plan = match tier {
                 DetectionTier::Cinematic => "Studio",
-                DetectionTier::MotionAware | DetectionTier::SpeakerAware => "Pro",
-                _ => "Pro", // Basic and above
+                DetectionTier::SpeakerAware => "Pro",
+                _ => "Free",
             };
             return Err(ApiError::forbidden(format!(
                 "Style '{}' requires a {} plan or higher. Please upgrade to access this feature.",
@@ -1768,4 +1768,3 @@ pub async fn process_video(
         message: Some("Video submitted for processing. Refresh the page to check progress.".to_string()),
     }))
 }
-

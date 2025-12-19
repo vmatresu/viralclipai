@@ -26,6 +26,7 @@ This supersedes older drafts and reflects the modular pipeline after the `proces
      - Download source video only when rendering is requested (reprocess/render jobs).
      - Build `ProcessingRequest` with style-specific encoding (intelligent vs split vs static).
      - Delegate to `vclip-media` style processors (`run_basic_style` for static, tier-aware engines for intelligent).
+     - **Watermark overlay** (free users only): injected into the FFmpeg filter graph during rendering (single encode, no post-pass). `clip_pipeline` sets `ProcessingRequest.watermark` via `user_plan`.
      - Upload clip + thumbnail to R2; persist `ClipMetadata` to Firestore; emit progress and legacy `clip_uploaded`.
 
 4. **Finalize**
@@ -42,8 +43,8 @@ This supersedes older drafts and reflects the modular pipeline after the `proces
 
 ## Roles by Crate
 
-- `vclip-worker`: orchestration (`processor.rs`), `clip_pipeline` (tasks/scene/clip), progress channel.
-- `vclip-media`: style processors, FFmpeg runners, thumbnails, intelligent crop/split engines.
+- `vclip-worker`: orchestration (`processor.rs`), `clip_pipeline` (tasks/scene/clip), progress channel, `user_plan` (plan resolution), `watermark_check`.
+- `vclip-media`: style processors, FFmpeg runners, thumbnails, intelligent crop/split engines, `watermark` overlay module.
 - `vclip-storage`: R2 uploads + presigned URLs.
 - `vclip-firestore`: repositories for videos/clips + status transitions.
 - `vclip-ml-client`: Gemini calls + prompt handling.

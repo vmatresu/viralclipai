@@ -13,9 +13,11 @@ Credits are the primary unit for tracking usage. Unlike simple clip counts, cred
 | Feature | Credits |
 |---------|---------|
 | **Video Analysis** (get scenes) | 3 |
-| **Static styles** (DetectionTier::None) | 10 per clip |
-| **Basic styles** (DetectionTier::Basic - YuNet face detection) | 10 per clip |
-| **Smart styles** (MotionAware/SpeakerAware) | 20 per clip |
+| **Original export** (no cropping) | 5 per clip |
+| **Static styles** (Split, Focus, Split Fast) | 10 per clip |
+| **Motion styles** (Motion, Motion Split) | 10 per clip |
+| **Smart Face styles** (Smart Face, Smart Face Split) | 20 per clip |
+| **Active Speaker styles** (Speaker, Speaker Split, Activity Split) | 20 per clip |
 | **Premium styles** (Cinematic) | 30 per clip |
 | **Streamer / StreamerSplit** | 10 per scene |
 | **Scene originals download** | 5 per scene |
@@ -44,7 +46,7 @@ Credits are the primary unit for tracking usage. Unlike simple clip counts, cred
 
 | Plan | Allowed Tiers |
 |------|---------------|
-| Free | None (Static), Basic (Smart Face) |
+| Free | None (Static), Basic (Smart Face), MotionAware (Motion) |
 | Pro | None, Basic, MotionAware, SpeakerAware |
 | Studio | All including Cinematic |
 
@@ -235,6 +237,33 @@ User inputs (prompts, titles) are sanitized using `security::sanitize_string()` 
 3. **Scene processing credits are charged upfront** before rendering begins
 4. **Analysis costs credits** (3 credits for successful video analysis)
 5. **Monthly reset** happens based on `usage_reset_month` field matching current YYYY-MM
+
+## Watermark Implementation
+
+Free-tier exports include a branded watermark overlay ("Viral Clip AI" with momentum waves logo). Paid users (Pro/Studio) receive watermark-free exports.
+
+### Architecture
+
+- **Plan resolution**: `vclip-worker/src/user_plan.rs` provides shared plan tier lookup (DRY - used by quota and watermark)
+- **Watermark overlay**: `vclip-media/src/watermark.rs` applies FFmpeg overlay filter with configurable opacity/position
+- **Integration**: Watermark is applied inline during rendering via `ProcessingRequest.watermark` (single encode, no post-pass re-encode)
+
+### FFmpeg Filter
+
+```
+[1:v]format=rgba,colorchannelmixer=aa=0.70[wm];[0:v][wm]overlay=W-w-20:H-h-20:format=auto
+```
+
+Positions watermark in bottom-right corner with 20px offset and 70% opacity.
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `backend/assets/watermark.png` | PNG overlay asset |
+| `vclip-media/src/watermark.rs` | FFmpeg overlay module |
+| `vclip-worker/src/user_plan.rs` | Shared plan resolution |
+| `vclip-worker/src/watermark_check.rs` | Re-exports user_requires_watermark |
 
 ## Testing Locally
 

@@ -235,6 +235,9 @@ RUN tar -xzf /tmp/ort.tgz -C /usr/local/lib --strip-components=1 && \
 # Copy YuNet face detection models
 COPY backend/models/face_detection/yunet /app/backend/models/face_detection/yunet
 
+# Copy watermark asset for free user exports
+COPY backend/assets/watermark.png /app/assets/watermark.png
+
 # Create non-root user
 # Make this idempotent and avoid failing if UID/GID 65532 already exist in the base image.
 RUN getent group appgroup >/dev/null 2>&1 || groupadd -g 65532 appgroup && \

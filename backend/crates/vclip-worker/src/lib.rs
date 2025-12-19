@@ -33,6 +33,8 @@ pub mod source_download;
 pub mod source_video_coordinator;
 pub mod top_scenes;
 pub mod transcript;
+pub mod user_plan;
+pub mod watermark_check;
 
 pub use config::WorkerConfig;
 pub use error::{WorkerError, WorkerResult};

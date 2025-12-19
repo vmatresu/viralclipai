@@ -30,18 +30,28 @@ use super::output_format::{
     PORTRAIT_HEIGHT, PORTRAIT_WIDTH, SPLIT_PANEL_HEIGHT, SPLIT_PANEL_WIDTH,
 };
 use crate::error::{MediaError, MediaResult};
+use crate::watermark::{append_watermark_filter_complex, build_vf_with_watermark, WatermarkConfig};
 use vclip_models::EncodingConfig;
 
 /// Single-pass renderer that applies all transforms in ONE encode.
 pub struct SinglePassRenderer {
     #[allow(dead_code)]
     config: IntelligentCropConfig,
+    watermark: Option<WatermarkConfig>,
 }
 
 impl SinglePassRenderer {
     /// Create a new single-pass renderer.
     pub fn new(config: IntelligentCropConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            watermark: None,
+        }
+    }
+
+    pub fn with_watermark(mut self, config: WatermarkConfig) -> Self {
+        self.watermark = Some(config);
+        self
     }
 
     /// Render intelligent full-frame crop in a single encode pass.
@@ -92,10 +102,15 @@ impl SinglePassRenderer {
         // Build filter: crop → scale to exact output dimensions → set SAR
         // The crop window is computed with exact 9:16 aspect ratio (zoom-to-fill),
         // so we can scale directly without padding - no black bars, no stretching
-        let filter = format!(
+        let base_filter = format!(
             "crop={}:{}:{}:{},scale={}:{}:flags=lanczos,setsar=1",
             crop.width, crop.height, crop.x, crop.y, PORTRAIT_WIDTH, PORTRAIT_HEIGHT
         );
+        let filter = if let Some(config) = self.watermark.as_ref() {
+            build_vf_with_watermark(Some(&base_filter), config).unwrap_or(base_filter)
+        } else {
+            base_filter
+        };
 
         // Single FFmpeg command - THE ONLY ENCODE
         let mut cmd = Command::new("ffmpeg");
@@ -243,7 +258,7 @@ impl SinglePassRenderer {
         );
 
         // Build combined filter graph - everything in ONE pass
-        let filter_complex = format!(
+        let base_filter_complex = format!(
             "[0:v]split=2[left_in][right_in];\
              [left_in]crop={cw}:{ch}:{lx}:{ly},scale={pw}:{ph}:flags=lanczos,setsar=1,format=yuv420p[top];\
              [right_in]crop={cw}:{ch}:{rx}:{ry},scale={pw}:{ph}:flags=lanczos,setsar=1,format=yuv420p[bottom];\
@@ -257,6 +272,15 @@ impl SinglePassRenderer {
             pw = SPLIT_PANEL_WIDTH,
             ph = SPLIT_PANEL_HEIGHT,
         );
+        let (filter_complex, map_label) = if let Some(config) = self.watermark.as_ref() {
+            if let Some(watermarked) = append_watermark_filter_complex(&base_filter_complex, "vout", config) {
+                (watermarked.filter_complex, watermarked.output_label)
+            } else {
+                (base_filter_complex, "vout".to_string())
+            }
+        } else {
+            (base_filter_complex, "vout".to_string())
+        };
 
         debug!("Filter graph:\n{}", filter_complex);
 
@@ -275,7 +299,7 @@ impl SinglePassRenderer {
             &filter_complex,
             // Map outputs
             "-map",
-            "[vout]",
+            &format!("[{}]", map_label),
             "-map",
             "0:a?",
             // Video encoding - SINGLE ENCODE using API config
