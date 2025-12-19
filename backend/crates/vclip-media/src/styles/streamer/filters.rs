@@ -193,8 +193,10 @@ mod tests {
         let config = StreamerConfig::default();
         let filter = build_streamer_filter(&config, 1920, 1080, Some(5), Some("Test Title"));
         
+        // Number and title are now in separate drawtext filters
         assert!(filter.contains("drawtext"));
-        assert!(filter.contains("5. Test Title"));
+        assert!(filter.contains("text='5.'"), "Should have countdown number");
+        assert!(filter.contains("Test Title"), "Should have title text");
         assert!(filter.contains("[vout]"));
     }
 }

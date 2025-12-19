@@ -257,6 +257,25 @@ impl VideoProcessor {
         // The source video is only downloaded when the user starts processing scenes
         // via ReprocessScenes or RenderSceneStyle jobs.
 
+        // Charge credits for successful analysis
+        // This is done after completion, not upfront, so users aren't charged for failed analyses
+        if let Err(e) = crate::credits::charge_analysis_credits(
+            &ctx.firestore,
+            &job.user_id,
+            job.video_id.as_str(),
+            &transcript_data.title,
+            &job.video_url,
+            false, // is_draft = false: store as video_id for /history/{id} linking
+        ).await {
+            // Log the error but don't fail the job - the analysis itself was successful
+            tracing::warn!(
+                user_id = %job.user_id,
+                video_id = %job.video_id,
+                error = %e,
+                "Failed to charge analysis credits (analysis itself succeeded)"
+            );
+        }
+
         ctx.progress.progress(&job.job_id, 100).await.ok();
         ctx.progress
             .done(&job.job_id, job.video_id.as_str())
@@ -566,6 +585,25 @@ impl VideoProcessor {
             .update_completion(&job.draft_id, Some(video_title.clone()), scene_count, 0)
             .await
             .map_err(|e| WorkerError::Firestore(e))?;
+
+        // Charge credits for successful analysis
+        // This is done after completion, not upfront, so users aren't charged for failed analyses
+        if let Err(e) = crate::credits::charge_analysis_credits(
+            &ctx.firestore,
+            &job.user_id,
+            &job.draft_id,
+            &video_title,
+            &job.video_url,
+            true, // is_draft = true: store as draft_id for /drafts/{id} linking
+        ).await {
+            // Log the error but don't fail the job - the analysis itself was successful
+            tracing::warn!(
+                user_id = %job.user_id,
+                draft_id = %job.draft_id,
+                error = %e,
+                "Failed to charge analysis credits (analysis itself succeeded)"
+            );
+        }
 
         ctx.progress.progress(&job.job_id, 100).await.ok();
         ctx.progress.done(&job.job_id, &job.draft_id).await.ok();

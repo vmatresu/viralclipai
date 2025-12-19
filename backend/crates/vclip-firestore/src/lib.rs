@@ -29,6 +29,7 @@ pub mod sorting;
 pub mod storage_accounting;
 pub mod token_cache;
 pub mod types;
+pub mod user_credits;
 
 pub use analysis_draft_repo::AnalysisDraftRepository;
 pub use client::{FirestoreClient, FirestoreConfig};
@@ -40,4 +41,5 @@ pub use retry::RetryConfig;
 pub use share_repo::{ShareRepository, ShareSlugIndex};
 pub use storage_accounting::StorageAccountingRepository;
 pub use types::{Document, FromFirestoreValue, ToFirestoreValue, Value};
+pub use user_credits::{current_month_key, CreditChargeResult, UserCreditsRepository};
 

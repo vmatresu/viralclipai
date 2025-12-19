@@ -15,6 +15,7 @@ import {
   Zap,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -63,6 +64,7 @@ import type { DeleteTarget, PlanUsage, UserVideo } from "./types";
 export default function HistoryList() {
   usePageView("history");
   const { getIdToken, user, loading: authLoading } = useAuth();
+  const router = useRouter();
   const [videos, setVideos] = useState<UserVideo[]>([]);
   // Initial loading - only true on first load, shows skeleton
   const [initialLoading, setInitialLoading] = useState(true);
@@ -108,6 +110,18 @@ export default function HistoryList() {
       setNextPageToken(null);
     },
     [sortField, sortDirection]
+  );
+
+  const handleRowNavigation = useCallback(
+    (videoId: string, event: React.MouseEvent) => {
+      // Ignore clicks on elements marked to stop row navigation
+      const target = event.target as HTMLElement;
+      if (target.closest("[data-row-action-stop]")) {
+        return;
+      }
+      router.push(`/history/${encodeURIComponent(videoId)}`);
+    },
+    [router]
   );
 
   const fetchVideos = useCallback(
@@ -780,8 +794,9 @@ export default function HistoryList() {
               return (
                 <TableRow
                   key={videoId}
+                  onClick={(event) => handleRowNavigation(videoId, event)}
                   className={cn(
-                    "border-white/5 transition-colors",
+                    "border-white/5 transition-colors cursor-pointer",
                     isSelected
                       ? "bg-primary/5 hover:bg-primary/10"
                       : "hover:bg-white/[0.02]"
@@ -789,7 +804,11 @@ export default function HistoryList() {
                 >
                   <TableCell>
                     <button
-                      onClick={() => handleSelectVideo(videoId)}
+                      data-row-action-stop
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSelectVideo(videoId);
+                      }}
                       className="flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
                       type="button"
                       aria-label={isSelected ? "Deselect video" : "Select video"}
@@ -826,7 +845,6 @@ export default function HistoryList() {
                                 <Link
                                   href={`/history/${encodeURIComponent(videoId)}`}
                                   className="font-medium text-foreground hover:text-primary transition-colors hover:underline truncate block"
-                                  onClick={(e) => e.stopPropagation()}
                                 >
                                   {title}
                                 </Link>
@@ -848,6 +866,7 @@ export default function HistoryList() {
                               {video.video_url}
                             </a>
                             <button
+                              data-row-action-stop
                               onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
@@ -900,6 +919,7 @@ export default function HistoryList() {
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
+                          data-row-action-stop
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 hover:bg-white/5"
@@ -939,7 +959,12 @@ export default function HistoryList() {
                         )}
                         <DropdownMenuItem
                           className="text-destructive focus:text-destructive cursor-pointer"
-                          onClick={() => handleDeleteClick("single", videoId)}
+                          // Prevent row navigation when choosing delete
+                          onSelect={(e) => {
+                            e.preventDefault();
+                            handleDeleteClick("single", videoId);
+                          }}
+                          onClick={(e) => e.stopPropagation()}
                         >
                           Delete Video
                         </DropdownMenuItem>

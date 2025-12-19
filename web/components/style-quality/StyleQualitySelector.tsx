@@ -3,14 +3,19 @@
 import { useMemo } from "react";
 
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import {
+    ADDON_CREDIT_COSTS,
+    formatCredits,
+    getStyleCreditCost,
+} from "@/lib/credits/pricing";
 import { cn } from "@/lib/utils";
 
 import { FULL_LEVELS, SPLIT_LEVELS } from "./constants";
@@ -65,6 +70,8 @@ export function StyleQualitySelector({
 }: StyleQualitySelectorProps) {
   const hasStudioPlan = userPlan === "studio";
   const hasProPlan = userPlan === "pro" || userPlan === "studio";
+  const silentCostLabel = `${formatCredits(ADDON_CREDIT_COSTS.silentRemoverPerScene)} /scene`;
+  const originalCostLabel = `${formatCredits(getStyleCreditCost("original"))} /scene`;
 
   // Use external config if provided, otherwise use internal state
   const baseSelection = useMemo(
@@ -203,8 +210,13 @@ export function StyleQualitySelector({
               disabled={disabled}
             />
             <div className="space-y-0.5">
-              <div className="font-medium">
-                Cut silent parts for more dynamic scenes
+              <div className="flex items-center gap-2">
+                <span className="font-medium">
+                  Cut silent parts for more dynamic scenes
+                </span>
+                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-indigo-100">
+                  {silentCostLabel}
+                </span>
               </div>
               <p className="text-xs text-muted-foreground">
                 Remove sections without speech (applies to all styles)
@@ -227,7 +239,12 @@ export function StyleQualitySelector({
               id="include-original"
             />
             <div className="space-y-0.5">
-              <div className="font-medium">Also export Original (no cropping)</div>
+              <div className="flex items-center gap-2">
+                <span className="font-medium">Also export Original (no cropping)</span>
+                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-indigo-100">
+                  {originalCostLabel}
+                </span>
+              </div>
               <p className="text-xs text-muted-foreground">Optional extra output</p>
             </div>
           </label>
@@ -249,12 +266,13 @@ export const STYLE_LEVELS = {
 
 // Re-export types for backward compatibility
 export type {
-  HorizontalPosition,
-  LayoutQualitySelection,
-  StaticPosition,
-  StreamerSplitConfig,
-  VerticalPosition,
+    HorizontalPosition,
+    LayoutQualitySelection,
+    StaticPosition,
+    StreamerSplitConfig,
+    VerticalPosition
 } from "./types";
 
 export { DEFAULT_SELECTION, DEFAULT_STREAMER_SPLIT_CONFIG } from "./types";
 export { selectionToStyles, stylesToSelection } from "./utils";
+

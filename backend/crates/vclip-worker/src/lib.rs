@@ -12,6 +12,7 @@ pub mod clip_pipeline;
 pub mod cinematic_analysis;
 pub mod cinematic_signals;
 pub mod config;
+pub mod credits;
 pub mod download_source_job;
 pub mod download_coordinator;
 pub mod error;

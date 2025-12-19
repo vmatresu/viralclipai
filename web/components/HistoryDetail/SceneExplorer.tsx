@@ -442,71 +442,73 @@ function HistorySceneItem({
         className="rounded-lg border bg-muted/30 px-3"
       >
         <AccordionPrimitive.Header className="flex items-center gap-3 sm:gap-4">
-          <AccordionPrimitive.Trigger className="group flex w-full items-center gap-3 py-3 text-left">
-            <div className="flex w-full items-center gap-3 sm:gap-4">
-              <div className="flex-1 space-y-2 text-left">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline">
-                    {scene.sceneId === 0 ? "Compilation" : `Scene ${sceneNumber}`}
-                  </Badge>
-                  <span className="text-sm text-muted-foreground">
-                    {formatRange(scene)}
-                  </span>
-                  {scene.sceneId !== 0 && scene.highlight && onTimestampsUpdated && (
-                    <EditTimestampsDialog
-                      videoId={videoId}
-                      sceneId={scene.sceneId}
-                      currentStart={scene.highlight.start}
-                      currentEnd={scene.highlight.end}
-                      onSuccess={onTimestampsUpdated}
-                      trigger={
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 px-2 gap-1"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <Clock className="h-3 w-3" />
-                          <span className="text-xs">Edit</span>
-                        </Button>
-                      }
-                    />
-                  )}
-                  <Badge variant="secondary">{styles.length} styles</Badge>
-                  {scene.totalSizeBytes && scene.totalSizeBytes > 0 && (
-                    <Badge variant="outline" className="text-muted-foreground">
-                      {formatBytes(scene.totalSizeBytes)}
+          <AccordionPrimitive.Trigger asChild>
+            <div className="group flex w-full items-center gap-3 py-3 text-left cursor-pointer">
+              <div className="flex w-full items-center gap-3 sm:gap-4">
+                <div className="flex-1 space-y-2 text-left">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">
+                      {scene.sceneId === 0 ? "Compilation" : `Scene ${sceneNumber}`}
                     </Badge>
-                  )}
-                </div>
-                <div className="space-y-1">
-                  <p className="font-semibold text-base leading-tight">
-                    {scene.sceneTitle}
-                  </p>
-                  {scene.highlight?.reason && (
-                    <p className="text-xs text-muted-foreground leading-snug">
-                      {scene.highlight.reason}
+                    <span className="text-sm text-muted-foreground">
+                      {formatRange(scene)}
+                    </span>
+                    {scene.sceneId !== 0 && scene.highlight && onTimestampsUpdated && (
+                      <EditTimestampsDialog
+                        videoId={videoId}
+                        sceneId={scene.sceneId}
+                        currentStart={scene.highlight.start}
+                        currentEnd={scene.highlight.end}
+                        onSuccess={onTimestampsUpdated}
+                        trigger={
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 gap-1"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Clock className="h-3 w-3" />
+                            <span className="text-xs">Edit</span>
+                          </Button>
+                        }
+                      />
+                    )}
+                    <Badge variant="secondary">{styles.length} styles</Badge>
+                    {scene.totalSizeBytes && scene.totalSizeBytes > 0 && (
+                      <Badge variant="outline" className="text-muted-foreground">
+                        {formatBytes(scene.totalSizeBytes)}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-semibold text-base leading-tight">
+                      {scene.sceneTitle}
                     </p>
-                  )}
+                    {scene.highlight?.reason && (
+                      <p className="text-xs text-muted-foreground leading-snug">
+                        {scene.highlight.reason}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {styleSummaries.map((style) => (
+                      <Badge
+                        key={style.label}
+                        className={cn("border", getTierBadgeClasses(style.color))}
+                        variant="outline"
+                      >
+                        {style.label}
+                      </Badge>
+                    ))}
+                  </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {styleSummaries.map((style) => (
-                    <Badge
-                      key={style.label}
-                      className={cn("border", getTierBadgeClasses(style.color))}
-                      variant="outline"
-                    >
-                      {style.label}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
 
-              <div className="flex items-center gap-3 sm:gap-4">
-                {/* Thumbnails are fetched via delivery endpoints on demand */}
+                <div className="flex items-center gap-3 sm:gap-4">
+                  {/* Thumbnails are fetched via delivery endpoints on demand */}
+                </div>
               </div>
+              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
             </div>
-            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
           </AccordionPrimitive.Trigger>
           {onDeleteScene ? (
             <DialogTrigger asChild>

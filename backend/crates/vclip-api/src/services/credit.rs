@@ -22,10 +22,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{Datelike, Utc};
+use chrono::Utc;
 use tracing::{debug, info, warn};
 
-use vclip_firestore::{CreditTransactionRepository, FirestoreClient, FromFirestoreValue, ToFirestoreValue};
+use vclip_firestore::{
+    current_month_key, CreditTransactionRepository, FirestoreClient, FromFirestoreValue,
+    ToFirestoreValue,
+};
 use vclip_models::{CreditContext, CreditTransaction};
 
 use crate::error::{ApiError, ApiResult};
@@ -381,31 +384,5 @@ impl CreditService {
         repo.get_month_total(&key)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get credit total: {}", e)))
-    }
-}
-
-// =============================================================================
-// Helper Functions
-// =============================================================================
-
-/// Get current month key in "YYYY-MM" format.
-pub fn current_month_key() -> String {
-    let now = Utc::now();
-    format!("{:04}-{:02}", now.year(), now.month())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_current_month_key_format() {
-        let key = current_month_key();
-        assert!(key.len() == 7);
-        assert!(key.contains('-'));
-        let parts: Vec<&str> = key.split('-').collect();
-        assert_eq!(parts.len(), 2);
-        assert!(parts[0].parse::<i32>().is_ok());
-        assert!(parts[1].parse::<u32>().is_ok());
     }
 }

@@ -583,6 +583,8 @@ mod tests {
         smoother.track_sides.insert(1, true);  // Track 1 is on left
         smoother.track_sides.insert(2, false); // Track 2 is on right
 
+        // Without mouth activity scores, speaker-aware falls back to prominence (size × confidence)
+        // Track 2 is larger (100x100 vs 50x50) and has higher confidence, so it should be selected
         let detections = vec![
             Detection::new(0.0, BoundingBox::new(100.0, 100.0, 50.0, 50.0), 0.8, 1), // Left, smaller
             Detection::new(0.0, BoundingBox::new(1500.0, 100.0, 100.0, 100.0), 0.9, 2), // Right, larger
@@ -590,8 +592,9 @@ mod tests {
 
         let focus = smoother.compute_focus_speaker_aware(&detections, 0.5, 1920, 1080);
 
-        // Should select left face (track 1) because it has higher mouth openness
-        assert!(focus.cx() < 500.0, "Should focus on left face (visually active)");
+        // Without mouth activity, falls back to basic selection (largest face)
+        // Track 2 is larger, so it should be selected
+        assert!(focus.cx() > 1000.0, "Should focus on larger right face when no mouth activity: cx={}", focus.cx());
     }
 
     #[test]

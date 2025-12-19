@@ -1480,50 +1480,28 @@ pub async fn reprocess_scenes(
         )));
     }
 
-    // Now that validation passed, calculate and charge credits
+    // Calculate credits using the shared cost calculator
     let num_scenes = request.scene_ids.len() as u32;
-    let num_styles = styles.len() as u32;
-    let total_clips = num_scenes * num_styles;
+    let cost = vclip_models::ReprocessingCostCalculator::new(styles.clone(), num_scenes)
+        .with_silent_remover(request.cut_silent_parts)
+        .with_object_detection(request.enable_object_detection)
+        .calculate();
 
-    // Each scene × style combination costs credits based on the style's detection tier
-    let mut total_credits: u32 = styles.iter().map(|s| s.credit_cost() * num_scenes).sum();
+    let total_clips = num_scenes * styles.len() as u32;
     
-    // Add silent remover cost (+5 credits per scene) if enabled
-    const SILENT_REMOVER_COST_PER_SCENE: u32 = 5;
-    if request.cut_silent_parts {
-        total_credits += SILENT_REMOVER_COST_PER_SCENE * num_scenes;
-    }
-
-    // Build description for credit transaction
-    let styles_str: Vec<&str> = styles.iter().map(|s| s.as_filename_part()).collect();
-    let description = format!(
-        "Reprocess {} scene{} ({})",
-        num_scenes,
-        if num_scenes == 1 { "" } else { "s" },
-        styles_str.join(", ")
-    );
-
-    // Build metadata for the transaction
-    let mut metadata = std::collections::HashMap::new();
-    metadata.insert("scene_count".to_string(), num_scenes.to_string());
-    metadata.insert("styles".to_string(), styles_str.join(","));
-    if request.cut_silent_parts {
-        metadata.insert("silent_remover".to_string(), "true".to_string());
-    }
-
     let credit_context = CreditContext::new(
         CreditOperationType::Reprocessing,
-        description,
+        cost.to_description(),
     )
     .with_video_id(&video_id)
-    .with_metadata(metadata);
+    .with_metadata(cost.to_metadata());
 
     // Check and reserve credits (validates quota + charges upfront)
-    state.user_service.check_and_reserve_credits_with_context(&user.uid, total_credits, credit_context).await?;
+    state.user_service.check_and_reserve_credits_with_context(&user.uid, cost.total, credit_context).await?;
 
     info!(
-        "Reserved {} credits for reprocessing {} scenes ({} clips) with {} styles for user {} (cut_silent_parts: {})",
-        total_credits, num_scenes, total_clips, num_styles, user.uid, request.cut_silent_parts
+        "Reserved {} credits for reprocessing {} scenes with {} styles for user {} (breakdown: styles={}, silent_remover={}, object_detection={})",
+        cost.total, num_scenes, styles.len(), user.uid, cost.style_total, cost.silent_remover_cost, cost.object_detection_cost
     );
 
     // Parse crop mode and target aspect from highlights or use defaults
@@ -1712,13 +1690,11 @@ pub async fn process_video(
         )));
     }
 
-    // Video analysis costs credits - charge upfront
+    // Video analysis costs credits - but we DON'T charge upfront anymore.
+    // The worker charges credits at the end of successful analysis via charge_analysis_credits.
+    // Here we only validate the user has enough credits available.
     // NOTE: This is the initial analysis job, not rendering. Analysis = 3 credits.
-    let credit_context = CreditContext::new(
-        CreditOperationType::Analysis,
-        "Video analysis",
-    );
-    state.user_service.check_and_reserve_credits_with_context(&user.uid, ANALYSIS_CREDIT_COST, credit_context).await?;
+    state.user_service.validate_credits(&user.uid, ANALYSIS_CREDIT_COST).await?;
 
     // Parse crop mode and target aspect
     let crop_mode: CropMode = request.crop_mode.parse().unwrap_or_default();

@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, Clock, CreditCard, Loader2, TrendingUp, Zap } from "lucide-react";
+import { AlertCircle, Clock, CreditCard, ExternalLink, Loader2, TrendingUp, Zap } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -209,7 +209,56 @@ interface TransactionRowProps {
   transaction: CreditTransaction;
 }
 
+// Format cost breakdown from metadata
+function getCostBreakdown(transaction: CreditTransaction): string | null {
+  const metadata = transaction.metadata;
+  if (!metadata) return null;
+
+  const parts: string[] = [];
+  
+  // Per-style breakdown: "streamer_split:10,original:10" -> "streamer_split: 10, original: 10"
+  const styleBreakdown = metadata.style_breakdown;
+  if (styleBreakdown) {
+    const styleParts = styleBreakdown.split(",").map((s) => {
+      const [name, cost] = s.split(":");
+      return `${name}: ${cost}`;
+    });
+    parts.push(styleParts.join(", "));
+  } else {
+    // Fallback to old format
+    const styleCredits = metadata.style_credits;
+    const styles = metadata.styles;
+    if (styleCredits && styles) {
+      parts.push(`${styles}: ${styleCredits}`);
+    }
+  }
+
+  // Silent remover addon
+  const silentRemoverCredits = metadata.silent_remover_credits;
+  if (silentRemoverCredits && parseInt(silentRemoverCredits, 10) > 0) {
+    parts.push(`Silent remover: ${silentRemoverCredits}`);
+  }
+
+  // Object detection addon
+  const objectDetectionCredits = metadata.object_detection_credits;
+  if (objectDetectionCredits && parseInt(objectDetectionCredits, 10) > 0) {
+    parts.push(`Object detection: ${objectDetectionCredits}`);
+  }
+
+  if (parts.length === 0) return null;
+  return parts.join(" + ");
+}
+
 function TransactionRow({ transaction }: TransactionRowProps) {
+  // For analysis transactions, we may have source_url in metadata instead of video_id
+  const sourceUrl = transaction.metadata?.source_url;
+  const hasVideoLink = Boolean(transaction.video_id);
+  const hasDraftLink = !hasVideoLink && Boolean(transaction.draft_id);
+  const hasSourceLink = !hasVideoLink && !hasDraftLink && Boolean(sourceUrl);
+  
+  // Get cost breakdown for display
+  const costBreakdown = getCostBreakdown(transaction);
+
   return (
     <TableRow>
       <TableCell className="text-muted-foreground text-sm">
@@ -220,7 +269,14 @@ function TransactionRow({ transaction }: TransactionRowProps) {
           {getOperationLabel(transaction.operation_type)}
         </Badge>
       </TableCell>
-      <TableCell>{transaction.description}</TableCell>
+      <TableCell>
+        <div>{transaction.description}</div>
+        {costBreakdown && (
+          <div className="text-xs text-muted-foreground mt-0.5">
+            {costBreakdown}
+          </div>
+        )}
+      </TableCell>
       <TableCell className="text-right font-medium">
         -{formatNumber(transaction.credits_amount)}
       </TableCell>
@@ -228,13 +284,31 @@ function TransactionRow({ transaction }: TransactionRowProps) {
         {formatNumber(transaction.balance_after)}
       </TableCell>
       <TableCell>
-        {transaction.video_id && (
+        {hasVideoLink && (
           <Link
             href={`/history/${transaction.video_id}`}
             className="text-xs text-primary hover:underline"
           >
             View video
           </Link>
+        )}
+        {hasDraftLink && (
+          <Link
+            href={`/drafts/${transaction.draft_id}`}
+            className="text-xs text-primary hover:underline"
+          >
+            View draft
+          </Link>
+        )}
+        {hasSourceLink && (
+          <a
+            href={sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-primary hover:underline inline-flex items-center gap-1"
+          >
+            Source <ExternalLink className="h-3 w-3" />
+          </a>
         )}
       </TableCell>
     </TableRow>

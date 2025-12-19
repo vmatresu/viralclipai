@@ -5,7 +5,7 @@
  * Optimized for "set it and forget it" workflow.
  */
 
-import { CheckCircle2, ChevronDown, Loader2, Sparkles, Terminal } from "lucide-react";
+import { CheckCircle2, ChevronDown, Loader2, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -96,7 +96,7 @@ export function DetailedProcessingStatus({
               className="group flex items-center gap-1.5 rounded-lg border border-white/5 bg-white/5 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/10 hover:text-white"
             >
               <span className="hidden sm:inline">
-                {isExpanded ? "Hide Details" : "View Logs"}
+                {isExpanded ? "Hide Details" : "View Details"}
               </span>
               <ChevronDown
                 className={cn(
@@ -156,35 +156,6 @@ export function DetailedProcessingStatus({
                 </div>
               </div>
             )}
-
-            {/* Logs Terminal */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 px-1">
-                <Terminal className="h-3 w-3 text-muted-foreground" />
-                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  System Logs
-                </h4>
-              </div>
-              <div className="rounded-lg border border-white/5 bg-slate-950/80 p-3 font-mono text-[10px] text-slate-300 h-40 overflow-y-auto shadow-inner">
-                {logs.length === 0 ? (
-                  <div className="text-slate-500 italic">
-                    {isResuming ? "Connecting to log stream..." : "Waiting for logs..."}
-                  </div>
-                ) : (
-                  logs.map((log) => (
-                    <div
-                      key={`${log}-${log.length}-${log.slice(0, 8)}`}
-                      className="border-l-2 border-transparent pl-2 hover:border-indigo-500/50 hover:bg-white/5 py-0.5 rounded-r"
-                    >
-                      <span className="text-slate-500 mr-2 opacity-50">
-                        {new Date().toLocaleTimeString()}
-                      </span>
-                      {log}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
           </div>
         </div>
       )}

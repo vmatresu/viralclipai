@@ -10,11 +10,11 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
-use vclip_firestore::{FirestoreClient, FromFirestoreValue, ToFirestoreValue, Value};
+use vclip_firestore::{current_month_key, FirestoreClient, FromFirestoreValue, ToFirestoreValue, Value};
 use vclip_models::{CreditContext, CreditTransaction, VideoId, VideoStatus};
 use vclip_storage::R2Client;
 
-use super::credit::{current_month_key, CreditService};
+use super::credit::CreditService;
 use crate::error::{ApiError, ApiResult};
 
 /// User settings stored in Firestore.

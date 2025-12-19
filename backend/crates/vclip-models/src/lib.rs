@@ -14,6 +14,7 @@
 pub mod analysis;
 pub mod cinematic_analysis;
 pub mod clip;
+pub mod credit_cost;
 pub mod credit_transaction;
 pub mod detection_tier;
 pub mod encoding;
@@ -70,6 +71,7 @@ pub use cinematic_analysis::{
 };
 pub use job_status::{JobStatus, JobStatusCache};
 pub use credit_transaction::{CreditContext, CreditOperationType, CreditTransaction};
+pub use credit_cost::{CostBreakdown, ReprocessingCostCalculator};
 pub use timestamp::{
     parse_timestamp, normalize_timestamp, validate_timestamps, format_seconds,
     ValidatedTimestamps, TimestampError, MAX_VIDEO_DURATION_SECS,

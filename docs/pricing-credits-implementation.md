@@ -231,9 +231,9 @@ User inputs (prompts, titles) are sanitized using `security::sanitize_string()` 
 ## Important Notes
 
 1. **Credits are NOT refunded** when clips are deleted
-2. **Credits are charged upfront** before processing begins
-3. **Analysis costs credits** (3 credits for video analysis)
-4. **Failed jobs still consume credits** - no refund on failure
+2. **Analysis credits are charged on success only** - failed analyses don't consume credits
+3. **Scene processing credits are charged upfront** before rendering begins
+4. **Analysis costs credits** (3 credits for successful video analysis)
 5. **Monthly reset** happens based on `usage_reset_month` field matching current YYYY-MM
 
 ## Testing Locally

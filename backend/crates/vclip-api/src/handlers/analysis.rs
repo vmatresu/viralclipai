@@ -14,7 +14,7 @@ use vclip_firestore::AnalysisDraftRepository;
 use vclip_models::{
     AnalysisDraft, AnalysisStatus, AnalysisStatusResponse, CreditContext, CreditOperationType,
     DetectionTier, DraftScene, ProcessDraftRequest, ProcessingEstimate, StartAnalysisResponse,
-    Style, ANALYSIS_CREDIT_COST,
+    Style,
 };
 use vclip_queue::{AnalyzeVideoJob, RenderSceneStyleJob};
 
@@ -64,17 +64,7 @@ pub async fn start_analysis(
     // Generate IDs
     let draft_id = Uuid::new_v4().to_string();
 
-    // Charge credits for analysis (3 credits)
-    // This is charged upfront and not refunded if analysis fails
-    let credit_context = CreditContext::new(
-        CreditOperationType::Analysis,
-        "Video analysis",
-    ).with_draft_id(&draft_id);
-
-    state
-        .user_service
-        .check_and_reserve_credits_with_context(&user.uid, ANALYSIS_CREDIT_COST, credit_context)
-        .await?;
+    // Generate request ID for the job
     let request_id = Uuid::new_v4().to_string();
 
     // Create the draft record with validated URL
