@@ -504,7 +504,7 @@ export function BulkAddScenesDialog({ videoId, onSuccess }: BulkAddScenesDialogP
           start,
           end,
           reason,
-          description: description || undefined,
+          description: description ?? undefined,
         });
       }
 

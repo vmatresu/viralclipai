@@ -2,9 +2,6 @@
 
 import {
   AlertCircle,
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
   Check,
   CheckSquare,
   Clock,
@@ -18,7 +15,7 @@ import {
   Zap,
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { EditableTitle } from "@/components/EditableTitle";
@@ -58,21 +55,19 @@ import { invalidateClipsCache, invalidateClipsCacheMany } from "@/lib/cache";
 import { usePageView } from "@/lib/usePageView";
 import { cn } from "@/lib/utils";
 
-import { DeleteConfirmDialog } from "./components";
-import {
-  type DeleteTarget,
-  type PlanUsage,
-  type SortDirection,
-  type SortField,
-  type UserVideo,
-  parseSizeToBytes,
-} from "./types";
+import { DeleteConfirmDialog, SortableHeader } from "./components";
+
+import type { SortDirection, SortField } from "./hooks";
+import type { DeleteTarget, PlanUsage, UserVideo } from "./types";
 
 export default function HistoryList() {
   usePageView("history");
   const { getIdToken, user, loading: authLoading } = useAuth();
   const [videos, setVideos] = useState<UserVideo[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Initial loading - only true on first load, shows skeleton
+  const [initialLoading, setInitialLoading] = useState(true);
+  // Refreshing - true during sort/pagination, keeps content visible with subtle indicator
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nextPageToken, setNextPageToken] = useState<string | null>(null);
   const [pageTokens, setPageTokens] = useState<(string | null)[]>([null]);
@@ -87,90 +82,59 @@ export default function HistoryList() {
   const [sortField, setSortField] = useState<SortField>("date");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
-  // Sort videos based on current sort field and direction
-  const sortedVideos = useMemo(() => {
-    return [...videos].sort((a, b) => {
-      let comparison = 0;
+  // Combined loading state for disabling interactions
+  const isLoading = initialLoading || isRefreshing;
 
-      switch (sortField) {
-        case "title": {
-          const titleA = (a.video_title ?? "").toLowerCase();
-          const titleB = (b.video_title ?? "").toLowerCase();
-          comparison = titleA.localeCompare(titleB);
-          break;
-        }
-        case "status": {
-          const statusOrder = { processing: 0, analyzed: 1, completed: 2, failed: 3 };
-          const statusA = statusOrder[a.status ?? "completed"] ?? 4;
-          const statusB = statusOrder[b.status ?? "completed"] ?? 4;
-          comparison = statusA - statusB;
-          break;
-        }
-        case "size": {
-          const sizeA = a.total_size_bytes ?? parseSizeToBytes(a.total_size_formatted);
-          const sizeB = b.total_size_bytes ?? parseSizeToBytes(b.total_size_formatted);
-          comparison = sizeA - sizeB;
-          break;
-        }
-        case "date":
-        default: {
-          const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
-          const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
-          comparison = dateA - dateB;
-          break;
-        }
-      }
+  // Track if we've done initial load to differentiate from sort changes
+  const hasLoadedRef = useRef(false);
 
-      return sortDirection === "asc" ? comparison : -comparison;
-    });
-  }, [videos, sortField, sortDirection]);
-
+  // Handle sort changes - reset pagination and re-fetch
   const handleSort = useCallback(
     (field: SortField) => {
+      let newDirection: SortDirection;
       if (field === sortField) {
-        setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+        newDirection = sortDirection === "asc" ? "desc" : "asc";
       } else {
-        setSortField(field);
-        setSortDirection("asc");
+        newDirection = "asc";
       }
-    },
-    [sortField]
-  );
 
-  const SortableHeader = useCallback(
-    ({ field, children }: { field: SortField; children: React.ReactNode }) => {
-      const isActive = sortField === field;
-      return (
-        <button
-          onClick={() => handleSort(field)}
-          className={cn(
-            "flex items-center gap-1 hover:text-foreground transition-colors",
-            isActive ? "text-foreground" : "text-muted-foreground"
-          )}
-        >
-          {children}
-          {isActive && sortDirection === "asc" && <ArrowUp className="h-3.5 w-3.5" />}
-          {isActive && sortDirection === "desc" && (
-            <ArrowDown className="h-3.5 w-3.5" />
-          )}
-          {!isActive && <ArrowUpDown className="h-3.5 w-3.5 opacity-50" />}
-        </button>
-      );
+      // Update state
+      setSortField(field);
+      setSortDirection(newDirection);
+
+      // Reset pagination
+      setCurrentPage(0);
+      setPageTokens([null]);
+      setNextPageToken(null);
     },
-    [sortField, sortDirection, handleSort]
+    [sortField, sortDirection]
   );
 
   const fetchVideos = useCallback(
-    async (pageToken: string | null) => {
+    async (
+      pageToken: string | null,
+      field: SortField,
+      direction: SortDirection,
+      isInitial = false
+    ) => {
       if (!user) return;
-      setLoading(true);
+
+      // Use appropriate loading state
+      if (isInitial) {
+        setInitialLoading(true);
+      } else {
+        setIsRefreshing(true);
+      }
+
       try {
         const token = await getIdToken();
         if (!token) throw new Error("Failed to get authentication token");
 
         const data = await getUserVideos<UserVideo>(token, {
-          limit: 10, // Reduced from 25 for better pagination UX
+          limit: 10,
           pageToken,
+          sortField: field,
+          sortDirection: direction,
         });
         setVideos(data.videos ?? []);
         setNextPageToken((data.next_page_token as string | null) ?? null);
@@ -181,7 +145,8 @@ export default function HistoryList() {
           err instanceof Error ? err.message : "Failed to load history";
         setError(errorMessage);
       } finally {
-        setLoading(false);
+        setInitialLoading(false);
+        setIsRefreshing(false);
       }
     },
     [getIdToken, user]
@@ -192,16 +157,17 @@ export default function HistoryList() {
     const nextTokens = [...pageTokens, nextPageToken];
     setPageTokens(nextTokens);
     setCurrentPage(currentPage + 1);
-    await fetchVideos(nextPageToken);
+    await fetchVideos(nextPageToken, sortField, sortDirection);
   };
 
   const handlePrevPage = async () => {
     if (currentPage === 0) return;
     const prevPage = currentPage - 1;
     setCurrentPage(prevPage);
-    await fetchVideos(pageTokens.at(prevPage) ?? null);
+    await fetchVideos(pageTokens.at(prevPage) ?? null, sortField, sortDirection);
   };
 
+  // Initial load and usage fetch
   useEffect(() => {
     let cancelled = false;
 
@@ -210,14 +176,11 @@ export default function HistoryList() {
 
       if (!user) {
         if (!cancelled) {
-          setLoading(false);
+          setInitialLoading(false);
           setLoadingUsage(false);
         }
         return;
       }
-
-      // Initial load
-      void fetchVideos(null);
 
       // Load usage separately
       try {
@@ -240,7 +203,20 @@ export default function HistoryList() {
     return () => {
       cancelled = true;
     };
-  }, [getIdToken, user, authLoading, fetchVideos]);
+  }, [getIdToken, user, authLoading]);
+
+  // Fetch videos when sort changes or on initial load
+  useEffect(() => {
+    if (!user || authLoading) return;
+
+    // Determine if this is initial load or a sort/refresh
+    const isInitial = !hasLoadedRef.current;
+    hasLoadedRef.current = true;
+
+    // Fetch from first page with current sort settings
+    void fetchVideos(null, sortField, sortDirection, isInitial);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, authLoading, sortField, sortDirection]);
 
   const handleSelectVideo = (videoId: string) => {
     setSelectedVideos((prev) => {
@@ -318,7 +294,7 @@ export default function HistoryList() {
         err instanceof Error ? err.message : "Failed to delete video(s)";
       setError(errorMessage);
       // Reload videos to sync state
-      await fetchVideos(pageTokens.at(currentPage) ?? null);
+      await fetchVideos(pageTokens.at(currentPage) ?? null, sortField, sortDirection);
     } finally {
       setDeleting(false);
     }
@@ -405,7 +381,8 @@ export default function HistoryList() {
     );
   }
 
-  if (loading) {
+  // Only show full loading state on initial load
+  if (initialLoading && videos.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-24 space-y-4">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
@@ -640,10 +617,12 @@ export default function HistoryList() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => fetchVideos(pageTokens.at(currentPage) ?? null)}
-            disabled={loading}
+            onClick={() =>
+              fetchVideos(pageTokens.at(currentPage) ?? null, sortField, sortDirection)
+            }
+            disabled={isLoading}
           >
-            <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} />
+            <RefreshCw className={cn("h-4 w-4 mr-2", isRefreshing && "animate-spin")} />
             Refresh
           </Button>
           {videos.length > 0 && (
@@ -725,7 +704,13 @@ export default function HistoryList() {
         </Card>
       )}
 
-      <div className="rounded-xl border border-white/10 bg-white/[0.02] backdrop-blur-sm overflow-hidden">
+      <div className="relative rounded-xl border border-white/10 bg-white/[0.02] backdrop-blur-sm overflow-hidden">
+        {/* Subtle loading overlay - keeps content visible but indicates loading */}
+        {isRefreshing && (
+          <div className="absolute inset-0 bg-background/50 backdrop-blur-[1px] z-10 flex items-center justify-center">
+            <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" />
+          </div>
+        )}
         <Table>
           <TableHeader className="bg-white/[0.02]">
             <TableRow className="border-white/5 hover:bg-transparent">
@@ -744,22 +729,50 @@ export default function HistoryList() {
                 </button>
               </TableHead>
               <TableHead className="w-[280px]">
-                <SortableHeader field="title">Video Details</SortableHeader>
+                <SortableHeader
+                  field="title"
+                  currentField={sortField}
+                  direction={sortDirection}
+                  onSort={handleSort}
+                >
+                  Video Details
+                </SortableHeader>
               </TableHead>
               <TableHead className="w-[140px]">
-                <SortableHeader field="status">Status</SortableHeader>
+                <SortableHeader
+                  field="status"
+                  currentField={sortField}
+                  direction={sortDirection}
+                  onSort={handleSort}
+                >
+                  Status
+                </SortableHeader>
               </TableHead>
               <TableHead className="w-[120px]">
-                <SortableHeader field="size">Size</SortableHeader>
+                <SortableHeader
+                  field="size"
+                  currentField={sortField}
+                  direction={sortDirection}
+                  onSort={handleSort}
+                >
+                  Size
+                </SortableHeader>
               </TableHead>
               <TableHead className="w-[140px]">
-                <SortableHeader field="date">Date</SortableHeader>
+                <SortableHeader
+                  field="date"
+                  currentField={sortField}
+                  direction={sortDirection}
+                  onSort={handleSort}
+                >
+                  Date
+                </SortableHeader>
               </TableHead>
               <TableHead className="w-[50px] text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sortedVideos.map((video) => {
+            {videos.map((video) => {
               const videoId = video.video_id ?? video.id ?? "";
               const isSelected = selectedVideos.has(videoId);
               const isProcessing = video.status === "processing";
@@ -942,13 +955,18 @@ export default function HistoryList() {
 
       {/* Pagination Controls */}
       <div className="flex items-center justify-between mt-6">
-        <div className="text-sm text-muted-foreground">Page {currentPage + 1}</div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span>Page {currentPage + 1}</span>
+          {isRefreshing && (
+            <div className="animate-spin rounded-full h-3 w-3 border-b border-primary" />
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
             size="sm"
             onClick={handlePrevPage}
-            disabled={currentPage === 0 || loading}
+            disabled={currentPage === 0 || isLoading}
             className="border-white/10 hover:bg-white/5"
           >
             Previous
@@ -957,7 +975,7 @@ export default function HistoryList() {
             variant="outline"
             size="sm"
             onClick={handleNextPage}
-            disabled={!nextPageToken || loading}
+            disabled={!nextPageToken || isLoading}
             className="border-white/10 hover:bg-white/5"
           >
             Next

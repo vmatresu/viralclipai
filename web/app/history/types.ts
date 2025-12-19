@@ -1,5 +1,5 @@
-export type SortField = "title" | "status" | "size" | "date";
-export type SortDirection = "asc" | "desc";
+// Re-export sort types from hooks for backwards compatibility
+export type { SortField, SortDirection } from "./hooks";
 
 export interface UserVideo {
   id?: string;

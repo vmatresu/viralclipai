@@ -31,10 +31,10 @@ export function DetailedProcessingStatus({
   const hasSceneProgress = scenes.length > 0;
 
   // Determine current stage from logs or default
-  const lastLog = logs.length > 0 ? logs[logs.length - 1] : "";
+  const lastLog = logs.at(-1);
   const statusText = isResuming
     ? "Monitoring processing..."
-    : lastLog || "Processing video in background...";
+    : (lastLog ?? "Processing video in background...");
 
   const isComplete = progress >= 100;
 
@@ -171,9 +171,9 @@ export function DetailedProcessingStatus({
                     {isResuming ? "Connecting to log stream..." : "Waiting for logs..."}
                   </div>
                 ) : (
-                  logs.map((log, i) => (
+                  logs.map((log) => (
                     <div
-                      key={i}
+                      key={`${log}-${log.length}-${log.slice(0, 8)}`}
                       className="border-l-2 border-transparent pl-2 hover:border-indigo-500/50 hover:bg-white/5 py-0.5 rounded-r"
                     >
                       <span className="text-slate-500 mr-2 opacity-50">

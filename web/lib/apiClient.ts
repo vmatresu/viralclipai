@@ -13,10 +13,14 @@ export function getUserVideos<T = unknown>(
   options?: {
     limit?: number;
     pageToken?: string | null;
+    sortField?: string;
+    sortDirection?: "asc" | "desc";
   }
 ): Promise<{ videos: T[]; next_page_token?: string | null }> {
   const limit = options?.limit;
   const pageToken = options?.pageToken;
+  const sortField = options?.sortField;
+  const sortDirection = options?.sortDirection;
 
   const params = new URLSearchParams();
   if (typeof limit === "number") {
@@ -24,6 +28,12 @@ export function getUserVideos<T = unknown>(
   }
   if (pageToken) {
     params.set("page_token", pageToken);
+  }
+  if (sortField) {
+    params.set("sort_field", sortField);
+  }
+  if (sortDirection) {
+    params.set("sort_direction", sortDirection);
   }
 
   const path = params.toString()

@@ -145,6 +145,11 @@ impl FirestoreClient {
         Self::new(config).await
     }
 
+    /// Get the project ID.
+    pub fn project_id(&self) -> &str {
+        &self.config.project_id
+    }
+
     /// Get an access token.
     async fn get_token(&self) -> FirestoreResult<String> {
         self.token_cache.get_token().await

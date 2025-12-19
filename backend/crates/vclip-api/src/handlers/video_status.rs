@@ -56,6 +56,10 @@ pub struct ListVideosQuery {
     pub page_token: Option<String>,
     /// Backward compatible alias for `page_token`.
     pub offset: Option<String>,
+    /// Sort field: "date", "title", "status", "size"
+    pub sort_field: Option<String>,
+    /// Sort direction: "asc" or "desc"
+    pub sort_direction: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -91,7 +95,7 @@ const MAX_STATUS_IDS: usize = 100;
 // Handlers
 // ============================================================================
 
-/// List user videos with pagination.
+/// List user videos with pagination and optional sorting.
 pub async fn list_user_videos(
     State(state): State<AppState>,
     Query(query): Query<ListVideosQuery>,
@@ -108,14 +112,23 @@ pub async fn list_user_videos(
         .as_deref()
         .or(query.offset.as_deref());
 
+    // Get sort parameters with defaults
+    let sort_field = query.sort_field.as_deref().unwrap_or("date");
+    let sort_direction = query.sort_direction.as_deref().unwrap_or("desc");
+
     info!(
-        "list_user_videos uid={} limit={} has_page_token={}",
+        "list_user_videos uid={} limit={} has_page_token={} sort_field={} sort_direction={}",
         user.uid,
         limit,
-        page_token.is_some()
+        page_token.is_some(),
+        sort_field,
+        sort_direction
     );
 
-    let (videos, next_page_token) = video_repo.list_page(Some(limit), page_token).await?;
+    // Use sorted query for server-side sorting
+    let (videos, next_page_token) = video_repo
+        .list_page_sorted(Some(limit), sort_field, sort_direction, page_token)
+        .await?;
 
     let summaries: Vec<VideoSummary> = videos
         .into_iter()

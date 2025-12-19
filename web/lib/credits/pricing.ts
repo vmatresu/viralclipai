@@ -47,6 +47,10 @@ export const STYLE_CREDIT_COSTS: Record<string, number> = {
   streamer_top_scenes: 10,
 };
 
+const STYLE_CREDIT_COSTS_MAP = new Map<string, number>(
+  Object.entries(STYLE_CREDIT_COSTS)
+);
+
 /** Add-on costs */
 export const ADDON_CREDIT_COSTS = {
   silentRemoverPerScene: 5,
@@ -78,7 +82,8 @@ export interface CreditPricing {
  */
 export function getStyleCreditCost(style: string): number {
   const normalizedStyle = style.toLowerCase().replace(/-/g, "_");
-  return STYLE_CREDIT_COSTS[normalizedStyle] ?? 10;
+  const cost = STYLE_CREDIT_COSTS_MAP.get(normalizedStyle);
+  return typeof cost === "number" ? cost : 10;
 }
 
 /**

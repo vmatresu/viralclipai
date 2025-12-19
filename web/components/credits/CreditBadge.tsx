@@ -39,12 +39,37 @@ export function CreditBadge({
     muted: "bg-slate-500/10 text-slate-400 border-slate-500/20",
   };
 
+  const sizeClass = (() => {
+    switch (size) {
+      case "sm":
+        return sizeClasses.sm;
+      case "lg":
+        return sizeClasses.lg;
+      case "md":
+      default:
+        return sizeClasses.md;
+    }
+  })();
+
+  const variantClass = (() => {
+    switch (variant) {
+      case "highlight":
+        return variantClasses.highlight;
+      case "warning":
+        return variantClasses.warning;
+      case "muted":
+        return variantClasses.muted;
+      default:
+        return variantClasses.default;
+    }
+  })();
+
   return (
     <span
       className={cn(
         "inline-flex items-center gap-0.5 rounded-full border font-medium",
-        sizeClasses[size],
-        variantClasses[variant],
+        sizeClass,
+        variantClass,
         className
       )}
     >

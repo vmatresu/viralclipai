@@ -1,7 +1,7 @@
 "use client";
 
 import * as Slider from "@radix-ui/react-slider";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -44,6 +44,21 @@ export function StreamerSplitConfigurator({
   // indices 0..143
   const GRID_COLS = 16;
   const GRID_ROWS = 9;
+  const gridCellIds = useMemo(
+    () => Array.from({ length: GRID_COLS * GRID_ROWS }, (_, i) => i),
+    [GRID_COLS, GRID_ROWS]
+  );
+
+  const handleGridKeyDown = (
+    index: number,
+    event: React.KeyboardEvent<HTMLDivElement>
+  ) => {
+    if (disabled) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      updateGridSelection([index]);
+    }
+  };
 
   const handleGridMouseDown = (index: number) => {
     if (disabled) return;
@@ -152,13 +167,17 @@ export function StreamerSplitConfigurator({
           style={{ gridTemplateColumns: `repeat(${GRID_COLS}, minmax(0, 1fr))` }}
           onMouseLeave={handleGridMouseUp}
         >
-          {Array.from({ length: GRID_COLS * GRID_ROWS }).map((_, i) => {
-            const isSelected = config.gridSelection?.includes(i);
+          {gridCellIds.map((cellId) => {
+            const isSelected = config.gridSelection?.includes(cellId);
             return (
               <div
-                key={i}
-                onMouseDown={() => handleGridMouseDown(i)}
-                onMouseEnter={() => handleGridMouseEnter(i)}
+                key={`cell-${cellId}`}
+                role="button"
+                tabIndex={disabled ? -1 : 0}
+                aria-pressed={isSelected}
+                onKeyDown={(event) => handleGridKeyDown(cellId, event)}
+                onMouseDown={() => handleGridMouseDown(cellId)}
+                onMouseEnter={() => handleGridMouseEnter(cellId)}
                 className={cn(
                   "w-3 h-3 rounded-[1px] transition-colors cursor-pointer",
                   isSelected ? "bg-indigo-500" : "bg-slate-700/30 hover:bg-slate-700/60"

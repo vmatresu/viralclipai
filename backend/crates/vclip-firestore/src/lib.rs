@@ -25,6 +25,7 @@ pub mod metrics;
 pub mod repos;
 pub mod retry;
 pub mod share_repo;
+pub mod sorting;
 pub mod storage_accounting;
 pub mod token_cache;
 pub mod types;

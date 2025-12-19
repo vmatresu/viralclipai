@@ -53,8 +53,11 @@ export function CreditCostBreakdown({
     <div className={cn("space-y-3", className)}>
       {/* Line items */}
       <div className="space-y-2">
-        {visibleItems.map((item, index) => (
-          <div key={index} className="flex items-center justify-between text-sm">
+        {visibleItems.map((item) => (
+          <div
+            key={`${item.label}-${item.unitCost}-${item.qty}-${item.totalCost}`}
+            className="flex items-center justify-between text-sm"
+          >
             <div className="flex items-center gap-2">
               <span className="text-slate-300">{item.label}</span>
               {item.qty > 1 && (

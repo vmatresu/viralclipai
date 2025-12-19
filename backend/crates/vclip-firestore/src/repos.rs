@@ -11,6 +11,9 @@ use vclip_models::{ClipMetadata, ClipStatus, ProcessingProgress, SourceVideoStat
 use crate::client::FirestoreClient;
 use crate::error::{FirestoreError, FirestoreResult};
 use crate::share_repo::ShareRepository;
+use crate::sorting::{
+    build_sorted_video_query, normalize_page_size, PaginationCursor, SortConfig, VideoSortField,
+};
 use crate::types::{DocumentMask, FromFirestoreValue, ToFirestoreValue, Value};
 
 /// Repository for video documents.
@@ -564,6 +567,74 @@ impl VideoRepository {
         }
 
         Ok((videos, response.next_page_token))
+    }
+
+    /// List videos with server-side sorting and cursor-based pagination.
+    ///
+    /// # Arguments
+    /// * `limit` - Maximum number of videos to return (clamped to 1..=100)
+    /// * `sort_field` - Field to sort by: "date", "title", "status", "size"
+    /// * `sort_direction` - "asc" or "desc"
+    /// * `cursor` - Encoded cursor string for pagination
+    pub async fn list_page_sorted(
+        &self,
+        limit: Option<u32>,
+        sort_field: &str,
+        sort_direction: &str,
+        cursor: Option<&str>,
+    ) -> FirestoreResult<(Vec<VideoMetadata>, Option<String>)> {
+        // Parse and validate sort configuration
+        let sort = SortConfig::from_params(Some(sort_field), Some(sort_direction));
+        let effective_limit = normalize_page_size(limit);
+
+        // Decode cursor if provided
+        let pagination_cursor = cursor.and_then(PaginationCursor::decode);
+
+        // Build and execute query
+        let query = build_sorted_video_query("videos", &sort, effective_limit, pagination_cursor.as_ref());
+        let parent_path = format!("users/{}", self.user_id);
+        let docs = self.client.run_query(&parent_path, query).await?;
+
+        // Parse documents into VideoMetadata
+        let videos = self.parse_video_documents(&docs);
+
+        // Generate next page cursor
+        let next_cursor = self.build_next_cursor(&videos, &sort);
+
+        Ok((videos, next_cursor))
+    }
+
+    /// Parse Firestore documents into VideoMetadata.
+    fn parse_video_documents(&self, docs: &[crate::types::Document]) -> Vec<VideoMetadata> {
+        docs.iter()
+            .filter_map(|doc| {
+                let name = doc.name.as_ref()?;
+                let video_id = name.split('/').last()?.to_string();
+                document_to_video_metadata(doc, &VideoId::from_string(video_id)).ok()
+            })
+            .collect()
+    }
+
+    /// Build the next page cursor from the last video.
+    fn build_next_cursor(&self, videos: &[VideoMetadata], sort: &SortConfig) -> Option<String> {
+        let last_video = videos.last()?;
+
+        // Get the sort field value based on the sort configuration
+        let sort_value = match sort.field {
+            VideoSortField::CreatedAt => last_video.created_at.to_rfc3339(),
+            VideoSortField::Title => last_video.video_title.clone(),
+            VideoSortField::Status => last_video.status.as_str().to_string(),
+            VideoSortField::Size => last_video.total_size_bytes.to_string(),
+        };
+
+        let cursor = PaginationCursor::for_video(
+            self.client.project_id(),
+            &self.user_id,
+            last_video.video_id.as_str(),
+            &sort_value,
+        );
+
+        Some(cursor.encode())
     }
 
     pub async fn get_status_snapshots(
