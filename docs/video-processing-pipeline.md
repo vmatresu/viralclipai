@@ -6,21 +6,24 @@ This supersedes older drafts and reflects the modular pipeline after the `proces
 
 1. **Ingest**
 
-   - Download source video into a per-job work directory.
+   - Create per-job work directory.
    - Create/refresh Firestore video record (`status: processing`).
    - Emit initial progress events.
 
 2. **AI Analysis (highlights-first)**
 
+   - Fetch transcript (youtubei.js tool with yt-dlp fallback).
+   - Cache transcript to R2 for reuse.
    - Run Gemini transcript + highlight extraction.
    - Require non-empty highlights; otherwise fail fast and mark video failed.
    - Upload `highlights.json` to R2 (`{user}/{video}/highlights.json`) — single source of truth for clips.
 
-3. **Clip Generation**
+3. **Clip Generation (on-demand)**
 
    - `clip_pipeline/tasks.rs`: expand `(highlight × style)` into `ClipTask`s with crop mode, target aspect, padding.
    - `clip_pipeline/scene.rs`: group tasks by scene; emit scene events; fan out styles in parallel using the shared FFmpeg semaphore.
    - `clip_pipeline/clip.rs`: per-clip work
+     - Download source video only when rendering is requested (reprocess/render jobs).
      - Build `ProcessingRequest` with style-specific encoding (intelligent vs split vs static).
      - Delegate to `vclip-media` style processors (`run_basic_style` for static, tier-aware engines for intelligent).
      - Upload clip + thumbnail to R2; persist `ClipMetadata` to Firestore; emit progress and legacy `clip_uploaded`.
@@ -33,6 +36,7 @@ This supersedes older drafts and reflects the modular pipeline after the `proces
 ## Contracts & Artefacts
 
 - **R2 layout**: `{user_id}/{video_id}/highlights.json` + `clips/*.mp4` + `clips/*.jpg` (same stem).
+- **Transcript cache**: `{user_id}/transcripts/{cache_id}.txt.gz` (manual cleanup).
 - **Firestore**: authoritative metadata for videos/clips; API never lists R2 for truth.
 - **Progress**: scene/clip started → rendering → uploaded → complete; warnings for non-critical thumbnail upload failures.
 

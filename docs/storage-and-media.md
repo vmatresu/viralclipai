@@ -9,6 +9,7 @@ Viral Clip AI uses **Cloudflare R2** as the primary object store for:
 - Processed clip files (`.mp4`)
 - Clip thumbnails (`.jpg`)
 - Highlight metadata (`highlights.json`)
+- Transcript cache (`.txt.gz`, manual cleanup)
 
 R2 is S3-compatible and offers zero egress fees, which is ideal for a video-heavy SaaS fronted by a CDN.
 
@@ -41,9 +42,10 @@ On startup, the backend initializes an S3 client pointing at the R2 endpoint and
 Object keys are namespaced per user and per video (`video_id` / `run_id`):
 
 ```text
-users/{uid}/{video_id}/highlights.json
-users/{uid}/{video_id}/clips/clip_XX_YY_title_style.mp4
-users/{uid}/{video_id}/clips/clip_XX_YY_title_style.jpg
+{user_id}/{video_id}/highlights.json
+{user_id}/{video_id}/clips/clip_XX_YY_title_style.mp4
+{user_id}/{video_id}/clips/clip_XX_YY_title_style.jpg
+{user_id}/transcripts/{cache_id}.txt.gz
 ```
 
 This layout:
@@ -51,6 +53,8 @@ This layout:
 - Keeps per-user data isolated
 - Makes it easy to purge all data for a user or a single video
 - Matches the Firestore metadata structure used by `vclip-firestore`
+  - Transcript cache is outside the per-video prefix and is **not** deleted by
+    standard video cleanup (manual cleanup only).
 
 ## Interaction Pattern
 

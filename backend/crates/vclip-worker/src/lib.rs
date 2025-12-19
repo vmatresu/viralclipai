@@ -32,6 +32,7 @@ pub mod silence_cache;
 pub mod source_download;
 pub mod source_video_coordinator;
 pub mod top_scenes;
+pub mod transcript;
 
 pub use config::WorkerConfig;
 pub use error::{WorkerError, WorkerResult};

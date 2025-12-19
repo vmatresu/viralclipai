@@ -2,6 +2,8 @@
 
 The `youtube_url_config` module in `vclip-models` provides comprehensive YouTube URL parsing, validation, and yt-dlp configuration generation.
 
+Note: the worker attempts transcript extraction via a youtubei.js tool first; the yt-dlp plans here are used for fallback transcript download and for video downloads.
+
 ## Overview
 
 This module:

@@ -26,7 +26,7 @@ Viral Clip AI is an intelligent web application that leverages Google's Gemini A
 
 ```mermaid
 graph TB
-    A[YouTube URL] --> B[yt-dlp Download]
+    A[YouTube URL] --> B[Transcript Fetch (youtubei.js → yt-dlp)]
     B --> C[Gemini AI Analysis]
     C --> D[Clip Extraction]
     D --> E[Video Processing]
@@ -196,6 +196,20 @@ The application is structured as a multi-tenant SaaS with Firebase Auth,
 Firestore, and Cloudflare R2-based storage (S3-compatible). Most behaviour is controlled via
 environment variables (see `backend/crates/vclip-api/src/config.rs` and `docs/configuration.md`).
 
+## 🧰 Tools (Worker Runtime)
+
+The worker bundles small Node-based tools under `backend/tools` to keep
+runtime dependencies centralized and reproducible.
+
+- `backend/tools/package.json`: shared dependencies for all tools.
+- `backend/tools/<tool-name>/`: tool scripts (Node ESM).
+
+When adding a new tool:
+
+1. Add your script under `backend/tools/<tool-name>/`.
+2. Add any shared dependencies to `backend/tools/package.json`.
+3. Rebuild the worker image (it installs tools via `npm install` in `/app/tools`).
+
 **Core settings**
 
 - **Gemini API**
@@ -307,10 +321,11 @@ full details. In summary:
 - Ensure `GEMINI_API_KEY` environment variable is set
 - Check your Google AI Studio account for API access
 
-**"Video download failed"**
+**"Transcript fetch failed"**
 
 - Verify YouTube URL is valid and accessible
-- Check yt-dlp is available in system PATH
+- Ensure Node is available for the youtubei.js transcript tool (worker image bundles it)
+- Check yt-dlp is available in system PATH for fallback
 
 **"Processing timeout"**
 
@@ -330,7 +345,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Google Gemini AI** for powering the intelligent analysis
 - **Rust & Axum** for the high-performance, memory-safe web framework
 - **Tokio** for the async runtime enabling concurrent processing
-- **yt-dlp** for reliable YouTube video handling
+- **youtubei.js** for fast transcript extraction (with yt-dlp fallback)
 - **TailwindCSS** for beautiful, responsive UI
 
 ## 📞 Support

@@ -4,10 +4,10 @@
 //! clip task generation, and style routing using the new processor framework.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
-use tracing::info;
+use tracing::{debug, info, warn};
 
 use vclip_firestore::{types::ToFirestoreValue, AnalysisDraftRepository, FirestoreClient};
 use vclip_media::{
@@ -16,7 +16,7 @@ use vclip_media::{
 };
 use vclip_models::{AnalysisStatus, DraftScene, VideoMetadata};
 use vclip_queue::{AnalyzeVideoJob, ProcessVideoJob, ProgressChannel, RenderSceneStyleJob, ReprocessScenesJob};
-use vclip_storage::R2Client;
+use vclip_storage::{load_transcript, store_transcript, transcript_cache_id_from_url, R2Client};
 
 use crate::config::WorkerConfig;
 use crate::error::{WorkerError, WorkerResult};
@@ -187,7 +187,7 @@ impl VideoProcessor {
         // to ensure it exists immediately when the user is redirected to the history page.
 
         // Get transcript and video metadata (NO video download)
-        let transcript_data = self.fetch_transcript_and_metadata(ctx, job).await?;
+        let transcript_data = self.fetch_transcript_and_metadata(ctx, job, &work_dir).await?;
         ctx.progress.progress(&job.job_id, 20).await.ok();
 
         // Analyze transcript with AI to get scenes (NO video download)
@@ -291,10 +291,67 @@ impl VideoProcessor {
     }
 
     /// Fetch transcript and video metadata.
+    async fn get_transcript_with_cache(
+        &self,
+        ctx: &EnhancedProcessingContext,
+        user_id: &str,
+        cache_id: &str,
+        video_url: &str,
+        work_dir: &Path,
+    ) -> WorkerResult<String> {
+        tokio::fs::create_dir_all(work_dir).await?;
+
+        let transcript_path = work_dir.join("transcript.txt");
+
+        if let Ok(meta) = tokio::fs::metadata(&transcript_path).await {
+            if meta.len() > 0 {
+                if let Ok(transcript) = tokio::fs::read_to_string(&transcript_path).await {
+                    if !transcript.is_empty() {
+                        debug!(
+                            path = ?transcript_path,
+                            "Using cached transcript from local disk"
+                        );
+                        return Ok(transcript);
+                    }
+                }
+            }
+        }
+
+        if let Some(transcript) = load_transcript(&ctx.storage, user_id, cache_id).await {
+            debug!(cache_id = %cache_id, "Using cached transcript from R2");
+            if let Err(e) = tokio::fs::write(&transcript_path, &transcript).await {
+                warn!(
+                    path = ?transcript_path,
+                    error = %e,
+                    "Failed to write cached transcript to disk"
+                );
+            }
+            return Ok(transcript);
+        }
+
+        let transcript = self
+            .gemini_client
+            .get_transcript_only(video_url, work_dir)
+            .await?;
+
+        if let Err(e) = store_transcript(&ctx.storage, user_id, cache_id, &transcript).await {
+            warn!(
+                cache_id = %cache_id,
+                error = %e,
+                "Failed to store transcript cache in R2"
+            );
+        } else {
+            info!(cache_id = %cache_id, "Stored transcript cache in R2");
+        }
+
+        Ok(transcript)
+    }
+
     async fn fetch_transcript_and_metadata(
         &self,
         ctx: &EnhancedProcessingContext,
         job: &ProcessVideoJob,
+        work_dir: &Path,
     ) -> WorkerResult<TranscriptData> {
         ctx.progress
             .log(&job.job_id, "Fetching video information...")
@@ -314,12 +371,9 @@ impl VideoProcessor {
             .await
             .map_err(|e| WorkerError::ai_failed(format!("Failed to get video metadata: {}", e)))?;
 
+        let cache_id = transcript_cache_id_from_url(&canonical_video_url);
         let transcript = self
-            .gemini_client
-            .get_transcript_only(
-                &job.video_url,
-                &PathBuf::from(&ctx.config.work_dir).join("temp"),
-            )
+            .get_transcript_with_cache(ctx, &job.user_id, &cache_id, &job.video_url, work_dir)
             .await
             .map_err(|e| WorkerError::ai_failed(format!("Failed to get transcript: {}", e)))?;
 
@@ -496,7 +550,7 @@ impl VideoProcessor {
         ctx.progress.progress(&job.job_id, 10).await.ok();
 
         // Get video metadata and transcript
-        let (video_title, _canonical_url) = self
+        let (video_title, canonical_url) = self
             .gemini_client
             .get_video_metadata(&job.video_url)
             .await
@@ -505,9 +559,9 @@ impl VideoProcessor {
         let work_dir = std::path::PathBuf::from(&ctx.config.work_dir).join(&job.draft_id);
         tokio::fs::create_dir_all(&work_dir).await?;
 
+        let cache_id = transcript_cache_id_from_url(&canonical_url);
         let transcript = self
-            .gemini_client
-            .get_transcript_only(&job.video_url, &work_dir)
+            .get_transcript_with_cache(ctx, &job.user_id, &cache_id, &job.video_url, &work_dir)
             .await
             .map_err(|e| WorkerError::ai_failed(format!("Failed to get transcript: {}", e)))?;
 

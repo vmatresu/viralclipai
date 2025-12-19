@@ -1,0 +1,8 @@
+{
+  "name": "vclip-tools",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "youtubei.js": "16.0.1"
+  }
+}

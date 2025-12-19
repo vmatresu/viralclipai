@@ -201,6 +201,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         python3 \
         python3-pip \
+        nodejs \
+        npm \
         # OpenCV: Use pre-built 4.12.0 runtime libraries
         libtbb12 \
         libwebp7 \
@@ -242,6 +244,11 @@ WORKDIR /app
 
 # Copy worker binary
 COPY --from=builder --chown=appuser:appgroup /app/target/release/vclip-worker /app/vclip-worker
+
+# Copy tools bundle and install dependencies
+COPY backend/tools /app/tools
+RUN cd /app/tools && npm install --omit=dev --no-audit --no-fund \
+    && chown -R appuser:appgroup /app/tools
 
 # Create directories for video processing and yt-dlp cache
 # yt-dlp needs write access to .cache for challenge solver and other caches

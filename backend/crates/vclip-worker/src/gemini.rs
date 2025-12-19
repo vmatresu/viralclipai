@@ -179,7 +179,7 @@ impl GeminiClient {
         video_url: &str,
         workdir: &Path,
     ) -> WorkerResult<String> {
-        self.get_transcript(video_url, workdir).await
+        crate::transcript::fetch_transcript(video_url, workdir).await
     }
 
     /// Analyze transcript with Gemini AI.
@@ -224,141 +224,7 @@ impl GeminiClient {
         Err(last_error.unwrap_or_else(|| WorkerError::ai_failed("All Gemini models failed")))
     }
 
-    /// Get video transcript using yt-dlp.
-    async fn get_transcript(&self, video_url: &str, workdir: &Path) -> WorkerResult<String> {
-        info!("Fetching transcript for {} using yt-dlp", video_url);
-
-        let output_template = workdir.join("%(id)s");
-
-        // Run yt-dlp to download subtitles
-        // Use cookies file if available for YouTube authentication (copy to writable location)
-        let cookies_path = vclip_media::get_writable_cookies_path().await;
-        let output_template_str = output_template.to_string_lossy();
-        let mut args = vec![
-            "--remote-components",
-            "ejs:github",
-            "--write-auto-sub",
-            "--write-sub",
-            "--sub-lang",
-            "en,en-US,en-GB",
-            "--skip-download",
-            "--sub-format",
-            "vtt",
-            "--output",
-            &output_template_str,
-        ];
-
-        let cookies_ref = cookies_path.as_deref();
-        if let Some(cp) = cookies_ref {
-            args.push("--cookies");
-            args.push(cp);
-        }
-        args.push(video_url);
-
-        let output = tokio::process::Command::new("yt-dlp")
-            .args(&args)
-            .output()
-            .await
-            .map_err(|e| WorkerError::ai_failed(format!("Failed to run yt-dlp: {}", e)))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(WorkerError::ai_failed(format!(
-                "yt-dlp failed to download transcript: {}",
-                stderr
-            )));
-        }
-
-        // Find VTT file
-        let mut vtt_files: Vec<_> = std::fs::read_dir(workdir)
-            .map_err(|e| WorkerError::ai_failed(format!("Failed to read workdir: {}", e)))?
-            .filter_map(|entry| entry.ok())
-            .filter(|entry| entry.path().extension().and_then(|s| s.to_str()) == Some("vtt"))
-            .collect();
-
-        if vtt_files.is_empty() {
-            return Err(WorkerError::ai_failed(
-                "No transcript file downloaded. Video may not have captions.".to_string(),
-            ));
-        }
-
-        // Prefer English subtitles
-        vtt_files.sort_by_key(|entry| {
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if name_str.contains(".en") {
-                0
-            } else {
-                1
-            }
-        });
-
-        let vtt_path = vtt_files[0].path();
-        let content = tokio::fs::read_to_string(&vtt_path)
-            .await
-            .map_err(|e| WorkerError::ai_failed(format!("Failed to read VTT file: {}", e)))?;
-
-        // Parse VTT
-        let transcript = self.parse_vtt(&content);
-
-        // Save parsed transcript
-        let transcript_path = workdir.join("transcript.txt");
-        tokio::fs::write(&transcript_path, &transcript).await.ok();
-
-        // Cleanup VTT files
-        for entry in vtt_files {
-            tokio::fs::remove_file(entry.path()).await.ok();
-        }
-
-        Ok(transcript)
-    }
-
-    /// Parse VTT content into timestamped transcript.
-    fn parse_vtt(&self, content: &str) -> String {
-        use regex::Regex;
-
-        let ts_pattern = Regex::new(r"((?:\d{2}:)?\d{2}:\d{2}\.\d{3}) -->.*").unwrap();
-        let tag_pattern = Regex::new(r"<[^>]+>").unwrap();
-
-        let mut transcript = String::new();
-        let mut current_ts = "00:00:00".to_string();
-        let mut buffer_text = String::new();
-
-        for line in content.lines() {
-            let mut line = line.trim().to_string();
-
-            // Remove tags
-            line = tag_pattern.replace_all(&line, "").to_string();
-
-            if line.is_empty() || line == "WEBVTT" {
-                continue;
-            }
-
-            // Check for timestamp
-            if let Some(caps) = ts_pattern.captures(&line) {
-                let mut ts = caps[1].to_string();
-                // Normalize to HH:MM:SS
-                if ts.split(':').count() == 2 {
-                    ts = format!("00:{}", ts);
-                }
-                current_ts = ts.split('.').next().unwrap_or(&ts).to_string();
-                continue;
-            }
-
-            // Skip numbers
-            if line.chars().all(|c| c.is_numeric()) {
-                continue;
-            }
-
-            // De-duplicate rolling captions
-            if line != buffer_text && !line.is_empty() {
-                transcript.push_str(&format!("[{}] {}\n", current_ts, line));
-                buffer_text = line;
-            }
-        }
-
-        transcript
-    }
+    
 
     /// Build prompt for Gemini.
     fn build_prompt(&self, base_prompt: &str, transcript: &str) -> String {
