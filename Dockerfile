@@ -199,14 +199,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg \
         ca-certificates \
         curl \
+        gnupg \
         python3 \
         python3-pip \
-        nodejs \
-        npm \
         # OpenCV: Use pre-built 4.12.0 runtime libraries
         libtbb12 \
         libwebp7 \
         libwebpdemux2 \
+    && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
