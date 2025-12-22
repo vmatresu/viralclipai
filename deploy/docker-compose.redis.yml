@@ -8,7 +8,7 @@ services:
       sh -c "echo 'requirepass $REDIS_PASSWORD' >> /usr/local/etc/redis/redis.conf &&
              redis-server /usr/local/etc/redis/redis.conf"
     volumes:
-      - ./deploy/redis/redis.conf:/usr/local/etc/redis/redis.conf
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
       - redis_data:/data
     ports:
       - "6379:6379"
