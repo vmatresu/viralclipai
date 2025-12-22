@@ -26,10 +26,11 @@ chmod +x setup-server.sh && sudo ./setup-server.sh && sudo reboot
 **Application Deployment:**
 ```bash
 ssh deploy@<api-ip>
-git clone git@github.com:youruser/viralclipai.git /var/www/viralclipai-backend
+git clone git@github.com:vmatresu/viralclipai.git /var/www/viralclipai-backend
 cd /var/www/viralclipai-backend
 
-# Configure Application (Nginx, SSL, Systemd, Redis)
+# Apply generated secrets & Configure Application
+cp ~/.env.generated .env
 sudo ./deploy/provision.sh \
     --role api \
     --redis \
@@ -52,11 +53,12 @@ chmod +x setup-server.sh && sudo ./setup-server.sh --worker && sudo reboot
 **Application Deployment:**
 ```bash
 ssh deploy@<worker-ip>
-git clone git@github.com:youruser/viralclipai.git /var/www/viralclipai-backend
+git clone git@github.com:vmatresu/viralclipai.git /var/www/viralclipai-backend
 cd /var/www/viralclipai-backend
 
-# Edit .env to point to API's Redis
-# REDIS_URL=redis://:<password>@<api-ip>:6379
+# Apply secrets & point to API's Redis
+cp ~/.env.generated .env
+# Edit .env: REDIS_URL=redis://:<password>@<api-ip>:6379
 
 # Configure Application
 sudo ./deploy/provision.sh --role worker

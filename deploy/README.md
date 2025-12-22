@@ -80,7 +80,8 @@ ssh deploy@<api-ip>
 git clone git@github.com:vmatresu/viralclipai.git /var/www/viralclipai-backend
 cd /var/www/viralclipai-backend
 
-# Edit .env with real secrets
+# Apply secrets & Edit config
+cp ~/.env.generated .env
 nano .env
 
 # Provision Application (Nginx + Redis + SSL + Systemd)
@@ -98,8 +99,9 @@ ssh deploy@<worker-ip>
 git clone git@github.com:vmatresu/viralclipai.git /var/www/viralclipai-backend
 cd /var/www/viralclipai-backend
 
-# Edit .env (Set REDIS_URL to point to API server)
-nano .env
+# Apply secrets & Edit config
+cp ~/.env.generated .env
+nano .env  # Set REDIS_URL to point to API server
 
 # Provision Application (Systemd)
 sudo ./deploy/provision.sh --role worker

@@ -346,32 +346,19 @@ EOF
 # =============================================================================
 step_app_env() {
     log_info "Setting up Application Environment..."
-    mkdir -p "$APP_DIR"
     
-    # Ensure correct permissions
+    # 1. Prepare App Directory (Empty, ready for git clone)
+    mkdir -p "$APP_DIR"
     chown -R $DEPLOY_USER:$DEPLOY_USER "$APP_DIR"
     chmod 750 "$APP_DIR"
-
-    ENV_FILE="$APP_DIR/.env"
     
-    # Check if .env exists
+    # 2. Generate Secrets File (in Home dir to avoid git clone conflicts)
+    ENV_FILE="/home/$DEPLOY_USER/.env.generated"
+    
     if [[ -f "$ENV_FILE" ]]; then
-        log_warn ".env file already exists. Checking for missing secrets..."
-        # If REDIS_PASSWORD is missing, append it
-        if ! grep -q "REDIS_PASSWORD=" "$ENV_FILE"; then
-            PASS=$(openssl rand -hex 32)
-            echo "REDIS_PASSWORD=$PASS" >> "$ENV_FILE"
-            log_ok "Added missing REDIS_PASSWORD to .env"
-        fi
-        
-        # If JWT_SECRET is missing, append it
-        if ! grep -q "JWT_SECRET=" "$ENV_FILE"; then
-            SECRET=$(openssl rand -hex 32)
-            echo "JWT_SECRET=$SECRET" >> "$ENV_FILE"
-            log_ok "Added missing JWT_SECRET to .env"
-        fi
+        log_warn "Secrets file already exists at $ENV_FILE. Skipping generation."
     else
-        log_info "Creating new .env file with generated secrets..."
+        log_info "Generating secure secrets to $ENV_FILE..."
         
         # Generate secure secrets
         REDIS_PASS=$(openssl rand -hex 32)
@@ -414,8 +401,7 @@ GEMINI_API_KEY=
 EOF
         chmod 600 "$ENV_FILE"
         chown $DEPLOY_USER:$DEPLOY_USER "$ENV_FILE"
-        log_ok "New .env file created at $ENV_FILE"
-        log_warn "ACTION REQUIRED: You must edit $ENV_FILE to add R2 keys and Firebase ID!"
+        log_ok "Secrets generated at $ENV_FILE"
     fi
 }
 
@@ -476,8 +462,10 @@ log_info "--------------------------------------------------------"
 log_info "3. Verify SSH login (new terminal): ssh $DEPLOY_USER@<ip>"
 log_info "4. Deploy code:"
 echo "   ssh $DEPLOY_USER@<ip>"
-echo "   git clone git@github.com:valentin/viralclipai.git $APP_DIR"
+echo "   git clone git@github.com:vmatresu/viralclipai.git $APP_DIR"
 echo "   cd $APP_DIR"
+echo "   cp ~/.env.generated .env   # <--- Apply generated secrets"
+echo "   nano .env                  # <--- Fill in external keys"
 echo "   sudo ./deploy/provision.sh --role [api|worker]"
 log_info "--------------------------------------------------------"
 log_warn "DO NOT close this terminal until you verify SSH works!"
