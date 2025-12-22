@@ -190,15 +190,46 @@ setup_ssl() {
     configure_nginx
 }
 
-configure_worker_files() {
-    [[ "$ROLE" != "worker" ]] && return
-    
-    local cookies_file="$APP_DIR/youtube-cookies.txt"
-    if [[ ! -f "$cookies_file" ]]; then
-        log "Creating empty youtube-cookies.txt..."
-        touch "$cookies_file"
-        chmod 600 "$cookies_file"
-        chown deploy:deploy "$cookies_file"
+configure_app_files() {
+    # 1. Firebase Credentials (Required for both API and Worker)
+    local fb_creds="$APP_DIR/firebase-credentials.json"
+    if [[ ! -f "$fb_creds" ]]; then
+        if [[ -d "$fb_creds" ]]; then
+            log "Removing invalid directory: $fb_creds"
+            rmdir "$fb_creds"
+        fi
+        log "Creating empty firebase-credentials.json (Placeholder)..."
+        echo "{}" > "$fb_creds"
+        chmod 600 "$fb_creds"
+        chown deploy:deploy "$fb_creds"
+        echo "⚠️  WARNING: You must upload your real firebase-credentials.json to $APP_DIR!"
+    fi
+
+    # 2. Redis Configuration (If Redis enabled)
+    if [[ "$WITH_REDIS" == "true" ]]; then
+        local redis_conf="$DEPLOY_DIR/redis/redis.conf"
+        if [[ -d "$redis_conf" ]]; then
+            log "Found directory at $redis_conf (Docker mount artifact). Removing..."
+            rmdir "$redis_conf"
+        fi
+        
+        if [[ ! -f "$redis_conf" ]]; then
+            error "Redis config missing at $redis_conf. Please 'git pull' or restore the file."
+        fi
+    fi
+
+    # 3. Worker specific files
+    if [[ "$ROLE" == "worker" ]]; then
+        local cookies_file="$APP_DIR/youtube-cookies.txt"
+        if [[ ! -f "$cookies_file" ]]; then
+            if [[ -d "$cookies_file" ]]; then
+                rmdir "$cookies_file"
+            fi
+            log "Creating empty youtube-cookies.txt..."
+            touch "$cookies_file"
+            chmod 600 "$cookies_file"
+            chown deploy:deploy "$cookies_file"
+        fi
     fi
 }
 
@@ -211,7 +242,7 @@ echo "=================================================="
 echo " Provisioning ViralClip AI ($ROLE)"
 echo "=================================================="
 
-configure_worker_files
+configure_app_files
 configure_nginx
 configure_firewall
 install_systemd
