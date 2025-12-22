@@ -2,6 +2,7 @@
 # Deploy: cd workers/clip-gateway && wrangler deploy
 
 name = "viralclipai-prod-clip-gateway"
+account_id = "fc1f14284bae6b09c81189e962897525"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
 
