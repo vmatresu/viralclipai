@@ -146,6 +146,14 @@ install_systemd() {
     systemctl restart "$service_name"
     
     success "Systemd service ($service_name) installed & started"
+    echo ""
+    echo "------------------------------------------------------------------"
+    echo "⚠️  NOTE: The initial build can take 10-20 minutes."
+    echo "    The service is running in the background."
+    echo ""
+    echo "    To watch the build progress live, run:"
+    echo "    sudo journalctl -u $service_name -f"
+    echo "------------------------------------------------------------------"
 }
 
 setup_ssl() {
