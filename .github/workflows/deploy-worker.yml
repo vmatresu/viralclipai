@@ -1,4 +1,4 @@
-name: Deploy Worker to DigitalOcean
+name: Deploy Worker to Production
 
 on:
   push:
@@ -28,10 +28,10 @@ jobs:
     - name: Deploy Worker via SSH
       uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
       with:
-        host: ${{ secrets.WORKER_HOST }}
-        username: ${{ secrets.DO_USER }}
-        port: ${{ secrets.DO_PORT }}
-        key: ${{ secrets.DO_SSH_KEY }}
+        host: ${{ vars.WORKER_HOST }}
+        username: ${{ vars.SSH_USER }}
+        port: ${{ vars.SSH_PORT }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
         command_timeout: 30m
         script: |
           set -euo pipefail
@@ -47,14 +47,8 @@ jobs:
           git fetch origin main
           git reset --hard origin/main
 
-          echo "Starting Worker build in background..."
-          # Run build in background so GH Actions doesn't wait for full compile
-          nohup bash -c '
-            export DOCKER_BUILDKIT=1
-            export COMPOSE_DOCKER_CLI_BUILD=1
-            docker compose --env-file .env -f deploy/docker-compose.worker.yml up -d --build --force-recreate worker 2>&1 | tee /tmp/worker-deploy.log
-            docker image prune -f || true
-          ' > /tmp/worker-deploy-wrapper.log 2>&1 &
-          disown
+          echo "Reloading Worker Service..."
+          # Uses systemd to manage the reload
+          sudo systemctl reload viralclip-worker.service
 
-          echo "✅ Build started in background. Check logs with: tail -f /tmp/worker-deploy.log"
+          echo "✅ Deployment triggered. Check status with: ssh ${{ vars.SSH_USER }}@${{ vars.WORKER_HOST }} 'sudo systemctl status viralclip-worker.service'"

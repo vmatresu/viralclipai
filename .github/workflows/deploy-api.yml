@@ -1,4 +1,4 @@
-name: Deploy API to DigitalOcean
+name: Deploy API to Production
 
 on:
   push:
@@ -27,10 +27,10 @@ jobs:
       - name: Deploy API via SSH
         uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262  # v1.0.3
         with:
-          host: ${{ secrets.API_HOST }}
-          username: ${{ secrets.DO_USER }}
-          port: ${{ secrets.DO_PORT }}
-          key: ${{ secrets.DO_SSH_KEY }}
+          host: ${{ vars.API_HOST }}
+          username: ${{ vars.SSH_USER }}
+          port: ${{ vars.SSH_PORT }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
           command_timeout: 20m
           script: |
             set -euo pipefail
@@ -42,14 +42,8 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             
-            echo "Starting API build in background..."
-            # Run build in background so GH Actions doesn't wait for full compile
-            nohup bash -c '
-              export DOCKER_BUILDKIT=1
-              export COMPOSE_DOCKER_CLI_BUILD=1
-              docker compose --env-file .env -f deploy/docker-compose.api.yml up -d --build 2>&1 | tee /tmp/api-deploy.log
-              docker image prune -f || true
-            ' > /tmp/api-deploy-wrapper.log 2>&1 &
-            disown
+            echo "Reloading API Service..."
+            # Uses systemd to manage the reload (zero-downtime if possible)
+            sudo systemctl reload viralclip-api.service
             
-            echo "✅ Build started in background. Check logs with: tail -f /tmp/api-deploy.log"
+            echo "✅ Deployment triggered. Check status with: ssh ${{ vars.SSH_USER }}@${{ vars.API_HOST }} 'sudo systemctl status viralclip-api.service'"

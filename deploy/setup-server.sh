@@ -106,8 +106,7 @@ step_docker() {
     },
     "live-restore": true,
     "userland-proxy": false,
-    "no-new-privileges": true,
-    "dns": ["8.8.8.8", "1.1.1.1"]
+    "no-new-privileges": true
 }
 EOF
     systemctl restart docker
@@ -304,7 +303,35 @@ step_git_setup() {
 }
 
 # =============================================================================
-# 6. Firewall (UFW) & Fail2Ban
+# 6. Fix OVH Routing (Critical for Docker/Internet)
+# =============================================================================
+step_fix_ovh_routing() {
+    log_info "Checking network routing..."
+    
+    # Check if we are on a system with Netplan (Ubuntu 18.04+)
+    if [[ -d /etc/netplan ]]; then
+        log_info "Configuring Netplan route metrics to prefer public interface..."
+        
+        # Create override to deprioritize ens3 (Private Network on OVH)
+        # By default DHCP might give it metric 100, same as ens4 (Public).
+        # We set ens3 to 200 so traffic prefers ens4.
+        cat > /etc/netplan/99-viralclip-routes.yaml << 'EOF'
+network:
+  version: 2
+  ethernets:
+    ens3:
+      dhcp4: true
+      dhcp4-overrides:
+        route-metric: 200
+EOF
+        chmod 600 /etc/netplan/99-viralclip-routes.yaml
+        netplan apply
+        log_ok "Routing fixed: Private interface (ens3) metric set to 200."
+    fi
+}
+
+# =============================================================================
+# 7. Firewall (UFW) & Fail2Ban
 # =============================================================================
 step_firewall() {
     log_info "Configuring Firewall..."
@@ -417,6 +444,7 @@ step_docker
 step_kernel
 step_user_security
 step_git_setup
+step_fix_ovh_routing
 step_firewall
 step_app_env
 

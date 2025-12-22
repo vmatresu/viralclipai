@@ -173,4 +173,23 @@ deploy/
 - [x] SSL certificates via Certbot
 - [x] Systemd service manages containers
 
+---
+
+## GitHub Actions Configuration
+
+Configure these in your GitHub Repo -> Settings -> Secrets and variables -> Actions.
+
+### Secrets (Sensitive)
+| Name | Description |
+|------|-------------|
+| `SSH_PRIVATE_KEY` | Private SSH key for `deploy` user |
+
+### Variables (Non-Sensitive)
+| Name | Value |
+|------|-------|
+| `API_HOST` | API server IP |
+| `WORKER_HOST` | Worker server IP |
+| `SSH_USER` | `deploy` |
+| `SSH_PORT` | `22` |
+
 ```

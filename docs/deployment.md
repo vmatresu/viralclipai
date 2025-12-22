@@ -77,15 +77,22 @@ Use `rediss://` (with s) for TLS.
 
 ---
 
-## GitHub Secrets
+## GitHub Actions Configuration
 
-| Secret | Value |
-|--------|-------|
+Configure these in your GitHub Repo -> Settings -> Secrets and variables -> Actions.
+
+### Secrets (Sensitive)
+| Name | Description |
+|------|-------------|
+| `SSH_PRIVATE_KEY` | Private SSH key for `deploy` user |
+
+### Variables (Non-Sensitive)
+| Name | Value |
+|------|-------|
 | `API_HOST` | API server IP |
 | `WORKER_HOST` | Worker server IP |
-| `DO_USER` | `deploy` |
-| `DO_PORT` | `22` |
-| `DO_SSH_KEY` | Private SSH key (Add pub key to authorized_keys) |
+| `SSH_USER` | `deploy` |
+| `SSH_PORT` | `22` |
 
 ---
 
