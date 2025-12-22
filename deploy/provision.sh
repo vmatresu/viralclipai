@@ -251,3 +251,26 @@ setup_ssl
 echo "=================================================="
 success "Deployment Complete!"
 echo "=================================================="
+
+# Final Checks & Warnings
+echo ""
+echo -e "${YELLOW}!!! MANUAL ACTION REQUIRED !!!${NC}"
+echo "--------------------------------------------------"
+echo "1. Edit .env file:"
+echo "   - Ensure R2 Keys, Firebase ID, and Redis URL are correct."
+echo "   - File: $APP_DIR/.env"
+echo ""
+echo "2. Upload Firebase Credentials:"
+echo "   - I created a dummy file to prevent crashes."
+echo "   - You MUST overwrite it with your real file:"
+echo "     scp your-credentials.json deploy@<SERVER_IP>:$APP_DIR/firebase-credentials.json"
+echo ""
+
+if [[ "$ROLE" == "worker" ]]; then
+    echo "3. Update YouTube Cookies (Worker Only):"
+    echo "   - I created an empty file."
+    echo "   - If needed, upload real cookies:"
+    echo "     scp cookies.txt deploy@<SERVER_IP>:$APP_DIR/youtube-cookies.txt"
+fi
+echo "--------------------------------------------------"
+echo ""
