@@ -27,7 +27,7 @@ Group=deploy
 Environment=COMPOSE_PROJECT_NAME=viralclip-api
 
 # Timeouts (allow time for image pulls/builds on first run)
-TimeoutStartSec=600
+TimeoutStartSec=1800
 TimeoutStopSec=120
 
 # Start: bring up containers (no --wait to avoid healthcheck blocking)

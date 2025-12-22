@@ -27,7 +27,7 @@ Group=deploy
 Environment=COMPOSE_PROJECT_NAME=viralclip-worker
 
 # Timeouts (worker builds can be slow due to Rust compilation)
-TimeoutStartSec=1800
+TimeoutStartSec=3600
 TimeoutStopSec=120
 
 # Start: bring up containers (no --wait to avoid healthcheck blocking)
