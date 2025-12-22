@@ -106,7 +106,8 @@ step_docker() {
     },
     "live-restore": true,
     "userland-proxy": false,
-    "no-new-privileges": true
+    "no-new-privileges": true,
+    "dns": ["8.8.8.8", "1.1.1.1"]
 }
 EOF
     systemctl restart docker
