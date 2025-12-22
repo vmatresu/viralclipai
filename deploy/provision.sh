@@ -54,7 +54,9 @@ parse_args() {
             *) error "Unknown argument: $1" ;;
         esac
     done
-    [[ -z "$ROLE" ]] && error "Missing --role <api|worker>"
+    if [[ -z "$ROLE" ]]; then
+        error "Missing --role <api|worker>"
+    fi
 }
 
 configure_nginx() {
