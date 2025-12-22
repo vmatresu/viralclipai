@@ -2,9 +2,9 @@
 
 > **Repository:** https://github.com/vmatresu/viralclipai
 > **Frontend:** https://www.viralclipai.io (Vercel)
-> **API:** https://api.viralclipai.io (DigitalOcean)
+> **API:** https://api.viralclipai.io (DigitalOcean/OVH)
 
-Production deployment guide for ViralClipAI backend on DigitalOcean with separate API and Worker droplets.
+Production deployment guide for ViralClipAI backend with separate API and Worker servers.
 
 ---
 
@@ -12,14 +12,14 @@ Production deployment guide for ViralClipAI backend on DigitalOcean with separat
 
 ```
 ┌─────────────────────┐     ┌──────────────────────┐     ┌─────────────────┐
-│   Vercel            │     │  DigitalOcean        │     │  DigitalOcean   │
-│   (Frontend)        │────▶│  API Droplet         │     │  Worker Droplet │
-│ www.viralclipai.io  │     │  api.viralclipai.io  │     │  (no public URL)│
+│   Vercel            │     │  API Server          │     │  Worker Server  │
+│   (Frontend)        │────▶│  api.viralclipai.io  │     │  (Private IP)   │
+│ www.viralclipai.io  │     │  + Redis (Optional)  │◀─── │                 │
 └─────────────────────┘     └──────────┬───────────┘     └────────┬────────┘
                                        │                          │
                                        │    ┌─────────────────┐   │
                                        └───▶│ Managed Valkey  │◀──┘
-                                            │ (Redis Queue)   │
+                                            │ (Alternative)   │
                                             └─────────────────┘
 ```
 
@@ -31,163 +31,100 @@ Production deployment guide for ViralClipAI backend on DigitalOcean with separat
 |---------|--------------|--------------|-----------|
 | API | `deploy/docker-compose.api.yml` | `viralclip-api.service` | `vclip-api` |
 | Worker | `deploy/docker-compose.worker.yml` | `viralclip-worker.service` | `vclip-worker` |
+| Redis | `deploy/docker-compose.redis.yml` | (Merged into API) | `vclip-redis` |
 
 ---
 
 ## Prerequisites
 
-- **2x DigitalOcean Droplets** (Ubuntu 24.04)
-  - API: 2GB+ RAM
-  - Worker: 8GB+ RAM (video processing)
-- **DigitalOcean Managed Valkey** database
+- **2x Ubuntu 24.04 Servers** (API & Worker)
 - **Cloudflare R2** bucket
 - **Firebase** project with Firestore
 - **GitHub** repository access
 
 ---
 
-## Initial Server Setup
+## 1. Initial Server Setup (One-Time)
 
-### 1. Create Droplets
+Run this on a fresh Ubuntu installation to harden the server, install Docker, and set up the `deploy` user.
 
-**API Droplet:**
-- Image: Ubuntu 24.04
-- Plan: Basic, 2GB RAM ($12/mo)
-- Region: NYC1
-- Hostname: `viralclipai-api-nyc1-01`
-
-**Worker Droplet:**
-- Image: Ubuntu 24.04
-- Plan: Basic, 8GB RAM ($48/mo)
-- Region: NYC1
-- Hostname: `viralclipai-worker-nyc1-01`
-
-### 2. Run Setup Script (Unified)
-
-This single script handles hardening (UFW, Fail2ban), installs Docker, creates the deploy user, and **auto-generates secure secrets** (Redis password, JWT secret) in a new `.env` file.
-
+**API Server:**
 ```bash
-# On BOTH servers (run as root):
-ssh root@<server-ip>
-curl -O https://raw.githubusercontent.com/vmatresu/viralclipai/main/deploy/setup-server.sh
-chmod +x setup-server.sh
-./setup-server.sh
+# Upload and run setup script
+scp deploy/setup-server.sh ubuntu@<api-ip>:~
+ssh ubuntu@<api-ip>
+chmod +x setup-server.sh && sudo ./setup-server.sh && sudo reboot
 ```
 
-**After running:**
-1.  **Edit the `.env` file**: The script creates `/var/www/viralclipai-backend/.env`. You **must** edit it to fill in your Cloudflare R2 keys and Firebase Project ID.
-    ```bash
-    nano /var/www/viralclipai-backend/.env
-    ```
-2.  **Test SSH**: Ensure you can log in as `deploy` before closing your root session.
-    ```bash
-    ssh deploy@<server-ip>
-    ```
-
-### 3. Setup GitHub Deploy Keys
-
-On each server (as `deploy` user):
-
+**Worker Server:**
 ```bash
-ssh-keygen -t ed25519 -C "deploy@viralclipai" -f ~/.ssh/github_deploy -N ""
-cat ~/.ssh/github_deploy.pub  # Add to GitHub repo deploy keys
-
-# Configure SSH
-cat >> ~/.ssh/config << 'EOF'
-Host github.com
-    HostName github.com
-    User git
-    IdentityFile ~/.ssh/github_deploy
-    IdentitiesOnly yes
-EOF
-chmod 600 ~/.ssh/config
-
-# Test connection
-ssh -T git@github.com
+# Upload and run setup script
+scp deploy/setup-server.sh ubuntu@<worker-ip>:~
+ssh ubuntu@<worker-ip>
+chmod +x setup-server.sh && sudo ./setup-server.sh --worker && sudo reboot
 ```
 
-### 4. Clone Repository
+**After Setup:**
+1.  **Deploy Keys:** The script will output a public SSH key. Add this to your **GitHub Repo -> Settings -> Deploy Keys**.
+2.  **GitHub Actions:** Add your GitHub Actions SSH public key to `/home/deploy/.ssh/authorized_keys` as instructed in the script output.
 
+---
+
+## 2. Application Deployment
+
+Log in as the `deploy` user to configure the application.
+
+### API Server
 ```bash
-cd /var/www
-git clone git@github.com:vmatresu/viralclipai.git viralclipai-backend
-cd viralclipai-backend
+ssh deploy@<api-ip>
+git clone git@github.com:vmatresu/viralclipai.git /var/www/viralclipai-backend
+cd /var/www/viralclipai-backend
+
+# Edit .env with real secrets
+nano .env
+
+# Provision Application (Nginx + Redis + SSL + Systemd)
+sudo ./deploy/provision.sh \
+    --role api \
+    --redis \
+    --worker-ip <worker-ip> \
+    --domain api.viralclipai.io \
+    --email admin@viralclipai.io
 ```
 
-### 5. Configure Environment
-
-Create `.env` file (see `.env.example` for template):
-
+### Worker Server
 ```bash
-cp .env.example .env
-chmod 600 .env
-# Edit with your values
-```
+ssh deploy@<worker-ip>
+git clone git@github.com:vmatresu/viralclipai.git /var/www/viralclipai-backend
+cd /var/www/viralclipai-backend
 
-**Required files:**
-- `.env` - Environment configuration
-- `firebase-credentials.json` - Firebase service account
-- `youtube-cookies.txt` - YouTube authentication (Worker only)
+# Edit .env (Set REDIS_URL to point to API server)
+nano .env
+
+# Provision Application (Systemd)
+sudo ./deploy/provision.sh --role worker
+```
 
 ---
 
 ## Service Management
 
-### Install systemd Services (Recommended)
-
-The systemd service ensures containers **automatically restart after reboot**.
+The `provision.sh` script installs a systemd service that manages Docker Compose.
 
 ```bash
-# Install API service
-cd /var/www/viralclipai-backend
-sudo ./deploy/install-systemd.sh api
-
-# Install Worker service
-sudo ./deploy/install-systemd.sh worker
-```
-
-### Manage Services
-
-```bash
-# Status
+# Check Status
 sudo systemctl status viralclip-api.service
 sudo systemctl status viralclip-worker.service
 
-# Start/Stop/Restart
-sudo systemctl start viralclip-api.service
-sudo systemctl stop viralclip-api.service
-sudo systemctl restart viralclip-api.service
-
-# Reload (recreate containers without stopping service)
-sudo systemctl reload viralclip-api.service
-
-# View logs
+# View Logs
 journalctl -u viralclip-api.service -f
 journalctl -u viralclip-worker.service -f
 
-# Uninstall
-sudo ./deploy/install-systemd.sh api uninstall
-```
+# Restart Service
+sudo systemctl restart viralclip-api.service
 
-### Manual Docker Commands
-
-For one-off operations without systemd:
-
-```bash
-cd /var/www/viralclipai-backend
-
-# Start
-docker compose --env-file .env -f deploy/docker-compose.api.yml up -d
-
-# Stop
-docker compose --env-file .env -f deploy/docker-compose.api.yml down
-
-# Rebuild
-docker compose --env-file .env -f deploy/docker-compose.api.yml up -d --build
-
-# Logs
-docker logs vclip-api -f --tail 100
-docker logs vclip-worker -f --tail 100
+# Manual Docker (if needed)
+docker compose -f deploy/docker-compose.api.yml logs -f
 ```
 
 ---
@@ -195,113 +132,13 @@ docker logs vclip-worker -f --tail 100
 ## Deployments
 
 ### Automatic (GitHub Actions)
-
-Deployments trigger automatically on push to `main` when relevant files change:
-- **API**: `backend/**`, `Dockerfile`, `deploy/docker-compose.api.yml`
-- **Worker**: `backend/**`, `Dockerfile`, `deploy/docker-compose.worker.yml`
+Pushing to `main` triggers the workflow defined in `.github/workflows/`.
 
 ### Manual Deployment
-
 ```bash
 cd /var/www/viralclipai-backend
 git pull origin main
-
-# Using systemd (recommended)
-sudo systemctl reload viralclip-api.service
-
-# Or using docker compose directly
-docker compose --env-file .env -f deploy/docker-compose.api.yml up -d --build
-```
-
----
-
-## Nginx Configuration (API Only)
-
-```bash
-sudo tee /etc/nginx/sites-available/viralclipai << 'EOF'
-server {
-    listen 80;
-    server_name api.viralclipai.io;
-
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 300s;
-        proxy_connect_timeout 75s;
-    }
-}
-EOF
-
-sudo ln -sf /etc/nginx/sites-available/viralclipai /etc/nginx/sites-enabled/
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo nginx -t && sudo systemctl reload nginx
-
-# Setup SSL
-sudo certbot --nginx -d api.viralclipai.io
-```
-
----
-
-## Troubleshooting
-
-### Container not starting after reboot
-
-**Symptom:** `docker ps` shows no containers after server reboot.
-
-**Cause:** Docker's restart policy only works if containers exist. If containers were removed (e.g., via `docker system prune`), they won't auto-start.
-
-**Solution:** Install the systemd service which creates containers on boot:
-```bash
-sudo ./deploy/install-systemd.sh api
-```
-
-### Service fails to start
-
-```bash
-# Check systemd logs
-journalctl -u viralclip-api.service -n 50 --no-pager
-
-# Check Docker logs
-docker logs vclip-api --tail 50
-
-# Verify prerequisites
-test -f /var/www/viralclipai-backend/.env && echo "OK: .env exists"
-test -f /var/www/viralclipai-backend/firebase-credentials.json && echo "OK: firebase creds exist"
-```
-
-### Permission denied
-
-```bash
-# Ensure deploy user is in docker group
-groups deploy  # Should show: deploy docker
-
-# If not:
-sudo usermod -aG docker deploy
-# Logout and login again
-```
-
-### Port already in use
-
-```bash
-# Check what's using port 8000
-sudo ss -tlnp | grep :8000
-sudo lsof -i :8000
-```
-
-### Safe pruning (avoid deleting active containers)
-
-```bash
-# NEVER use on production: docker system prune -a
-
-# Safe alternatives:
-docker container prune --filter "until=24h" -f
-docker image prune --filter "until=168h" -f
+sudo systemctl restart viralclip-api.service
 ```
 
 ---
@@ -311,39 +148,27 @@ docker image prune --filter "until=168h" -f
 ```
 deploy/
 ├── README.md                      # This file
-├── install-systemd.sh             # Unified service installer
-├── systemd/
-│   ├── viralclip-api.service      # API systemd unit
-│   └── viralclip-worker.service   # Worker systemd unit
-├── docker-compose.api.yml         # API Docker Compose
-├── docker-compose.worker.yml      # Worker Docker Compose
-├── server-hardening.sh            # API server setup
-├── server-hardening-worker.sh     # Worker server setup
-└── certbot-setup.sh               # SSL certificate setup
+├── setup-server.sh                # Initial OS hardening & user setup
+├── provision.sh                   # App configuration (Nginx, Systemd, Redis, SSL)
+├── docker-compose.api.yml         # API service definition
+├── docker-compose.worker.yml      # Worker service definition
+├── docker-compose.redis.yml       # Modular Redis service definition
+├── nginx/                         # Nginx config templates
+├── redis/                         # Redis config templates
+└── systemd/                       # Systemd unit templates
 ```
 
 ---
 
 ## Security Checklist
 
-- [ ] SSH key-only authentication
-- [ ] Root login disabled
-- [ ] UFW firewall active
-- [ ] fail2ban running
-- [ ] Automatic security updates enabled
-- [ ] Valkey trusted sources configured
-- [ ] `.env` file has 600 permissions
-- [ ] SSL certificates installed (API)
-- [ ] systemd service uses security hardening
+- [x] SSH key-only authentication
+- [x] Root login disabled
+- [x] UFW firewall active (API ports 80/443/6379, Worker port 22)
+- [x] fail2ban running
+- [x] Automatic security updates enabled
+- [x] `.env` file permissions restricted
+- [x] SSL certificates via Certbot
+- [x] Systemd service manages containers
 
----
-
-## GitHub Actions Secrets
-
-| Secret | Description |
-|--------|-------------|
-| `API_HOST` | API droplet IP |
-| `WORKER_HOST` | Worker droplet IP |
-| `DO_USER` | SSH user (`deploy`) |
-| `DO_PORT` | SSH port (`22`) |
-| `DO_SSH_KEY` | Private SSH key |
+```

@@ -1,0 +1,27 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: vclip-redis
+    restart: unless-stopped
+    # Enable password auth and persistence
+    command: >
+      sh -c "echo 'requirepass $REDIS_PASSWORD' >> /usr/local/etc/redis/redis.conf &&
+             redis-server /usr/local/etc/redis/redis.conf"
+    volumes:
+      - ./deploy/redis/redis.conf:/usr/local/etc/redis/redis.conf
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "$REDIS_PASSWORD", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  redis_data:
+    driver: local

@@ -58,7 +58,9 @@ check_root() {
 step_updates() {
     log_info "Updating system packages..."
     apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
+    DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y
+    DEBIAN_FRONTEND=noninteractive apt-get autoremove --purge -y
+    apt-get autoclean
     
     # Base dependencies
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -119,9 +121,9 @@ step_kernel() {
     
     cat > /etc/sysctl.d/99-viralclip-hardening.conf << EOF
 # --- Network Security ---
-# IP Spoofing protection
-net.ipv4.conf.all.rp_filter = 1
-net.ipv4.conf.default.rp_filter = 1
+# IP Spoofing protection (Set to 2 for loose mode, avoids lockouts on OVH/Cloud)
+net.ipv4.conf.all.rp_filter = 2
+net.ipv4.conf.default.rp_filter = 2
 
 # Ignore ICMP broadcast requests
 net.ipv4.icmp_echo_ignore_broadcasts = 1
@@ -165,50 +167,143 @@ step_user_security() {
         usermod -aG docker "$DEPLOY_USER"
     fi
 
-    # Setup SSH Keys (Copy from root if available)
+    # Setup SSH Keys for deploy user
+    # Cloud providers (OVH, etc.) often add command restrictions to root's keys
+    # We prefer ubuntu user's keys (clean), then fall back to root with sanitization
     mkdir -p /home/$DEPLOY_USER/.ssh
-    if [[ -f /root/.ssh/authorized_keys ]]; then
-        cp /root/.ssh/authorized_keys /home/$DEPLOY_USER/.ssh/authorized_keys
-        chown -R $DEPLOY_USER:$DEPLOY_USER /home/$DEPLOY_USER/.ssh
-        chmod 700 /home/$DEPLOY_USER/.ssh
-        chmod 600 /home/$DEPLOY_USER/.ssh/authorized_keys
+    chmod 700 /home/$DEPLOY_USER/.ssh
+
+    if [[ -f /home/ubuntu/.ssh/authorized_keys ]]; then
+        # Ubuntu user exists (OVH default) - use their clean keys
+        cp /home/ubuntu/.ssh/authorized_keys /home/$DEPLOY_USER/.ssh/authorized_keys
+        log_info "Copied SSH keys from ubuntu user"
+    elif [[ -f /root/.ssh/authorized_keys ]]; then
+        # No ubuntu user - extract keys from root, stripping command= restrictions
+        grep -oE '(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp[0-9]+) [A-Za-z0-9+/=]+ ?[^ ]*' \
+            /root/.ssh/authorized_keys > /home/$DEPLOY_USER/.ssh/authorized_keys 2>/dev/null || true
+        log_info "Extracted SSH keys from root (stripped any command restrictions)"
     else
-        log_warn "No root SSH keys found to copy. Please add keys manually to /home/$DEPLOY_USER/.ssh/authorized_keys"
+        log_warn "No SSH keys found. Please add keys manually to /home/$DEPLOY_USER/.ssh/authorized_keys"
     fi
 
-    # Passwordless Sudo for Docker (convenience for deployment)
-    echo "$DEPLOY_USER ALL=(ALL) NOPASSWD: /usr/bin/docker, /usr/bin/docker-compose, /usr/bin/systemctl restart docker" \
-        > /etc/sudoers.d/$DEPLOY_USER
+    if [[ -f /home/$DEPLOY_USER/.ssh/authorized_keys ]]; then
+        chown -R $DEPLOY_USER:$DEPLOY_USER /home/$DEPLOY_USER/.ssh
+        chmod 600 /home/$DEPLOY_USER/.ssh/authorized_keys
+        log_ok "SSH keys configured for $DEPLOY_USER"
+    fi
+
+    # Passwordless Sudo for ALL commands (requested by user)
+    echo "$DEPLOY_USER ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/$DEPLOY_USER
     chmod 440 /etc/sudoers.d/$DEPLOY_USER
 
-    # Hardening SSHD
+    # Hardening SSHD (Ubuntu 24.04 / OpenSSH 9.x compatible)
+    # Based on ssh-audit.com recommendations (April 2025)
     log_info "Hardening SSH config..."
     cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup
+
+    # Re-generate ED25519 host key if missing (most secure)
+    if [[ ! -f /etc/ssh/ssh_host_ed25519_key ]]; then
+        ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N ""
+    fi
+
+    # Create privilege separation directory (required by sshd)
+    # Also create tmpfiles.d config so it persists across reboots (/run is tmpfs)
+    mkdir -p /run/sshd
+    chmod 755 /run/sshd
+    echo "d /run/sshd 0755 root root -" > /etc/tmpfiles.d/sshd.conf
+
     cat > /etc/ssh/sshd_config.d/hardening.conf << EOF
+# =============================================================================
+# SSH Hardening - Ubuntu 24.04 LTS (OpenSSH 9.x)
+# Based on ssh-audit.com recommendations (2025)
+# =============================================================================
+
+# --- Basic Security ---
 Port $SSH_PORT
-Protocol 2
 PermitRootLogin no
 PasswordAuthentication no
 PermitEmptyPasswords no
-ChallengeResponseAuthentication no
+KbdInteractiveAuthentication no
 UsePAM yes
 PubkeyAuthentication yes
-AllowUsers $DEPLOY_USER
+AuthenticationMethods publickey
+AllowUsers ubuntu $DEPLOY_USER
 X11Forwarding no
 MaxAuthTries 3
+MaxSessions 10
+LoginGraceTime 30
+ClientAliveInterval 300
+ClientAliveCountMax 2
 
-# Modern Crypto (2025 Standards)
-KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group-exchange-sha256
-Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr
-MACs hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,hmac-sha2-256,hmac-sha2-512
+# --- Crypto (2025 Quantum-Resistant Standards) ---
+# Key Exchange: Prefer post-quantum hybrid, then modern curves
+KexAlgorithms sntrup761x25519-sha512@openssh.com,curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group18-sha512,diffie-hellman-group-exchange-sha256,diffie-hellman-group16-sha512
+
+# Ciphers: 256-bit preferred for quantum resistance
+Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-gcm@openssh.com,aes128-ctr
+
+# MACs: ETM (Encrypt-then-MAC) modes only
+MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com
+
+# Host Keys: Prefer ED25519
+HostKeyAlgorithms ssh-ed25519,ssh-ed25519-cert-v01@openssh.com,sk-ssh-ed25519@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com,rsa-sha2-512,rsa-sha2-512-cert-v01@openssh.com,rsa-sha2-256,rsa-sha2-256-cert-v01@openssh.com
+
+# Accept all standard pubkey algorithms (including ssh-rsa for compatibility)
+PubkeyAcceptedAlgorithms +ssh-rsa
 EOF
-    
-    # We don't restart SSH yet to avoid locking you out if keys aren't set up
-    log_ok "SSH configuration updated (restart service manually after verification)."
+
+    # Ubuntu 24.04: Ensure SSH is enabled (Socket activation is default)
+    systemctl enable ssh.service || true
+    systemctl enable ssh.socket || true
+
+    systemctl daemon-reload
+    systemctl start ssh.socket
+    systemctl start ssh.service
+
+    # Test config before applying
+    if sshd -t; then
+        log_ok "SSH configuration valid"
+    else
+        log_error "SSH configuration invalid! Reverting..."
+        rm -f /etc/ssh/sshd_config.d/hardening.conf
+        exit 1
+    fi
+
+    # Verify SSH is enabled for boot
+    if systemctl is-enabled ssh.service &>/dev/null || systemctl is-enabled ssh.socket &>/dev/null; then
+        log_ok "SSH is enabled to start on boot"
+    else
+        log_warn "SSH might not start on boot. checking..."
+        systemctl enable ssh.service || true
+    fi
+
+    log_ok "SSH hardening applied. Service will be restarted at end of setup."
 }
 
 # =============================================================================
-# 4. Firewall (UFW) & Fail2Ban
+# 5. Git & Private Repo Setup
+# =============================================================================
+step_git_setup() {
+    log_info "Configuring Git Access for Private Repo..."
+    
+    # 1. Generate SSH Key for GitHub (Deploy Key)
+    local key_file="/home/$DEPLOY_USER/.ssh/id_ed25519"
+    if [[ ! -f "$key_file" ]]; then
+        log_info "Generating SSH key for GitHub access..."
+        su - "$DEPLOY_USER" -c "ssh-keygen -t ed25519 -f $key_file -N '' -C 'deploy@viralclipai'"
+    fi
+
+    # 2. Add GitHub to known_hosts (prevent interactive prompt)
+    if ! grep -q "github.com" "/home/$DEPLOY_USER/.ssh/known_hosts" 2>/dev/null; then
+        log_info "Adding github.com to known_hosts..."
+        su - "$DEPLOY_USER" -c "ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null"
+    fi
+    
+    log_ok "Git access configured."
+}
+
+# =============================================================================
+# 6. Firewall (UFW) & Fail2Ban
 # =============================================================================
 step_firewall() {
     log_info "Configuring Firewall..."
@@ -334,12 +429,55 @@ step_updates
 step_docker
 step_kernel
 step_user_security
+step_git_setup
 step_firewall
 step_app_env
 
+# Restart SSH to apply hardening (do this last, after all config is done)
+log_info "Restarting SSH to apply hardening..."
+
+# Ensure /run/sshd exists (may be cleared on reboot)
+mkdir -p /run/sshd
+chmod 755 /run/sshd
+
+# Stop everything first to avoid "address already in use"
+systemctl stop ssh.socket 2>/dev/null || true
+systemctl stop ssh.service 2>/dev/null || true
+sleep 1
+
+# Start ssh.service (this is more reliable than socket activation)
+systemctl start ssh.service
+
+# Verify SSH is running
+if systemctl is-active --quiet ssh.service; then
+    log_ok "SSH service is running"
+else
+    log_error "SSH service failed! Check: journalctl -xeu ssh.service"
+fi
+
+# Get Public Key for display
+PUB_KEY=$(cat /home/$DEPLOY_USER/.ssh/id_ed25519.pub)
+
 log_info "--------------------------------------------------------"
 log_info "Setup Complete!"
-log_info "1. Verify SSH login: ssh $DEPLOY_USER@<ip>"
-log_info "2. Edit config: nano $APP_DIR/.env"
-log_info "3. Deploy code: git clone ... or use GitHub Actions"
 log_info "--------------------------------------------------------"
+echo -e "${YELLOW}1. GIT ACCESS (Private Repo):${NC}"
+echo "   Go to your GitHub Repo -> Settings -> Deploy Keys -> Add Deploy Key"
+echo "   Paste this key (Allow write access if needed, usually Read-only is fine):"
+echo ""
+echo -e "${GREEN}${PUB_KEY}${NC}"
+echo ""
+log_info "--------------------------------------------------------"
+echo -e "${YELLOW}2. GITHUB ACTIONS ACCESS:${NC}"
+echo "   To allow GitHub Actions to deploy, add its SSH Public Key to authorized_keys:"
+echo "   Command: echo 'YOUR_GITHUB_ACTIONS_PUBLIC_KEY' >> /home/$DEPLOY_USER/.ssh/authorized_keys"
+echo ""
+log_info "--------------------------------------------------------"
+log_info "3. Verify SSH login (new terminal): ssh $DEPLOY_USER@<ip>"
+log_info "4. Deploy code:"
+echo "   ssh $DEPLOY_USER@<ip>"
+echo "   git clone git@github.com:valentin/viralclipai.git $APP_DIR"
+echo "   cd $APP_DIR"
+echo "   sudo ./deploy/provision.sh --role [api|worker]"
+log_info "--------------------------------------------------------"
+log_warn "DO NOT close this terminal until you verify SSH works!"

@@ -2,7 +2,7 @@
 # ViralClip AI - Worker Service (systemd unit)
 # =============================================================================
 # Manages Docker Compose lifecycle for the Worker container.
-# Install: sudo deploy/install-systemd.sh worker
+# Install: sudo deploy/provision.sh --role worker
 # =============================================================================
 
 [Unit]
