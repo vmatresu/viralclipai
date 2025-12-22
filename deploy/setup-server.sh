@@ -388,6 +388,9 @@ step_app_env() {
     else
         log_info "Generating secure secrets to $ENV_FILE..."
         
+        # Detect Private IP (OVH ens3 usually)
+        PRIVATE_IP=$(ip -4 addr show ens3 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -n1 || echo "127.0.0.1")
+        
         # Generate secure secrets
         REDIS_PASS=$(openssl rand -hex 32)
         JWT_SECRET=$(openssl rand -hex 32)
@@ -400,6 +403,9 @@ step_app_env() {
 
 ENVIRONMENT=production
 RUST_LOG=info
+
+# --- Server Identity ---
+PRIVATE_IP=$PRIVATE_IP
 
 # --- Secrets (Auto-Generated) ---
 REDIS_PASSWORD=$REDIS_PASS
@@ -425,6 +431,10 @@ R2_ENDPOINT_URL=https://<account_id>.r2.cloudflarestorage.com
 
 # Gemini AI
 GEMINI_API_KEY=
+
+# --- Redis Configuration ---
+# For API Container (Internal Docker Network):
+REDIS_URL=redis://:$REDIS_PASS@redis:6379
 
 EOF
         chmod 600 "$ENV_FILE"

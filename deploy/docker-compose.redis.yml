@@ -11,7 +11,7 @@ services:
       - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
       - redis_data:/data
     ports:
-      - "10.42.2.209:6379:6379"
+      - "${PRIVATE_IP:-127.0.0.1}:6379:6379"
       - "127.0.0.1:6379:6379"
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD}
