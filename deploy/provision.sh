@@ -97,7 +97,56 @@ EOF
     success "Nginx configured"
 }
 
-# ... (rest of script)
+configure_firewall() {
+    if [[ "$WITH_REDIS" == "true" ]]; then
+        log "Opening Redis port (6379)..."
+        ufw allow from 127.0.0.1 to any port 6379 comment 'Redis Local' >/dev/null
+        
+        if [[ -n "$WORKER_IP" ]]; then
+            ufw allow from "$WORKER_IP" to any port 6379 comment 'Redis from Worker'
+            success "Firewall: Allowed Worker ($WORKER_IP) to Redis"
+        else
+            echo "⚠️  Redis enabled but no Worker IP provided (--worker-ip). Only localhost can connect."
+        fi
+    fi
+}
+
+install_systemd() {
+    log "Installing Systemd Service..."
+    
+    local service_name="viralclip-${ROLE}.service"
+    local source_unit="$DEPLOY_DIR/systemd/${service_name}"
+    local dest_unit="$SYSTEMD_DIR/${service_name}"
+    
+    [[ -f "$source_unit" ]] || error "Unit file not found: $source_unit"
+    
+    # 1. Prepare Docker Compose Command
+    # Base command in unit: --file deploy/docker-compose.<role>.yml
+    local compose_files="--file deploy/docker-compose.${ROLE}.yml"
+    
+    # Add Redis compose file if requested
+    if [[ "$WITH_REDIS" == "true" ]]; then
+        compose_files="$compose_files --file deploy/docker-compose.redis.yml"
+    fi
+    
+    # 2. Customize Unit File (Inject compose flags)
+    # We copy to tmp, replace the default flags, then install
+    cp "$source_unit" "/tmp/$service_name"
+    
+    # Replace the hardcoded '--file deploy/docker-compose.api.yml' with our dynamic list
+    # The unit file has: "--file deploy/docker-compose.api.yml" (check systemd/viralclip-api.service)
+    sed -i "s|--file deploy/docker-compose.${ROLE}.yml|$compose_files|g" "/tmp/$service_name"
+    
+    # 3. Install & Start
+    install -m 0644 "/tmp/$service_name" "$dest_unit"
+    rm "/tmp/$service_name"
+    
+    systemctl daemon-reload
+    systemctl enable "$service_name"
+    systemctl restart "$service_name"
+    
+    success "Systemd service ($service_name) installed & started"
+}
 
 setup_ssl() {
     [[ -z "$DOMAIN" ]] && return
