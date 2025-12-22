@@ -91,21 +91,21 @@ install_systemd() {
     [[ -f "$source_unit" ]] || error "Unit file not found: $source_unit"
     
     # 1. Prepare Docker Compose Command
-    # Base command: docker compose -f deploy/docker-compose.<role>.yml
-    local compose_files="-f deploy/docker-compose.${ROLE}.yml"
+    # Base command in unit: --file deploy/docker-compose.<role>.yml
+    local compose_files="--file deploy/docker-compose.${ROLE}.yml"
     
     # Add Redis compose file if requested
     if [[ "$WITH_REDIS" == "true" ]]; then
-        compose_files="$compose_files -f deploy/docker-compose.redis.yml"
+        compose_files="$compose_files --file deploy/docker-compose.redis.yml"
     fi
     
     # 2. Customize Unit File (Inject compose flags)
     # We copy to tmp, replace the default flags, then install
     cp "$source_unit" "/tmp/$service_name"
     
-    # Replace the hardcoded '-f deploy/docker-compose.api.yml' (or worker) with our dynamic list
-    # We use | as delimiter to avoid issues with paths
-    sed -i "s| -f deploy/docker-compose.${ROLE}.yml| $compose_files|g" "/tmp/$service_name"
+    # Replace the hardcoded '--file deploy/docker-compose.api.yml' with our dynamic list
+    # The unit file has: "--file deploy/docker-compose.api.yml" (check systemd/viralclip-api.service)
+    sed -i "s|--file deploy/docker-compose.${ROLE}.yml|$compose_files|g" "/tmp/$service_name"
     
     # 3. Install & Start
     install -m 0644 "/tmp/$service_name" "$dest_unit"
