@@ -449,26 +449,18 @@ step_firewall
 step_app_env
 
 # Restart SSH to apply hardening (do this last, after all config is done)
-log_info "Restarting SSH to apply hardening..."
+log_info "Configuring SSH persistence..."
 
 # Ensure /run/sshd exists (may be cleared on reboot)
 mkdir -p /run/sshd
 chmod 755 /run/sshd
 
-# Stop everything first to avoid "address already in use"
-systemctl stop ssh.socket 2>/dev/null || true
-systemctl stop ssh.service 2>/dev/null || true
-sleep 1
+# Ubuntu 24.04 uses socket activation by default.
+# We enable both to be safe, but rely on the reboot to switch over cleanly.
+systemctl enable ssh.socket || true
+systemctl enable ssh.service || true
 
-# Start ssh.service (this is more reliable than socket activation)
-systemctl start ssh.service
-
-# Verify SSH is running
-if systemctl is-active --quiet ssh.service; then
-    log_ok "SSH service is running"
-else
-    log_error "SSH service failed! Check: journalctl -xeu ssh.service"
-fi
+log_ok "SSH services enabled. Hardening will apply fully after reboot."
 
 # Get Public Key for display
 PUB_KEY=$(cat /home/$DEPLOY_USER/.ssh/id_ed25519.pub)
