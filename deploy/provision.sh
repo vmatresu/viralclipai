@@ -190,6 +190,18 @@ setup_ssl() {
     configure_nginx
 }
 
+configure_worker_files() {
+    [[ "$ROLE" != "worker" ]] && return
+    
+    local cookies_file="$APP_DIR/youtube-cookies.txt"
+    if [[ ! -f "$cookies_file" ]]; then
+        log "Creating empty youtube-cookies.txt..."
+        touch "$cookies_file"
+        chmod 600 "$cookies_file"
+        chown deploy:deploy "$cookies_file"
+    fi
+}
+
 # --- Main ---
 
 check_root
@@ -199,6 +211,7 @@ echo "=================================================="
 echo " Provisioning ViralClip AI ($ROLE)"
 echo "=================================================="
 
+configure_worker_files
 configure_nginx
 configure_firewall
 install_systemd
