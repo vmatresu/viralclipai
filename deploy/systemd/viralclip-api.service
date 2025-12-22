@@ -11,6 +11,8 @@ Documentation=https://github.com/vmatresu/viralclipai
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
 
 [Service]
 Type=oneshot
@@ -49,13 +51,11 @@ ExecStop=/usr/bin/docker compose \
 # Restart behavior (systemd-level, not Docker-level)
 Restart=on-failure
 RestartSec=30s
-StartLimitIntervalSec=300
-StartLimitBurst=3
 
 # Security hardening
 NoNewPrivileges=true
 ProtectSystem=strict
-ProtectHome=read-only
+ProtectHome=false
 PrivateTmp=true
 ReadWritePaths=/var/www/viralclipai-backend
 
