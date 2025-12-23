@@ -128,24 +128,31 @@ install_openvino() {
     echo "Using Intel repository: ${intel_repo_codename}"
     echo ""
     
-    # Install prerequisites
+    # Install prerequisites (use sudo only if not root, e.g., in Docker as root we don't have sudo installed)
+    if [[ $EUID -eq 0 ]]; then
+        SUDO=""
+    else
+        SUDO="sudo"
+    fi
     echo "Installing prerequisites..."
-    sudo apt-get update
-    sudo apt-get install -y gnupg ca-certificates wget
+    ${SUDO} apt-get update
+    ${SUDO} apt-get install -y gnupg ca-certificates wget
     
-    # Add Intel GPG key (modern method)
-    echo "Adding Intel GPG key..."
-    wget -qO- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB | \
-        sudo gpg --dearmor -o /usr/share/keyrings/intel-openvino-archive-keyring.gpg 2>/dev/null || true
-    
-    # Add OpenVINO repository
-    echo "Adding OpenVINO repository..."
-    echo "deb [signed-by=/usr/share/keyrings/intel-openvino-archive-keyring.gpg] https://apt.repos.intel.com/openvino/2024 ${intel_repo_codename} main" | \
-        sudo tee /etc/apt/sources.list.d/intel-openvino-2024.list > /dev/null
-    
-    # Update package list
-    echo "Updating package list..."
-    sudo apt-get update
+    # Add Intel GPG key and repository only if not already present
+    if [[ ! -f /etc/apt/sources.list.d/intel-openvino-2024.list ]]; then
+        echo "Adding Intel GPG key..."
+        wget -qO- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB | \
+            ${SUDO} gpg --dearmor -o /usr/share/keyrings/intel-openvino.gpg 2>/dev/null || true
+        
+        echo "Adding OpenVINO repository..."
+        echo "deb [signed-by=/usr/share/keyrings/intel-openvino.gpg] https://apt.repos.intel.com/openvino/2024 ${intel_repo_codename} main" | \
+            ${SUDO} tee /etc/apt/sources.list.d/intel-openvino-2024.list > /dev/null
+        
+        echo "Updating package list..."
+        ${SUDO} apt-get update
+    else
+        echo "OpenVINO repository already configured"
+    fi
     
     # Find available package
     echo "Searching for OpenVINO packages..."
@@ -173,13 +180,13 @@ install_openvino() {
     
     # Install OpenVINO
     echo "Installing ${openvino_pkg}..."
-    sudo apt-get install -y "${openvino_pkg}"
+${SUDO} apt-get install -y "${openvino_pkg}"
     
     # Install dev package if available
     local dev_pkg="${openvino_pkg}-dev"
     if apt-cache show "${dev_pkg}" &>/dev/null; then
         echo "Installing ${dev_pkg}..."
-        sudo apt-get install -y "${dev_pkg}"
+        ${SUDO} apt-get install -y "${dev_pkg}"
     fi
     
     echo ""
