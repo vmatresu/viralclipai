@@ -47,7 +47,7 @@ FROM ubuntu:24.04 AS builder
 ARG TARGETPLATFORM
 ARG TARGETARCH
 ARG SERVICE_TYPE=api
-ARG OPENCV_TARBALL=opencv-4.12.0-ubuntu24.04-amd64.tar.gz
+ARG OPENCV_TARBALL=opencv-4.12.0-openvino-portable.tar.gz
 
 # Install build dependencies and pre-built OpenCV 4.12.0
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -190,7 +190,7 @@ ENTRYPOINT ["/app/vclip-api"]
 # -----------------------------------------------------------------------------
 FROM ubuntu:24.04 AS worker-runtime
 
-ARG OPENCV_TARBALL=opencv-4.12.0-ubuntu24.04-amd64.tar.gz
+ARG OPENCV_TARBALL=opencv-4.12.0-openvino-portable.tar.gz
 
 # OCI labels
 LABEL org.opencontainers.image.title="ViralClip Worker" \

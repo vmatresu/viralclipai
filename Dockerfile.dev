@@ -13,7 +13,8 @@ FROM ubuntu:24.04 AS dev
 # Build arguments for cache busting and metadata
 ARG TARGETARCH
 ARG BUILDPLATFORM
-ARG OPENCV_TARBALL=opencv-4.12.0-ubuntu24.04.tar.gz
+ARG OPENCV_TARBALL_ARM64=opencv-4.12.0-ubuntu24.04.tar.gz
+ARG OPENCV_TARBALL_AMD64=opencv-4.12.0-openvino-portable.tar.gz
 
 LABEL org.opencontainers.image.title="ViralClip Dev" \
       org.opencontainers.image.description="Development container for ViralClip Rust backend"
@@ -56,11 +57,16 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     sh -s -- -y --profile minimal --default-toolchain 1.87.0
 
 ENV PATH="/root/.cargo/bin:${PATH}"
-# Copy and extract pre-built OpenCV 4.12.0 artifacts
-COPY opencv-artifacts/${OPENCV_TARBALL} /tmp/
+# Copy and extract pre-built OpenCV 4.12.0 artifacts (auto-select per arch)
+COPY opencv-artifacts/${OPENCV_TARBALL_ARM64} /tmp/opencv-arm64.tar.gz
+COPY opencv-artifacts/${OPENCV_TARBALL_AMD64} /tmp/opencv-amd64.tar.gz
 RUN cd /usr/local && \
-    tar -xzf /tmp/${OPENCV_TARBALL} && \
-    rm /tmp/${OPENCV_TARBALL} && \
+    if [ "${TARGETARCH}" = "arm64" ]; then \
+        tar -xzf /tmp/opencv-arm64.tar.gz; \
+    else \
+        tar -xzf /tmp/opencv-amd64.tar.gz; \
+    fi && \
+    rm -f /tmp/opencv-arm64.tar.gz /tmp/opencv-amd64.tar.gz && \
     ldconfig
 
 # Copy and extract pre-built ONNX Runtime 1.22.0 (for ort crate)

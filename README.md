@@ -114,6 +114,16 @@ See **`DOCKER_SETUP.md`** for a detailed quickstart. In short:
    - Frontend: http://localhost:3000
    - API docs: http://localhost:8000/docs
 
+### Mac vs Intel/AMD (Local Dev)
+
+- `Dockerfile.dev` auto-selects the OpenCV artifact by architecture:
+  - `linux/arm64` (Apple Silicon) → `opencv-4.12.0-ubuntu24.04.tar.gz` (no OpenVINO)
+  - `linux/amd64` (Intel/AMD Linux) → `opencv-4.12.0-openvino-portable.tar.gz`
+- OpenVINO is Linux x86_64 only in this setup. On M1/M2/M3, use native ARM64 for best speed.
+  If you want to try OpenVINO on a Mac, you must build `linux/amd64` under emulation (slower).
+- `docker-compose.dev.yml` is pinned to `linux/arm64`. On Intel/AMD dev machines, change
+  the platform to `linux/amd64` or remove the `platforms` stanza.
+
 ### Optional: Running without Docker
 
 For advanced/local debugging you can still:
