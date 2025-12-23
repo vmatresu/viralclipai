@@ -60,9 +60,12 @@ impl Default for OptimizedEngineConfig {
 }
 
 impl OptimizedEngineConfig {
-    /// Fast config with more gap frames (lower quality, higher speed).
+    /// Fast config with more gap frames and lower resolution (higher speed).
+    /// Uses 640x360 inference (4x fewer pixels) and detect_every_n=8.
     pub fn fast() -> Self {
         Self {
+            inference_width: 640,
+            inference_height: 360,
             detect_every_n: 8,
             ..Default::default()
         }

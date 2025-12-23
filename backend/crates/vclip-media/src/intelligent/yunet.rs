@@ -1,20 +1,23 @@
-//! OpenCV YuNet face detector (2023mar model with quantization support).
+//! OpenCV YuNet face detector with INT8 quantization support.
 //!
-//! YuNet is a lightweight CNN face detector that is significantly faster and more accurate
-//! than Haar cascades. It's exposed via OpenCV's FaceDetectorYN API.
+//! YuNet is a lightweight CNN face detector exposed via OpenCV's FaceDetectorYN API.
+//! This module handles model loading, backend selection, and inference.
 //!
-//! # Performance Comparison (2023mar models)
-//! - Original: 0.8844 AP_easy, ~25ms/frame
-//! - Int8 Quantized: 0.8810 AP_easy, ~8ms/frame
-//! - Block-Quantized: 0.8845 AP_easy, ~6ms/frame
+//! # Model Selection
+//!
+//! Models are selected via [`super::model_config::ModelConfig`] with priority:
+//! 1. Environment variable `YUNET_MODEL_VARIANT` (int8bq, int8, fp32, legacy)
+//! 2. Auto-detection preferring fastest available (int8bq > int8 > fp32)
 //!
 //! # Requirements
 //! - OpenCV 4.5+ with DNN module
+//! - 2023mar models require OpenCV 4.8+
 //!
 //! # Known Issues
-//! - OpenCV 4.6.0 has a bug with FaceDetectorYN where detection can fail with
-//!   "Layer with requested id=-1 not found". This is handled gracefully with fallback.
+//! - OpenCV 4.6.0 has a bug with FaceDetectorYN ("Layer with requested id=-1").
+//!   Handled gracefully with fallback to 2022mar model.
 
+use super::model_config::{get_resolved_model, is_model_available, ModelVariant};
 use super::models::BoundingBox;
 use crate::error::{MediaError, MediaResult};
 #[cfg(feature = "opencv")]
@@ -25,94 +28,33 @@ use std::path::Path;
 use std::sync::OnceLock;
 use tracing::{debug, error, info, warn};
 
-/// Global YuNet availability flag
+/// Global YuNet availability flag (cached).
 static YUNET_AVAILABLE: OnceLock<bool> = OnceLock::new();
 
-/// Get model performance info for logging
-fn get_model_info(path: &str) -> (&str, &str, &str) {
-    if path.contains("int8bq") {
-        ("2023mar Block-Quantized", "~6ms/frame", "0.8845 AP")
-    } else if path.contains("int8") {
-        ("2023mar Int8-Quantized", "~8ms/frame", "0.8810 AP")
-    } else if path.contains("2023mar") {
-        ("2023mar Original", "~25ms/frame", "0.8844 AP")
-    } else {
-        ("2022mar Fallback", "~30ms/frame", "0.834 AP")
-    }
-}
-
-/// Download YuNet model if not present (requires internet access)
-#[cfg(feature = "opencv")]
-pub async fn ensure_yunet_models() -> MediaResult<()> {
-    use tokio::process::Command;
-
-    // Check if any model is already available
-    if find_model_path().is_some() {
-        return Ok(());
-    }
-
-    info!("YuNet models not found, attempting automatic download...");
-
-    // Create models directory
-    let model_dir = Path::new("/app/models");
-    if !model_dir.exists() {
-        tokio::fs::create_dir_all(model_dir).await
-            .map_err(|e| MediaError::detection_failed(format!("Failed to create model directory: {}", e)))?;
-    }
-
-    // Try to download the block-quantized model first (fastest)
-    let model_path = model_dir.join("face_detection_yunet_2023mar_int8bq.onnx");
-    let model_url = "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar_int8bq.onnx";
-
-    info!("Downloading YuNet model from GitHub...");
-    let status = Command::new("curl")
-        .args(["-L", "-o", &model_path.to_string_lossy(), model_url])
-        .status()
-        .await
-        .map_err(|e| MediaError::detection_failed(format!("Failed to download YuNet model: {}", e)))?;
-
-    if status.success() && model_path.exists() {
-        info!("✅ YuNet model downloaded successfully: {}", model_path.display());
-        Ok(())
-    } else {
-        Err(MediaError::detection_failed(
-            "Failed to download YuNet model. Please run download-yunet-models.sh or download manually."
-        ))
-    }
-}
-
-/// Check if YuNet is available and log which model was found
+/// Check if YuNet is available.
+///
+/// Uses the centralized model configuration from [`super::model_config`].
 pub fn is_yunet_available() -> bool {
     *YUNET_AVAILABLE.get_or_init(|| {
-        if let Some(path) = find_model_path() {
-            let (version, speed, accuracy) = get_model_info(path);
-            info!(
-                "YuNet face detection model found: {} ({}, {}) at {}",
-                version, speed, accuracy, path
-            );
-            true
-        } else {
+        let available = is_model_available();
+        if !available {
             warn!("YuNet model not found - using FFmpeg heuristic detection");
-            warn!("To enable YuNet, download models to /app/models/:");
-            warn!("  curl -L -o /app/models/face_detection_yunet_2023mar_int8bq.onnx \\");
-            warn!("    https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar_int8bq.onnx");
-            false
+            warn!("Download: curl -L -o /app/models/face_detection_yunet_2023mar_int8bq.onnx \\");
+            warn!("  https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar_int8bq.onnx");
         }
+        available
     })
 }
 
-/// Check if YuNet is available, with automatic download attempt
+/// Check if YuNet is available, with automatic download attempt.
 pub async fn ensure_yunet_available() -> bool {
     if is_yunet_available() {
         return true;
     }
 
-    // Try to download models automatically
     #[cfg(feature = "opencv")]
     {
-        if let Ok(()) = ensure_yunet_models().await {
-            // Clear the cached availability and check again
-            // Since OnceLock doesn't allow clearing, we'll just return the download success
+        if let Ok(()) = download_best_model().await {
             return true;
         }
     }
@@ -120,190 +62,168 @@ pub async fn ensure_yunet_available() -> bool {
     false
 }
 
-// # Model Download
-// ```bash
-// # Download and verify all models (recommended)
-// ./download-yunet-models.sh
-//
-// # Or manually download to backend/models/face_detection/yunet/
-// mkdir -p backend/models/face_detection/yunet
-// curl -L -o backend/models/face_detection/yunet/face_detection_yunet_2023mar.onnx \
-//   "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
-// ```
+/// Download the fastest available model (INT8-BQ).
+#[cfg(feature = "opencv")]
+async fn download_best_model() -> MediaResult<()> {
+    use tokio::process::Command;
 
-/// Model paths in preference order
-/// Priority: backend/models (committed) > container models > system paths
-/// This ensures reproducible builds and offline development
-///
-/// IMPORTANT: 2023mar models require OpenCV 4.8+
-/// The 2022mar model is compatible with OpenCV 4.5+ and is used as a fallback
-pub(crate) const YUNET_MODEL_PATHS_2023: &[&str] = &[
-    // Backend models directory (committed to version control)
-    "/app/backend/models/face_detection/yunet/face_detection_yunet_2023mar.onnx",
-    "/app/backend/models/face_detection/yunet/face_detection_yunet_2023mar_int8.onnx",
-    "/app/backend/models/face_detection/yunet/face_detection_yunet_2023mar_int8bq.onnx",
-    // Container models directory
-    "/app/models/face_detection/yunet/face_detection_yunet_2023mar.onnx",
-    "/app/models/face_detection/yunet/face_detection_yunet_2023mar_int8.onnx",
-    "/app/models/face_detection/yunet/face_detection_yunet_2023mar_int8bq.onnx",
-    // Legacy paths
-    "/app/models/face_detection_yunet_2023mar.onnx",
-    "/app/models/face_detection_yunet_2023mar_int8.onnx",
-    "/app/models/face_detection_yunet_2023mar_int8bq.onnx",
-    // Relative paths for development
-    "./backend/models/face_detection/yunet/face_detection_yunet_2023mar.onnx",
-    "./backend/models/face_detection/yunet/face_detection_yunet_2023mar_int8.onnx",
-    "./backend/models/face_detection/yunet/face_detection_yunet_2023mar_int8bq.onnx",
-    // System paths
-    "/usr/share/opencv/models/face_detection_yunet_2023mar.onnx",
-    "/usr/share/opencv/models/face_detection_yunet_2023mar_int8.onnx",
-    "/usr/share/opencv/models/face_detection_yunet_2023mar_int8bq.onnx",
-];
+    let model_dir = Path::new("/app/models/face_detection/yunet");
+    if !model_dir.exists() {
+        tokio::fs::create_dir_all(model_dir)
+            .await
+            .map_err(|e| MediaError::detection_failed(format!("Create dir: {}", e)))?;
+    }
 
-/// 2022mar model paths (compatible with OpenCV 4.5+)
-/// Used as fallback when 2023mar models fail due to OpenCV compatibility issues
-pub(crate) const YUNET_MODEL_PATHS_2022: &[&str] = &[
-    // Backend models directory
-    "/app/backend/models/face_detection/yunet/face_detection_yunet_2022mar.onnx",
-    // Container models directory
-    "/app/models/face_detection/yunet/face_detection_yunet_2022mar.onnx",
-    // Legacy paths
-    "/app/models/face_detection_yunet_2022mar.onnx",
-    // Relative paths for development
-    "./backend/models/face_detection/yunet/face_detection_yunet_2022mar.onnx",
-    // System paths
-    "/usr/share/opencv/models/face_detection_yunet_2022mar.onnx",
-];
+    let model_path = model_dir.join(ModelVariant::Int8BlockQuantized.filename_pattern());
+    let model_url = "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar_int8bq.onnx";
+
+    info!("Downloading YuNet INT8-BQ model...");
+    let status = Command::new("curl")
+        .args(["-L", "-o", &model_path.to_string_lossy(), model_url])
+        .status()
+        .await
+        .map_err(|e| MediaError::detection_failed(format!("Download: {}", e)))?;
+
+    if status.success() && model_path.exists() {
+        info!("YuNet model downloaded: {}", model_path.display());
+        Ok(())
+    } else {
+        Err(MediaError::detection_failed(
+            "Failed to download YuNet model",
+        ))
+    }
+}
+
+/// Find the resolved model path (deprecated, use model_config directly).
+#[deprecated(since = "0.2.0", note = "Use model_config::get_resolved_model instead")]
+pub fn find_model_path() -> Option<String> {
+    get_resolved_model().ok().map(|(_, p)| p.to_string_lossy().to_string())
+}
 
 /// Score threshold for face detection.
-/// Lowered to 0.3 to detect small faces in webcam overlays (streamer content).
-/// YuNet is generally reliable, so false positives at this threshold are rare.
+/// Lowered to 0.3 to detect small faces in webcam overlays.
 const SCORE_THRESHOLD: f32 = 0.3;
 
-/// NMS threshold for face detection
+/// NMS threshold for face detection.
 const NMS_THRESHOLD: f32 = 0.3;
 
-/// Top K faces to keep
+/// Top K faces to keep.
 const TOP_K: i32 = 10;
-
-/// Find the YuNet 2023mar model file (requires OpenCV 4.8+)
-fn find_model_path_2023() -> Option<&'static str> {
-    for path in YUNET_MODEL_PATHS_2023 {
-        if Path::new(path).exists() {
-            return Some(path);
-        }
-    }
-    None
-}
-
-/// Find the YuNet 2022mar model file (compatible with OpenCV 4.5+)
-fn find_model_path_2022() -> Option<&'static str> {
-    for path in YUNET_MODEL_PATHS_2022 {
-        if Path::new(path).exists() {
-            return Some(path);
-        }
-    }
-    None
-}
-
-/// Find any available YuNet model file (prefers 2023mar, falls back to 2022mar)
-pub fn find_model_path() -> Option<&'static str> {
-    find_model_path_2023().or_else(find_model_path_2022)
-}
 
 /// YuNet face detector using OpenCV.
 ///
-/// This detector wraps OpenCV's FaceDetectorYN with robust error handling
+/// Wraps OpenCV's FaceDetectorYN with robust error handling
 /// for known compatibility issues with certain OpenCV versions.
 #[cfg(feature = "opencv")]
 pub struct YuNetDetector {
-    /// OpenCV FaceDetectorYN instance
     detector: opencv::core::Ptr<opencv::objdetect::FaceDetectorYN>,
-    /// Input size for the detector (width, height)
     input_size: (i32, i32),
-    /// Original frame dimensions for coordinate scaling
     frame_size: (u32, u32),
-    /// Model path for diagnostics
     model_path: String,
+    variant: ModelVariant,
 }
 
 #[cfg(feature = "opencv")]
 impl YuNetDetector {
-    /// Create a new YuNet detector with robust initialization.
+    /// Create a new YuNet detector using centralized model configuration.
     ///
-    /// Handles OpenCV version compatibility issues and validates model loading.
-    /// Automatically falls back to 2022mar model if 2023mar fails due to OpenCV compatibility.
+    /// Uses [`super::model_config`] to resolve the best available model,
+    /// with automatic fallback to legacy models for OpenCV compatibility.
     pub fn new(frame_width: u32, frame_height: u32) -> MediaResult<Self> {
-        // First try 2023mar model (better accuracy)
-        if let Some(model_path) = find_model_path_2023() {
-            match Self::new_with_model(model_path, frame_width, frame_height) {
-                Ok(detector) => return Ok(detector),
-                Err(e) => {
-                    let error_str = e.to_string();
-                    // Check if this is the OpenCV 4.6.0 compatibility issue
-                    if error_str.contains("Layer with requested id=-1")
-                        || error_str.contains("StsObjectNotFound")
-                        || error_str.contains("-204")
-                    {
-                        warn!(
-                            "2023mar model failed due to OpenCV compatibility (likely OpenCV < 4.8), \
-                            falling back to 2022mar model: {}",
-                            error_str
-                        );
-                    } else {
-                        // Other error - still try 2022mar as fallback
-                        warn!("2023mar model failed: {}, trying 2022mar", error_str);
-                    }
-                }
+        use super::model_config::ModelConfig;
+
+        let config = ModelConfig::from_env();
+        let (variant, model_path) = config.resolve().map_err(|e| {
+            MediaError::detection_failed(e.to_string())
+        })?;
+
+        let path_str = model_path.to_string_lossy();
+        match Self::new_with_model_and_variant(&path_str, frame_width, frame_height, variant) {
+            Ok(detector) => Ok(detector),
+            Err(e) if Self::is_opencv_compat_error(&e) => {
+                // Try legacy 2022 model for OpenCV < 4.8
+                warn!("Model failed (OpenCV compat), trying legacy: {}", e);
+                Self::try_legacy_fallback(frame_width, frame_height)
             }
+            Err(e) => Err(e),
         }
-
-        // Fallback to 2022mar model (compatible with OpenCV 4.5+)
-        if let Some(model_path) = find_model_path_2022() {
-            info!("Using 2022mar model (OpenCV 4.5+ compatible)");
-            return Self::new_with_model(model_path, frame_width, frame_height);
-        }
-
-        Err(MediaError::detection_failed(
-            "No YuNet model found. Run download-yunet-models.sh to download models"
-        ))
     }
 
-    /// Create a YuNet detector with a specific model path.
-    ///
-    /// This is useful for testing specific models or for fallback scenarios.
+    /// Check if error is an OpenCV version compatibility issue.
+    fn is_opencv_compat_error(e: &MediaError) -> bool {
+        let s = e.to_string();
+        s.contains("Layer with requested id=-1")
+            || s.contains("StsObjectNotFound")
+            || s.contains("-204")
+    }
+
+    /// Try legacy 2022 model as fallback for older OpenCV versions.
+    fn try_legacy_fallback(frame_width: u32, frame_height: u32) -> MediaResult<Self> {
+        use super::model_config::ModelConfig;
+
+        let config = ModelConfig::with_variant(ModelVariant::Legacy2022);
+        match config.resolve() {
+            Ok((variant, path)) => {
+                info!("Using legacy 2022mar model (OpenCV 4.5+ compatible)");
+                Self::new_with_model_and_variant(
+                    &path.to_string_lossy(),
+                    frame_width,
+                    frame_height,
+                    variant,
+                )
+            }
+            Err(e) => Err(MediaError::detection_failed(format!(
+                "No fallback model available: {}",
+                e
+            ))),
+        }
+    }
+
+    /// Create with explicit model path (for testing or custom models).
     pub fn new_with_model(model_path: &str, frame_width: u32, frame_height: u32) -> MediaResult<Self> {
-        // Validate model file exists and has reasonable size
-        let model_metadata = std::fs::metadata(model_path).map_err(|e| {
-            MediaError::detection_failed(format!("Cannot read YuNet model file: {}", e))
-        })?;
-        
-        if model_metadata.len() < 50_000 {
+        // Infer variant from path
+        let variant = if model_path.contains("int8bq") {
+            ModelVariant::Int8BlockQuantized
+        } else if model_path.contains("int8") {
+            ModelVariant::Int8
+        } else if model_path.contains("2022") {
+            ModelVariant::Legacy2022
+        } else {
+            ModelVariant::Fp32
+        };
+        Self::new_with_model_and_variant(model_path, frame_width, frame_height, variant)
+    }
+
+    /// Create with explicit model path and variant.
+    fn new_with_model_and_variant(
+        model_path: &str,
+        frame_width: u32,
+        frame_height: u32,
+        variant: ModelVariant,
+    ) -> MediaResult<Self> {
+        // Validate model file
+        let metadata = std::fs::metadata(model_path)
+            .map_err(|e| MediaError::detection_failed(format!("Read model: {}", e)))?;
+
+        if metadata.len() < 50_000 {
             return Err(MediaError::detection_failed(format!(
-                "YuNet model file appears corrupted (size: {} bytes)",
-                model_metadata.len()
+                "Model corrupted ({} bytes)",
+                metadata.len()
             )));
         }
 
-        // Calculate optimal input size for the neural network
-        // YuNet works best with input sizes that are multiples of 32
         let (input_width, input_height) = Self::calculate_input_size(frame_width, frame_height);
 
         debug!(
-            "Creating YuNet detector: frame={}x{}, input={}x{}, model={}",
-            frame_width, frame_height, input_width, input_height, model_path
+            "Creating YuNet: frame={}x{}, input={}x{}, variant={:?}",
+            frame_width, frame_height, input_width, input_height, variant
         );
 
-        // Try to create detector with different backends if default fails
-        let detector = Self::create_detector_with_fallback(
-            model_path,
-            input_width,
-            input_height,
-        )?;
+        let detector = Self::create_detector_with_fallback(model_path, input_width, input_height)?;
 
         info!(
-            "YuNet detector initialized: input_size={}x{}, model={}",
-            input_width, input_height, model_path
+            "YuNet initialized: {} @ {}x{} (path: {})",
+            variant, input_width, input_height, model_path
         );
 
         Ok(Self {
@@ -311,7 +231,13 @@ impl YuNetDetector {
             input_size: (input_width, input_height),
             frame_size: (frame_width, frame_height),
             model_path: model_path.to_string(),
+            variant,
         })
+    }
+
+    /// Get the model variant in use.
+    pub fn variant(&self) -> ModelVariant {
+        self.variant
     }
 
     /// Calculate optimal input size for YuNet.
@@ -725,20 +651,22 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
                     || error_str.contains("OpenCV 4.6.0 compatibility");
                 
                 if is_opencv_compat_issue && !using_fallback_model {
-                    // Try to fall back to 2022mar model on first detection failure
-                    if let Some(fallback_path) = find_model_path_2022() {
+                    // Try legacy 2022 model as fallback
+                    use super::model_config::ModelConfig;
+                    let legacy_config = ModelConfig::with_variant(ModelVariant::Legacy2022);
+                    if let Ok((_, fallback_path)) = legacy_config.resolve() {
+                        let fallback_path_str = fallback_path.to_string_lossy();
                         warn!(
-                            "YuNet 2023mar hit OpenCV compatibility bug on first frame, \
-                            switching to 2022mar model: {}",
-                            fallback_path
+                            "YuNet hit OpenCV compat bug, trying legacy model: {}",
+                            fallback_path_str
                         );
-                        
-                        match YuNetDetector::new_with_model(fallback_path, actual_width, actual_height) {
+
+                        match YuNetDetector::new_with_model(&fallback_path_str, actual_width, actual_height) {
                             Ok(new_detector) => {
                                 detector = new_detector;
                                 using_fallback_model = true;
-                                info!("Successfully switched to 2022mar model");
-                                
+                                info!("Switched to legacy 2022mar model");
+
                                 // Retry detection with new model
                                 match detector.detect_in_frame(&frame) {
                                     Ok(detections) => {
@@ -747,12 +675,12 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
                                         continue;
                                     }
                                     Err(e2) => {
-                                        warn!("2022mar model also failed: {}", e2);
+                                        warn!("Legacy model also failed: {}", e2);
                                     }
                                 }
                             }
                             Err(e2) => {
-                                warn!("Failed to create 2022mar detector: {}", e2);
+                                warn!("Failed to create legacy detector: {}", e2);
                             }
                         }
                     }

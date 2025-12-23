@@ -182,18 +182,19 @@ impl BackendSelector {
         use opencv::prelude::FaceDetectorYNTrait;
 
         // Find a model to test with
-        let model_path = super::yunet::find_model_path().ok_or_else(|| {
-            MediaError::detection_failed("No YuNet model found for backend test")
+        let (_, model_path) = super::model_config::get_resolved_model().map_err(|e| {
+            MediaError::detection_failed(format!("No YuNet model: {}", e))
         })?;
+        let model_path_str = model_path.to_string_lossy().into_owned();
 
         debug!(
             "Testing OpenVINO backend with model: {}, size: {}x{}",
-            model_path, input_width, input_height
+            model_path_str, input_width, input_height
         );
 
         // Try to create detector with OpenVINO backend
         let mut detector = FaceDetectorYN::create(
-            model_path,
+            &model_path_str,
             "",
             opencv::core::Size::new(input_width, input_height),
             0.3,
@@ -226,17 +227,18 @@ impl BackendSelector {
         use opencv::objdetect::FaceDetectorYN;
         use opencv::prelude::FaceDetectorYNTrait;
 
-        let model_path = super::yunet::find_model_path().ok_or_else(|| {
-            MediaError::detection_failed("No YuNet model found for backend test")
+        let (_, model_path) = super::model_config::get_resolved_model().map_err(|e| {
+            MediaError::detection_failed(format!("No YuNet model: {}", e))
         })?;
+        let model_path_str = model_path.to_string_lossy().into_owned();
 
         debug!(
             "Testing OpenCV DNN backend with model: {}, size: {}x{}",
-            model_path, input_width, input_height
+            model_path_str, input_width, input_height
         );
 
         let mut detector = FaceDetectorYN::create(
-            model_path,
+            &model_path_str,
             "",
             opencv::core::Size::new(input_width, input_height),
             0.3,

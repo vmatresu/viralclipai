@@ -410,6 +410,31 @@ pub async fn run_fallback_detection(
         "Running fallback detection (cache miss)"
     );
 
+    // Try optimized detector first for all tiers (temporal decimation + Kalman tracking)
+    // This provides ~5x throughput improvement with INT8 models
+    let config = IntelligentCropConfig::default();
+
+    if config.engine_mode == FaceEngineMode::Optimized {
+        info!(
+            "[FALLBACK] Using Optimized pipeline (temporal decimation + Kalman) for {:?}",
+            tier
+        );
+        match OptimizedFaceDetector::new(config.clone()) {
+            Ok(detector) => {
+                return detector
+                    .detect_in_video(video_path, start_time, end_time, width, height, fps)
+                    .await;
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to create OptimizedFaceDetector, falling back to legacy: {}",
+                    e
+                );
+            }
+        }
+    }
+
+    // Legacy fallback path - only used if optimized detector fails
     match tier {
         DetectionTier::SpeakerAware | DetectionTier::Cinematic => {
             info!("[FALLBACK] Using SpeakerAware pipeline (YuNet + FaceMesh)");
@@ -424,23 +449,6 @@ pub async fn run_fallback_detection(
             Ok(result.frames.into_iter().map(|f| f.faces).collect())
         }
         DetectionTier::Basic | DetectionTier::None => {
-            let config = IntelligentCropConfig::default();
-
-            // Use optimized detector if configured, otherwise fall back to legacy
-            if config.engine_mode == FaceEngineMode::Optimized {
-                info!("[FALLBACK] Using Optimized pipeline (temporal decimation + Kalman)");
-                match OptimizedFaceDetector::new(config.clone()) {
-                    Ok(detector) => {
-                        return detector
-                            .detect_in_video(video_path, start_time, end_time, width, height, fps)
-                            .await;
-                    }
-                    Err(e) => {
-                        warn!("Failed to create OptimizedFaceDetector, falling back to legacy: {}", e);
-                    }
-                }
-            }
-
             info!("[FALLBACK] Using Basic pipeline (YuNet face detection)");
             let detector = FaceDetector::new(config);
             detector
