@@ -34,7 +34,7 @@
 //! ```
 
 use super::models::BoundingBox;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Configuration for Kalman tracker behavior.
 #[derive(Debug, Clone)]
@@ -279,7 +279,7 @@ impl KalmanTracker {
         }
 
         // Match detections to tracks using IoU
-        let (matches, unmatched_dets, unmatched_tracks) = self.match_detections(detections);
+        let (matches, unmatched_dets, _unmatched_tracks) = self.match_detections(detections);
 
         // Update matched tracks
         for (track_idx, det_idx) in matches {

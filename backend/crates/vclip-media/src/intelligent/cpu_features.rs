@@ -252,6 +252,7 @@ impl CpuFeatures {
 
     /// Verify CPU meets requirements for portable builds (AVX2).
     pub fn verify_portable_requirements() -> Result<(), CpuMismatchError> {
+        #[allow(unused_variables)]
         let features = Self::detect();
 
         #[cfg(target_arch = "x86_64")]

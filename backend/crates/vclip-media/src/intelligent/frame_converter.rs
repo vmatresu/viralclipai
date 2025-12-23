@@ -40,12 +40,15 @@ use opencv::{
 /// Avoids passing buffers across threads and ensures each worker
 /// has its own pre-allocated memory.
 #[cfg(feature = "opencv")]
+#[allow(dead_code)]
 thread_local! {
     static BUFFER_POOL: RefCell<Option<BufferPool>> = RefCell::new(None);
 }
 
 /// Pre-allocated buffer pool for frame operations.
+/// Reserved for future zero-copy frame pipeline optimization.
 #[cfg(feature = "opencv")]
+#[allow(dead_code)]
 struct BufferPool {
     /// BGR conversion buffer
     bgr_buffer: Mat,
@@ -62,6 +65,7 @@ struct BufferPool {
 }
 
 #[cfg(feature = "opencv")]
+#[allow(dead_code)]
 impl BufferPool {
     fn new(inf_width: i32, inf_height: i32) -> MediaResult<Self> {
         Ok(Self {

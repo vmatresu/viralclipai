@@ -22,7 +22,7 @@
 //! ).await?;
 //! ```
 
-use super::config::{FaceEngineMode, IntelligentCropConfig, OptimizedEngineConfig};
+use super::config::{FaceEngineMode, IntelligentCropConfig};
 use super::face_engine::{EngineMode, FaceEngineConfig, FaceInferenceEngine};
 use super::kalman_tracker::KalmanTrackerConfig;
 use super::models::{BoundingBox, Detection};
@@ -33,7 +33,7 @@ use super::yunet;
 use crate::error::{MediaError, MediaResult};
 use std::path::Path;
 use std::time::Instant;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 #[cfg(feature = "opencv")]
 use opencv::{
@@ -145,9 +145,9 @@ impl OptimizedFaceDetector {
             )));
         }
 
-        // Get actual video dimensions
-        let actual_width = cap.get(CAP_PROP_FRAME_WIDTH).unwrap_or(width as f64) as u32;
-        let actual_height = cap.get(CAP_PROP_FRAME_HEIGHT).unwrap_or(height as f64) as u32;
+        // Get actual video dimensions (for future use in adaptive scaling)
+        let _actual_width = cap.get(CAP_PROP_FRAME_WIDTH).unwrap_or(width as f64) as u32;
+        let _actual_height = cap.get(CAP_PROP_FRAME_HEIGHT).unwrap_or(height as f64) as u32;
 
         let duration = end_time - start_time;
         let sample_interval = 1.0 / self.config.fps_sample;

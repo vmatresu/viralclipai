@@ -261,7 +261,8 @@ pub struct FaceInferenceEngine {
     detector: Option<YuNetDetector>,
     /// Letterboxer for preprocessing
     letterboxer: Letterboxer,
-    /// Frame converter with buffer pooling
+    /// Frame converter with buffer pooling (reserved for future zero-copy optimization)
+    #[allow(dead_code)]
     frame_converter: FrameConverter,
     /// Kalman tracker for gap frame interpolation
     tracker: KalmanTracker,

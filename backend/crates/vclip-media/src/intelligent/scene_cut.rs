@@ -192,7 +192,7 @@ impl SceneCutDetector {
     #[cfg(feature = "opencv")]
     fn compute_histogram(&self, frame: &Mat) -> Result<Vec<f32>, opencv::Error> {
         let bins = self.config.bins_per_channel;
-        let total_bins = (bins * bins * bins) as usize;
+        let _total_bins = (bins * bins * bins) as usize;
 
         // Downsample for speed
         let downsampled = if self.config.downsample_factor > 1 {
