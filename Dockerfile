@@ -293,7 +293,8 @@ USER appuser
 ENV RUST_LOG=info,tower_http=info \
     RUST_BACKTRACE=1 \
     TZ=UTC \
-    TMPDIR=/tmp/videos
+    TMPDIR=/tmp/videos \
+    LD_LIBRARY_PATH=/usr/lib/openvino-2024.4.0
 
 # Health check - worker doesn't expose HTTP, check process
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
