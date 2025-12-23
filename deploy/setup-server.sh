@@ -65,7 +65,7 @@ step_updates() {
     # Base dependencies
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
         ufw fail2ban unattended-upgrades apt-listchanges auditd \
-        curl wget git jq ca-certificates gnupg lsb-release
+        curl wget git jq ca-certificates gnupg lsb-release net-tools
 
     # Web server dependencies (Only for API/Full nodes)
     if [[ "$SERVER_TYPE" != "worker" ]]; then
