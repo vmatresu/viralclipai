@@ -56,6 +56,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libssl-dev \
         ca-certificates \
         curl \
+        gnupg \
         # OpenCV: Use pre-built 4.12.0 artifacts instead of apt packages
         # Clang/LLVM for opencv-rust bindgen
         clang \
@@ -73,6 +74,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         # Image codec libraries (required by opencv_imgcodecs)
         libpng16-16 \
         libtiff6 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install OpenVINO 2024.4 runtime (required by libopencv_dnn.so)
+# OpenCV was built with OpenVINO backend support for DNN acceleration
+ARG OPENVINO_VERSION=2024.4
+RUN curl -fsSL https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
+        | gpg --dearmor -o /usr/share/keyrings/intel-openvino.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/intel-openvino.gpg] https://apt.repos.intel.com/openvino/2024 ubuntu24 main" \
+        > /etc/apt/sources.list.d/intel-openvino.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        openvino-${OPENVINO_VERSION} \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust 1.87 via rustup (matches rust:1.87 toolchain)
@@ -213,6 +225,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
+
+# Install OpenVINO 2024.4 runtime (required by libopencv_dnn.so at runtime)
+ARG OPENVINO_VERSION=2024.4
+RUN curl -fsSL https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
+        | gpg --dearmor -o /usr/share/keyrings/intel-openvino.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/intel-openvino.gpg] https://apt.repos.intel.com/openvino/2024 ubuntu24 main" \
+        > /etc/apt/sources.list.d/intel-openvino.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        openvino-${OPENVINO_VERSION} \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install yt-dlp for YouTube video downloads
 RUN pip3 install --no-cache-dir --break-system-packages yt-dlp
