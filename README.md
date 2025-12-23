@@ -26,7 +26,7 @@ Viral Clip AI is an intelligent web application that leverages Google's Gemini A
 
 ```mermaid
 graph TB
-    A[YouTube URL] --> B[Transcript Fetch (youtubei.js → yt-dlp)]
+    A[YouTube URL] --> B[Transcript Fetch (youtubei.js -> yt-dlp)]
     B --> C[Gemini AI Analysis]
     C --> D[Clip Extraction]
     D --> E[Video Processing]
