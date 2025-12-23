@@ -17,6 +17,13 @@ async fn main() {
         .install_default()
         .expect("Failed to install rustls crypto provider");
 
+    // Check for health check mode (Docker HEALTHCHECK)
+    // This prevents starting a second server instance which causes "Address in use" error
+    if std::env::args().any(|arg| arg == "--health-check") {
+        perform_health_check().await;
+        return;
+    }
+
     // Initialize tracing with colored output for dev, JSON for production
     let use_json = std::env::var("LOG_FORMAT")
         .map(|v| v.to_lowercase() == "json")
@@ -104,4 +111,25 @@ async fn shutdown_signal() {
         .await
         .expect("Failed to install CTRL+C handler");
     info!("Received shutdown signal");
+}
+
+async fn perform_health_check() {
+    // Load config to get the correct port
+    let config = ApiConfig::from_env();
+    let url = format!("http://127.0.0.1:{}/health", config.port);
+
+    match reqwest::get(&url).await {
+        Ok(response) => {
+            if response.status().is_success() {
+                std::process::exit(0);
+            } else {
+                eprintln!("Health check failed: Status {}", response.status());
+                std::process::exit(1);
+            }
+        }
+        Err(e) => {
+            eprintln!("Health check failed: {}", e);
+            std::process::exit(1);
+        }
+    }
 }
