@@ -36,25 +36,34 @@ elif [ -f /usr/share/openvino/setupvars.sh ]; then
     source /usr/share/openvino/setupvars.sh
 fi
 
-# Determine OpenVINO CMake directory
+# Determine OpenVINO CMake directory (hard fail if missing).
 OPENVINO_CMAKE_DIR=""
+OPENVINO_CONFIG=""
+
 for dir in \
     "/opt/intel/openvino/runtime/cmake" \
+    "/opt/intel/openvino/runtime/cmake/openvino" \
     "/usr/lib/x86_64-linux-gnu/cmake/openvino" \
-    "/usr/share/openvino/cmake"; do
-    if [ -d "$dir" ]; then
-        OPENVINO_CMAKE_DIR="$dir"
+    "/usr/share/openvino/cmake" \
+    "/usr/local/lib/cmake/openvino"; do
+    if [ -f "${dir}/OpenVINOConfig.cmake" ]; then
+        OPENVINO_CONFIG="${dir}/OpenVINOConfig.cmake"
         break
     fi
 done
 
-if [ -z "$OPENVINO_CMAKE_DIR" ]; then
-    echo "WARNING: OpenVINO CMake directory not found, build will continue without OpenVINO"
-    WITH_OPENVINO="OFF"
-else
-    echo "Found OpenVINO CMake at: ${OPENVINO_CMAKE_DIR}"
-    WITH_OPENVINO="ON"
+if [ -z "${OPENVINO_CONFIG}" ]; then
+    OPENVINO_CONFIG="$(find /opt/intel /usr /usr/local -type f -name OpenVINOConfig.cmake 2>/dev/null | head -n1 || true)"
 fi
+
+if [ -z "${OPENVINO_CONFIG}" ]; then
+    echo "ERROR: OpenVINOConfig.cmake not found. Ensure OpenVINO dev packages are installed."
+    exit 1
+fi
+
+OPENVINO_CMAKE_DIR="$(dirname "${OPENVINO_CONFIG}")"
+echo "Found OpenVINO CMake at: ${OPENVINO_CMAKE_DIR}"
+WITH_OPENVINO="ON"
 
 # =============================================================================
 # ISA Profile Configuration
