@@ -45,7 +45,9 @@ for dir in \
     "/opt/intel/openvino/runtime/cmake/openvino" \
     "/usr/lib/x86_64-linux-gnu/cmake/openvino" \
     "/usr/share/openvino/cmake" \
-    "/usr/local/lib/cmake/openvino"; do
+    "/usr/local/lib/cmake/openvino" \
+    "/usr/lib/cmake/openvino${OPENVINO_VERSION}" \
+    "/usr/lib/cmake/openvino${OPENVINO_VERSION}.0"; do
     if [ -f "${dir}/OpenVINOConfig.cmake" ]; then
         OPENVINO_CONFIG="${dir}/OpenVINOConfig.cmake"
         break
