@@ -266,7 +266,11 @@ cmd_build_native() {
     ninja -j"${num_cores}"
     
     log_info "Installing..."
-    sudo ninja install
+    if command -v sudo >/dev/null 2>&1; then
+        sudo ninja install
+    else
+        ninja install
+    fi
     
     # Generate build info
     generate_build_info "${profile}" "${OPENCV_VERSION}" "${OPENVINO_VERSION}"
