@@ -227,9 +227,11 @@ configure_app_files() {
             fi
             log "Creating empty youtube-cookies.txt..."
             touch "$cookies_file"
-            chmod 600 "$cookies_file"
-            chown deploy:deploy "$cookies_file"
         fi
+        # Ensure readable by container user (appuser:65532)
+        # 644 = owner rw, group r, others r
+        chmod 644 "$cookies_file"
+        chown deploy:deploy "$cookies_file"
     fi
 }
 
