@@ -44,7 +44,7 @@ log_capabilities() {
 }
 
 build_portable() {
-    "${SCRIPT_DIR}/build-portable.sh"
+    DOCKER_BUILDKIT=1 BUILDKIT_PROGRESS=plain "${SCRIPT_DIR}/build-portable.sh"
 }
 
 build_tuned() {
@@ -52,7 +52,7 @@ build_tuned() {
         echo "ERROR: AVX-512 not detected. Tuned build requires AVX-512F/BW/VL."
         exit 1
     fi
-    "${SCRIPT_DIR}/build-tuned.sh"
+    DOCKER_BUILDKIT=1 BUILDKIT_PROGRESS=plain "${SCRIPT_DIR}/build-tuned.sh"
 }
 
 case "${MODE}" in

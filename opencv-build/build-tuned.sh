@@ -23,7 +23,7 @@ echo "Runtime verification is required to prevent SIGILL crashes."
 echo ""
 
 # Build the Docker image and extract artifacts
-docker build \
+DOCKER_BUILDKIT=1 BUILDKIT_PROGRESS=plain docker build \
     --target export \
     --build-arg ISA_PROFILE=tuned \
     --build-arg OPENCV_VERSION=4.12.0 \
