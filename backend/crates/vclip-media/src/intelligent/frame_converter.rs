@@ -25,98 +25,14 @@
 use super::letterbox::Letterboxer;
 use super::mapping::MappingMeta;
 use crate::error::{MediaError, MediaResult};
-use std::cell::RefCell;
-use tracing::{debug, info};
+use tracing::info;
 
 #[cfg(feature = "opencv")]
 use opencv::{
-    core::{Mat, Size, CV_8UC3},
+    core::{Mat, Size},
     imgproc,
     prelude::*,
 };
-
-/// Thread-local buffer pool for frame conversion.
-///
-/// Avoids passing buffers across threads and ensures each worker
-/// has its own pre-allocated memory.
-#[cfg(feature = "opencv")]
-#[allow(dead_code)]
-thread_local! {
-    static BUFFER_POOL: RefCell<Option<BufferPool>> = RefCell::new(None);
-}
-
-/// Pre-allocated buffer pool for frame operations.
-/// Reserved for future zero-copy frame pipeline optimization.
-#[cfg(feature = "opencv")]
-#[allow(dead_code)]
-struct BufferPool {
-    /// BGR conversion buffer
-    bgr_buffer: Mat,
-    /// Resize buffer
-    resize_buffer: Mat,
-    /// Letterbox output buffer
-    letterbox_buffer: Mat,
-    /// Detection output buffer
-    faces_buffer: Mat,
-    /// Current raw dimensions
-    raw_size: (i32, i32),
-    /// Target inference dimensions
-    inf_size: (i32, i32),
-}
-
-#[cfg(feature = "opencv")]
-#[allow(dead_code)]
-impl BufferPool {
-    fn new(inf_width: i32, inf_height: i32) -> MediaResult<Self> {
-        Ok(Self {
-            bgr_buffer: Mat::default(),
-            resize_buffer: Mat::default(),
-            letterbox_buffer: Mat::zeros(inf_height, inf_width, CV_8UC3)
-                .map_err(|e| MediaError::detection_failed(format!("Buffer alloc: {}", e)))?
-                .to_mat()
-                .map_err(|e| MediaError::detection_failed(format!("Buffer conv: {}", e)))?,
-            faces_buffer: Mat::default(),
-            raw_size: (0, 0),
-            inf_size: (inf_width, inf_height),
-        })
-    }
-
-    fn ensure_size(&mut self, raw_width: i32, raw_height: i32) -> MediaResult<()> {
-        if self.raw_size == (raw_width, raw_height) {
-            return Ok(());
-        }
-
-        // Reallocate BGR buffer
-        self.bgr_buffer = Mat::zeros(raw_height, raw_width, CV_8UC3)
-            .map_err(|e| MediaError::detection_failed(format!("BGR buffer: {}", e)))?
-            .to_mat()
-            .map_err(|e| MediaError::detection_failed(format!("BGR conv: {}", e)))?;
-
-        // Compute new mapping to get scaled size
-        let meta = MappingMeta::compute(
-            raw_width as u32,
-            raw_height as u32,
-            self.inf_size.0 as u32,
-            self.inf_size.1 as u32,
-        );
-
-        // Reallocate resize buffer
-        self.resize_buffer = Mat::zeros(meta.scaled_height, meta.scaled_width, CV_8UC3)
-            .map_err(|e| MediaError::detection_failed(format!("Resize buffer: {}", e)))?
-            .to_mat()
-            .map_err(|e| MediaError::detection_failed(format!("Resize conv: {}", e)))?;
-
-        self.raw_size = (raw_width, raw_height);
-
-        debug!(
-            raw = format!("{}x{}", raw_width, raw_height),
-            inf = format!("{}x{}", self.inf_size.0, self.inf_size.1),
-            "Buffer pool resized"
-        );
-
-        Ok(())
-    }
-}
 
 /// Frame converter with buffer pooling for zero-allocation hot loop.
 #[cfg(feature = "opencv")]
@@ -299,61 +215,6 @@ impl FrameConverter {
     }
 }
 
-/// Mat buffer pool for reusing allocated memory.
-///
-/// Reduces allocation pressure by maintaining a pool of pre-sized Mats.
-#[cfg(feature = "opencv")]
-pub struct MatPool {
-    /// Available buffers
-    buffers: Vec<Mat>,
-    /// Target size for buffers
-    target_size: (i32, i32),
-    /// Maximum pool size
-    max_size: usize,
-}
-
-#[cfg(feature = "opencv")]
-impl MatPool {
-    /// Create a new Mat pool with target dimensions.
-    pub fn new(width: i32, height: i32, max_size: usize) -> Self {
-        Self {
-            buffers: Vec::with_capacity(max_size),
-            target_size: (width, height),
-            max_size,
-        }
-    }
-
-    /// Get a buffer from the pool, or create a new one.
-    pub fn get(&mut self) -> MediaResult<Mat> {
-        if let Some(mat) = self.buffers.pop() {
-            Ok(mat)
-        } else {
-            Mat::zeros(self.target_size.1, self.target_size.0, CV_8UC3)
-                .map_err(|e| MediaError::detection_failed(format!("Pool alloc: {}", e)))?
-                .to_mat()
-                .map_err(|e| MediaError::detection_failed(format!("Pool conv: {}", e)))
-        }
-    }
-
-    /// Return a buffer to the pool.
-    pub fn put(&mut self, mat: Mat) {
-        if self.buffers.len() < self.max_size {
-            self.buffers.push(mat);
-        }
-        // Otherwise drop the mat
-    }
-
-    /// Clear the pool.
-    pub fn clear(&mut self) {
-        self.buffers.clear();
-    }
-
-    /// Get current pool size.
-    pub fn size(&self) -> usize {
-        self.buffers.len()
-    }
-}
-
 #[cfg(feature = "opencv")]
 #[cfg(test)]
 mod tests {
@@ -370,42 +231,5 @@ mod tests {
     fn test_frame_converter_for_yunet() {
         let converter = FrameConverter::for_yunet();
         assert_eq!(converter.inf_dims(), (960, 540));
-    }
-
-    #[test]
-    fn test_mat_pool() {
-        let mut pool = MatPool::new(640, 480, 4);
-
-        // Get buffers
-        let mat1 = pool.get().unwrap();
-        let mat2 = pool.get().unwrap();
-
-        assert_eq!(pool.size(), 0);
-
-        // Return buffers
-        pool.put(mat1);
-        pool.put(mat2);
-
-        assert_eq!(pool.size(), 2);
-
-        // Get from pool
-        let _mat3 = pool.get().unwrap();
-        assert_eq!(pool.size(), 1);
-    }
-
-    #[test]
-    fn test_mat_pool_max_size() {
-        let mut pool = MatPool::new(320, 240, 2);
-
-        // Fill pool
-        let mat1 = pool.get().unwrap();
-        let mat2 = pool.get().unwrap();
-        let mat3 = pool.get().unwrap();
-
-        pool.put(mat1);
-        pool.put(mat2);
-        pool.put(mat3); // Should be dropped (exceeds max_size)
-
-        assert_eq!(pool.size(), 2);
     }
 }

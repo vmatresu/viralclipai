@@ -63,7 +63,7 @@ impl Default for TemporalConfig {
         Self {
             detect_every_n: 5,
             detect_interval: None,
-            scene_cut_threshold: 0.3,
+            scene_cut_threshold: 0.5,
             min_confidence: 0.4,
             drift_threshold: 0.15,
             max_gap_frames: 30,

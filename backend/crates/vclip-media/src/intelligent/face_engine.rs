@@ -55,7 +55,6 @@
 
 use super::backend::{BackendMetrics, BackendSelector, InferenceBackend};
 use super::cpu_features::CpuFeatures;
-use super::frame_converter::FrameConverter;
 use super::kalman_tracker::{KalmanTracker, KalmanTrackerConfig, TrackerStats};
 use super::letterbox::Letterboxer;
 use super::mapping::{MappingMeta, NormalizedBBox, DEFAULT_INF_HEIGHT, DEFAULT_INF_WIDTH};
@@ -156,8 +155,17 @@ impl FaceEngineConfig {
     /// Create config optimized for YouTube content (16:9).
     pub fn youtube() -> Self {
         Self {
-            inf_width: 960,
-            inf_height: 540,
+            inf_width: 1280,
+            inf_height: 720,
+            ..Default::default()
+        }
+    }
+
+    /// Create config optimized for high-resolution content (4K, 1080p).
+    pub fn high_res() -> Self {
+        Self {
+            inf_width: 1280,
+            inf_height: 720,
             ..Default::default()
         }
     }
@@ -261,9 +269,6 @@ pub struct FaceInferenceEngine {
     detector: Option<YuNetDetector>,
     /// Letterboxer for preprocessing
     letterboxer: Letterboxer,
-    /// Frame converter with buffer pooling (reserved for future zero-copy optimization)
-    #[allow(dead_code)]
-    frame_converter: FrameConverter,
     /// Kalman tracker for gap frame interpolation
     tracker: KalmanTracker,
     /// Temporal decimator
@@ -320,10 +325,6 @@ impl FaceInferenceEngine {
         let letterboxer = Letterboxer::new(config.inf_width as i32, config.inf_height as i32)
             .with_padding_value(config.padding_value);
 
-        let frame_converter =
-            FrameConverter::new(config.inf_width as i32, config.inf_height as i32)
-                .with_padding_value(config.padding_value);
-
         let tracker = KalmanTracker::with_config(config.tracker.clone());
         let decimator = TemporalDecimator::new(config.temporal.clone());
         let scene_cut = SceneCutDetector::with_config(config.scene_cut.clone());
@@ -338,7 +339,6 @@ impl FaceInferenceEngine {
             config,
             detector: None, // Lazily initialized on first frame
             letterboxer,
-            frame_converter,
             tracker,
             decimator,
             scene_cut,

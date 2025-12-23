@@ -16,7 +16,7 @@
 //! ```rust
 //! use vclip_media::intelligent::scene_cut::SceneCutDetector;
 //!
-//! let mut detector = SceneCutDetector::new(0.3);
+//! let mut detector = SceneCutDetector::new(0.5);
 //! let is_cut = detector.check_frame(&frame);
 //! if is_cut {
 //!     tracker.hard_reset();
@@ -54,9 +54,9 @@ pub struct SceneCutConfig {
 impl Default for SceneCutConfig {
     fn default() -> Self {
         Self {
-            threshold: 0.3,
+            threshold: 0.5,
             bins_per_channel: 8,
-            min_cut_interval: 5,
+            min_cut_interval: 10,
             downsample_factor: 4,
         }
     }
