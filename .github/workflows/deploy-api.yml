@@ -42,6 +42,9 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             
+            echo "Building API image..."
+            docker compose --env-file .env --file deploy/docker-compose.api.yml build
+
             echo "Reloading API Service..."
             # Uses systemd to manage the reload (zero-downtime if possible)
             sudo systemctl reload viralclip-api.service

@@ -47,6 +47,9 @@ jobs:
           git fetch origin main
           git reset --hard origin/main
 
+          echo "Building Worker image..."
+          docker compose --env-file .env --file deploy/docker-compose.worker.yml build
+
           echo "Reloading Worker Service..."
           # Uses systemd to manage the reload
           sudo systemctl reload viralclip-worker.service
