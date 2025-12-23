@@ -37,34 +37,71 @@ elif [ -f /usr/share/openvino/setupvars.sh ]; then
 fi
 
 # Determine OpenVINO CMake directory (hard fail if missing).
+echo ""
+echo "=============================================="
+echo "Searching for OpenVINO CMake configuration..."
+echo "=============================================="
+
 OPENVINO_CMAKE_DIR=""
 OPENVINO_CONFIG=""
 
-for dir in \
-    "/opt/intel/openvino/runtime/cmake" \
-    "/opt/intel/openvino/runtime/cmake/openvino" \
-    "/usr/lib/x86_64-linux-gnu/cmake/openvino" \
-    "/usr/share/openvino/cmake" \
-    "/usr/local/lib/cmake/openvino" \
-    "/usr/lib/cmake/openvino${OPENVINO_VERSION}" \
-    "/usr/lib/cmake/openvino${OPENVINO_VERSION}.0"; do
+# List of paths to check (order matters - most likely first)
+SEARCH_PATHS=(
+    "/opt/intel/openvino/runtime/cmake"
+    "/opt/intel/openvino/runtime/cmake/openvino"
+    "/opt/intel/openvino_${OPENVINO_VERSION}/runtime/cmake"
+    "/usr/lib/x86_64-linux-gnu/cmake/openvino"
+    "/usr/lib/x86_64-linux-gnu/cmake/openvino${OPENVINO_VERSION}"
+    "/usr/lib/x86_64-linux-gnu/cmake/openvino${OPENVINO_VERSION}.0"
+    "/usr/share/openvino/cmake"
+    "/usr/local/lib/cmake/openvino"
+    "/usr/lib/cmake/openvino"
+    "/usr/lib/cmake/openvino${OPENVINO_VERSION}"
+    "/usr/lib/cmake/openvino${OPENVINO_VERSION}.0"
+)
+
+for dir in "${SEARCH_PATHS[@]}"; do
     if [ -f "${dir}/OpenVINOConfig.cmake" ]; then
+        echo "  [FOUND] ${dir}/OpenVINOConfig.cmake"
         OPENVINO_CONFIG="${dir}/OpenVINOConfig.cmake"
         break
+    else
+        echo "  [    ] ${dir} (not found)"
     fi
 done
 
+# Fallback: search filesystem
 if [ -z "${OPENVINO_CONFIG}" ]; then
-    OPENVINO_CONFIG="$(find /opt/intel /usr /usr/local -type f -name OpenVINOConfig.cmake 2>/dev/null | head -n1 || true)"
+    echo ""
+    echo "Searching filesystem for OpenVINOConfig.cmake..."
+    OPENVINO_CONFIG="$(find /opt/intel /usr /usr/local -type f -name 'OpenVINOConfig.cmake' 2>/dev/null | head -n1 || true)"
+    if [ -n "${OPENVINO_CONFIG}" ]; then
+        echo "  [FOUND via search] ${OPENVINO_CONFIG}"
+    fi
 fi
 
 if [ -z "${OPENVINO_CONFIG}" ]; then
-    echo "ERROR: OpenVINOConfig.cmake not found. Ensure OpenVINO dev packages are installed."
+    echo ""
+    echo "=============================================="
+    echo "FATAL ERROR: OpenVINOConfig.cmake not found"
+    echo "=============================================="
+    echo "OpenVINO development files are not installed."
+    echo ""
+    echo "Installed OpenVINO packages:"
+    dpkg -l | grep -i openvino || echo "  (none found)"
+    echo ""
+    echo "Files in /usr/lib/x86_64-linux-gnu/cmake/:"
+    ls -la /usr/lib/x86_64-linux-gnu/cmake/ 2>/dev/null || echo "  (directory not found)"
+    echo ""
+    echo "Files in /opt/intel/:"
+    ls -la /opt/intel/ 2>/dev/null || echo "  (directory not found)"
+    echo ""
     exit 1
 fi
 
 OPENVINO_CMAKE_DIR="$(dirname "${OPENVINO_CONFIG}")"
-echo "Found OpenVINO CMake at: ${OPENVINO_CMAKE_DIR}"
+echo ""
+echo "Using OpenVINO CMake directory: ${OPENVINO_CMAKE_DIR}"
 WITH_OPENVINO="ON"
 
 # =============================================================================
@@ -229,6 +266,31 @@ cmake -G Ninja ../opencv \
     -D OPENCV_GENERATE_PKGCONFIG=ON
 
 # =============================================================================
+# Verify OpenVINO was actually enabled by CMake
+# =============================================================================
+echo "Verifying OpenVINO integration..."
+OPENVINO_ENABLED=$(grep "^WITH_OPENVINO:BOOL=" CMakeCache.txt | cut -d= -f2)
+if [ "${OPENVINO_ENABLED}" != "ON" ]; then
+    echo ""
+    echo "=============================================="
+    echo "FATAL ERROR: OpenVINO integration FAILED"
+    echo "=============================================="
+    echo "CMake set WITH_OPENVINO=OFF despite our configuration."
+    echo "This means OpenVINO was not properly detected."
+    echo ""
+    echo "Debug info from CMakeCache.txt:"
+    grep -iE "openvino|inference.engine" CMakeCache.txt || echo "  (no matches)"
+    echo ""
+    echo "Check that:"
+    echo "  1. OpenVINO dev packages are installed (openvino-2024.4)"
+    echo "  2. OpenVINOConfig.cmake exists at: ${OPENVINO_CMAKE_DIR}"
+    echo "  3. All OpenVINO dependencies are available"
+    echo ""
+    exit 1
+fi
+echo "OpenVINO integration verified: WITH_OPENVINO=ON"
+
+# =============================================================================
 # Build OpenCV
 # =============================================================================
 echo "Building OpenCV with $(nproc) cores..."
@@ -239,6 +301,33 @@ ninja -j$(nproc)
 # =============================================================================
 echo "Installing OpenCV..."
 ninja install
+
+# =============================================================================
+# Verify OpenVINO is linked into libopencv_dnn
+# =============================================================================
+echo ""
+echo "Verifying OpenVINO linking in libopencv_dnn..."
+DNN_LIB="/usr/local/lib/libopencv_dnn.so"
+if [ -f "${DNN_LIB}" ]; then
+    if ldd "${DNN_LIB}" | grep -q "libopenvino"; then
+        echo "SUCCESS: libopencv_dnn.so links to libopenvino"
+        ldd "${DNN_LIB}" | grep openvino
+    else
+        echo ""
+        echo "=============================================="
+        echo "FATAL ERROR: OpenVINO not linked"
+        echo "=============================================="
+        echo "libopencv_dnn.so was built but does NOT link to libopenvino."
+        echo "This means OpenVINO backend will not be available at runtime."
+        echo ""
+        echo "Library dependencies:"
+        ldd "${DNN_LIB}"
+        echo ""
+        exit 1
+    fi
+else
+    echo "WARNING: ${DNN_LIB} not found after install"
+fi
 
 # =============================================================================
 # Generate Build Info

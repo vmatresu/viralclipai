@@ -87,6 +87,16 @@ jobs:
         echo ""
         echo "=== Build Info ==="
         cat opencv-artifacts-portable/opencv-build-info.txt
+        echo ""
+        echo "=== Verifying OpenVINO Integration ==="
+        if grep -q "OpenVINO Enabled: ON" opencv-artifacts-portable/opencv-build-info.txt; then
+          echo "✓ OpenVINO integration verified"
+        else
+          echo "✗ FATAL: OpenVINO integration FAILED"
+          echo "The build completed but OpenVINO was not enabled."
+          echo "Check the build logs for OpenVINO detection issues."
+          exit 1
+        fi
 
     - name: Upload portable artifacts
       uses: actions/upload-artifact@v4
@@ -144,6 +154,16 @@ jobs:
         echo ""
         echo "=== Build Info ==="
         cat opencv-artifacts-tuned/opencv-build-info.txt
+        echo ""
+        echo "=== Verifying OpenVINO Integration ==="
+        if grep -q "OpenVINO Enabled: ON" opencv-artifacts-tuned/opencv-build-info.txt; then
+          echo "✓ OpenVINO integration verified"
+        else
+          echo "✗ FATAL: OpenVINO integration FAILED"
+          echo "The build completed but OpenVINO was not enabled."
+          echo "Check the build logs for OpenVINO detection issues."
+          exit 1
+        fi
 
     - name: Upload tuned artifacts
       uses: actions/upload-artifact@v4

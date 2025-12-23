@@ -53,9 +53,14 @@ RUN curl -fsSL https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-P
         > /etc/apt/sources.list.d/intel-openvino.list
 
 # Install OpenVINO runtime and development packages
+# Note: We need the full openvino package which includes cmake files for OpenCV integration
 RUN apt-get update && apt-get install -y --no-install-recommends \
         openvino-${OPENVINO_VERSION} \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && echo "Installed OpenVINO packages:" \
+    && dpkg -l | grep -i openvino \
+    && echo "Searching for OpenVINOConfig.cmake:" \
+    && find /usr /opt -name 'OpenVINOConfig.cmake' 2>/dev/null || echo "  (not found - this will cause build failure)"
 
 # =============================================================================
 # Stage 2: Install build dependencies
