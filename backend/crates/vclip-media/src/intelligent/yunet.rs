@@ -351,24 +351,31 @@ impl YuNetDetector {
     ///
     /// OpenCV DNN supports multiple backends (default, OpenCV, OpenVINO, CUDA, etc.)
     /// Some backends may work better with certain model formats.
+    ///
+    /// Priority order:
+    /// 1. OpenVINO (DNN_BACKEND_INFERENCE_ENGINE) - Best performance on Intel CPUs
+    /// 2. OpenCV DNN (DNN_BACKEND_OPENCV) - Universal fallback
+    /// 3. Default (DNN_BACKEND_DEFAULT) - Let OpenCV decide
     fn create_detector_with_fallback(
         model_path: &str,
         input_width: i32,
         input_height: i32,
     ) -> MediaResult<opencv::core::Ptr<opencv::objdetect::FaceDetectorYN>> {
-        use opencv::dnn::{DNN_BACKEND_DEFAULT, DNN_BACKEND_OPENCV, DNN_TARGET_CPU};
+        use opencv::dnn::{DNN_BACKEND_DEFAULT, DNN_BACKEND_INFERENCE_ENGINE, DNN_BACKEND_OPENCV, DNN_TARGET_CPU};
 
         // Backend configurations to try in order of preference
+        // OpenVINO first for optimal performance on Intel CPUs
         let backends = [
+            (DNN_BACKEND_INFERENCE_ENGINE, DNN_TARGET_CPU, "OpenVINO"),
+            (DNN_BACKEND_OPENCV, DNN_TARGET_CPU, "OpenCV"),
             (DNN_BACKEND_DEFAULT, DNN_TARGET_CPU, "default"),
-            (DNN_BACKEND_OPENCV, DNN_TARGET_CPU, "opencv"),
         ];
 
         let mut last_error = String::new();
 
         for (backend_id, target_id, backend_name) in backends {
             debug!("Trying YuNet with {} backend", backend_name);
-            
+
             match FaceDetectorYN::create(
                 model_path,
                 "",
@@ -380,11 +387,11 @@ impl YuNetDetector {
                 target_id,
             ) {
                 Ok(detector) => {
-                    debug!("YuNet created successfully with {} backend", backend_name);
+                    info!("YuNet initialized with {} backend", backend_name);
                     return Ok(detector);
                 }
                 Err(e) => {
-                    warn!("YuNet {} backend failed: {}", backend_name, e);
+                    debug!("YuNet {} backend failed: {}", backend_name, e);
                     last_error = e.to_string();
                 }
             }
