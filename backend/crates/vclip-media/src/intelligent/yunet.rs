@@ -207,7 +207,7 @@ fn find_model_path_2022() -> Option<&'static str> {
 }
 
 /// Find any available YuNet model file (prefers 2023mar, falls back to 2022mar)
-fn find_model_path() -> Option<&'static str> {
+pub fn find_model_path() -> Option<&'static str> {
     find_model_path_2023().or_else(find_model_path_2022)
 }
 

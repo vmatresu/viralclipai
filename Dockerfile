@@ -47,6 +47,7 @@ FROM ubuntu:24.04 AS builder
 ARG TARGETPLATFORM
 ARG TARGETARCH
 ARG SERVICE_TYPE=api
+ARG OPENCV_TARBALL=opencv-4.12.0-ubuntu24.04-amd64.tar.gz
 
 # Install build dependencies and pre-built OpenCV 4.12.0
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -80,7 +81,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Copy and extract pre-built OpenCV 4.12.0 artifacts (AMD64 for production)
-COPY opencv-artifacts/opencv-4.12.0-ubuntu24.04-amd64.tar.gz /tmp/opencv.tar.gz
+COPY opencv-artifacts/${OPENCV_TARBALL} /tmp/opencv.tar.gz
 RUN cd /usr/local && \
     tar -xzf /tmp/opencv.tar.gz && \
     rm /tmp/opencv.tar.gz && \
@@ -189,6 +190,8 @@ ENTRYPOINT ["/app/vclip-api"]
 # -----------------------------------------------------------------------------
 FROM ubuntu:24.04 AS worker-runtime
 
+ARG OPENCV_TARBALL=opencv-4.12.0-ubuntu24.04-amd64.tar.gz
+
 # OCI labels
 LABEL org.opencontainers.image.title="ViralClip Worker" \
       org.opencontainers.image.description="Video processing worker with FFmpeg" \
@@ -221,7 +224,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and extract pre-built OpenCV 4.12.0 runtime libraries (AMD64 for production)
-COPY opencv-artifacts/opencv-4.12.0-ubuntu24.04-amd64.tar.gz /tmp/opencv.tar.gz
+COPY opencv-artifacts/${OPENCV_TARBALL} /tmp/opencv.tar.gz
 RUN cd /usr/local && \
     tar -xzf /tmp/opencv.tar.gz && \
     rm /tmp/opencv.tar.gz && \

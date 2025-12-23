@@ -27,7 +27,8 @@
       "Bash(cargo search:*)",
       "Bash(xargs:*)",
       "Bash(npx tsc:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(LLVM_CONFIG_PATH=\"/opt/homebrew/opt/llvm/bin/llvm-config\" LIBCLANG_PATH=\"/opt/homebrew/opt/llvm/lib\" cargo check:*)"
     ],
     "deny": [],
     "ask": []

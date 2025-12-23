@@ -13,6 +13,7 @@ FROM ubuntu:24.04 AS dev
 # Build arguments for cache busting and metadata
 ARG TARGETARCH
 ARG BUILDPLATFORM
+ARG OPENCV_TARBALL=opencv-4.12.0-ubuntu24.04.tar.gz
 
 LABEL org.opencontainers.image.title="ViralClip Dev" \
       org.opencontainers.image.description="Development container for ViralClip Rust backend"
@@ -56,10 +57,10 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
 
 ENV PATH="/root/.cargo/bin:${PATH}"
 # Copy and extract pre-built OpenCV 4.12.0 artifacts
-COPY opencv-artifacts/opencv-4.12.0-ubuntu24.04.tar.gz /tmp/
+COPY opencv-artifacts/${OPENCV_TARBALL} /tmp/
 RUN cd /usr/local && \
-    tar -xzf /tmp/opencv-4.12.0-ubuntu24.04.tar.gz && \
-    rm /tmp/opencv-4.12.0-ubuntu24.04.tar.gz && \
+    tar -xzf /tmp/${OPENCV_TARBALL} && \
+    rm /tmp/${OPENCV_TARBALL} && \
     ldconfig
 
 # Copy and extract pre-built ONNX Runtime 1.22.0 (for ort crate)

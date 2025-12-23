@@ -30,9 +30,10 @@ use std::path::Path;
 use tracing::{info, warn};
 use vclip_models::{DetectionTier, SceneNeuralAnalysis};
 
-use super::config::IntelligentCropConfig;
+use super::config::{FaceEngineMode, IntelligentCropConfig};
 use super::detector::FaceDetector;
 use super::models::{BoundingBox, Detection};
+use super::optimized_detector::OptimizedFaceDetector;
 use crate::detection::pipeline_builder::PipelineBuilder;
 use crate::error::MediaResult;
 
@@ -423,8 +424,24 @@ pub async fn run_fallback_detection(
             Ok(result.frames.into_iter().map(|f| f.faces).collect())
         }
         DetectionTier::Basic | DetectionTier::None => {
-            info!("[FALLBACK] Using Basic pipeline (YuNet face detection)");
             let config = IntelligentCropConfig::default();
+
+            // Use optimized detector if configured, otherwise fall back to legacy
+            if config.engine_mode == FaceEngineMode::Optimized {
+                info!("[FALLBACK] Using Optimized pipeline (temporal decimation + Kalman)");
+                match OptimizedFaceDetector::new(config.clone()) {
+                    Ok(detector) => {
+                        return detector
+                            .detect_in_video(video_path, start_time, end_time, width, height, fps)
+                            .await;
+                    }
+                    Err(e) => {
+                        warn!("Failed to create OptimizedFaceDetector, falling back to legacy: {}", e);
+                    }
+                }
+            }
+
+            info!("[FALLBACK] Using Basic pipeline (YuNet face detection)");
             let detector = FaceDetector::new(config);
             detector
                 .detect_in_video(video_path, start_time, end_time, width, height, fps)

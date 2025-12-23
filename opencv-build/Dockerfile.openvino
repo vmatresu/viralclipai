@@ -1,0 +1,142 @@
+# =============================================================================
+# OpenCV Builder with OpenVINO Integration (v1.1)
+# =============================================================================
+# Multi-stage build for OpenCV 4.12.0 with OpenVINO backend support.
+# Produces optimized artifacts for CPU inference with:
+# - OpenVINO integration for DNN acceleration
+# - TBB threading for parallel operations
+# - IPP (Intel Performance Primitives) for image processing
+# - Configurable ISA profiles (PORTABLE vs TUNED)
+#
+# Build arguments:
+#   --build-arg OPENCV_VERSION=4.12.0
+#   --build-arg OPENVINO_VERSION=2024.4
+#   --build-arg ISA_PROFILE=portable   # or "tuned" for AVX-512
+#
+# Output artifacts (in /artifacts/):
+#   - opencv-{version}-openvino-{profile}.tar.gz
+#   - opencv-build-info.txt
+# =============================================================================
+
+FROM ubuntu:24.04 AS builder
+
+# Build arguments
+ARG OPENCV_VERSION=4.12.0
+ARG OPENVINO_VERSION=2024.4
+ARG ISA_PROFILE=portable
+ARG TARGETARCH=amd64
+
+# Labels
+LABEL org.opencontainers.image.title="OpenCV Builder with OpenVINO" \
+      org.opencontainers.image.description="OpenCV ${OPENCV_VERSION} with OpenVINO ${OPENVINO_VERSION}" \
+      org.opencontainers.image.vendor="ViralClip AI" \
+      opencv.version="${OPENCV_VERSION}" \
+      openvino.version="${OPENVINO_VERSION}" \
+      isa.profile="${ISA_PROFILE}"
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# =============================================================================
+# Stage 1: Install OpenVINO Runtime & Development packages
+# =============================================================================
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add Intel GPG key and OpenVINO repository
+RUN curl -fsSL https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
+        | gpg --dearmor -o /usr/share/keyrings/intel-openvino.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/intel-openvino.gpg] https://apt.repos.intel.com/openvino/2024 ubuntu24 main" \
+        > /etc/apt/sources.list.d/intel-openvino.list
+
+# Install OpenVINO runtime and development packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        openvino-${OPENVINO_VERSION} \
+    && rm -rf /var/lib/apt/lists/*
+
+# =============================================================================
+# Stage 2: Install build dependencies
+# =============================================================================
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        # Build tools
+        cmake \
+        ninja-build \
+        build-essential \
+        pkg-config \
+        git \
+        # Threading: TBB (Intel Threading Building Blocks)
+        libtbb-dev \
+        # Linear algebra
+        libopenblas-dev \
+        # FFmpeg for video I/O
+        libavcodec-dev \
+        libavformat-dev \
+        libswscale-dev \
+        libavutil-dev \
+        # Image codecs
+        libpng-dev \
+        libtiff-dev \
+        libwebp-dev \
+        libjpeg-dev \
+        # Utilities
+        python3 \
+        python3-numpy \
+    && rm -rf /var/lib/apt/lists/*
+
+# =============================================================================
+# Stage 3: Clone OpenCV source
+# =============================================================================
+WORKDIR /opencv
+
+RUN git clone --depth 1 -b ${OPENCV_VERSION} https://github.com/opencv/opencv.git \
+    && git clone --depth 1 -b ${OPENCV_VERSION} https://github.com/opencv/opencv_contrib.git
+
+# =============================================================================
+# Stage 4: Configure and build OpenCV
+# =============================================================================
+WORKDIR /opencv/build
+
+# Copy build configuration script
+COPY build-opencv.sh /opencv/build-opencv.sh
+RUN chmod +x /opencv/build-opencv.sh
+
+# Run the build with the specified ISA profile
+RUN /opencv/build-opencv.sh ${ISA_PROFILE} ${OPENCV_VERSION} ${OPENVINO_VERSION}
+
+# =============================================================================
+# Stage 5: Create artifacts
+# =============================================================================
+FROM ubuntu:24.04 AS artifacts
+
+ARG OPENCV_VERSION=4.12.0
+ARG OPENVINO_VERSION=2024.4
+ARG ISA_PROFILE=portable
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy installed OpenCV from builder
+COPY --from=builder /usr/local /usr/local
+
+# Create artifacts directory
+RUN mkdir -p /artifacts
+
+# Create tarball of OpenCV installation
+RUN cd /usr/local && \
+    tar -czf /artifacts/opencv-${OPENCV_VERSION}-openvino-${ISA_PROFILE}.tar.gz \
+        lib/libopencv* \
+        lib/cmake/opencv4 \
+        lib/pkgconfig/opencv4.pc \
+        include/opencv4 \
+        share/opencv4
+
+# Copy build info
+COPY --from=builder /opencv/build/opencv-build-info.txt /artifacts/
+
+# Final stage: expose artifacts
+FROM scratch AS export
+COPY --from=artifacts /artifacts /

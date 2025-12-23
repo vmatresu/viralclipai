@@ -1,0 +1,153 @@
+# =============================================================================
+# OpenCV Build Workflow with OpenVINO Integration
+# =============================================================================
+# Builds OpenCV artifacts with OpenVINO backend for both ISA profiles.
+# Artifacts are cached and reused across deployments.
+#
+# Triggers:
+#   - Manual dispatch with profile selection
+#   - Changes to opencv-build/ directory
+#   - Weekly rebuild for security updates
+# =============================================================================
+
+name: OpenCV Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'ISA Profile to build'
+        required: true
+        default: 'portable'
+        type: choice
+        options:
+        - portable
+        - tuned
+        - both
+      opencv_version:
+        description: 'OpenCV version'
+        required: true
+        default: '4.12.0'
+      openvino_version:
+        description: 'OpenVINO version'
+        required: true
+        default: '2024.4'
+
+env:
+  OPENCV_VERSION: ${{ inputs.opencv_version || '4.12.0' }}
+  OPENVINO_VERSION: ${{ inputs.openvino_version || '2024.4' }}
+
+jobs:
+  # ===========================================================================
+  # Build Portable Profile (AVX2 baseline)
+  # ===========================================================================
+  build-portable:
+    if: ${{ inputs.profile == 'portable' || inputs.profile == 'both' || github.event_name != 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Cache Docker layers
+      uses: actions/cache@v4
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-portable-${{ env.OPENCV_VERSION }}-${{ hashFiles('opencv-build/**') }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-portable-${{ env.OPENCV_VERSION }}-
+          ${{ runner.os }}-buildx-portable-
+
+    - name: Build OpenCV (Portable Profile)
+      run: |
+        docker buildx build \
+          --target export \
+          --build-arg ISA_PROFILE=portable \
+          --build-arg OPENCV_VERSION=${{ env.OPENCV_VERSION }} \
+          --build-arg OPENVINO_VERSION=${{ env.OPENVINO_VERSION }} \
+          --cache-from type=local,src=/tmp/.buildx-cache \
+          --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=max \
+          -f opencv-build/Dockerfile.openvino \
+          -o type=local,dest=./opencv-artifacts-portable \
+          opencv-build/
+
+    - name: Move cache
+      run: |
+        rm -rf /tmp/.buildx-cache
+        mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+    - name: Verify build artifacts
+      run: |
+        echo "=== Build Artifacts ==="
+        ls -la opencv-artifacts-portable/
+        echo ""
+        echo "=== Build Info ==="
+        cat opencv-artifacts-portable/opencv-build-info.txt
+
+    - name: Upload portable artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: opencv-${{ env.OPENCV_VERSION }}-openvino-portable
+        path: opencv-artifacts-portable/
+        retention-days: 90
+
+  # ===========================================================================
+  # Build Tuned Profile (AVX-512 dispatch)
+  # ===========================================================================
+  build-tuned:
+    if: ${{ inputs.profile == 'tuned' || inputs.profile == 'both' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Cache Docker layers
+      uses: actions/cache@v4
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-tuned-${{ env.OPENCV_VERSION }}-${{ hashFiles('opencv-build/**') }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-tuned-${{ env.OPENCV_VERSION }}-
+          ${{ runner.os }}-buildx-tuned-
+
+    - name: Build OpenCV (Tuned Profile)
+      run: |
+        docker buildx build \
+          --target export \
+          --build-arg ISA_PROFILE=tuned \
+          --build-arg OPENCV_VERSION=${{ env.OPENCV_VERSION }} \
+          --build-arg OPENVINO_VERSION=${{ env.OPENVINO_VERSION }} \
+          --cache-from type=local,src=/tmp/.buildx-cache \
+          --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=max \
+          -f opencv-build/Dockerfile.openvino \
+          -o type=local,dest=./opencv-artifacts-tuned \
+          opencv-build/
+
+    - name: Move cache
+      run: |
+        rm -rf /tmp/.buildx-cache
+        mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+    - name: Verify build artifacts
+      run: |
+        echo "=== Build Artifacts ==="
+        ls -la opencv-artifacts-tuned/
+        echo ""
+        echo "=== Build Info ==="
+        cat opencv-artifacts-tuned/opencv-build-info.txt
+
+    - name: Upload tuned artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: opencv-${{ env.OPENCV_VERSION }}-openvino-tuned
+        path: opencv-artifacts-tuned/
+        retention-days: 90

@@ -5,6 +5,89 @@
 use serde::{Deserialize, Serialize};
 use vclip_models::DetectionTier;
 
+/// Face detection engine mode.
+///
+/// Controls whether to use the optimized pipeline with temporal decimation
+/// and Kalman tracking, or the legacy per-frame detection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum FaceEngineMode {
+    /// Optimized pipeline with letterbox + temporal decimation + Kalman tracking.
+    /// Provides ~5x throughput improvement with minimal accuracy loss.
+    #[default]
+    Optimized,
+    /// Legacy per-frame detection (original behavior).
+    /// Useful for comparison or when tracking is not needed.
+    Legacy,
+}
+
+impl std::fmt::Display for FaceEngineMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FaceEngineMode::Optimized => write!(f, "optimized"),
+            FaceEngineMode::Legacy => write!(f, "legacy"),
+        }
+    }
+}
+
+/// Configuration for the optimized face inference engine.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OptimizedEngineConfig {
+    /// Inference canvas width (default: 960)
+    pub inference_width: u32,
+    /// Inference canvas height (default: 540)
+    pub inference_height: u32,
+    /// Detect every N frames (gap frames use Kalman prediction)
+    pub detect_every_n: u32,
+    /// Padding value for letterbox (0 = black, 128 = gray)
+    pub padding_value: u8,
+    /// Enable scene-cut detection for tracker reset
+    pub enable_scene_cut: bool,
+    /// Scene cut threshold (0.0-1.0)
+    pub scene_cut_threshold: f64,
+}
+
+impl Default for OptimizedEngineConfig {
+    fn default() -> Self {
+        Self {
+            inference_width: 960,
+            inference_height: 540,
+            detect_every_n: 5,
+            padding_value: 0,
+            enable_scene_cut: true,
+            scene_cut_threshold: 0.3,
+        }
+    }
+}
+
+impl OptimizedEngineConfig {
+    /// Fast config with more gap frames (lower quality, higher speed).
+    pub fn fast() -> Self {
+        Self {
+            detect_every_n: 8,
+            ..Default::default()
+        }
+    }
+
+    /// Quality config with fewer gap frames (higher quality, lower speed).
+    pub fn quality() -> Self {
+        Self {
+            detect_every_n: 3,
+            inference_width: 1280,
+            inference_height: 720,
+            ..Default::default()
+        }
+    }
+
+    /// YouTube-optimized config (16:9 aspect ratio).
+    pub fn youtube() -> Self {
+        Self {
+            inference_width: 960,
+            inference_height: 540,
+            ..Default::default()
+        }
+    }
+}
+
 /// Configuration for the intelligent cropping pipeline.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IntelligentCropConfig {
@@ -101,6 +184,13 @@ pub struct IntelligentCropConfig {
 
     /// EMA smoothing parameter for activity scores (default: 0.3)
     pub activity_smoothing_window: f64,
+
+    // === Optimized Engine Settings ===
+    /// Face detection engine mode (optimized vs legacy)
+    pub engine_mode: FaceEngineMode,
+
+    /// Configuration for the optimized face inference engine
+    pub optimized_engine: OptimizedEngineConfig,
 }
 
 /// Policy when no faces are detected.
@@ -171,7 +261,30 @@ impl Default for IntelligentCropConfig {
             activity_weight_motion: 0.0,
             activity_weight_size_change: 0.0,
             activity_smoothing_window: 0.3,
+
+            // Optimized Engine - use optimized mode by default
+            engine_mode: FaceEngineMode::Optimized,
+            optimized_engine: OptimizedEngineConfig::default(),
         }
+    }
+}
+
+impl IntelligentCropConfig {
+    /// Create a configuration with legacy engine mode.
+    pub fn with_legacy_engine(mut self) -> Self {
+        self.engine_mode = FaceEngineMode::Legacy;
+        self
+    }
+
+    /// Create a configuration with optimized engine mode.
+    pub fn with_optimized_engine(mut self) -> Self {
+        self.engine_mode = FaceEngineMode::Optimized;
+        self
+    }
+
+    /// Check if using optimized engine.
+    pub fn is_optimized(&self) -> bool {
+        self.engine_mode == FaceEngineMode::Optimized
     }
 }
 

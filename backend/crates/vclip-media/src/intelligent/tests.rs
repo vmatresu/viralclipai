@@ -585,3 +585,209 @@ mod premium_speaker_tests {
         assert!(stats.min_zoom > 0.0);
     }
 }
+
+// =========================================================================
+// Optimized Pipeline Tests
+// =========================================================================
+
+/// Tests for the optimized face detection pipeline.
+#[cfg(test)]
+#[cfg(feature = "opencv")]
+mod optimized_pipeline_tests {
+    use crate::intelligent::config::{FaceEngineMode, IntelligentCropConfig, OptimizedEngineConfig};
+    use crate::intelligent::face_engine::{EngineMode, FaceEngineConfig};
+    use crate::intelligent::kalman_tracker::{KalmanTracker, KalmanTrackerConfig};
+    use crate::intelligent::letterbox::Letterboxer;
+    use crate::intelligent::mapping::MappingMeta;
+    use crate::intelligent::models::BoundingBox;
+    use crate::intelligent::scene_cut::SceneCutDetector;
+    use crate::intelligent::temporal::{TemporalConfig, TemporalDecimator};
+    use opencv::{
+        core::{Mat, Scalar, CV_8UC3},
+        prelude::*,
+    };
+
+    fn create_test_frame(width: i32, height: i32) -> Mat {
+        Mat::new_rows_cols_with_default(height, width, CV_8UC3, Scalar::all(128.0))
+            .expect("Failed to create test frame")
+    }
+
+    // === Letterbox Tests ===
+
+    #[test]
+    fn test_letterbox_preserves_aspect_ratio() {
+        let frame = create_test_frame(1920, 1080);
+        let mut letterboxer = Letterboxer::new(960, 540);
+
+        let (letterboxed, _meta) = letterboxer.process(&frame).unwrap();
+
+        assert_eq!(letterboxed.cols(), 960);
+        assert_eq!(letterboxed.rows(), 540);
+    }
+
+    #[test]
+    fn test_letterbox_adds_padding() {
+        let frame = create_test_frame(1920, 1080);
+        let mut letterboxer = Letterboxer::new(540, 960);
+
+        let (letterboxed, meta) = letterboxer.process(&frame).unwrap();
+
+        assert_eq!(letterboxed.cols(), 540);
+        assert_eq!(letterboxed.rows(), 960);
+        let (pad_left, pad_top, pad_right, pad_bottom) = meta.padding();
+        assert!(pad_top > 0 || pad_bottom > 0 || pad_left > 0 || pad_right > 0);
+    }
+
+    // === Mapping Tests ===
+
+    #[test]
+    fn test_mapping_roundtrip() {
+        let meta = MappingMeta::for_yunet(1920, 1080, 960, 540);
+
+        let inf_bbox = BoundingBox::new(480.0, 270.0, 100.0, 120.0);
+        let raw_bbox = meta.map_rect(&inf_bbox);
+
+        assert!((raw_bbox.x - 960.0).abs() < 5.0);
+        assert!((raw_bbox.y - 540.0).abs() < 5.0);
+    }
+
+    #[test]
+    fn test_normalize_bbox() {
+        let meta = MappingMeta::for_yunet(1920, 1080, 960, 540);
+
+        let bbox = BoundingBox::new(960.0, 540.0, 192.0, 108.0);
+        let normalized = meta.normalize(&bbox);
+
+        assert!((normalized.x - 0.5).abs() < 0.01);
+        assert!((normalized.y - 0.5).abs() < 0.01);
+    }
+
+    // === Temporal Decimation Tests ===
+
+    #[test]
+    fn test_temporal_decimation_keyframe_pattern() {
+        let config = TemporalConfig {
+            detect_every_n: 5,
+            ..Default::default()
+        };
+        let mut decimator = TemporalDecimator::new(config);
+
+        let mut keyframe_count = 0;
+        for i in 0..20 {
+            if decimator.should_detect(0.9, 1, i * 33).is_some() {
+                keyframe_count += 1;
+            }
+        }
+
+        // Should detect every 5 frames: 0, 5, 10, 15
+        assert_eq!(keyframe_count, 4);
+    }
+
+    #[test]
+    fn test_temporal_decimation_low_confidence_forces() {
+        let config = TemporalConfig {
+            detect_every_n: 10,
+            min_tracker_confidence: 0.5,
+            ..Default::default()
+        };
+        let mut decimator = TemporalDecimator::new(config);
+
+        decimator.should_detect(0.9, 1, 0);
+
+        // Low confidence should force detection
+        let trigger = decimator.should_detect(0.3, 1, 66);
+        assert!(trigger.is_some());
+    }
+
+    // === Kalman Tracker Tests ===
+
+    #[test]
+    fn test_kalman_tracker_continuity() {
+        let mut tracker = KalmanTracker::with_config(KalmanTrackerConfig::default());
+
+        let det1 = vec![(BoundingBox::new(100.0, 100.0, 150.0, 180.0), 0.9)];
+        let tracks1 = tracker.update(&det1, 0, 0);
+        assert_eq!(tracks1.len(), 1);
+        let track_id = tracks1[0].0;
+
+        let det2 = vec![(BoundingBox::new(105.0, 102.0, 150.0, 180.0), 0.9)];
+        let tracks2 = tracker.update(&det2, 33, 0);
+        assert_eq!(tracks2.len(), 1);
+        assert_eq!(tracks2[0].0, track_id);
+    }
+
+    #[test]
+    fn test_kalman_tracker_scene_cut_reset() {
+        let mut tracker = KalmanTracker::with_config(KalmanTrackerConfig::default());
+
+        let det1 = vec![(BoundingBox::new(100.0, 100.0, 150.0, 180.0), 0.9)];
+        let tracks1 = tracker.update(&det1, 0, 12345);
+        let old_track_id = tracks1[0].0;
+
+        tracker.handle_scene_cut(67890);
+
+        let det2 = vec![(BoundingBox::new(500.0, 300.0, 150.0, 180.0), 0.9)];
+        let tracks2 = tracker.update(&det2, 33, 67890);
+        assert_ne!(tracks2[0].0, old_track_id);
+    }
+
+    // === Scene Cut Detection Tests ===
+
+    #[test]
+    fn test_scene_cut_same_frame() {
+        let mut detector = SceneCutDetector::default();
+
+        let frame = create_test_frame(960, 540);
+
+        assert!(!detector.check_frame(&frame));
+        assert!(!detector.check_frame(&frame));
+    }
+
+    // === Configuration Tests ===
+
+    #[test]
+    fn test_engine_config_default() {
+        let config = FaceEngineConfig::default();
+
+        assert_eq!(config.mode, EngineMode::Optimized);
+        assert_eq!(config.inf_width, 960);
+        assert_eq!(config.inf_height, 540);
+    }
+
+    #[test]
+    fn test_intelligent_crop_config_modes() {
+        let default_config = IntelligentCropConfig::default();
+        assert!(default_config.is_optimized());
+
+        let legacy_config = default_config.clone().with_legacy_engine();
+        assert!(!legacy_config.is_optimized());
+    }
+
+    #[test]
+    fn test_optimized_engine_config_presets() {
+        let fast = OptimizedEngineConfig::fast();
+        assert_eq!(fast.detect_every_n, 8);
+
+        let quality = OptimizedEngineConfig::quality();
+        assert_eq!(quality.detect_every_n, 3);
+        assert_eq!(quality.inference_width, 1280);
+
+        let youtube = OptimizedEngineConfig::youtube();
+        assert_eq!(youtube.inference_width, 960);
+        assert_eq!(youtube.inference_height, 540);
+    }
+
+    // === Throughput Calculation ===
+
+    #[test]
+    fn test_throughput_multiplier() {
+        use crate::intelligent::face_engine::EngineStats;
+
+        let mut stats = EngineStats::default();
+        stats.keyframe_count = 10;
+        stats.gap_frame_count = 40;
+
+        let multiplier = stats.throughput_multiplier();
+        assert!((multiplier - 5.0).abs() < 0.01);
+    }
+}
