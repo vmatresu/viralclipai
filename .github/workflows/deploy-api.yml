@@ -41,12 +41,15 @@ jobs:
             echo "Pulling latest changes..."
             git fetch origin main
             git reset --hard origin/main
-            
-            echo "Building API image..."
-            docker compose --env-file .env --file deploy/docker-compose.api.yml build
 
-            echo "Reloading API Service..."
-            # Uses systemd to manage the reload (zero-downtime if possible)
-            sudo systemctl reload viralclip-api.service
-            
-            echo "✅ Deployment triggered. Check status with: ssh ${{ vars.SSH_USER }}@${{ vars.API_HOST }} 'sudo systemctl status viralclip-api.service'"
+            echo "Starting API build in background..."
+            # Run build in background so GH Actions doesn't wait for full compile
+            nohup bash -c '
+              export DOCKER_BUILDKIT=1
+              export COMPOSE_DOCKER_CLI_BUILD=1
+              docker compose --env-file .env -f deploy/docker-compose.api.yml up -d --build --force-recreate 2>&1 | tee /tmp/api-deploy.log
+              docker image prune -f || true
+            ' > /tmp/api-deploy-wrapper.log 2>&1 &
+            disown
+
+            echo "✅ Build triggered in background. Monitor with: ssh ${{ vars.SSH_USER }}@${{ vars.API_HOST }} 'tail -f /tmp/api-deploy.log'"
