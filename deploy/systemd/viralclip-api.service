@@ -34,18 +34,21 @@ TimeoutStopSec=120
 ExecStart=/usr/bin/docker compose \
     --env-file .env \
     --file deploy/docker-compose.api.yml \
+    --file deploy/docker-compose.redis.yml \
     up --detach --remove-orphans
 
 # Reload: recreate containers without full restart
 ExecReload=/usr/bin/docker compose \
     --env-file .env \
     --file deploy/docker-compose.api.yml \
+    --file deploy/docker-compose.redis.yml \
     up --detach --force-recreate --remove-orphans
 
 # Stop: graceful shutdown
 ExecStop=/usr/bin/docker compose \
     --env-file .env \
     --file deploy/docker-compose.api.yml \
+    --file deploy/docker-compose.redis.yml \
     down --timeout 30
 
 # Restart behavior (systemd-level, not Docker-level)
