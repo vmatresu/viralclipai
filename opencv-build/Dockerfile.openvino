@@ -104,12 +104,13 @@ RUN git clone --depth 1 -b ${OPENCV_VERSION} https://github.com/opencv/opencv.gi
 # =============================================================================
 WORKDIR /opencv/build
 
-# Copy build configuration script
-COPY build-opencv.sh /opencv/build-opencv.sh
-RUN chmod +x /opencv/build-opencv.sh
+# Copy build configuration scripts
+COPY build.sh /opencv/build.sh
+COPY lib/ /opencv/lib/
+RUN chmod +x /opencv/build.sh /opencv/lib/*.sh
 
 # Run the build with the specified ISA profile
-RUN /opencv/build-opencv.sh ${ISA_PROFILE} ${OPENCV_VERSION} ${OPENVINO_VERSION}
+RUN cd /opencv/build && /opencv/build.sh --native --profile ${ISA_PROFILE}
 
 # =============================================================================
 # Stage 5: Create artifacts
