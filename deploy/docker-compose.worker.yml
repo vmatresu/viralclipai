@@ -31,7 +31,7 @@ services:
       - ENVIRONMENT=${ENVIRONMENT:-production}
 
       # Worker config
-      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-4}
+      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-8}
 
       # Firebase/Firestore
       - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID:?FIREBASE_PROJECT_ID required}
@@ -71,21 +71,30 @@ services:
       retries: 3
       start_period: 60s
 
-    # Security (relaxed for FFmpeg file operations)
+    # Security hardening
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=100m
 
-    # Resource limits (higher for video processing)
+    # Performance Tuning for Ryzen 9700X (8 physical cores)
+    # Pin to first 8 cores to avoid SMT/Hyperthreading latency
+    cpuset: "0-7"
+
+    # Resource limits
     deploy:
       resources:
         limits:
+          cpus: "8"
+          memory: 56G
+        reservations:
           cpus: "4"
           memory: 8G
-        reservations:
-          cpus: "1"
-          memory: 2G
 
     logging:
       driver: json-file
