@@ -23,7 +23,6 @@
 use std::path::Path;
 
 use thiserror::Error;
-use tokio::process::Command;
 use tracing::{debug, info, warn};
 
 use super::config::SilenceRemovalConfig;
@@ -179,7 +178,7 @@ async fn apply_stream_copy_concat(
         let fast_seek = if start_sec > 5.0 { start_sec - 5.0 } else { 0.0 };
         let accurate_seek = start_sec - fast_seek;
 
-        let output = Command::new("ffmpeg")
+        let output = crate::command::create_ffmpeg_command()
             .args([
                 "-y",
                 "-hide_banner",
@@ -237,7 +236,7 @@ async fn apply_stream_copy_concat(
     tokio::fs::write(&concat_list, &list_content).await?;
 
     // Concatenate using concat demuxer with stream copy
-    let output = Command::new("ffmpeg")
+    let output = crate::command::create_ffmpeg_command()
         .args([
             "-y",
             "-hide_banner",

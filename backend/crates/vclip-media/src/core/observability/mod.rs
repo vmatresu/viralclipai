@@ -303,7 +303,7 @@ pub mod health {
     }
 
     async fn check_ffmpeg_health() -> ComponentHealth {
-        match tokio::process::Command::new("ffmpeg")
+        match crate::command::create_ffmpeg_command()
             .arg("-version")
             .output()
             .await

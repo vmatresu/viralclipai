@@ -21,7 +21,6 @@
 
 use std::path::Path;
 use std::process::Stdio;
-use tokio::process::Command;
 use tracing::{debug, info};
 
 use super::config::IntelligentCropConfig;
@@ -29,6 +28,7 @@ use super::models::CropWindow;
 use super::output_format::{
     PORTRAIT_HEIGHT, PORTRAIT_WIDTH, SPLIT_PANEL_HEIGHT, SPLIT_PANEL_WIDTH,
 };
+use crate::command::create_ffmpeg_command;
 use crate::error::{MediaError, MediaResult};
 use crate::watermark::{append_watermark_filter_complex, build_vf_with_watermark, WatermarkConfig};
 use vclip_models::EncodingConfig;
@@ -113,7 +113,7 @@ impl SinglePassRenderer {
         };
 
         // Single FFmpeg command - THE ONLY ENCODE
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = create_ffmpeg_command();
         cmd.args([
             "-y",
             "-hide_banner",
@@ -285,7 +285,7 @@ impl SinglePassRenderer {
         debug!("Filter graph:\n{}", filter_complex);
 
         // Single FFmpeg command - THE ONLY ENCODE
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = create_ffmpeg_command();
         cmd.args([
             "-y",
             "-hide_banner",

@@ -15,7 +15,6 @@ use super::output_format::{PORTRAIT_WIDTH, PORTRAIT_HEIGHT, SPLIT_PANEL_WIDTH, S
 use crate::error::{MediaError, MediaResult};
 use std::path::Path;
 use std::process::Stdio;
-use tokio::process::Command;
 use tracing::{debug, info};
 
 /// Continuous renderer that uses a single FFmpeg filter graph.
@@ -72,7 +71,7 @@ impl ContinuousRenderer {
 
         debug!("Filter graph:\n{}", filter_complex);
 
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = crate::command::create_ffmpeg_command();
         cmd.args([
             "-y",
             "-ss", &format!("{:.3}", start_time),
@@ -243,7 +242,7 @@ impl ContinuousRenderer {
 
         debug!("Split filter graph:\n{}", filter_complex);
 
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = crate::command::create_ffmpeg_command();
         cmd.args([
             "-y",
             "-ss", &format!("{:.3}", start_time),
@@ -371,7 +370,7 @@ impl ContinuousRenderer {
 
         debug!("Hybrid filter graph:\n{}", filter_complex);
 
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = crate::command::create_ffmpeg_command();
         cmd.args([
             "-y",
             "-ss", &format!("{:.3}", start_time),

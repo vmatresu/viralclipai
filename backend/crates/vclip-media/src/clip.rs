@@ -93,7 +93,7 @@ pub async fn extract_segment<P: AsRef<Path>>(
         output.to_string_lossy().to_string(),
     ];
 
-    let status = tokio::process::Command::new("ffmpeg")
+    let status = crate::command::create_ffmpeg_command()
         .args(&args)
         .output()
         .await?;

@@ -7,7 +7,6 @@
 use std::path::{Path, PathBuf};
 
 use tempfile::TempDir;
-use tokio::process::Command;
 
 use super::layout_planner::{LayoutMode, LayoutSpan};
 use crate::error::{MediaError, MediaResult};
@@ -251,7 +250,7 @@ impl ActivitySplitRenderer {
         start: f64,
         duration: f64,
     ) -> MediaResult<()> {
-        let mut extract_cmd = Command::new("ffmpeg");
+        let mut extract_cmd = crate::command::create_ffmpeg_command();
         extract_cmd.args([
             "-y",
             "-hide_banner",
@@ -292,7 +291,7 @@ impl ActivitySplitRenderer {
             .map_err(MediaError::from)?;
 
         // Use stream copy - segments are already timestamp-normalized by scale_to_portrait
-        let status = Command::new("ffmpeg")
+        let status = crate::command::create_ffmpeg_command()
             .args([
                 "-y",
                 "-f", "concat",

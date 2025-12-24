@@ -12,7 +12,6 @@
 use async_trait::async_trait;
 use std::path::Path;
 use std::process::Stdio;
-use tokio::process::Command;
 use tracing::{info, warn};
 use vclip_models::{DetectionTier, EncodingConfig, StreamerSplitParams, Style};
 
@@ -378,7 +377,7 @@ async fn render_streamer_split(
         (base_filter_complex, "vout".to_string())
     };
 
-    let mut cmd = Command::new("ffmpeg");
+    let mut cmd = crate::command::create_ffmpeg_command();
     cmd.args([
         "-y",
         "-hide_banner",

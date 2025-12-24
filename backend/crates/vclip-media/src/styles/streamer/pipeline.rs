@@ -2,7 +2,6 @@
 
 use std::path::Path;
 use std::process::Stdio;
-use tokio::process::Command;
 use tracing::{debug, info, warn};
 use vclip_models::{ClipTask, EncodingConfig, StreamerParams, TopSceneEntry};
 
@@ -271,7 +270,7 @@ pub async fn render_streamer_format(
         output.to_str().unwrap_or("").to_string(),
     ]);
 
-    let result = Command::new("ffmpeg")
+    let result = crate::command::create_ffmpeg_command()
         .args(&args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -337,7 +336,7 @@ pub async fn concatenate_segments(
 
     // Use stream copy (-c copy) since all segments are already encoded in the same format
     // This is ~10x faster than re-encoding and produces smaller files
-    let result = Command::new("ffmpeg")
+    let result = crate::command::create_ffmpeg_command()
         .args([
             "-y",
             "-hide_banner",

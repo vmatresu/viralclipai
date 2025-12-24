@@ -23,7 +23,6 @@ use super::tracker::IoUTracker;
 use crate::error::{MediaError, MediaResult};
 use std::path::Path;
 use std::process::Stdio;
-use tokio::process::Command;
 use tracing::{debug, info, warn};
 
 /// Face detector for video analysis.
@@ -376,7 +375,7 @@ impl FaceDetector {
             self.config.fps_sample, self.config.analysis_resolution
         );
 
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = crate::command::create_ffmpeg_command();
         cmd.args([
             "-ss",
             &format!("{:.3}", start_time),
@@ -435,7 +434,7 @@ impl FaceDetector {
             self.config.fps_sample
         );
 
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = crate::command::create_ffmpeg_command();
         cmd.args([
             "-ss",
             &format!("{:.3}", start_time),

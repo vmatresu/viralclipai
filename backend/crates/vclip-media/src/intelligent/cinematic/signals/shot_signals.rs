@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Stdio;
 use tokio::io::AsyncReadExt;
-use tokio::process::Command;
 use tracing::{debug, info, warn};
 
 use super::super::shot_detector::ShotDetector;
@@ -168,7 +167,7 @@ impl ShotSignals {
         let bytes_per_frame = (THUMB_WIDTH * THUMB_HEIGHT * 3) as usize;
 
         // Build FFmpeg command to extract RGB24 frames at sample rate
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = crate::command::create_ffmpeg_command();
         cmd.args([
             "-hide_banner",
             "-loglevel",

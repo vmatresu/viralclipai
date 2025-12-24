@@ -1,4 +1,9 @@
 //! FFmpeg command builder and runner.
+//!
+//! Provides type-safe FFmpeg command building with:
+//! - CPU affinity control via `taskset` on Linux
+//! - Progress parsing from `-progress pipe:2`
+//! - Cancellation support via tokio watch channels
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -9,6 +14,107 @@ use tracing::{debug, info, warn};
 
 use crate::error::{MediaError, MediaResult};
 use crate::progress::FfmpegProgress;
+
+// =============================================================================
+// CPU Affinity Configuration (Linux only)
+// =============================================================================
+
+#[cfg(target_os = "linux")]
+mod cpu_affinity {
+    use std::sync::OnceLock;
+    use tracing::{info, warn};
+
+    /// Cached CPU affinity configuration for FFmpeg processes.
+    /// Initialized once from `VCLIP_FFMPEG_CPU_CORES` environment variable.
+    static FFMPEG_CPU_AFFINITY: OnceLock<Option<CpuAffinityConfig>> = OnceLock::new();
+
+    /// CPU affinity configuration for FFmpeg processes.
+    #[derive(Debug, Clone)]
+    pub struct CpuAffinityConfig {
+        /// CPU core specification (e.g., "8-15", "0,2,4,6")
+        pub cores: String,
+    }
+
+    impl CpuAffinityConfig {
+        /// Validate and create a new CPU affinity config.
+        /// Returns None if the cores specification is invalid.
+        fn new(cores: String) -> Option<Self> {
+            if cores.is_empty() {
+                return None;
+            }
+
+            // Valid formats: "8-15", "0,2,4,6", "0-3,8-11"
+            let valid = cores.chars().all(|c| c.is_ascii_digit() || c == '-' || c == ',');
+            if !valid {
+                warn!(
+                    "Invalid VCLIP_FFMPEG_CPU_CORES format '{}': must contain only digits, '-', ','",
+                    cores
+                );
+                return None;
+            }
+
+            Some(Self { cores })
+        }
+    }
+
+    /// Get the FFmpeg CPU affinity configuration.
+    /// Initialized once from environment on first call.
+    pub fn get() -> Option<&'static CpuAffinityConfig> {
+        FFMPEG_CPU_AFFINITY
+            .get_or_init(|| {
+                std::env::var("VCLIP_FFMPEG_CPU_CORES")
+                    .ok()
+                    .and_then(|cores| {
+                        let config = CpuAffinityConfig::new(cores)?;
+                        info!(
+                            "FFmpeg CPU affinity configured: cores {} (via taskset)",
+                            config.cores
+                        );
+                        Some(config)
+                    })
+            })
+            .as_ref()
+    }
+}
+
+/// Create an FFmpeg command with optional CPU core pinning.
+///
+/// On Linux, if `VCLIP_FFMPEG_CPU_CORES` is set (e.g., "8-15"), wraps the
+/// FFmpeg invocation with `taskset -c <cores>` to pin it to specific CPU cores.
+/// This allows FFmpeg to run on SMT cores while neural analysis uses physical cores.
+///
+/// # CPU Affinity Strategy
+///
+/// For AMD Ryzen 7 9700X (8 physical cores, 16 threads with SMT):
+/// - Neural analysis (OpenVINO/YuNet): cores 0-7 (physical cores with AVX-512)
+/// - FFmpeg encoding: cores 8-15 (SMT cores, avoids AVX-512 contention)
+///
+/// This separation prevents:
+/// - AVX-512 frequency throttling from SMT sibling interference
+/// - Cache thrashing between neural inference and video encoding
+///
+/// # Platform Behavior
+///
+/// - **Linux**: Uses `taskset -c <cores> ffmpeg ...`
+/// - **macOS/Windows**: Returns plain `ffmpeg` command (no affinity support)
+///
+/// # Example
+///
+/// ```bash
+/// # Environment configuration
+/// export VCLIP_FFMPEG_CPU_CORES="8-15"
+/// ```
+pub fn create_ffmpeg_command() -> Command {
+    #[cfg(target_os = "linux")]
+    if let Some(affinity) = cpu_affinity::get() {
+        let mut cmd = Command::new("taskset");
+        cmd.arg("-c").arg(&affinity.cores).arg("ffmpeg");
+        debug!("FFmpeg spawned with CPU affinity: cores {}", affinity.cores);
+        return cmd;
+    }
+
+    Command::new("ffmpeg")
+}
 
 /// Builder for FFmpeg commands.
 #[derive(Debug, Clone)]
@@ -218,7 +324,7 @@ impl FfmpegRunner {
         let args = cmd.build_args();
         debug!("Running FFmpeg: ffmpeg {}", args.join(" "));
 
-        let mut child = Command::new("ffmpeg")
+        let mut child = create_ffmpeg_command()
             .args(&args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

@@ -521,7 +521,7 @@ pub async fn extract_raw_segment(
     end: &str,
     output: &Path,
 ) -> WorkerResult<()> {
-    use tokio::process::Command;
+    
 
     info!(
         "Extracting raw segment: {:?} [{} -> {}] => {:?}",
@@ -534,7 +534,7 @@ pub async fn extract_raw_segment(
 
     // Single input seek with stream copy - the ONLY correct way for -c copy
     // Output will start at the nearest keyframe at or before start_secs
-    let output_status = Command::new("ffmpeg")
+    let output_status = vclip_media::create_ffmpeg_command()
         .args([
             "-y",
             "-hide_banner",

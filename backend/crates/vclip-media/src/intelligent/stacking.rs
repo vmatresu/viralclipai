@@ -4,7 +4,6 @@
 
 use std::path::Path;
 
-use tokio::process::Command;
 use tracing::debug;
 
 use crate::error::{MediaError, MediaResult};
@@ -106,7 +105,7 @@ pub async fn stack_halves_with_config(
     );
 
     let stack_args = build_ffmpeg_args(top_half, bottom_half, output, encoding, &filter, stack_crf);
-    let stack_status = Command::new("ffmpeg").args(&stack_args).output().await?;
+    let stack_status = crate::command::create_ffmpeg_command().args(&stack_args).output().await?;
 
     if !stack_status.status.success() {
         return Err(MediaError::ffmpeg_failed(

@@ -268,7 +268,7 @@ pub async fn apply_watermark(
     // Build FFmpeg command
     let filter_complex = build_overlay_filter(config);
     
-    let output = tokio::process::Command::new("ffmpeg")
+    let output = crate::command::create_ffmpeg_command()
         .args([
             "-y",
             "-hide_banner",

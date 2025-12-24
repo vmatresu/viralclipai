@@ -6,7 +6,6 @@
 
 use std::path::Path;
 use std::process::Stdio;
-use tokio::process::Command;
 use tracing::{debug, info};
 use vclip_models::{
     CachedObjectDetection, CinematicSignalsCache, ObjectDetectionsCache, ShotBoundaryCache,
@@ -151,7 +150,7 @@ async fn run_object_detection_for_cache(
         let frame_path = temp_dir.path().join(format!("frame_{:06}.jpg", i));
 
         // Extract single frame using FFmpeg
-        let extract_result = Command::new("ffmpeg")
+        let extract_result = vclip_media::create_ffmpeg_command()
             .args([
                 "-ss",
                 &format!("{:.3}", time),

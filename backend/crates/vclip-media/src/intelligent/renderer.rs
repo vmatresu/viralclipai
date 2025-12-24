@@ -10,7 +10,6 @@ use crate::error::{MediaError, MediaResult};
 use std::path::Path;
 use std::process::Stdio;
 use tempfile::TempDir;
-use tokio::process::Command;
 use tracing::{debug, info};
 
 /// Renderer for intelligent cropped videos.
@@ -82,7 +81,7 @@ impl IntelligentRenderer {
             PORTRAIT_WIDTH, PORTRAIT_HEIGHT
         );
 
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = crate::command::create_ffmpeg_command();
         cmd.args([
             "-y",
             "-ss",
@@ -218,7 +217,7 @@ impl IntelligentRenderer {
 
         debug!("Continuous crop filter:\n{}", filter_complex);
 
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = crate::command::create_ffmpeg_command();
         cmd.args([
             "-y",
             "-ss", &format!("{:.3}", start_time),
@@ -315,7 +314,7 @@ impl IntelligentRenderer {
 
         tokio::fs::write(&concat_list_path, &concat_content).await?;
 
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = crate::command::create_ffmpeg_command();
         cmd.args([
             "-y",
             "-f", "concat",
@@ -369,7 +368,7 @@ impl IntelligentRenderer {
             PORTRAIT_WIDTH, PORTRAIT_HEIGHT
         );
 
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = crate::command::create_ffmpeg_command();
         cmd.args([
             "-y",
             "-ss", &format!("{:.3}", start),
@@ -469,7 +468,7 @@ impl IntelligentRenderer {
             PORTRAIT_WIDTH, PORTRAIT_HEIGHT
         );
 
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = crate::command::create_ffmpeg_command();
         cmd.args([
             "-y",
             "-ss",

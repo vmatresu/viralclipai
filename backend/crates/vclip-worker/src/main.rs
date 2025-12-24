@@ -51,6 +51,26 @@ async fn main() {
     let config = WorkerConfig::from_env();
     info!("Worker config: {:?}", config);
 
+    // Configure neural analysis CPU threading (Phase 1+2 of CPU affinity optimization)
+    // This sets OpenMP/OpenVINO thread count to avoid hyperthreading slowdown with VNNI
+    let threads_str = config.neural_cpu_threads.to_string();
+    std::env::set_var("OMP_NUM_THREADS", &threads_str);
+    std::env::set_var("OPENVINO_CPU_THREADS", &threads_str);
+    info!(
+        "Neural CPU threads configured: {} (OMP_NUM_THREADS, OPENVINO_CPU_THREADS)",
+        config.neural_cpu_threads
+    );
+
+    // Configure FFmpeg CPU affinity (Phase 3 of CPU affinity optimization)
+    // This pins FFmpeg to SMT cores (8-15) while neural analysis uses physical cores (0-7)
+    if let Some(ref cores) = config.ffmpeg_cpu_cores {
+        std::env::set_var("VCLIP_FFMPEG_CPU_CORES", cores);
+        info!(
+            "FFmpeg CPU cores configured: {} (will use taskset on Linux)",
+            cores
+        );
+    }
+
     // Create queue client
     let queue = match JobQueue::from_env() {
         Ok(q) => q,

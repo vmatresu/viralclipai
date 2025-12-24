@@ -5,7 +5,6 @@
 
 use std::path::Path;
 use std::process::Stdio;
-use tokio::process::Command;
 use tracing::info;
 use vclip_models::EncodingConfig;
 
@@ -287,7 +286,7 @@ async fn run_ffmpeg_split(
     encoding: &EncodingConfig,
     map_label: &str,
 ) -> MediaResult<()> {
-    let mut cmd = Command::new("ffmpeg");
+    let mut cmd = crate::command::create_ffmpeg_command();
     cmd.args([
         "-y",
         "-hide_banner",

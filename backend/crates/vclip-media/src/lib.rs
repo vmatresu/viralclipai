@@ -40,7 +40,7 @@ pub use styles::StyleProcessorFactory;
 
 // Existing exports for backward compatibility
 pub use clip::{create_clip, extract_segment};
-pub use command::{FfmpegCommand, FfmpegRunner};
+pub use command::{create_ffmpeg_command, FfmpegCommand, FfmpegRunner};
 pub use download::{download_video, download_segment, is_supported_url, likely_supports_segment_download, SegmentDownloadNotSupported, get_writable_cookies_path};
 pub use error::{MediaError, MediaResult};
 pub use intelligent::create_intelligent_clip;

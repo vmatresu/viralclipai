@@ -12,10 +12,17 @@ pub struct WorkerConfig {
     /// Maximum scenes to process in parallel within a single job
     pub max_scene_parallel: usize,
     /// Maximum concurrent neural analysis operations (YuNet instances)
-    /// Default: 3 to leave headroom for FFmpeg and other processes
+    /// Default: 4 to balance parallelism with CPU contention
     pub max_neural_parallel: usize,
+    /// Number of CPU threads for neural analysis (OpenMP/OpenVINO)
+    /// Default: 8 (one per physical core, avoids hyperthreading slowdown with VNNI)
+    pub neural_cpu_threads: usize,
     /// Maximum concurrent downloads per job
     pub max_download_parallel: usize,
+    /// CPU cores to pin FFmpeg processes to (e.g., "8-15" for SMT cores)
+    /// This breaks OpenVINO's affinity inheritance, allowing FFmpeg to run
+    /// on different cores than neural analysis. Uses taskset on Linux.
+    pub ffmpeg_cpu_cores: Option<String>,
     /// Job timeout
     pub job_timeout: Duration,
     /// Graceful shutdown timeout
@@ -36,8 +43,10 @@ impl Default for WorkerConfig {
             max_concurrent_jobs: 2,
             max_ffmpeg_processes: 4,
             max_scene_parallel: 4, // Process up to 4 scenes in parallel within a job
-            max_neural_parallel: 4, // Allow 4 concurrent neural analyses (up from 3)
+            max_neural_parallel: 4, // Allow 4 concurrent neural analyses
+            neural_cpu_threads: 8,  // One thread per physical core (avoids HT slowdown with VNNI)
             max_download_parallel: 2, // Limit concurrent downloads to avoid network saturation
+            ffmpeg_cpu_cores: None, // No pinning by default (set to "8-15" on production for SMT cores)
             job_timeout: Duration::from_secs(3600), // 1 hour
             shutdown_timeout: Duration::from_secs(30),
             work_dir: "/tmp/vclip".to_string(),
@@ -68,10 +77,15 @@ impl WorkerConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(4),
+            neural_cpu_threads: std::env::var("WORKER_NEURAL_CPU_THREADS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(8),
             max_download_parallel: std::env::var("WORKER_MAX_DOWNLOAD_PARALLEL")
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(2),
+            ffmpeg_cpu_cores: std::env::var("WORKER_FFMPEG_CPU_CORES").ok(),
             job_timeout: Duration::from_secs(
                 std::env::var("WORKER_JOB_TIMEOUT")
                     .ok()

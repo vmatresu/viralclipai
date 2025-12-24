@@ -10,7 +10,6 @@ use std::path::Path;
 
 use tempfile::NamedTempFile;
 use thiserror::Error;
-use tokio::process::Command;
 use tracing::debug;
 
 use super::config::SilenceRemovalConfig;
@@ -137,7 +136,7 @@ async fn extract_audio_for_vad(input: &Path, output: &Path) -> AnalysisResult<()
         "Extracting audio for VAD"
     );
 
-    let status = Command::new("ffmpeg")
+    let status = crate::command::create_ffmpeg_command()
         .args([
             "-i",
             input.to_str().unwrap_or_default(),
