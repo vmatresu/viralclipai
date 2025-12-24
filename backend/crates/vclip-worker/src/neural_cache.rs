@@ -1,15 +1,24 @@
 //! Neural analysis cache service.
 //!
 //! Provides concurrency-safe caching of expensive neural analysis results
-//! (YuNet face detection, FaceMesh landmarks) to R2. Uses Redis single-flight
-//! locking to prevent duplicate computation across workers.
+//! (YuNet face detection, FaceMesh landmarks) to R2. Uses semaphore-based
+//! concurrency control to allow parallel neural analysis (configurable).
+//!
+//! # Architecture
+//!
+//! The service uses a two-layer approach:
+//! 1. **Semaphore**: Limits concurrent YuNet instances (e.g., 3 for 8-core CPUs)
+//! 2. **Cache-first check**: Before computing, check if another task already cached
+//!
+//! This replaces the previous global Redis lock which serialized all neural
+//! analysis, underutilizing multi-core CPUs.
 //!
 //! # Usage
 //!
 //! ```ignore
-//! let service = NeuralCacheService::new(r2_client, redis_client);
+//! let service = NeuralCacheService::new(r2_client, redis_client, neural_semaphore);
 //!
-//! // Try to get cached analysis, or run detection with lock
+//! // Try to get cached analysis, or run detection with semaphore
 //! let analysis = service.get_or_compute(
 //!     &user_id,
 //!     &video_id,
@@ -18,11 +27,8 @@
 //! ).await?;
 //! ```
 
-use redis::Script;
-use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::Mutex;
+use tokio::sync::Semaphore;
 use tracing::{debug, info, warn};
 use vclip_models::{DetectionTier, SceneNeuralAnalysis};
 use vclip_storage::{
@@ -31,33 +37,34 @@ use vclip_storage::{
 
 use crate::error::{WorkerError, WorkerResult};
 
-/// Lock TTL for neural analysis computation (1 hour).
-const LOCK_TTL_SECS: u64 = 3600;
-
-/// Maximum retries when lock is held by another worker.
-const MAX_LOCK_RETRIES: u32 = 10;
-
-/// Delay between lock retry attempts.
-const LOCK_RETRY_DELAY: Duration = Duration::from_secs(2);
-
-/// Redis key prefix for neural analysis locks.
-const LOCK_KEY_PREFIX: &str = "vclip:neural_lock";
-
-/// Service for neural analysis caching with single-flight locking.
+/// Service for neural analysis caching with semaphore-based concurrency.
 #[derive(Clone)]
 pub struct NeuralCacheService {
     r2: R2Client,
-    redis: redis::Client,
-    lock_tokens: Arc<Mutex<HashMap<String, String>>>,
+    /// Semaphore to limit concurrent neural analysis operations
+    neural_semaphore: Arc<Semaphore>,
 }
 
 impl NeuralCacheService {
     /// Create a new neural cache service.
-    pub fn new(r2: R2Client, redis: redis::Client) -> Self {
+    ///
+    /// # Arguments
+    /// * `r2` - R2 client for cache storage
+    /// * `neural_semaphore` - Semaphore to limit concurrent YuNet instances
+    pub fn new(r2: R2Client, neural_semaphore: Arc<Semaphore>) -> Self {
         Self {
             r2,
-            redis,
-            lock_tokens: Arc::new(Mutex::new(HashMap::new())),
+            neural_semaphore,
+        }
+    }
+
+    /// Create a new neural cache service with legacy signature (for backward compatibility).
+    /// Creates a default semaphore with 3 permits.
+    #[allow(dead_code)]
+    pub fn new_legacy(r2: R2Client, _redis: redis::Client) -> Self {
+        Self {
+            r2,
+            neural_semaphore: Arc::new(Semaphore::new(3)),
         }
     }
 
@@ -141,102 +148,24 @@ impl NeuralCacheService {
         Ok(result.compressed_size)
     }
 
-    /// Acquire single-flight lock for neural analysis computation.
+    /// Get cached analysis or compute with semaphore-based concurrency.
     ///
-    /// Returns `true` if lock was acquired, `false` if lock is held by another worker.
-    pub async fn try_acquire_lock(
-        &self,
-        user_id: &str,
-        video_id: &str,
-        scene_id: u32,
-    ) -> WorkerResult<bool> {
-        let lock_key = format!("{}:{}:{}:{}", LOCK_KEY_PREFIX, user_id, video_id, scene_id);
-        let lock_value = format!("worker:{}", uuid::Uuid::new_v4());
-
-        let mut conn = self
-            .redis
-            .get_multiplexed_async_connection()
-            .await
-            .map_err(|e| WorkerError::job_failed(format!("Redis connection failed: {}", e)))?;
-
-        // SET NX EX (only if not exists, with expiry)
-        let result: Option<String> = redis::cmd("SET")
-            .arg(&lock_key)
-            .arg(&lock_value)
-            .arg("NX")
-            .arg("EX")
-            .arg(LOCK_TTL_SECS)
-            .query_async(&mut conn)
-            .await
-            .map_err(|e| WorkerError::job_failed(format!("Redis SET failed: {}", e)))?;
-
-        let acquired = result.is_some();
-        debug!(
-            lock_key = %lock_key,
-            acquired = acquired,
-            "Neural lock acquisition attempt"
-        );
-
-        if acquired {
-            let mut tokens = self.lock_tokens.lock().await;
-            tokens.insert(lock_key, lock_value);
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-
-    /// Release neural analysis lock.
-    pub async fn release_lock(
-        &self,
-        user_id: &str,
-        video_id: &str,
-        scene_id: u32,
-    ) -> WorkerResult<()> {
-        let lock_key = format!("{}:{}:{}:{}", LOCK_KEY_PREFIX, user_id, video_id, scene_id);
-        let lock_token = { self.lock_tokens.lock().await.remove(&lock_key) };
-        let Some(lock_token) = lock_token else {
-            debug!(lock_key = %lock_key, "Neural lock released");
-            return Ok(());
-        };
-
-        let mut conn = self
-            .redis
-            .get_multiplexed_async_connection()
-            .await
-            .map_err(|e| WorkerError::job_failed(format!("Redis connection failed: {}", e)))?;
-
-        let script = Script::new(
-            r#"
-            if redis.call('GET', KEYS[1]) == ARGV[1] then
-                return redis.call('DEL', KEYS[1])
-            else
-                return 0
-            end
-            "#,
-        );
-        let _deleted: i32 = script
-            .key(&lock_key)
-            .arg(&lock_token)
-            .invoke_async(&mut conn)
-            .await
-            .map_err(|e| WorkerError::job_failed(format!("Redis unlock script failed: {}", e)))?;
-
-        debug!(lock_key = %lock_key, "Neural lock released");
-        Ok(())
-    }
-
-    /// Get cached analysis or compute with single-flight locking.
+    /// # Flow
+    /// 1. Check cache - if hit, return immediately (no semaphore needed)
+    /// 2. Acquire semaphore permit (blocks if max concurrent analyses reached)
+    /// 3. Double-check cache (another task may have computed while we waited)
+    /// 4. If still miss, compute analysis
+    /// 5. Store to cache
+    /// 6. Return (permit released automatically when dropped)
     ///
-    /// 1. Check cache - if hit, return immediately
-    /// 2. Try to acquire lock
-    /// 3. If lock acquired: compute, store, release lock, return
-    /// 4. If lock not acquired: wait and retry cache check
+    /// This allows N concurrent neural analyses (e.g., 3 for 8-core CPUs)
+    /// instead of strictly serializing them with a global lock.
     ///
     /// # Arguments
     /// * `user_id` - User ID for cache key
     /// * `video_id` - Video ID for cache key
     /// * `scene_id` - Scene ID for cache key
+    /// * `required_tier` - Minimum detection tier required
     /// * `compute_fn` - Async function to compute analysis if cache miss
     ///
     /// # Returns
@@ -253,7 +182,7 @@ impl NeuralCacheService {
         F: Fn() -> Fut + Clone,
         Fut: std::future::Future<Output = WorkerResult<SceneNeuralAnalysis>>,
     {
-        // Step 1: Check cache first
+        // Step 1: Check cache first (fast path - no semaphore needed)
         if let Some(cached) = self
             .get_cached_for_tier(user_id, video_id, scene_id, required_tier)
             .await?
@@ -261,124 +190,65 @@ impl NeuralCacheService {
             return Ok((cached, None)); // Cache hit - no new bytes stored
         }
 
-        // Step 2: Try to acquire lock
-        let lock_acquired = self.try_acquire_lock(user_id, video_id, scene_id).await?;
+        // Step 2: Acquire semaphore permit (may block if at capacity)
+        let available_permits = self.neural_semaphore.available_permits();
+        info!(
+            user_id = %user_id,
+            video_id = %video_id,
+            scene_id = scene_id,
+            available_permits = available_permits,
+            "Acquiring semaphore for neural analysis"
+        );
 
-        if lock_acquired {
-            // We have the lock - compute, store, release
+        let _permit = self
+            .neural_semaphore
+            .acquire()
+            .await
+            .map_err(|e| WorkerError::job_failed(format!("Semaphore closed: {}", e)))?;
+
+        info!(
+            user_id = %user_id,
+            video_id = %video_id,
+            scene_id = scene_id,
+            "Semaphore acquired, computing neural analysis"
+        );
+
+        // Step 3: Double-check cache (another task might have computed while we waited)
+        if let Some(cached) = self
+            .get_cached_for_tier(user_id, video_id, scene_id, required_tier)
+            .await?
+        {
             info!(
                 user_id = %user_id,
                 video_id = %video_id,
                 scene_id = scene_id,
-                "Lock acquired, computing neural analysis"
+                "Cache populated while waiting for semaphore (skipping compute)"
             );
-
-            let result = compute_fn().await;
-            let mut stored_bytes = None;
-
-            if let Ok(analysis) = &result {
-                // Store to cache and track actual size
-                match self.store(user_id, video_id, scene_id, analysis).await {
-                    Ok(bytes) => stored_bytes = Some(bytes),
-                    Err(e) => {
-                        warn!(
-                            user_id = %user_id,
-                            video_id = %video_id,
-                            scene_id = scene_id,
-                            error = %e,
-                            "Failed to store neural analysis to cache"
-                        );
-                    }
-                }
-            }
-
-            // Always release lock, even on error
-            if let Err(e) = self.release_lock(user_id, video_id, scene_id).await {
-                warn!(error = %e, "Failed to release lock");
-            }
-
-            result.map(|a| (a, stored_bytes))
-        } else {
-            // Lock held by another worker - wait and retry cache check
-            info!(
-                user_id = %user_id,
-                video_id = %video_id,
-                scene_id = scene_id,
-                "Lock held by another worker, waiting for cache"
-            );
-
-            for retry in 1..=MAX_LOCK_RETRIES {
-                tokio::time::sleep(LOCK_RETRY_DELAY).await;
-
-                // Check cache again
-                if let Some(cached) = self
-                    .get_cached_for_tier(user_id, video_id, scene_id, required_tier)
-                    .await?
-                {
-                    info!(
-                        user_id = %user_id,
-                        video_id = %video_id,
-                        scene_id = scene_id,
-                        retry = retry,
-                        "Cache populated by another worker"
-                    );
-                    return Ok((cached, None)); // Cache hit - no new bytes stored by us
-                }
-
-                // Try to acquire lock (maybe original holder finished)
-                if self.try_acquire_lock(user_id, video_id, scene_id).await? {
-                    // We got the lock this time
-                    info!(
-                        user_id = %user_id,
-                        video_id = %video_id,
-                        scene_id = scene_id,
-                        retry = retry,
-                        "Lock acquired on retry"
-                    );
-
-                    // Double-check cache in case it was populated
-                    if let Some(cached) = self
-                        .get_cached_for_tier(user_id, video_id, scene_id, required_tier)
-                        .await?
-                    {
-                        if let Err(e) = self.release_lock(user_id, video_id, scene_id).await {
-                            warn!(error = %e, "Failed to release lock after cache hit");
-                        }
-                        return Ok((cached, None));
-                    }
-
-                    let result = compute_fn().await;
-                    let mut stored_bytes = None;
-
-                    if let Ok(analysis) = &result {
-                        match self.store(user_id, video_id, scene_id, analysis).await {
-                            Ok(bytes) => stored_bytes = Some(bytes),
-                            Err(e) => {
-                                warn!(
-                                    user_id = %user_id,
-                                    video_id = %video_id,
-                                    scene_id = scene_id,
-                                    error = %e,
-                                    "Failed to store neural analysis to cache"
-                                );
-                            }
-                        }
-                    }
-
-                    if let Err(e) = self.release_lock(user_id, video_id, scene_id).await {
-                        warn!(error = %e, "Failed to release lock");
-                    }
-
-                    return result.map(|a| (a, stored_bytes));
-                }
-            }
-
-            // Max retries exceeded
-            Err(WorkerError::job_failed(format!(
-                "Neural cache lock contention timeout for {}/{}/{}",
-                user_id, video_id, scene_id
-            )))
+            return Ok((cached, None)); // Cache hit - no new bytes stored
         }
+
+        // Step 4: Compute analysis
+        let result = compute_fn().await;
+        let mut stored_bytes = None;
+
+        // Step 5: Store to cache if successful
+        if let Ok(analysis) = &result {
+            match self.store(user_id, video_id, scene_id, analysis).await {
+                Ok(bytes) => stored_bytes = Some(bytes),
+                Err(e) => {
+                    warn!(
+                        user_id = %user_id,
+                        video_id = %video_id,
+                        scene_id = scene_id,
+                        error = %e,
+                        "Failed to store neural analysis to cache"
+                    );
+                }
+            }
+        }
+
+        // Permit is automatically released when _permit drops
+        result.map(|a| (a, stored_bytes))
     }
 }
 
@@ -387,8 +257,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_lock_key_format() {
-        let lock_key = format!("{}:{}:{}:{}", LOCK_KEY_PREFIX, "user1", "video1", 5);
-        assert_eq!(lock_key, "vclip:neural_lock:user1:video1:5");
+    fn test_semaphore_concurrency() {
+        // Verify that default semaphore allows 3 concurrent operations
+        let sem = Semaphore::new(3);
+        assert_eq!(sem.available_permits(), 3);
     }
 }

@@ -11,6 +11,11 @@ pub struct WorkerConfig {
     pub max_ffmpeg_processes: usize,
     /// Maximum scenes to process in parallel within a single job
     pub max_scene_parallel: usize,
+    /// Maximum concurrent neural analysis operations (YuNet instances)
+    /// Default: 3 to leave headroom for FFmpeg and other processes
+    pub max_neural_parallel: usize,
+    /// Maximum concurrent downloads per job
+    pub max_download_parallel: usize,
     /// Job timeout
     pub job_timeout: Duration,
     /// Graceful shutdown timeout
@@ -31,6 +36,8 @@ impl Default for WorkerConfig {
             max_concurrent_jobs: 2,
             max_ffmpeg_processes: 4,
             max_scene_parallel: 4, // Process up to 4 scenes in parallel within a job
+            max_neural_parallel: 4, // Allow 4 concurrent neural analyses (up from 3)
+            max_download_parallel: 2, // Limit concurrent downloads to avoid network saturation
             job_timeout: Duration::from_secs(3600), // 1 hour
             shutdown_timeout: Duration::from_secs(30),
             work_dir: "/tmp/vclip".to_string(),
@@ -57,6 +64,14 @@ impl WorkerConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(4),
+            max_neural_parallel: std::env::var("WORKER_MAX_NEURAL_PARALLEL")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(4),
+            max_download_parallel: std::env::var("WORKER_MAX_DOWNLOAD_PARALLEL")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(2),
             job_timeout: Duration::from_secs(
                 std::env::var("WORKER_JOB_TIMEOUT")
                     .ok()

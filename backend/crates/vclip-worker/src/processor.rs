@@ -64,6 +64,9 @@ pub struct EnhancedProcessingContext {
     // Neural analysis cache service
     pub neural_cache: crate::neural_cache::NeuralCacheService,
 
+    // Neural analysis concurrency semaphore (shared across cache service calls)
+    pub neural_semaphore: Arc<Semaphore>,
+
     // Raw segment cache service (Phase 4)
     pub raw_cache: crate::raw_segment_cache::RawSegmentCacheService,
 
@@ -91,6 +94,13 @@ impl EnhancedProcessingContext {
 
         let ffmpeg_semaphore = Arc::new(Semaphore::new(config.max_ffmpeg_processes));
 
+        // Create neural analysis semaphore (limits concurrent YuNet instances)
+        let neural_semaphore = Arc::new(Semaphore::new(config.max_neural_parallel));
+        info!(
+            max_neural_parallel = config.max_neural_parallel,
+            "Created neural analysis semaphore"
+        );
+
         // Initialize new architecture components
         let metrics = Arc::new(MetricsCollector::new());
         let security = Arc::new(SecurityContext::new());
@@ -103,13 +113,13 @@ impl EnhancedProcessingContext {
             crate::source_video_coordinator::SourceVideoCoordinator::new(&redis_url)
                 .map_err(|e| WorkerError::Queue(vclip_queue::QueueError::Redis(e)))?;
 
-        // Initialize Redis client for single-flight locks
+        // Initialize Redis client for raw segment cache locks
         let redis = redis::Client::open(redis_url.as_str())
             .map_err(|e| WorkerError::Queue(vclip_queue::QueueError::Redis(e)))?;
 
-        // Initialize neural cache service
+        // Initialize neural cache service with shared semaphore
         let neural_cache =
-            crate::neural_cache::NeuralCacheService::new(storage.clone(), redis.clone());
+            crate::neural_cache::NeuralCacheService::new(storage.clone(), neural_semaphore.clone());
 
         // Initialize raw segment cache service (Phase 4)
         let raw_cache =
@@ -138,6 +148,7 @@ impl EnhancedProcessingContext {
             security,
             source_coordinator,
             neural_cache,
+            neural_semaphore,
             raw_cache,
             redis,
             job_queue,

@@ -153,20 +153,33 @@ pub async fn reprocess_scenes(
         .ok();
     ctx.progress.progress(&job.job_id, 15).await.ok();
 
-    // OPTIMIZED PROCESSING STRATEGY:
-    // 1. Process cached scenes first (they're ready immediately)
-    // 2. For uncached scenes, try yt-dlp segment download first
-    // 3. For scenes where yt-dlp fails, download full source and extract
+    // PREFETCH-BASED PARALLEL PROCESSING STRATEGY:
+    // 1. Immediately spawn background downloads for uncached scenes (I/O-bound)
+    // 2. Process cached scenes in parallel (CPU-bound) - neural analysis uses semaphore
+    // 3. Wait for downloads to complete (if not already done)
+    // 4. Process uncached scenes
+    // This overlaps I/O with CPU work, eliminating the idle time issue.
     
     let video_url = video_highlights.video_url.clone();
     
-    // Execute processing and capture errors to report via progress tracker
+    // Execute prefetch-based parallel processing
     let processing_result: WorkerResult<u32> = async {
-        // If all scenes are cached, process them directly
-        if uncached_scenes.is_empty() {
+        // Step 1: Start background downloads for uncached scenes immediately
+        let download_handles = start_prefetch_downloads(
+            ctx,
+            job,
+            &work_dir,
+            &uncached_scenes,
+            video_url.as_deref(),
+        );
+        
+        // Step 2: Process cached scenes (they're ready immediately)
+        // This runs in parallel with the background downloads
+        let cached_completed = if !cached_scenes.is_empty() {
             info!(
                 video_id = %job.video_id,
-                "All scenes cached, processing directly without source download"
+                cached_count = cached_scenes.len(),
+                "Processing cached scenes while downloads run in background"
             );
             
             process_scenes_with_cache(
@@ -180,10 +193,16 @@ pub async fn reprocess_scenes(
                 total_clips,
                 &progress_tracker,
             )
-            .await
-        }
-        // If all scenes are uncached, try yt-dlp then fall back to full source
-        else if cached_scenes.is_empty() {
+            .await?
+        } else {
+            0
+        };
+        
+        // Step 3: Wait for background downloads to complete
+        wait_for_prefetch_downloads(download_handles).await;
+        
+        // Step 4: Process uncached scenes (now their downloads are complete)
+        let uncached_completed = if !uncached_scenes.is_empty() {
             process_uncached_scenes_optimized(
                 ctx,
                 job,
@@ -196,47 +215,14 @@ pub async fn reprocess_scenes(
                 total_clips,
                 &progress_tracker,
             )
-            .await
-        }
-        // Mixed: process cached scenes first, then uncached scenes
-        else {
-            info!(
-                video_id = %job.video_id,
-                "Processing cached scenes first, then acquiring uncached scenes"
-            );
-            
-            // Process cached scenes first (they're ready immediately)
-            let cached_completed = process_scenes_with_cache(
-                ctx,
-                job,
-                &clips_dir,
-                &work_dir,
-                &clip_tasks,
-                &cached_scenes,
-                &video_highlights,
-                total_clips,
-                &progress_tracker,
-            )
-            .await?;
-            
-            // Then acquire and process uncached scenes (tries yt-dlp first)
-            let uncached_completed = process_uncached_scenes_optimized(
-                ctx,
-                job,
-                &clips_dir,
-                &work_dir,
-                &clip_tasks,
-                &uncached_scenes,
-                &video_highlights,
-                video_url.as_deref(),
-                total_clips,
-                &progress_tracker,
-            )
-            .await?;
-            
-            Ok(cached_completed + uncached_completed)
-        }
-    }.await;
+            .await?
+        } else {
+            0
+        };
+        
+        Ok(cached_completed + uncached_completed)
+    }
+    .await;
     
     // Handle processing errors - report to Firestore progress tracker
     let final_completed = match processing_result {
@@ -554,6 +540,136 @@ async fn process_uncached_scenes_optimized(
         Some(progress_tracker),
     )
     .await
+}
+
+
+/// Start prefetch downloads for uncached scenes.
+///
+/// Returns a list of JoinHandles for the background download tasks.
+/// These can be awaited later via `wait_for_prefetch_downloads`.
+fn start_prefetch_downloads(
+    ctx: &EnhancedProcessingContext,
+    job: &ReprocessScenesJob,
+    work_dir: &PathBuf,
+    uncached_scenes: &[Highlight],
+    video_url: Option<&str>,
+) -> Vec<tokio::task::JoinHandle<()>> {
+    use vclip_media::intelligent::parse_timestamp;
+    
+    let mut handles = Vec::new();
+    
+    for highlight in uncached_scenes {
+        let scene_id = highlight.id;
+        let raw_segment = work_dir.join(format!("raw_{}.mp4", scene_id));
+        
+        // Skip if already downloaded
+        if raw_segment.exists() {
+            continue;
+        }
+        
+        // Clone what we need for the background task
+        let ctx = ctx.clone();
+        let job = job.clone();
+        let highlight = highlight.clone();
+        let work_dir = work_dir.clone();
+        let video_url = video_url.map(|s| s.to_string());
+        
+        // Calculate padded timestamps
+        let start_secs = parse_timestamp(&highlight.start).unwrap_or(0.0);
+        let end_secs = parse_timestamp(&highlight.end).unwrap_or(30.0);
+        let padded_start = (start_secs - highlight.pad_before).max(0.0);
+        let padded_end = end_secs + highlight.pad_after;
+        
+        // Spawn background download task
+        let handle = tokio::spawn(async move {
+            info!(
+                scene_id = scene_id,
+                start = padded_start,
+                end = padded_end,
+                "Prefetch download starting for uncached scene"
+            );
+            
+            let raw_segment = work_dir.join(format!("raw_{}.mp4", scene_id));
+            
+            // Try yt-dlp segment download
+            if let Some(url) = video_url.as_deref() {
+                if vclip_media::likely_supports_segment_download(url) {
+                    match vclip_media::download_segment(
+                        url,
+                        padded_start,
+                        padded_end,
+                        &raw_segment,
+                        true,
+                    ).await {
+                        Ok(()) => {
+                            info!(scene_id = scene_id, "Prefetch download completed via yt-dlp");
+                            
+                            // Upload to R2 for future use (non-blocking, ignore errors)
+                            let r2_key = crate::raw_segment_cache::raw_segment_r2_key(
+                                &job.user_id,
+                                job.video_id.as_str(),
+                                scene_id,
+                            );
+                            if let Err(e) = ctx.raw_cache.upload_raw_segment(&raw_segment, &r2_key).await {
+                                warn!(scene_id = scene_id, error = %e, "Failed to upload prefetched segment to R2");
+                            }
+                        }
+                        Err(e) => {
+                            // Log but don't fail - the uncached processing will handle this
+                            warn!(scene_id = scene_id, error = %e, "Prefetch download failed (will retry during processing)");
+                        }
+                    }
+                }
+            }
+        });
+        
+        handles.push(handle);
+    }
+    
+    if !handles.is_empty() {
+        info!(
+            prefetch_count = handles.len(),
+            "Started prefetch downloads for uncached scenes"
+        );
+    }
+    
+    handles
+}
+
+/// Wait for all prefetch downloads to complete.
+///
+/// This function should be called before processing uncached scenes to ensure
+/// their raw segments are available. If some downloads fail, uncached processing
+/// will retry them.
+async fn wait_for_prefetch_downloads(handles: Vec<tokio::task::JoinHandle<()>>) {
+    use futures::future::join_all;
+    
+    if handles.is_empty() {
+        return;
+    }
+    
+    info!(
+        count = handles.len(),
+        "Waiting for prefetch downloads to complete"
+    );
+    
+    let results = join_all(handles).await;
+    
+    let completed = results.iter().filter(|r| r.is_ok()).count();
+    let failed = results.len() - completed;
+    
+    if failed > 0 {
+        warn!(
+            completed = completed,
+            failed = failed,
+            "Some prefetch downloads failed (will be retried during processing)"
+        );
+    } else {
+        info!(
+            completed = completed,
+            "All prefetch downloads completed successfully"
+        );
+    }
 }
 
 /// Update video clip count in Firestore.
