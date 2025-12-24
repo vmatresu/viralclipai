@@ -103,17 +103,28 @@ impl<'a> SceneAnalysisService<'a> {
             .neural_cache
             .get_or_compute(user_id, video_id, scene_id, required_tier, || {
                 let video_path = video_path.clone();
+                let user_id = user_id.to_string();
+                let video_id = video_id.to_string();
+                let handle = tokio::runtime::Handle::current();
+                
                 async move {
-                    run_detection(
-                        &video_path,
-                        user_id,
-                        video_id,
-                        scene_id,
-                        start_time,
-                        end_time,
-                        required_tier,
-                    )
+                    // Offload heavy CPU work (neural analysis) to a blocking thread
+                    // to avoid stalling the async runtime.
+                    // We use handle.block_on to run the inner async function (which calls blocking OpenCV code)
+                    // on the blocking thread.
+                    tokio::task::spawn_blocking(move || {
+                        handle.block_on(run_detection(
+                            &video_path,
+                            &user_id,
+                            &video_id,
+                            scene_id,
+                            start_time,
+                            end_time,
+                            required_tier,
+                        ))
+                    })
                     .await
+                    .map_err(|e| WorkerError::job_failed(format!("Blocking task join error: {}", e)))?
                 }
             })
             .await?;
