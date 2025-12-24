@@ -122,6 +122,8 @@ ARG OPENCV_VERSION=4.12.0
 ARG OPENVINO_VERSION=2024.4
 ARG ISA_PROFILE=portable
 
+ENV DEBIAN_FRONTEND=noninteractive
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 \
     && rm -rf /var/lib/apt/lists/*
