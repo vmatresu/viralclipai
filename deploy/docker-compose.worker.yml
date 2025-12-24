@@ -84,16 +84,16 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=100m
 
-    # Performance Tuning for Ryzen 9700X (8 physical cores)
-    # Pin to first 8 cores to avoid SMT/Hyperthreading latency
-    cpuset: "0-7"
+    # Performance Tuning
+    # Removed cpuset to allow OS scheduler to use all 16 threads of Ryzen 9700X
+    # cpuset: "0-7"
 
     # Resource limits
     deploy:
       resources:
         limits:
-          cpus: "8"
-          memory: 56G
+          cpus: "${WORKER_CPU_LIMIT:-14}"
+          memory: "${WORKER_MEMORY_LIMIT:-56G}"
         reservations:
           cpus: "4"
           memory: 8G
