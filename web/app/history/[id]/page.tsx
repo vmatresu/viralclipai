@@ -711,7 +711,7 @@ export default function HistoryDetailPage() {
       setSceneStylesData(null);
       setSelectedScenes(new Set());
       setCompilationSceneOrder([]);
-      toast.success("All scenes deleted");
+      toast.success("All clips deleted");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to delete scenes";
       toast.error(message);
@@ -1040,15 +1040,15 @@ export default function HistoryDetailPage() {
                   className="shrink-0"
                 >
                   <Trash2 className="h-4 w-4 mr-2" />
-                  Delete all scenes
+                  Delete all clips
                 </Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Delete all scenes?</DialogTitle>
+                  <DialogTitle>Delete all clips?</DialogTitle>
                   <DialogDescription>
-                    This will permanently delete all scenes and clips for this video.
-                    This cannot be undone.
+                    This will permanently delete all generated clips for this video
+                    while keeping the scene definitions intact. This cannot be undone.
                   </DialogDescription>
                 </DialogHeader>
                 <DialogFooter className="gap-2 sm:justify-end">
