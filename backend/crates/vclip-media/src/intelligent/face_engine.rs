@@ -399,14 +399,22 @@ impl FaceInferenceEngine {
         self.ensure_detector(frame.cols() as u32, frame.rows() as u32)?;
 
         // Check for scene cut
-        let scene_hash = self.scene_cut.compute_scene_hash(frame);
+        let frame_scene_hash = self.scene_cut.compute_scene_hash(frame);
         let is_scene_cut = self.scene_cut.check_frame(frame);
 
-        if is_scene_cut {
+        // Only update scene_hash when actual scene cut detected.
+        // Otherwise, keep using current_scene_hash to avoid spurious resets.
+        // The frame_scene_hash changes every frame (perceptual hash), but we
+        // only want to reset tracks when scene_cut detector fires.
+        let scene_hash = if is_scene_cut {
             self.stats.scene_cut_count += 1;
-            self.decimator.notify_scene_cut(scene_hash);
-            self.tracker.handle_scene_cut(scene_hash);
-        }
+            self.decimator.notify_scene_cut(frame_scene_hash);
+            self.tracker.handle_scene_cut(frame_scene_hash);
+            frame_scene_hash
+        } else {
+            // Use current tracker scene hash to avoid spurious resets
+            self.tracker.current_scene_hash()
+        };
 
         // Get tracker state for decimation decision
         let tracker_confidence = self.tracker.min_confidence();

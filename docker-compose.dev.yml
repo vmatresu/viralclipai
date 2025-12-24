@@ -135,6 +135,7 @@ services:
 
       # Worker config
       - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-2}
+      - WORKER_WORK_DIR=/tmp/videos
 
       # Redis
       - REDIS_URL=redis://redis:6379

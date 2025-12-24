@@ -33,6 +33,7 @@ services:
 
       # Worker config
       - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-8}
+      - WORKER_WORK_DIR=/tmp/videos
 
       # Firebase/Firestore
       - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID:?FIREBASE_PROJECT_ID required}
