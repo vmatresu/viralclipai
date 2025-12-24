@@ -18,32 +18,54 @@ HAS_AVX512=0
 HAS_AVX512_VNNI=0
 CPU_FLAGS=""
 
-# Detect CPU features from /proc/cpuinfo
+# Detect CPU features from system
 detect_cpu_features() {
-    CPU_FLAGS="$(awk -F: '/^(flags|Features)/ {print $2; exit}' /proc/cpuinfo 2>/dev/null || true)"
+    HAS_AVX2=0
+    HAS_AVX512=0
+    HAS_AVX512_VNNI=0
     
-    if [[ -z "${CPU_FLAGS}" ]]; then
-        echo "WARNING: Cannot read CPU flags from /proc/cpuinfo" >&2
+    # Helper to check feature presence (Case Insensitive, Whole Word)
+    _has_feature() {
+        local feature="$1"
+        
+        # Method 1: lscpu (Preferred - handles arch abstraction better)
+        if command -v lscpu >/dev/null 2>&1; then
+            if lscpu | grep -iE "\b${feature}\b" >/dev/null 2>&1; then
+                return 0
+            fi
+        fi
+        
+        # Method 2: /proc/cpuinfo (Fallback - standard Linux)
+        # Matches lines starting with "flags" (x86) or "Features" (ARM)
+        if grep -iE "^(flags|Features).*\b${feature}\b" /proc/cpuinfo >/dev/null 2>&1; then
+            return 0
+        fi
+        
         return 1
-    fi
-    
-    _has_flag() {
-        case " ${CPU_FLAGS} " in
-            *" $1 "*) return 0 ;;
-            *) return 1 ;;
-        esac
     }
     
-    if _has_flag avx2; then
+    # Check AVX2
+    if _has_feature "avx2"; then
         HAS_AVX2=1
     fi
     
-    if _has_flag avx512f && _has_flag avx512bw && _has_flag avx512vl; then
+    # Check AVX-512 (Foundation + Byte/Word + Vector Length)
+    # This combination ensures viable AVX-512 support for OpenCV
+    if _has_feature "avx512f" && _has_feature "avx512bw" && _has_feature "avx512vl"; then
         HAS_AVX512=1
     fi
     
-    if _has_flag avx512vnni; then
+    # Check VNNI (Vector Neural Network Instructions)
+    # Intel: avx512_vnni, AMD/Others might vary in reporting
+    if _has_feature "avx512_vnni" || _has_feature "avx512vnni"; then
         HAS_AVX512_VNNI=1
+    fi
+    
+    # Populate debug string for print_cpu_info (optional, for display only)
+    if command -v lscpu >/dev/null 2>&1; then
+         CPU_FLAGS="(from lscpu)"
+    else
+         CPU_FLAGS="(from /proc/cpuinfo)"
     fi
     
     return 0
