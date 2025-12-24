@@ -15,6 +15,7 @@ services:
       args:
         BUILDKIT_INLINE_CACHE: 1
         SERVICE_TYPE: worker
+        OPENCV_TARBALL: opencv-4.12.0-openvino-tuned.tar.gz
       cache_from:
         - viralclipai-worker:latest
     image: viralclipai-worker:${VERSION:-latest}

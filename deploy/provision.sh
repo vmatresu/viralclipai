@@ -23,6 +23,7 @@ SYSTEMD_DIR="/etc/systemd/system"
 # Flags
 ROLE=""
 WITH_REDIS=false
+REDIS_PUBLIC=false
 WORKER_IP=""
 DOMAIN=""
 EMAIL=""
@@ -48,6 +49,7 @@ parse_args() {
         case $1 in
             --role) ROLE="$2"; shift 2 ;;
             --redis) WITH_REDIS=true; shift ;;
+            --redis-public) REDIS_PUBLIC=true; shift ;;
             --worker-ip) WORKER_IP="$2"; shift 2 ;;
             --domain) DOMAIN="$2"; shift 2 ;;
             --email) EMAIL="$2"; shift 2 ;;
@@ -215,6 +217,17 @@ configure_app_files() {
         
         if [[ ! -f "$redis_conf" ]]; then
             error "Redis config missing at $redis_conf. Please 'git pull' or restore the file."
+        fi
+
+        # Handle Redis Bind IP (Public vs Private)
+        if [[ "$REDIS_PUBLIC" == "true" ]]; then
+            log "Configuring Redis for PUBLIC access (0.0.0.0)..."
+            # Ensure REDIS_BIND_IP exists in .env, if not append it
+            if ! grep -q "REDIS_BIND_IP=" "$APP_DIR/.env"; then
+                echo "REDIS_BIND_IP=0.0.0.0" >> "$APP_DIR/.env"
+            else
+                sed -i 's/^REDIS_BIND_IP=.*/REDIS_BIND_IP=0.0.0.0/' "$APP_DIR/.env"
+            fi
         fi
     fi
 

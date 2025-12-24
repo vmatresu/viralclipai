@@ -406,6 +406,7 @@ RUST_LOG=info
 
 # --- Server Identity ---
 PRIVATE_IP=$PRIVATE_IP
+REDIS_BIND_IP=$PRIVATE_IP
 
 # --- Secrets (Auto-Generated) ---
 REDIS_PASSWORD=$REDIS_PASS
