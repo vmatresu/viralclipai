@@ -153,12 +153,9 @@ cmd_build_docker() {
     
     # Validate tuned profile has AVX-512
     if [[ "${profile}" == "tuned" ]] && [[ "${HAS_AVX512:-0}" -ne 1 ]]; then
-        log_error "Tuned profile requires AVX-512, but it was not detected"
-        log_info "Use --profile portable or let auto-detection choose"
-        exit 1
+        log_warning "Tuned profile requires AVX-512, but it was not detected"
+        log_warning "Proceeding anyway since it was explicitly requested..."
     fi
-    
-    log_info "Starting Docker build..."
     DOCKER_BUILDKIT=1 BUILDKIT_PROGRESS=plain docker build \
         --target export \
         --build-arg ISA_PROFILE="${profile}" \
@@ -182,9 +179,8 @@ cmd_build_native() {
     
     # Validate tuned profile has AVX-512
     if [[ "${profile}" == "tuned" ]] && [[ "${HAS_AVX512:-0}" -ne 1 ]]; then
-        log_error "Tuned profile requires AVX-512, but it was not detected"
-        log_info "Use --profile portable or let auto-detection choose"
-        exit 1
+        log_warning "Tuned profile requires AVX-512, but it was not detected"
+        log_warning "Proceeding anyway since it was explicitly requested..."
     fi
     
     # Step 1: Ensure OpenVINO is installed
