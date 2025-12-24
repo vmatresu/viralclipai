@@ -52,6 +52,8 @@ jobs:
           nohup bash -c '
             export DOCKER_BUILDKIT=1
             export COMPOSE_DOCKER_CLI_BUILD=1
+            # Force remove existing container to prevent conflicts
+            docker rm -f vclip-worker 2>/dev/null || true
             docker compose --env-file .env -f deploy/docker-compose.worker.yml up -d --build --force-recreate 2>&1 | tee /tmp/worker-deploy.log
             docker image prune -f || true
           ' > /tmp/worker-deploy-wrapper.log 2>&1 &
