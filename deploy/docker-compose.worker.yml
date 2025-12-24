@@ -31,8 +31,12 @@ services:
       - RUST_BACKTRACE=${RUST_BACKTRACE:-1}
       - ENVIRONMENT=${ENVIRONMENT:-production}
 
-      # Worker config
-      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-8}
+      # Worker config - Ryzen 9700X optimized (8 physical cores, AVX-512 VNNI)
+      # max_concurrent_jobs: how many video jobs run in parallel
+      # max_ffmpeg: how many ffmpeg encode processes run simultaneously
+      - WORKER_MAX_JOBS=${WORKER_MAX_JOBS:-4}
+      - WORKER_MAX_FFMPEG=${WORKER_MAX_FFMPEG:-8}
+      - WORKER_MAX_SCENE_PARALLEL=${WORKER_MAX_SCENE_PARALLEL:-4}
       - WORKER_WORK_DIR=/tmp/videos
 
       # Firebase/Firestore
@@ -81,8 +85,10 @@ services:
     cap_add:
       - NET_BIND_SERVICE
     read_only: true
+    # Large tmpfs for temp files (not video processing which uses volume)
+    # 10GB allows for transient processing artifacts
     tmpfs:
-      - /tmp:rw,noexec,nosuid,size=100m
+      - /tmp:rw,noexec,nosuid,size=10g
 
     # Performance Tuning for Ryzen 9700X (8 physical cores)
     # Pin to first 8 cores to avoid SMT/Hyperthreading latency for VNNI/AVX-512

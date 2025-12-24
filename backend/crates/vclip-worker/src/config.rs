@@ -9,6 +9,8 @@ pub struct WorkerConfig {
     pub max_concurrent_jobs: usize,
     /// Maximum concurrent FFmpeg processes per job
     pub max_ffmpeg_processes: usize,
+    /// Maximum scenes to process in parallel within a single job
+    pub max_scene_parallel: usize,
     /// Job timeout
     pub job_timeout: Duration,
     /// Graceful shutdown timeout
@@ -28,6 +30,7 @@ impl Default for WorkerConfig {
         Self {
             max_concurrent_jobs: 2,
             max_ffmpeg_processes: 4,
+            max_scene_parallel: 4, // Process up to 4 scenes in parallel within a job
             job_timeout: Duration::from_secs(3600), // 1 hour
             shutdown_timeout: Duration::from_secs(30),
             work_dir: "/tmp/vclip".to_string(),
@@ -47,6 +50,10 @@ impl WorkerConfig {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(2),
             max_ffmpeg_processes: std::env::var("WORKER_MAX_FFMPEG")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(4),
+            max_scene_parallel: std::env::var("WORKER_MAX_SCENE_PARALLEL")
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(4),

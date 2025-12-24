@@ -133,8 +133,10 @@ services:
       # Colored logs (set to "json" for structured logs)
       - LOG_FORMAT=pretty
 
-      # Worker config
-      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-2}
+      # Worker config - parallel processing
+      - WORKER_MAX_JOBS=${WORKER_MAX_JOBS:-2}
+      - WORKER_MAX_FFMPEG=${WORKER_MAX_FFMPEG:-4}
+      - WORKER_MAX_SCENE_PARALLEL=${WORKER_MAX_SCENE_PARALLEL:-2}
       - WORKER_WORK_DIR=/tmp/videos
 
       # Redis

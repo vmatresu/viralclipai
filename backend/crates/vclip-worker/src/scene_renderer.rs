@@ -11,13 +11,15 @@
 //! 3. Applies silence removal if requested
 //! 4. Processes each style in parallel for efficiency
 //! 5. Tracks storage accounting for new segments
+//! 6. Processes multiple scenes in parallel for better throughput
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
+use futures::stream::{self, StreamExt};
 
 use tracing::{debug, info, warn};
 
@@ -143,10 +145,11 @@ pub struct SceneProcessingResult {
     pub processed_count: usize,
 }
 
-/// Process all selected scenes with parallel style processing.
+/// Process all selected scenes with parallel scene AND style processing.
 ///
-/// Phase 4: Uses raw segment caching to avoid re-extracting segments
-/// when rendering multiple styles for the same scene.
+/// Phase 4+: Uses raw segment caching to avoid re-extracting segments
+/// when rendering multiple styles for the same scene. Now also processes
+/// multiple scenes in parallel (controlled by max_scene_parallel config).
 ///
 /// If `progress_tracker` is provided, updates Firestore progress after each scene.
 pub async fn process_selected_scenes(
@@ -159,116 +162,189 @@ pub async fn process_selected_scenes(
     total_clips: usize,
     progress_tracker: Option<&ProgressTracker>,
 ) -> WorkerResult<u32> {
-    use vclip_media::intelligent::parse_timestamp;
-
     // Load existing completed clips for skip-on-resume
-    let existing_completed = load_existing_clips(ctx, job).await;
+    let existing_completed = Arc::new(load_existing_clips(ctx, job).await);
 
     // Group clips by scene_id for parallel processing
     let scene_groups = group_clips_by_scene(clip_tasks);
     let scene_ids = sorted_scene_ids(&scene_groups);
+    let num_scenes = scene_ids.len();
 
     // Get work_dir from clips_dir parent
-    let work_dir = clips_dir.parent().unwrap_or(clips_dir);
+    let work_dir = clips_dir.parent().unwrap_or(clips_dir).to_path_buf();
 
-    // Process clips with parallel style processing within each scene
-    let mut completed_clips = 0u32;
-    let mut processed_count = 0usize;
+    // Shared counters for progress tracking
+    let completed_clips = Arc::new(AtomicU32::new(0));
+    let processed_count = Arc::new(AtomicUsize::new(0));
 
-    for scene_id in scene_ids {
-        let scene_tasks = scene_groups.get(&scene_id).unwrap();
-        let first_task = scene_tasks[0];
+    // Get max parallel scenes from config (default 4 for 8-core systems)
+    let max_scene_parallel = ctx.config.max_scene_parallel;
 
-        ctx.progress
-            .log(
-                &job.job_id,
-                format!(
-                    "Processing scene {} ({} styles in parallel)...",
-                    scene_id,
-                    scene_tasks.len()
-                ),
+    info!(
+        num_scenes = num_scenes,
+        max_parallel = max_scene_parallel,
+        "Processing scenes in parallel"
+    );
+
+    // Process scenes in parallel using buffer_unordered
+    let results: Vec<_> = stream::iter(scene_ids.into_iter().map(|scene_id| {
+        let ctx = ctx.clone();
+        let job = job.clone();
+        let clips_dir = clips_dir.clone();
+        let video_file = video_file.clone();
+        let highlights = highlights.clone();
+        let work_dir = work_dir.clone();
+        let scene_groups = scene_groups.clone();
+        let existing_completed = Arc::clone(&existing_completed);
+        let completed_clips = Arc::clone(&completed_clips);
+        let processed_count = Arc::clone(&processed_count);
+
+        async move {
+            process_single_scene(
+                &ctx,
+                &job,
+                &clips_dir,
+                &video_file,
+                &highlights,
+                &work_dir,
+                scene_id,
+                &scene_groups,
+                &existing_completed,
+                total_clips,
+                progress_tracker,
+                &completed_clips,
+                &processed_count,
             )
             .await
-            .ok();
-
-        // Parse original timestamps for progress display
-        let original_start_secs = parse_timestamp(&first_task.start).unwrap_or(0.0);
-        let original_end_secs = parse_timestamp(&first_task.end).unwrap_or(30.0);
-        let original_duration =
-            original_end_secs - original_start_secs + first_task.pad_before + first_task.pad_after;
-
-        // Emit scene_started with ORIGINAL video timestamps
-        emit_scene_started(ctx, job, scene_id, first_task, scene_tasks.len(), original_start_secs, original_duration).await;
-
-        // Notify progress tracker about scene start
-        if let Some(tracker) = progress_tracker {
-            tracker.scene_started(scene_id, Some(first_task.scene_title.clone())).await;
         }
+    }))
+    .buffer_unordered(max_scene_parallel)
+    .collect()
+    .await;
 
-        // Get or create cached raw segment
-        let (raw_segment, segment_duration) = prepare_raw_segment(
-            ctx,
-            job,
-            first_task,
-            scene_id,
-            video_file,
-            work_dir,
-            scene_tasks,
-        )
-        .await?;
-
-        // Create modified tasks for raw segment processing
-        let modified_tasks = create_modified_tasks(scene_tasks, segment_duration);
-        let modified_task_refs: Vec<&ClipTask> = modified_tasks.iter().collect();
-
-        // Create a temporary ProcessVideoJob for the scene processor
-        let temp_job = vclip_queue::ProcessVideoJob {
-            job_id: job.job_id.clone(),
-            user_id: job.user_id.clone(),
-            video_id: job.video_id.clone(),
-            video_url: highlights.video_url.clone().unwrap_or_default(),
-            styles: job.styles.clone(),
-            crop_mode: job.crop_mode.clone(),
-            target_aspect: job.target_aspect.clone(),
-            custom_prompt: None,
-        };
-
-        // Process scene using the raw segment
-        let raw_key = raw_segment_r2_key(&job.user_id, job.video_id.as_str(), scene_id);
-
-        let scene_results = clip_pipeline::scene::process_scene_with_raw_key(
-            ctx,
-            &temp_job,
-            clips_dir,
-            &raw_segment,
-            &modified_task_refs,
-            &existing_completed,
-            total_clips,
-            Some(raw_key),
-            true, // Skip scene_started - we already emitted with original timestamps
-        )
-        .await?;
-
-        processed_count += scene_results.processed;
-        completed_clips += scene_results.completed;
-
-        // Calculate failed clips for this scene
-        let scene_failed = (scene_tasks.len() as u32).saturating_sub(scene_results.completed);
-
-        // Update Firestore progress tracker after each scene
-        if let Some(tracker) = progress_tracker {
-            tracker.scene_completed(scene_results.completed, scene_failed).await;
+    // Check for errors in any scene
+    for result in &results {
+        if let Err(e) = result {
+            warn!(error = %e, "Scene processing error (continuing with other scenes)");
         }
-
-        // Update progress after each scene (25% to 95%)
-        let progress = 25 + (processed_count * 70 / total_clips) as u32;
-        ctx.progress
-            .progress(&job.job_id, progress as u8)
-            .await
-            .ok();
     }
 
-    Ok(completed_clips)
+    Ok(completed_clips.load(Ordering::SeqCst))
+}
+
+/// Process a single scene (called in parallel for multiple scenes).
+async fn process_single_scene(
+    ctx: &EnhancedProcessingContext,
+    job: &ReprocessScenesJob,
+    clips_dir: &PathBuf,
+    video_file: &PathBuf,
+    highlights: &VideoHighlights,
+    work_dir: &PathBuf,
+    scene_id: u32,
+    scene_groups: &HashMap<u32, Vec<ClipTask>>,
+    existing_completed: &std::collections::HashSet<String>,
+    total_clips: usize,
+    progress_tracker: Option<&ProgressTracker>,
+    completed_clips: &AtomicU32,
+    processed_count: &AtomicUsize,
+) -> WorkerResult<()> {
+    use vclip_media::intelligent::parse_timestamp;
+
+    let scene_tasks = scene_groups.get(&scene_id).unwrap();
+    let first_task = &scene_tasks[0];
+    let scene_task_refs: Vec<&ClipTask> = scene_tasks.iter().collect();
+
+    ctx.progress
+        .log(
+            &job.job_id,
+            format!(
+                "Processing scene {} ({} styles in parallel)...",
+                scene_id,
+                scene_tasks.len()
+            ),
+        )
+        .await
+        .ok();
+
+    // Parse original timestamps for progress display
+    let original_start_secs = parse_timestamp(&first_task.start).unwrap_or(0.0);
+    let original_end_secs = parse_timestamp(&first_task.end).unwrap_or(30.0);
+    let original_duration =
+        original_end_secs - original_start_secs + first_task.pad_before + first_task.pad_after;
+
+    // Emit scene_started with ORIGINAL video timestamps
+    emit_scene_started(ctx, job, scene_id, first_task, scene_tasks.len(), original_start_secs, original_duration).await;
+
+    // Notify progress tracker about scene start
+    if let Some(tracker) = progress_tracker {
+        tracker.scene_started(scene_id, Some(first_task.scene_title.clone())).await;
+    }
+
+    // Get or create cached raw segment
+    let (raw_segment, segment_duration) = prepare_raw_segment(
+        ctx,
+        job,
+        first_task,
+        scene_id,
+        video_file,
+        work_dir,
+        &scene_task_refs,
+    )
+    .await?;
+
+    // Create modified tasks for raw segment processing
+    let modified_tasks = create_modified_tasks(&scene_task_refs, segment_duration);
+    let modified_task_refs: Vec<&ClipTask> = modified_tasks.iter().collect();
+
+    // Create a temporary ProcessVideoJob for the scene processor
+    let temp_job = vclip_queue::ProcessVideoJob {
+        job_id: job.job_id.clone(),
+        user_id: job.user_id.clone(),
+        video_id: job.video_id.clone(),
+        video_url: highlights.video_url.clone().unwrap_or_default(),
+        styles: job.styles.clone(),
+        crop_mode: job.crop_mode.clone(),
+        target_aspect: job.target_aspect.clone(),
+        custom_prompt: None,
+    };
+
+    // Process scene using the raw segment
+    let raw_key = raw_segment_r2_key(&job.user_id, job.video_id.as_str(), scene_id);
+
+    let scene_results = clip_pipeline::scene::process_scene_with_raw_key(
+        ctx,
+        &temp_job,
+        clips_dir,
+        &raw_segment,
+        &modified_task_refs,
+        existing_completed,
+        total_clips,
+        Some(raw_key),
+        true, // Skip scene_started - we already emitted with original timestamps
+    )
+    .await?;
+
+    // Update shared counters atomically
+    let prev_processed = processed_count.fetch_add(scene_results.processed, Ordering::SeqCst);
+    completed_clips.fetch_add(scene_results.completed, Ordering::SeqCst);
+
+    // Calculate failed clips for this scene
+    let scene_failed = (scene_tasks.len() as u32).saturating_sub(scene_results.completed);
+
+    // Update Firestore progress tracker after each scene
+    if let Some(tracker) = progress_tracker {
+        tracker.scene_completed(scene_results.completed, scene_failed).await;
+    }
+
+    // Update progress after each scene (25% to 95%)
+    let new_processed = prev_processed + scene_results.processed;
+    let progress = 25 + (new_processed * 70 / total_clips) as u32;
+    ctx.progress
+        .progress(&job.job_id, progress as u8)
+        .await
+        .ok();
+
+    Ok(())
 }
 
 /// Load existing completed clips for skip-on-resume.
@@ -300,17 +376,17 @@ async fn load_existing_clips(
     }
 }
 
-/// Group clips by scene_id.
-fn group_clips_by_scene(clip_tasks: &[ClipTask]) -> HashMap<u32, Vec<&ClipTask>> {
-    let mut scene_groups: HashMap<u32, Vec<&ClipTask>> = HashMap::new();
+/// Group clips by scene_id (returns owned ClipTasks for parallel processing).
+fn group_clips_by_scene(clip_tasks: &[ClipTask]) -> HashMap<u32, Vec<ClipTask>> {
+    let mut scene_groups: HashMap<u32, Vec<ClipTask>> = HashMap::new();
     for task in clip_tasks {
-        scene_groups.entry(task.scene_id).or_default().push(task);
+        scene_groups.entry(task.scene_id).or_default().push(task.clone());
     }
     scene_groups
 }
 
 /// Get sorted scene IDs.
-fn sorted_scene_ids(scene_groups: &HashMap<u32, Vec<&ClipTask>>) -> Vec<u32> {
+fn sorted_scene_ids(scene_groups: &HashMap<u32, Vec<ClipTask>>) -> Vec<u32> {
     let mut scene_ids: Vec<u32> = scene_groups.keys().copied().collect();
     scene_ids.sort();
     scene_ids

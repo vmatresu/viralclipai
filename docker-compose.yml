@@ -152,8 +152,10 @@ services:
       # JSON logs for production log aggregation (set to "pretty" for colored output)
       - LOG_FORMAT=${LOG_FORMAT:-json}
 
-      # Worker config
-      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-4}
+      # Worker config - optimized for parallel processing
+      - WORKER_MAX_JOBS=${WORKER_MAX_JOBS:-4}
+      - WORKER_MAX_FFMPEG=${WORKER_MAX_FFMPEG:-4}
+      - WORKER_MAX_SCENE_PARALLEL=${WORKER_MAX_SCENE_PARALLEL:-4}
       - WORKER_WORK_DIR=/tmp/videos
 
       # Firebase/Firestore
