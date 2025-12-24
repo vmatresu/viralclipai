@@ -18,7 +18,7 @@ pub enum MediaError {
     #[error("yt-dlp not found in PATH")]
     YtDlpNotFound,
 
-    #[error("FFmpeg command failed: {message}")]
+    #[error("FFmpeg command failed: {message} (stderr: {stderr:?})")]
     FfmpegFailed {
         message: String,
         stderr: Option<String>,
