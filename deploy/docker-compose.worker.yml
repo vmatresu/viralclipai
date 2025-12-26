@@ -63,6 +63,9 @@ services:
       # Gemini AI
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
 
+      # yt-dlp cache directory (must be writable)
+      - XDG_CACHE_HOME=/tmp/.cache
+
       # GCP Auth (for Firestore) - requires service account JSON file
       - GOOGLE_APPLICATION_CREDENTIALS=/app/firebase-credentials.json
 
