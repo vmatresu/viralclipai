@@ -1,0 +1,40 @@
+{
+  "name": "viralclipai",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ViralClip AI - Video clip generation platform",
+  "scripts": {
+    "dev": "npm run dev:all",
+    "dev:all": "concurrently -n web,api,worker -c cyan,yellow,green \"npm run dev:web\" \"npm run dev:backend\"",
+    "dev:web": "cd web && npm run dev",
+    "dev:backend": "docker compose -f docker-compose.dev.yml up --build",
+    "dev:backend:detached": "docker compose -f docker-compose.dev.yml up -d --build",
+    "dev:api": "docker compose -f docker-compose.dev.yml up api redis --build",
+    "dev:worker": "docker compose -f docker-compose.dev.yml up worker redis --build",
+    "dev:redis": "docker compose -f docker-compose.dev.yml up redis",
+    "stop": "docker compose -f docker-compose.dev.yml down",
+    "stop:all": "docker compose -f docker-compose.dev.yml down -v",
+    "logs": "docker compose -f docker-compose.dev.yml logs -f",
+    "logs:api": "docker compose -f docker-compose.dev.yml logs -f api",
+    "logs:worker": "docker compose -f docker-compose.dev.yml logs -f worker",
+    "logs:redis": "docker compose -f docker-compose.dev.yml logs -f redis",
+    "shell:api": "docker compose -f docker-compose.dev.yml exec api bash",
+    "shell:worker": "docker compose -f docker-compose.dev.yml exec worker bash",
+    "build": "docker compose -f docker-compose.dev.yml build",
+    "build:api": "docker compose -f docker-compose.dev.yml build api",
+    "build:worker": "docker compose -f docker-compose.dev.yml build worker",
+    "clean": "docker compose -f docker-compose.dev.yml down -v --rmi local",
+    "prune": "docker system prune -af --volumes",
+    "health": "curl -s http://localhost:8000/health | jq . || echo 'API not running'",
+    "web:install": "cd web && npm install",
+    "web:lint": "cd web && npm run lint",
+    "web:build": "cd web && npm run build",
+    "web:type-check": "cd web && npm run type-check"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

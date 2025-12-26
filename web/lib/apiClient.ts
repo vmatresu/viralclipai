@@ -1,4 +1,11 @@
 import { sanitizeUrl } from "@/lib/security/validation";
+import type {
+  SubscriptionInfo,
+  CreateCheckoutResponse,
+  InvoicePreview,
+  Invoice,
+  PaymentMethod,
+} from "@/types/billing";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -724,4 +731,192 @@ export function getCreditHistory(
     : "/api/credits/history";
 
   return apiFetch<CreditHistoryResponse>(path, { token });
+}
+
+// =============================================================================
+// Billing API Functions (Using Next.js API Routes with Official Stripe SDK)
+// =============================================================================
+
+/**
+ * Local API fetch for Next.js API routes (doesn't use external backend URL)
+ */
+async function localApiFetch<T>(
+  path: string,
+  options: { method?: string; token?: string; body?: unknown } = {}
+): Promise<T> {
+  const { method = "GET", token, body } = options;
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(path, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error || `Request failed: ${res.status}`);
+  }
+
+  return res.json();
+}
+
+/**
+ * Get current subscription information
+ */
+export function getSubscription(token: string): Promise<SubscriptionInfo> {
+  return localApiFetch<SubscriptionInfo>("/api/billing/subscription", { token });
+}
+
+/**
+ * Create a Stripe Checkout session for upgrading to a paid plan
+ */
+export function createCheckoutSession(
+  token: string,
+  priceId: string,
+  successUrl: string,
+  cancelUrl: string
+): Promise<CreateCheckoutResponse> {
+  return localApiFetch<CreateCheckoutResponse>("/api/billing/checkout", {
+    method: "POST",
+    token,
+    body: {
+      price_id: priceId,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+    },
+  });
+}
+
+/**
+ * Preview invoice for a plan change (shows prorated charges)
+ */
+export function previewPlanChange(
+  token: string,
+  newPriceId: string
+): Promise<InvoicePreview> {
+  return localApiFetch<InvoicePreview>("/api/billing/subscription", {
+    method: "POST",
+    token,
+    body: { action: "preview", price_id: newPriceId },
+  });
+}
+
+/**
+ * Change subscription plan (upgrade or downgrade)
+ */
+export function changePlan(
+  token: string,
+  newPriceId: string,
+  prorate = true
+): Promise<SubscriptionInfo> {
+  return localApiFetch<SubscriptionInfo>("/api/billing/subscription", {
+    method: "POST",
+    token,
+    body: { action: "change", price_id: newPriceId, prorate },
+  });
+}
+
+/**
+ * Cancel subscription
+ * @param immediately - If true, cancel now. If false, cancel at period end.
+ */
+export function cancelSubscription(
+  token: string,
+  immediately = false
+): Promise<SubscriptionInfo> {
+  return localApiFetch<SubscriptionInfo>("/api/billing/subscription", {
+    method: "POST",
+    token,
+    body: { action: "cancel", immediately },
+  });
+}
+
+/**
+ * Reactivate a subscription that was scheduled for cancellation
+ */
+export function reactivateSubscription(
+  token: string
+): Promise<SubscriptionInfo> {
+  return localApiFetch<SubscriptionInfo>("/api/billing/subscription", {
+    method: "POST",
+    token,
+    body: { action: "reactivate" },
+  });
+}
+
+/**
+ * Get invoice history
+ */
+export function getInvoices(
+  token: string,
+  limit = 10
+): Promise<{ invoices: Invoice[] }> {
+  return localApiFetch<{ invoices: Invoice[] }>(
+    `/api/billing/invoices?limit=${limit}`,
+    { token }
+  );
+}
+
+/**
+ * Get saved payment methods
+ */
+export function getPaymentMethods(
+  token: string
+): Promise<{ payment_methods: PaymentMethod[] }> {
+  return localApiFetch<{ payment_methods: PaymentMethod[] }>(
+    "/api/billing/payment-methods",
+    { token }
+  );
+}
+
+/**
+ * Add a payment method (attach to customer)
+ */
+export function addPaymentMethod(
+  token: string,
+  paymentMethodId: string,
+  setAsDefault = false
+): Promise<PaymentMethod> {
+  return localApiFetch<PaymentMethod>("/api/billing/payment-methods", {
+    method: "POST",
+    token,
+    body: { payment_method_id: paymentMethodId, set_as_default: setAsDefault },
+  });
+}
+
+/**
+ * Delete a payment method
+ */
+export function deletePaymentMethod(
+  token: string,
+  paymentMethodId: string
+): Promise<void> {
+  return localApiFetch<void>(
+    `/api/billing/payment-methods?id=${encodeURIComponent(paymentMethodId)}`,
+    {
+      method: "DELETE",
+      token,
+    }
+  );
+}
+
+/**
+ * Set a payment method as the default
+ */
+export function setDefaultPaymentMethod(
+  token: string,
+  paymentMethodId: string
+): Promise<void> {
+  return localApiFetch<void>("/api/billing/payment-methods", {
+    method: "POST",
+    token,
+    body: { action: "set_default", payment_method_id: paymentMethodId },
+  });
 }
