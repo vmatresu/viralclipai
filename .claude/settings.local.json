@@ -32,7 +32,8 @@
       "Bash(git commit -m \"$\\(cat <<''EOF''\nfix\\(opencv-build\\): add strict OpenVINO verification to fail fast\n\n- Add verbose search output for OpenVINOConfig.cmake location\n- Add post-cmake verification that WITH_OPENVINO=ON\n- Add post-build verification that libopencv_dnn links to libopenvino\n- Add OpenVINO verification step to GitHub Actions workflow\n- Add debug output to Dockerfile for installed packages\n\nThe build will now fail immediately if:\n1. OpenVINOConfig.cmake is not found\n2. CMake sets WITH_OPENVINO=OFF despite configuration\n3. Final libopencv_dnn.so does not link to libopenvino\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(scp:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []

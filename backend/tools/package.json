@@ -6,6 +6,8 @@
   "scripts": {
     "build": "tsc",
     "clean": "rm -rf dist",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",
     "transcript": "node dist/transcript-extractor/cli.js"
   },
@@ -16,8 +18,11 @@
     "youtubei.js": "16.0.1"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.2",
     "@types/node": "^22.10.2",
+    "eslint": "^9.39.2",
     "pino-pretty": "^13.0.0",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.50.1"
   }
 }

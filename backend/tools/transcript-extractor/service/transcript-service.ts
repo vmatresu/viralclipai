@@ -17,21 +17,21 @@
 
 import { existsSync } from "node:fs";
 import {
-    ApifyScraperStrategy,
-    TranscriptStrategy,
-    WatchPageStrategy,
-    YouTubeApiStrategy,
-    YoutubeiStrategy,
-    YtdlpStrategy,
+  ApifyScraperStrategy,
+  TranscriptStrategy,
+  WatchPageStrategy,
+  YouTubeApiStrategy,
+  YoutubeiStrategy,
+  YtdlpStrategy,
 } from "../strategies/index.js";
 import {
-    DEFAULT_TRANSCRIPT_OPTIONS,
-    isTranscriptError,
-    isTranscriptResult,
-    TranscriptErrorType,
-    type StrategyMemoryAssessment as MemoryAssessment,
-    type TranscriptOptions,
-    type TranscriptOutcome
+  DEFAULT_TRANSCRIPT_OPTIONS,
+  isTranscriptError,
+  isTranscriptResult,
+  TranscriptErrorType,
+  type StrategyMemoryAssessment as MemoryAssessment,
+  type TranscriptOptions,
+  type TranscriptOutcome
 } from "../types/index.js";
 import { CircuitBreaker, CircuitState } from "../utils/circuit-breaker.js";
 import { Config } from "../utils/config.js";
@@ -46,7 +46,7 @@ import { extractVideoIdSimple } from "../utils/youtube-url-parser.js";
  * The library parses YouTube's JavaScript which causes significant memory spikes.
  * In containers, the assessStrategyAvailability function applies a 1.5x safety margin.
  */
-const YOUTUBEI_REQUIRED_MEMORY_MB = 384;
+const YOUTUBEI_REQUIRED_MEMORY_MB = 1024;
 
 /**
  * Environment variable to explicitly disable youtubei strategy
@@ -146,6 +146,7 @@ export class TranscriptService {
       new YtdlpStrategy({
         ytdlpPath: config.ytdlpPath,
         cookiesPath,
+        usePOTokenProvider: Config.ytdlpPOTokenEnabled,
       }),
       new YouTubeApiStrategy(),
       new ApifyScraperStrategy(),
@@ -377,6 +378,7 @@ export class TranscriptService {
       TranscriptErrorType.VIDEO_LIVE,
       TranscriptErrorType.AGE_RESTRICTED,
       TranscriptErrorType.RATE_LIMITED,
+      TranscriptErrorType.PO_TOKEN_ERROR,
       TranscriptErrorType.TIMEOUT,
       TranscriptErrorType.NETWORK_ERROR,
       TranscriptErrorType.PARSE_ERROR,

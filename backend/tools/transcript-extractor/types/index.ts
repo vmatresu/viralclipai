@@ -90,6 +90,8 @@ export enum TranscriptErrorType {
   VIDEO_LIVE = "video_live",
   AGE_RESTRICTED = "age_restricted",
   RATE_LIMITED = "rate_limited",
+  /** PO Token (Proof of Origin) error - YouTube requires valid tokens for access */
+  PO_TOKEN_ERROR = "po_token_error",
   TIMEOUT = "timeout",
   NETWORK_ERROR = "network_error",
   PARSE_ERROR = "parse_error",

@@ -9,17 +9,34 @@ export * from "./types/index.js";
 
 // Service
 export {
-    TranscriptService, extractTranscript,
-    getTranscriptService, type TranscriptServiceConfig
+  extractTranscript,
+  getTranscriptService,
+  TranscriptService,
+  type TranscriptServiceConfig,
 } from "./service/index.js";
 
 // Strategies (for advanced usage)
 export {
-    ApifyScraperStrategy,
-    TranscriptStrategy,
-    WatchPageStrategy,
-    YouTubeApiStrategy,
-    YoutubeiStrategy,
-    YtdlpStrategy
+  ApifyScraperStrategy,
+  TranscriptStrategy,
+  WatchPageStrategy,
+  YouTubeApiStrategy,
+  YoutubeiStrategy,
+  YtdlpStrategy,
 } from "./strategies/index.js";
+
+// PO Token module
+export * from "./po-token/index.js";
+
+// Health check utilities
+export {
+  checkMemory,
+  checkPOToken,
+  isAlive,
+  isReady,
+  performHealthCheck,
+  type MemoryHealthStatus,
+  type POTokenHealthStatus,
+  type TranscriptServiceHealth,
+} from "./utils/health-check.js";
 

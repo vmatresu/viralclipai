@@ -6,6 +6,7 @@
 
 export * from "./circuit-breaker.js";
 export * from "./config.js";
+export * from "./health-check.js";
 export * from "./ipv6-selector.js";
 export * from "./logger.js";
 export * from "./memory.js";
