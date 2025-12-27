@@ -301,7 +301,10 @@ impl JobExecutor {
             loop {
                 ticker.tick().await;
                 if let Err(e) = progress_ctx.progress.heartbeat(&progress_job_id).await {
-                    debug!("Progress heartbeat failed for job {}: {}", progress_job_id, e);
+                    debug!(
+                        "Progress heartbeat failed for job {}: {}",
+                        progress_job_id, e
+                    );
                 }
             }
         });
@@ -338,16 +341,16 @@ impl JobExecutor {
 
                 // Clear dedup key to allow re-enqueue
                 if let Err(e) = queue.clear_dedup(&job).await {
-                    warn!("Failed to clear dedup key for rescheduled job {}: {}", job_id, e);
+                    warn!(
+                        "Failed to clear dedup key for rescheduled job {}: {}",
+                        job_id, e
+                    );
                 }
 
                 // Re-enqueue with delay if this is a render job
                 if let QueueJob::RenderSceneStyle(render_job) = job {
                     let delay = Duration::from_secs(30);
-                    if let Err(e) = queue
-                        .enqueue_render_with_delay(render_job, delay)
-                        .await
-                    {
+                    if let Err(e) = queue.enqueue_render_with_delay(render_job, delay).await {
                         warn!(
                             job_id = %job_id,
                             error = %e,
@@ -359,15 +362,28 @@ impl JobExecutor {
             Err(e) => {
                 error!("Job {} failed: {}", job_id, e);
 
-                // Check retry count
-                let retry_count = queue.increment_retry(&message_id).await.unwrap_or(999);
+                // Check if this is a permanent failure (age-restricted, private, unavailable, etc.)
+                // These should NOT be retried - fail immediately so user sees the error
+                let is_permanent = e.is_permanent_failure();
+
+                // Check retry count (only matters for transient errors)
+                let retry_count = if is_permanent {
+                    999 // Force immediate DLQ
+                } else {
+                    queue.increment_retry(&message_id).await.unwrap_or(999)
+                };
                 let max_retries = queue.max_retries();
 
-                if retry_count >= max_retries {
-                    warn!(
-                        "Job {} exceeded max retries ({}), moving to DLQ",
-                        job_id, max_retries
-                    );
+                if retry_count >= max_retries || is_permanent {
+                    if is_permanent {
+                        warn!("Job {} has permanent failure, not retrying: {}", job_id, e);
+                    } else {
+                        warn!(
+                            "Job {} exceeded max retries ({}), moving to DLQ",
+                            job_id, max_retries
+                        );
+                    }
+
                     if let Err(dlq_err) = queue.dlq(&message_id, &job, &e.to_string()).await {
                         error!("Failed to move job {} to DLQ: {}", job_id, dlq_err);
                     }
@@ -376,7 +392,11 @@ impl JobExecutor {
                         warn!("Failed to clear dedup key for job {}: {}", job_id, e);
                     }
 
-                    let error_msg = format!("Job failed after {} retries: {}", max_retries, e);
+                    let error_msg = if is_permanent {
+                        format!("Video cannot be processed: {}", e)
+                    } else {
+                        format!("Job failed after {} retries: {}", max_retries, e)
+                    };
 
                     // Update video status to "Failed" in Firestore so it doesn't stay stuck in "processing"
                     // Note: AnalyzeVideo jobs don't have a video_id, they use draft_id instead
@@ -393,10 +413,7 @@ impl JobExecutor {
                                 video_id, progress_err
                             );
                         }
-                        if let Err(fail_err) = video_repo
-                            .fail(video_id, &error_msg)
-                            .await
-                        {
+                        if let Err(fail_err) = video_repo.fail(video_id, &error_msg).await {
                             error!("Failed to mark video {} as failed: {}", video_id, fail_err);
                         } else {
                             info!("Marked video {} as failed after max retries", video_id);
@@ -422,15 +439,8 @@ impl JobExecutor {
                         }
                     }
 
-
                     // Emit error to progress channel
-                    ctx.progress
-                        .error(
-                            job.job_id(),
-                            error_msg,
-                        )
-                        .await
-                        .ok();
+                    ctx.progress.error(job.job_id(), error_msg).await.ok();
                 } else {
                     info!(
                         "Job {} will be retried (attempt {}/{})",

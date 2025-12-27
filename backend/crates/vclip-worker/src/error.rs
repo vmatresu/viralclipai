@@ -103,4 +103,65 @@ impl WorkerError {
     pub fn is_quota_exceeded(&self) -> bool {
         matches!(self, WorkerError::QuotaExceeded(_))
     }
+
+    /// Check if this is a permanent failure that should NOT be retried.
+    ///
+    /// These are errors where retrying won't help - the video itself is
+    /// inaccessible (age-restricted, private, unavailable, etc.).
+    /// The job should immediately fail so the user sees the error.
+    pub fn is_permanent_failure(&self) -> bool {
+        // Quota exceeded is permanent
+        if self.is_quota_exceeded() {
+            return true;
+        }
+
+        // Check the error message for permanent failure patterns
+        let msg = self.to_string().to_lowercase();
+
+        // Age restriction (requires login/cookies we don't have)
+        if msg.contains("age") && (msg.contains("restrict") || msg.contains("verif")) {
+            return true;
+        }
+
+        // Private videos
+        if msg.contains("private video") || msg.contains("video is private") {
+            return true;
+        }
+
+        // Unavailable videos
+        if msg.contains("video unavailable")
+            || msg.contains("video is unavailable")
+            || msg.contains("video not available")
+        {
+            return true;
+        }
+
+        // Deleted videos
+        if msg.contains("video has been removed") || msg.contains("video was deleted") {
+            return true;
+        }
+
+        // Copyright blocked
+        if msg.contains("copyright") && msg.contains("block") {
+            return true;
+        }
+
+        // Region blocked
+        if msg.contains("not available in your country") || msg.contains("blocked in your country")
+        {
+            return true;
+        }
+
+        // Live streams (can't process)
+        if msg.contains("live stream") || msg.contains("live event") {
+            return true;
+        }
+
+        // Premieres (not yet available)
+        if msg.contains("premiere") && msg.contains("will begin") {
+            return true;
+        }
+
+        false
+    }
 }

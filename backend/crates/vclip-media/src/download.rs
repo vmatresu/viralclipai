@@ -73,7 +73,10 @@ pub async fn get_writable_cookies_path() -> Option<String> {
 
     // Check if file exists
     if !source_path.exists() {
-        debug!("Cookies file not found at {}, skipping", SOURCE_COOKIES_PATH);
+        debug!(
+            "Cookies file not found at {}, skipping",
+            SOURCE_COOKIES_PATH
+        );
         return None;
     }
 
