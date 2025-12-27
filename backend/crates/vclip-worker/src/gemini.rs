@@ -7,7 +7,7 @@ use std::path::Path;
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::error::{WorkerError, WorkerResult};
 
