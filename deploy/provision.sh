@@ -231,21 +231,9 @@ configure_app_files() {
         fi
     fi
 
-    # 3. Worker specific files
-    if [[ "$ROLE" == "worker" ]]; then
-        local cookies_file="$APP_DIR/youtube-cookies.txt"
-        if [[ ! -f "$cookies_file" ]]; then
-            if [[ -d "$cookies_file" ]]; then
-                rmdir "$cookies_file"
-            fi
-            log "Creating empty youtube-cookies.txt..."
-            touch "$cookies_file"
-        fi
-        # Ensure readable by container user (appuser:65532)
-        # 644 = owner rw, group r, others r
-        chmod 644 "$cookies_file"
-        chown deploy:deploy "$cookies_file"
-    fi
+    # Note: YouTube cookies are optional
+    # If you need them for age-restricted content, upload a valid Netscape format cookies file:
+    #   scp cookies.txt deploy@<SERVER_IP>:/var/www/viralclipai-backend/youtube-cookies.txt
 }
 
 # --- Main ---
@@ -282,9 +270,10 @@ echo "     scp your-credentials.json deploy@<SERVER_IP>:$APP_DIR/firebase-creden
 echo ""
 
 if [[ "$ROLE" == "worker" ]]; then
-    echo "3. Update YouTube Cookies (Worker Only):"
-    echo "   - I created an empty file."
-    echo "   - If needed, upload real cookies:"
+    echo "3. (Optional) YouTube Cookies for age-restricted content:"
+    echo "   - Only needed if downloading age-restricted videos."
+    echo "   - Must be in Netscape format (from browser extension)."
+    echo "   - Upload if needed:"
     echo "     scp cookies.txt deploy@<SERVER_IP>:$APP_DIR/youtube-cookies.txt"
 fi
 echo "--------------------------------------------------"

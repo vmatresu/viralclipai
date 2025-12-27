@@ -76,8 +76,6 @@ services:
     volumes:
       # Firebase service account for Firestore auth
       - ../firebase-credentials.json:/app/firebase-credentials.json:ro
-      # YouTube cookies for yt-dlp authentication (writable so yt-dlp can update them)
-      - ../youtube-cookies.txt:/app/youtube-cookies.txt
       # Temp storage for video processing
       - worker-temp:/tmp/videos
 

@@ -23,18 +23,93 @@ const SOURCE_COOKIES_PATH: &str = "/app/youtube-cookies.txt";
 /// Writable temp path for cookies (allows yt-dlp to save cookies).
 const TEMP_COOKIES_PATH: &str = "/tmp/youtube-cookies.txt";
 
+/// Minimum size for a valid cookies file (bytes).
+/// A real Netscape cookies file is at least ~50 bytes.
+const MIN_COOKIES_FILE_SIZE: u64 = 50;
+
 /// Guards concurrent access to cookies file copy.
 static COOKIES_LOCK: OnceLock<Mutex<bool>> = OnceLock::new();
+
+/// Validate that a cookies file appears to be in Netscape format.
+///
+/// Netscape cookies files either start with "# Netscape HTTP Cookie File"
+/// or contain tab-separated lines with domain entries.
+fn is_valid_netscape_cookies(content: &str) -> bool {
+    // Check for Netscape header
+    if content.starts_with("# Netscape HTTP Cookie File")
+        || content.starts_with("# HTTP Cookie File")
+    {
+        return true;
+    }
+
+    // Check for tab-separated cookie entries (domain\ttrue/false\t...)
+    for line in content.lines() {
+        let line = line.trim();
+        // Skip comments and empty lines
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        // Valid cookie line should have tab-separated fields
+        let fields: Vec<&str> = line.split('\t').collect();
+        if fields.len() >= 6 {
+            return true;
+        }
+    }
+
+    false
+}
 
 /// Get path to a writable cookies file.
 ///
 /// Copies the source cookies file to a temp location if needed,
 /// since yt-dlp tries to save cookies back after use.
+///
+/// Returns `None` if:
+/// - The file doesn't exist
+/// - The file is empty or too small
+/// - The file is not in valid Netscape format
 pub async fn get_writable_cookies_path() -> Option<String> {
     let source_path = Path::new(SOURCE_COOKIES_PATH);
 
+    // Check if file exists
     if !source_path.exists() {
+        debug!("Cookies file not found at {}, skipping", SOURCE_COOKIES_PATH);
         return None;
+    }
+
+    // Check file size - empty or tiny files are invalid
+    match tokio::fs::metadata(source_path).await {
+        Ok(metadata) => {
+            if metadata.len() < MIN_COOKIES_FILE_SIZE {
+                debug!(
+                    "Cookies file {} is too small ({} bytes), skipping",
+                    SOURCE_COOKIES_PATH,
+                    metadata.len()
+                );
+                return None;
+            }
+        }
+        Err(e) => {
+            warn!("Failed to read cookies file metadata: {}", e);
+            return None;
+        }
+    }
+
+    // Validate Netscape format
+    match tokio::fs::read_to_string(source_path).await {
+        Ok(content) => {
+            if !is_valid_netscape_cookies(&content) {
+                debug!(
+                    "Cookies file {} is not in valid Netscape format, skipping",
+                    SOURCE_COOKIES_PATH
+                );
+                return None;
+            }
+        }
+        Err(e) => {
+            warn!("Failed to read cookies file: {}", e);
+            return None;
+        }
     }
 
     let temp_path = Path::new(TEMP_COOKIES_PATH);
@@ -59,6 +134,7 @@ pub async fn get_writable_cookies_path() -> Option<String> {
         }
     }
 
+    info!("Using cookies file for YouTube authentication");
     Some(TEMP_COOKIES_PATH.to_string())
 }
 
