@@ -1,9 +1,23 @@
 {
   "name": "vclip-tools",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "transcript": "node dist/transcript-extractor/cli.js"
+  },
   "dependencies": {
+    "googleapis": "^144.0.0",
+    "pino": "^9.5.0",
     "undici": "^7.2.0",
     "youtubei.js": "16.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "pino-pretty": "^13.0.0",
+    "typescript": "^5.7.2"
   }
 }

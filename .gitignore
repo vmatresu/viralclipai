@@ -43,4 +43,5 @@ web/test-results/
 .vercel
 youtube-cookies.txt
 .vscode/settings.json
-/temp-transcript
+/temp-po-token
+backend/tools/dist/
