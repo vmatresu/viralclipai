@@ -304,6 +304,12 @@ list_container_ips() {
 # Main Execution
 # =============================================================================
 main() {
+    # Check for root privileges
+    if [[ $EUID -ne 0 ]]; then
+       log_error "This script must be run as root (use sudo)"
+       exit 1
+    fi
+
     parse_args "$@"
 
     # Load config file if exists
