@@ -49,7 +49,6 @@ jobs:
 
           test -f /var/www/viralclipai-backend/.env
           test -f /var/www/viralclipai-backend/firebase-credentials.json
-          test -f /var/www/viralclipai-backend/youtube-cookies.txt
 
           echo "Pulling latest changes..."
           git fetch origin main
