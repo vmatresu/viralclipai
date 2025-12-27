@@ -9,7 +9,14 @@ on:
     - 'deploy/docker-compose.worker.yml'
     - 'deploy/scripts/**'
   workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for this deployment (optional)'
+        required: false
+        type: string
+        default: 'Manual deployment'
 
+run-name: Deploy Worker to Production${{ inputs.reason && format(' - {0}', inputs.reason) || '' }}
 
 permissions:
   contents: read
@@ -81,4 +88,3 @@ jobs:
           disown
 
           echo "✅ Build triggered in background. Monitor with: ssh ${{ vars.SSH_USER }}@${{ vars.WORKER_HOST }} 'tail -f /tmp/worker-deploy.log'"
-
