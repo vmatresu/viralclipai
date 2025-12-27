@@ -45,3 +45,4 @@ youtube-cookies.txt
 .vscode/settings.json
 /temp-po-token
 backend/tools/dist/
+temp-ipv6/

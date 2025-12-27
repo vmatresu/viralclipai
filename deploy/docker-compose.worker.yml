@@ -81,9 +81,9 @@ services:
       # Temp storage for video processing
       - worker-temp:/tmp/videos
 
-    # Network configuration - attach to IPv6-enabled network if available
-    networks:
-      - viralclip-ipv6
+    # Use default bridge network (configured with IPv6 via daemon.json)
+    # This avoids subnet conflicts when using fixed-cidr-v6 in daemon config
+    network_mode: bridge
 
     # Enable IPv6 sysctls in container (required for IPv6 address assignment)
     sysctls:
@@ -135,26 +135,21 @@ services:
         compress: "true"
 
 # =============================================================================
-# Networks
+# Volumes
 # =============================================================================
-# IPv6-enabled network for IP rotation to avoid YouTube rate limiting.
-# The subnet must match the one assigned by your hosting provider.
-# Set DOCKER_IPV6_SUBNET in .env (e.g., 2001:41d0:xxx::/64)
-#
-# After container starts, IPv6 addresses are assigned via:
-#   sudo /usr/local/bin/assign-ipv6.sh
-# =============================================================================
-networks:
-  viralclip-ipv6:
-    driver: bridge
-    enable_ipv6: true
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
-        - subnet: ${DOCKER_IPV6_SUBNET:-fd00:dead:beef::/48}
-
 volumes:
   worker-temp:
     name: vclip-worker-temp
     driver: local
 
+# =============================================================================
+# IPv6 Rotation Notes
+# =============================================================================
+# IPv6 is configured via Docker daemon.json with fixed-cidr-v6.
+# Set in /etc/docker/daemon.json: "fixed-cidr-v6": "2001:41d0:a:719c::/64"
+#
+# After container starts, run the IP assignment script:
+#   sudo /usr/local/bin/assign-ipv6.sh assign
+#
+# This assigns 10,000 random IPv6 addresses to the container for rotation.
+# =============================================================================

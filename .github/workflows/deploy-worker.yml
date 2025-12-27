@@ -64,8 +64,10 @@ jobs:
 
             # Assign IPv6 addresses for IP rotation (if script exists and IPv6 is configured)
             if [ -f /usr/local/bin/assign-ipv6.sh ] && [ -f /etc/viralclip/ipv6.conf ]; then
-              echo "Assigning IPv6 addresses..."
-              /usr/local/bin/assign-ipv6.sh 2>&1 | tee -a /tmp/worker-deploy.log || echo "⚠️ IPv6 assignment failed (non-critical)"
+              echo "Assigning 10,000 random IPv6 addresses..."
+              /usr/local/bin/assign-ipv6.sh assign 2>&1 | tee -a /tmp/worker-deploy.log || echo "⚠️ IPv6 assignment failed (non-critical)"
+              echo "Verifying IPv6 assignment..."
+              /usr/local/bin/assign-ipv6.sh verify 2>&1 | tee -a /tmp/worker-deploy.log || true
             else
               echo "ℹ️ IPv6 rotation not configured (assign-ipv6.sh or ipv6.conf missing)"
             fi
