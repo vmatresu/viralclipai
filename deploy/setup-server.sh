@@ -541,7 +541,7 @@ IPV6_SUBNET_PREFIX="$RAW_PREFIX"
 IPV6_CIDR_SUFFIX="${DOCKER_IPV6_SUBNET#*/}"
 IPV6_INTERFACE="$IPV6_INTERFACE"
 EOF
-    chmod 600 /etc/viralclip/ipv6.conf
+    chmod 644 /etc/viralclip/ipv6.conf
     log_ok "IPv6 configuration saved to /etc/viralclip/ipv6.conf"
 
     # 6. Copy assign-ipv6.sh script
