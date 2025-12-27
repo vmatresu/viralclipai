@@ -46,8 +46,12 @@ BATCH_SIZE="${BATCH_SIZE:-500}"
 SUBNET_PREFIX="${IPV6_SUBNET_PREFIX:-}"
 CIDR_SUFFIX="${IPV6_CIDR_SUFFIX:-64}"
 
-# Configuration file location (set by setup-server.sh)
-CONFIG_FILE="/etc/viralclip/ipv6.conf"
+# Configuration file locations to check (in order)
+CONFIG_FILES=(
+    "ipv6.conf"
+    "/var/www/viralclipai-backend/ipv6.conf"
+    "/etc/viralclip/ipv6.conf"
+)
 
 # Command to execute
 COMMAND="assign"
@@ -303,14 +307,21 @@ main() {
     parse_args "$@"
 
     # Load config file if exists
-    if [[ -f "$CONFIG_FILE" ]]; then
-        log_info "Loading configuration from $CONFIG_FILE"
-        # shellcheck source=/dev/null
-        source "$CONFIG_FILE"
-        # Config file uses different variable names
-        SUBNET_PREFIX="${IPV6_SUBNET_PREFIX:-$SUBNET_PREFIX}"
-        CIDR_SUFFIX="${IPV6_CIDR_SUFFIX:-$CIDR_SUFFIX}"
-    fi
+    for config in "${CONFIG_FILES[@]}"; do
+        if [[ -f "$config" ]]; then
+            if [[ -r "$config" ]]; then
+                log_info "Loading configuration from $config"
+                # shellcheck source=/dev/null
+                source "$config"
+                # Config file uses different variable names
+                SUBNET_PREFIX="${IPV6_SUBNET_PREFIX:-$SUBNET_PREFIX}"
+                CIDR_SUFFIX="${IPV6_CIDR_SUFFIX:-$CIDR_SUFFIX}"
+                break # Stop after finding the first valid config
+            else
+                log_warn "Configuration file $config exists but is not readable."
+            fi
+        fi
+    done
 
     case "$COMMAND" in
         assign)
