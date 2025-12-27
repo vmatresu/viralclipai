@@ -133,33 +133,80 @@ impl GeminiClient {
         }
         args.push(video_url);
 
-        let output = tokio::process::Command::new("yt-dlp")
+        // Create command but don't execute yet
+        let mut child = tokio::process::Command::new("yt-dlp")
             .args(&args)
-            .output()
-            .await
-            .map_err(|e| {
-                WorkerError::ai_failed(format!("Failed to run yt-dlp for metadata: {}", e))
-            })?;
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| WorkerError::ai_failed(format!("Failed to spawn yt-dlp: {}", e)))?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
+        // Stream stdout and stderr in real-time
+        let stdout = child.stdout.take().unwrap();
+        let stderr = child.stderr.take().unwrap();
+        
+        let mut stdout_reader = tokio::io::BufReader::new(stdout);
+        let mut stderr_reader = tokio::io::BufReader::new(stderr);
+        
+        let mut stdout_lines = Vec::new();
+        let mut stderr_lines = Vec::new();
+
+        // Spawn tasks to read output
+        let stdout_handle = tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let mut lines = Vec::new();
+            let mut line = String::new();
+            while let Ok(n) = stdout_reader.read_line(&mut line).await {
+                if n == 0 { break; }
+                let trimmed = line.trim().to_string();
+                if !trimmed.is_empty() {
+                    debug!("yt-dlp stdout: {}", trimmed);
+                    lines.push(trimmed);
+                }
+                line.clear();
+            }
+            lines
+        });
+
+        let stderr_handle = tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let mut lines = Vec::new();
+            let mut line = String::new();
+            while let Ok(n) = stderr_reader.read_line(&mut line).await {
+                if n == 0 { break; }
+                let trimmed = line.trim().to_string();
+                if !trimmed.is_empty() {
+                    warn!("yt-dlp stderr: {}", trimmed);
+                    lines.push(trimmed);
+                }
+                line.clear();
+            }
+            lines
+        });
+
+        // Wait for process to finish
+        let status = child.wait().await
+            .map_err(|e| WorkerError::ai_failed(format!("Failed to wait for yt-dlp: {}", e)))?;
+            
+        // Collect output
+        stdout_lines = stdout_handle.await.unwrap_or_default();
+        stderr_lines = stderr_handle.await.unwrap_or_default();
+
+        if !status.success() {
             return Err(WorkerError::ai_failed(format!(
                 "yt-dlp failed to get metadata: {}",
-                stderr
+                stderr_lines.join("\n")
             )));
         }
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let lines: Vec<&str> = stdout.lines().collect();
-
-        if lines.len() < 2 {
+        if stdout_lines.len() < 2 {
             return Err(WorkerError::ai_failed(
-                "yt-dlp did not return expected metadata".to_string(),
+                format!("yt-dlp did not return expected metadata. Output: {:?}", stdout_lines)
             ));
         }
 
-        let title = lines[0].trim().to_string();
-        let canonical_url = lines[1].trim().to_string();
+        let title = stdout_lines[0].trim().to_string();
+        let canonical_url = stdout_lines[1].trim().to_string();
 
         if title.is_empty() || canonical_url.is_empty() {
             return Err(WorkerError::ai_failed(
