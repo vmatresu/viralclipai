@@ -44,7 +44,9 @@ mod cpu_affinity {
             }
 
             // Valid formats: "8-15", "0,2,4,6", "0-3,8-11"
-            let valid = cores.chars().all(|c| c.is_ascii_digit() || c == '-' || c == ',');
+            let valid = cores
+                .chars()
+                .all(|c| c.is_ascii_digit() || c == '-' || c == ',');
             if !valid {
                 warn!(
                     "Invalid VCLIP_FFMPEG_CPU_CORES format '{}': must contain only digits, '-', ','",
@@ -314,7 +316,11 @@ impl FfmpegRunner {
     }
 
     /// Run an FFmpeg command with progress callback.
-    pub async fn run_with_progress<F>(&self, cmd: &FfmpegCommand, progress_callback: F) -> MediaResult<()>
+    pub async fn run_with_progress<F>(
+        &self,
+        cmd: &FfmpegCommand,
+        progress_callback: F,
+    ) -> MediaResult<()>
     where
         F: Fn(FfmpegProgress) + Send + 'static,
     {
@@ -360,15 +366,16 @@ impl FfmpegRunner {
 
         // Apply timeout if set
         let wait_future = if let Some(timeout_secs) = self.timeout_secs {
-            let timeout = tokio::time::timeout(
-                std::time::Duration::from_secs(timeout_secs),
-                wait_future,
-            );
+            let timeout =
+                tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), wait_future);
             match timeout.await {
                 Ok(result) => result,
                 Err(_) => {
                     // Timeout - kill the process
-                    warn!("FFmpeg timed out after {} seconds, killing process", timeout_secs);
+                    warn!(
+                        "FFmpeg timed out after {} seconds, killing process",
+                        timeout_secs
+                    );
                     let _ = child.kill().await;
                     return Err(MediaError::Timeout(timeout_secs));
                 }
@@ -409,11 +416,7 @@ fn parse_progress_line(line: &str, current: &mut FfmpegProgress) -> Option<Ffmpe
             "out_time_ms" | "out_time_us" => {
                 // Parse microseconds or milliseconds to milliseconds
                 if let Ok(us) = value.parse::<i64>() {
-                    current.out_time_ms = if key == "out_time_us" {
-                        us / 1000
-                    } else {
-                        us
-                    };
+                    current.out_time_ms = if key == "out_time_us" { us / 1000 } else { us };
                 }
             }
             "out_time" => {

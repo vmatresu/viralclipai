@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "undici": "^7.2.0",
     "youtubei.js": "16.0.1"
   }
 }

@@ -224,10 +224,13 @@ mod tests {
     #[test]
     fn test_face_activity_provider_creation() {
         let provider = VisualFaceActivityProvider::new();
-        assert_eq!(provider.name(), if cfg!(feature = "opencv") {
-            "visual_face_activity"
-        } else {
-            "stub_face_activity"
-        });
+        assert_eq!(
+            provider.name(),
+            if cfg!(feature = "opencv") {
+                "visual_face_activity"
+            } else {
+                "stub_face_activity"
+            }
+        );
     }
 }

@@ -10,8 +10,8 @@
 //!   to avoid drift when the ROI is clamped.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use opencv::core::{Mat, Rect, Vector};
 use opencv::imgproc;
@@ -232,12 +232,18 @@ fn make_square_crop(frame: &Mat, roi: &Rect, pad_ratio: f32) -> MediaResult<Rect
         return Err(MediaError::detection_failed("ROI too small for face mesh"));
     }
 
-    Ok(Rect::new(x.round() as i32, y.round() as i32, s.round() as i32, s.round() as i32))
+    Ok(Rect::new(
+        x.round() as i32,
+        y.round() as i32,
+        s.round() as i32,
+        s.round() as i32,
+    ))
 }
 
 /// Extract RGB crop from BGR frame.
 fn extract_rgb_crop(frame_bgr: &Mat, crop: &Rect) -> MediaResult<Mat> {
-    let roi = Mat::roi(frame_bgr, *crop).map_err(|e| MediaError::detection_failed(format!("ROI failed: {e}")))?;
+    let roi = Mat::roi(frame_bgr, *crop)
+        .map_err(|e| MediaError::detection_failed(format!("ROI failed: {e}")))?;
     let mut rgb = Mat::default();
     imgproc::cvt_color(
         &roi,
@@ -252,7 +258,9 @@ fn extract_rgb_crop(frame_bgr: &Mat, crop: &Rect) -> MediaResult<Mat> {
 
 /// Convert Mat (RGB, HxWx3) to ORT tensor (1,3,192,192) normalized to [-1,1].
 fn mat_to_chw_tensor(mat_rgb: &Mat) -> MediaResult<Value> {
-    let size = mat_rgb.size().map_err(|e| MediaError::detection_failed(format!("Mat size: {e}")))?;
+    let size = mat_rgb
+        .size()
+        .map_err(|e| MediaError::detection_failed(format!("Mat size: {e}")))?;
     let (h, w) = (size.height, size.width);
     let channels = mat_rgb.channels();
     if channels != 3 {
@@ -301,7 +309,9 @@ fn extract_landmarks(output: &Value, crop: &Rect) -> MediaResult<Vec<FaceLandmar
     };
 
     if dim3 < 3 || data.len() < points * dim3 {
-        return Err(MediaError::detection_failed("Face mesh output missing Z channel"));
+        return Err(MediaError::detection_failed(
+            "Face mesh output missing Z channel",
+        ));
     }
 
     let mut landmarks = Vec::with_capacity(points as usize);
@@ -324,10 +334,7 @@ pub fn map_normalized_to_frame(nx: f32, ny: f32, crop: &Rect) -> (f32, f32) {
     let center_x = crop.x as f32 + crop.width as f32 / 2.0;
     let center_y = crop.y as f32 + crop.height as f32 / 2.0;
     let box_w = crop.width as f32;
-    (
-        center_x + (nx - 0.5) * box_w,
-        center_y + (ny - 0.5) * box_w,
-    )
+    (center_x + (nx - 0.5) * box_w, center_y + (ny - 0.5) * box_w)
 }
 
 /// When enabled, draw debug overlays and dump frames to /tmp/face_mesh_debug/.
@@ -400,7 +407,14 @@ mod tests {
 
     #[test]
     fn test_mouth_openness_open_gt_closed() {
-        let mut closed = vec![FaceLandmark { x: 0.0, y: 0.0, z: 0.0 }; 309];
+        let mut closed = vec![
+            FaceLandmark {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0
+            };
+            309
+        ];
         closed[13].y = 100.0;
         closed[14].y = 100.0;
         closed[78].x = 90.0;
@@ -442,4 +456,3 @@ fn find_default_model_path() -> Option<PathBuf> {
     }
     None
 }
-

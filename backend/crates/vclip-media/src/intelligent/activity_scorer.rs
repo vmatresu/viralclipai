@@ -42,12 +42,7 @@ impl TemporalActivityTracker {
     /// * `track_id` - Face track ID
     /// * `visual_score` - Visual activity score (0.0-1.0)
     /// * `time` - Current timestamp in seconds
-    pub fn update_activity(
-        &mut self,
-        track_id: u32,
-        visual_score: f64,
-        time: f64,
-    ) {
+    pub fn update_activity(&mut self, track_id: u32, visual_score: f64, time: f64) {
         let history = self.activity_history.entry(track_id).or_default();
         history.push((time, visual_score));
 
@@ -268,7 +263,9 @@ impl ActivityScore {
         // Weighted combination
         let total_weight = config.weight_mouth + config.weight_motion + config.weight_size;
         let visual_combined = if total_weight > 0.0 {
-            (mouth * config.weight_mouth + motion * config.weight_motion + size * config.weight_size)
+            (mouth * config.weight_mouth
+                + motion * config.weight_motion
+                + size * config.weight_size)
                 / total_weight
         } else {
             0.0
@@ -323,7 +320,11 @@ mod tests {
         // Face 2 becomes much more active, but too soon to switch
         tracker.update_activity(2, 0.9, 0.5);
         let selected = tracker.select_active_face(&[1, 2], 0.5);
-        assert_eq!(selected, Some(1), "Should not switch before min_switch_duration");
+        assert_eq!(
+            selected,
+            Some(1),
+            "Should not switch before min_switch_duration"
+        );
 
         // After min_switch_duration, should switch
         tracker.update_activity(2, 0.9, 1.5);
@@ -344,7 +345,11 @@ mod tests {
         tracker.update_activity(1, 0.5, 1.5);
         tracker.update_activity(2, 0.6, 1.5); // Only 0.1 improvement, margin is 0.2
         let selected = tracker.select_active_face(&[1, 2], 1.5);
-        assert_eq!(selected, Some(1), "Should not switch without sufficient margin");
+        assert_eq!(
+            selected,
+            Some(1),
+            "Should not switch without sufficient margin"
+        );
 
         // Face 2 significantly better - needs multiple updates to overcome EMA smoothing
         tracker.update_activity(2, 0.95, 1.7);
@@ -352,7 +357,10 @@ mod tests {
         tracker.update_activity(2, 0.95, 1.9);
         let selected = tracker.select_active_face(&[1, 2], 2.0);
         // After EMA smoothing, face 2 should now be above the margin threshold
-        assert!(selected == Some(1) || selected == Some(2), "Should have made a selection");
+        assert!(
+            selected == Some(1) || selected == Some(2),
+            "Should have made a selection"
+        );
     }
 
     #[test]
@@ -360,7 +368,10 @@ mod tests {
         let tracker = TemporalActivityTracker::new(test_config());
 
         let score = tracker.compute_final_score(0.8);
-        assert!((score - 0.8).abs() < 0.01, "Visual-only score should match input");
+        assert!(
+            (score - 0.8).abs() < 0.01,
+            "Visual-only score should match input"
+        );
     }
 
     #[test]

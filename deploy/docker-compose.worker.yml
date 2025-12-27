@@ -3,6 +3,10 @@
 # =============================================================================
 # For deployment on dedicated Worker droplet with external managed Valkey
 # Usage: docker compose -f docker-compose.worker.yml up -d
+#
+# IPv6 Rotation:
+#   Set DOCKER_IPV6_SUBNET in .env to enable IPv6 rotation (e.g., 2001:41d0:xxx::/64)
+#   After container starts, run: sudo /usr/local/bin/assign-ipv6.sh
 # =============================================================================
 
 services:
@@ -77,6 +81,15 @@ services:
       # Temp storage for video processing
       - worker-temp:/tmp/videos
 
+    # Network configuration - attach to IPv6-enabled network if available
+    networks:
+      - viralclip-ipv6
+
+    # Enable IPv6 sysctls in container (required for IPv6 address assignment)
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=0
+      - net.ipv6.conf.default.disable_ipv6=0
+
     healthcheck:
       test: ["CMD", "pgrep", "-x", "vclip-worker"]
       interval: 30s
@@ -121,7 +134,27 @@ services:
         max-file: "5"
         compress: "true"
 
+# =============================================================================
+# Networks
+# =============================================================================
+# IPv6-enabled network for IP rotation to avoid YouTube rate limiting.
+# The subnet must match the one assigned by your hosting provider.
+# Set DOCKER_IPV6_SUBNET in .env (e.g., 2001:41d0:xxx::/64)
+#
+# After container starts, IPv6 addresses are assigned via:
+#   sudo /usr/local/bin/assign-ipv6.sh
+# =============================================================================
+networks:
+  viralclip-ipv6:
+    driver: bridge
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+        - subnet: ${DOCKER_IPV6_SUBNET:-fd00:dead:beef::/48}
+
 volumes:
   worker-temp:
     name: vclip-worker-temp
     driver: local
+

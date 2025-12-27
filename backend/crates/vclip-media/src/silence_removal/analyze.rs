@@ -170,10 +170,7 @@ async fn extract_audio_for_vad(input: &Path, output: &Path) -> AnalysisResult<()
         return Err(AnalysisError::NoAudioData);
     }
 
-    debug!(
-        output_size = metadata.len(),
-        "Audio extraction complete"
-    );
+    debug!(output_size = metadata.len(), "Audio extraction complete");
 
     Ok(())
 }
@@ -263,10 +260,7 @@ mod tests {
 
         // Write some test f32 samples
         let test_samples: Vec<f32> = vec![0.0, 0.5, 1.0, -1.0];
-        let bytes: Vec<u8> = test_samples
-            .iter()
-            .flat_map(|f| f.to_le_bytes())
-            .collect();
+        let bytes: Vec<u8> = test_samples.iter().flat_map(|f| f.to_le_bytes()).collect();
 
         tokio::fs::write(temp.path(), &bytes).await.unwrap();
 

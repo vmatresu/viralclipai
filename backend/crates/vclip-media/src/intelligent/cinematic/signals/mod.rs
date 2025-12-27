@@ -124,18 +124,11 @@ mod tests {
         let empty = CinematicSignals::new();
         assert!(empty.is_single_shot());
 
-        let single = CinematicSignals::with_shots(
-            vec![ShotBoundary::new(0.0, 10.0)],
-            0.5,
-            0.5,
-        );
+        let single = CinematicSignals::with_shots(vec![ShotBoundary::new(0.0, 10.0)], 0.5, 0.5);
         assert!(single.is_single_shot());
 
         let multiple = CinematicSignals::with_shots(
-            vec![
-                ShotBoundary::new(0.0, 5.0),
-                ShotBoundary::new(5.0, 10.0),
-            ],
+            vec![ShotBoundary::new(0.0, 5.0), ShotBoundary::new(5.0, 10.0)],
             0.5,
             0.5,
         );

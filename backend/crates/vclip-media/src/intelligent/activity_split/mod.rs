@@ -53,7 +53,7 @@ where
         None,
         progress_callback,
     )
-        .await
+    .await
 }
 
 /// Create a Smart Split (Activity) clip with optional cached neural analysis.
@@ -91,7 +91,9 @@ where
     let segment_path = output.with_extension("segment.mp4");
     info!(
         "Extracting segment for Smart Split (Activity): {:.2}s - {:.2}s (cached: {})",
-        start_secs, end_secs, cached_analysis.is_some()
+        start_secs,
+        end_secs,
+        cached_analysis.is_some()
     );
     extract_segment(input, &segment_path, start_secs, duration).await?;
 
@@ -124,11 +126,8 @@ where
     // Log face detection statistics for debugging
     let max_faces_per_frame = detections.iter().map(|f| f.len()).max().unwrap_or(0);
     let total_detections: usize = detections.iter().map(|f| f.len()).sum();
-    let unique_tracks: std::collections::HashSet<u32> = detections
-        .iter()
-        .flatten()
-        .map(|d| d.track_id)
-        .collect();
+    let unique_tracks: std::collections::HashSet<u32> =
+        detections.iter().flatten().map(|d| d.track_id).collect();
     info!(
         max_faces_per_frame = max_faces_per_frame,
         total_detections = total_detections,
@@ -161,14 +160,8 @@ where
             }
             Ok(_) => {
                 info!("Smart Split (Activity): planner returned no spans; using motion fallback");
-                let (fallback_dets, fallback_spans) = motion_fallback(
-                    &detector,
-                    &segment_path,
-                    duration,
-                    width,
-                    height,
-                )
-                .await?;
+                let (fallback_dets, fallback_spans) =
+                    motion_fallback(&detector, &segment_path, duration, width, height).await?;
                 detections = fallback_dets;
                 spans = fallback_spans;
             }
@@ -177,14 +170,8 @@ where
                     "Smart Split (Activity): planner could not determine layout ({}); using motion fallback",
                     msg
                 );
-                let (fallback_dets, fallback_spans) = motion_fallback(
-                    &detector,
-                    &segment_path,
-                    duration,
-                    width,
-                    height,
-                )
-                .await?;
+                let (fallback_dets, fallback_spans) =
+                    motion_fallback(&detector, &segment_path, duration, width, height).await?;
                 detections = fallback_dets;
                 spans = fallback_spans;
             }
@@ -193,9 +180,10 @@ where
     } else {
         // Fallback for when timeline build fails but we have detections (e.g. strict checks didn't pass)
         // or just no timeline logic could run.
-        let (fallback_dets, fallback_spans) = motion_fallback(&detector, &segment_path, duration, width, height).await?;
+        let (fallback_dets, fallback_spans) =
+            motion_fallback(&detector, &segment_path, duration, width, height).await?;
         // If we already have detections from the main pass, we might prefer them involved in fallback logic,
-        // but motion_fallback computes fresh motion tracks. 
+        // but motion_fallback computes fresh motion tracks.
         // If we are in SpeakerAware/Basic, we want to try to keep those detections if possible, but
         // motion fallback implies explicit fallback to motion sensing.
         detections = fallback_dets;
@@ -246,11 +234,8 @@ async fn motion_fallback(
 
     // Log motion detection results
     let detection_count: usize = detections.iter().map(|f| f.len()).sum();
-    let unique_tracks: std::collections::HashSet<u32> = detections
-        .iter()
-        .flatten()
-        .map(|d| d.track_id)
-        .collect();
+    let unique_tracks: std::collections::HashSet<u32> =
+        detections.iter().flatten().map(|d| d.track_id).collect();
     info!(
         frames = detections.len(),
         total_detections = detection_count,
@@ -271,7 +256,9 @@ async fn motion_fallback(
     let spans = vec![LayoutSpan {
         start: 0.0,
         end: duration,
-        layout: LayoutMode::Full { primary: primary_track },
+        layout: LayoutMode::Full {
+            primary: primary_track,
+        },
     }];
 
     Ok((detections, spans))

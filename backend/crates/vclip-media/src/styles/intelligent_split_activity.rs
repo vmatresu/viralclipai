@@ -62,7 +62,9 @@ impl StyleProcessor for IntelligentSplitActivityProcessor {
         ctx: ProcessingContext,
     ) -> MediaResult<ProcessingResult> {
         let tier_name = self.name();
-        let timer = ctx.metrics.start_timer("intelligent_split_activity_processing");
+        let timer = ctx
+            .metrics
+            .start_timer("intelligent_split_activity_processing");
         let logger = ProcessingLogger::new(
             ctx.request_id.clone(),
             ctx.user_id.clone(),
@@ -124,11 +126,14 @@ impl StyleProcessor for IntelligentSplitActivityProcessor {
         Ok(result)
     }
 
-    fn estimate_complexity(&self, request: &ProcessingRequest) -> crate::core::ProcessingComplexity {
+    fn estimate_complexity(
+        &self,
+        request: &ProcessingRequest,
+    ) -> crate::core::ProcessingComplexity {
         // High complexity style
         let duration = parse_timestamp(&request.task.end).unwrap_or(30.0)
             - parse_timestamp(&request.task.start).unwrap_or(0.0);
-        
+
         let multiplier = 2.0;
 
         let mut complexity = utils::estimate_complexity(duration, true);

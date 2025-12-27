@@ -1,9 +1,9 @@
 //! FFprobe video information.
 
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Stdio;
 use tokio::process::Command;
-use serde::{Deserialize, Serialize};
 
 use crate::error::{MediaError, MediaResult};
 
@@ -63,8 +63,10 @@ pub async fn probe_video(path: impl AsRef<Path>) -> MediaResult<VideoInfo> {
 
     let output = Command::new("ffprobe")
         .args([
-            "-v", "quiet",
-            "-print_format", "json",
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
             "-show_format",
             "-show_streams",
         ])

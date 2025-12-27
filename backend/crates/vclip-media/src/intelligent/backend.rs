@@ -182,9 +182,8 @@ impl BackendSelector {
         use opencv::prelude::FaceDetectorYNTrait;
 
         // Find a model to test with
-        let (_, model_path) = super::model_config::get_resolved_model().map_err(|e| {
-            MediaError::detection_failed(format!("No YuNet model: {}", e))
-        })?;
+        let (_, model_path) = super::model_config::get_resolved_model()
+            .map_err(|e| MediaError::detection_failed(format!("No YuNet model: {}", e)))?;
         let model_path_str = model_path.to_string_lossy().into_owned();
 
         debug!(
@@ -227,9 +226,8 @@ impl BackendSelector {
         use opencv::objdetect::FaceDetectorYN;
         use opencv::prelude::FaceDetectorYNTrait;
 
-        let (_, model_path) = super::model_config::get_resolved_model().map_err(|e| {
-            MediaError::detection_failed(format!("No YuNet model: {}", e))
-        })?;
+        let (_, model_path) = super::model_config::get_resolved_model()
+            .map_err(|e| MediaError::detection_failed(format!("No YuNet model: {}", e)))?;
         let model_path_str = model_path.to_string_lossy().into_owned();
 
         debug!(

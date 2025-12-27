@@ -155,8 +155,7 @@ impl CropComputer {
         let required_height = focus_height * (1.0 + 2.0 * min_margin);
         let required_width = required_height * target_ratio;
 
-        let (_, crop_height) =
-            self.clamp_to_frame(required_width, required_height, target_ratio);
+        let (_, crop_height) = self.clamp_to_frame(required_width, required_height, target_ratio);
 
         // Apply zoom limits (for narrow crops, limit by height)
         let zoom_factor = self.frame_height as f64 / crop_height;

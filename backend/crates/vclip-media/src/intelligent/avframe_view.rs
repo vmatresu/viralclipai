@@ -497,9 +497,8 @@ mod tests {
         ];
         let strides = [640, 320, 320, 0];
 
-        let view = unsafe {
-            AvFrameView::from_raw(PixelFormat::Yuv420p, 640, 480, &data_ptrs, &strides)
-        };
+        let view =
+            unsafe { AvFrameView::from_raw(PixelFormat::Yuv420p, 640, 480, &data_ptrs, &strides) };
 
         assert!(view.is_ok());
         let view = view.unwrap();

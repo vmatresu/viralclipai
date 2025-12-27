@@ -97,7 +97,9 @@ async fn download_best_model() -> MediaResult<()> {
 /// Find the resolved model path (deprecated, use model_config directly).
 #[deprecated(since = "0.2.0", note = "Use model_config::get_resolved_model instead")]
 pub fn find_model_path() -> Option<String> {
-    get_resolved_model().ok().map(|(_, p)| p.to_string_lossy().to_string())
+    get_resolved_model()
+        .ok()
+        .map(|(_, p)| p.to_string_lossy().to_string())
 }
 
 /// Score threshold for face detection.
@@ -133,9 +135,9 @@ impl YuNetDetector {
         use super::model_config::ModelConfig;
 
         let config = ModelConfig::from_env();
-        let (variant, model_path) = config.resolve().map_err(|e| {
-            MediaError::detection_failed(e.to_string())
-        })?;
+        let (variant, model_path) = config
+            .resolve()
+            .map_err(|e| MediaError::detection_failed(e.to_string()))?;
 
         let path_str = model_path.to_string_lossy();
         match Self::new_with_model_and_variant(&path_str, frame_width, frame_height, variant) {
@@ -180,7 +182,11 @@ impl YuNetDetector {
     }
 
     /// Create with explicit model path (for testing or custom models).
-    pub fn new_with_model(model_path: &str, frame_width: u32, frame_height: u32) -> MediaResult<Self> {
+    pub fn new_with_model(
+        model_path: &str,
+        frame_width: u32,
+        frame_height: u32,
+    ) -> MediaResult<Self> {
         // Infer variant from path
         let variant = if model_path.contains("int8bq") {
             ModelVariant::Int8BlockQuantized
@@ -251,7 +257,7 @@ impl YuNetDetector {
         // which is more reliably detected than ~53x67 at 640x480.
         let target_width = 960.0;
         let target_height = 540.0;
-        
+
         // Calculate scale factor
         let scale = (frame_width as f64 / target_width)
             .max(frame_height as f64 / target_height)
@@ -287,7 +293,9 @@ impl YuNetDetector {
         input_width: i32,
         input_height: i32,
     ) -> MediaResult<opencv::core::Ptr<opencv::objdetect::FaceDetectorYN>> {
-        use opencv::dnn::{DNN_BACKEND_DEFAULT, DNN_BACKEND_INFERENCE_ENGINE, DNN_BACKEND_OPENCV, DNN_TARGET_CPU};
+        use opencv::dnn::{
+            DNN_BACKEND_DEFAULT, DNN_BACKEND_INFERENCE_ENGINE, DNN_BACKEND_OPENCV, DNN_TARGET_CPU,
+        };
 
         // Backend configurations to try in order of preference
         // OpenVINO first for optimal performance on Intel CPUs
@@ -333,7 +341,10 @@ impl YuNetDetector {
     ///
     /// Returns bounding boxes in pixel coordinates.
     /// Handles the OpenCV 4.6.0 "Layer with requested id=-1" bug gracefully.
-    pub fn detect_in_frame(&mut self, frame: &opencv::core::Mat) -> MediaResult<Vec<(BoundingBox, f64)>> {
+    pub fn detect_in_frame(
+        &mut self,
+        frame: &opencv::core::Mat,
+    ) -> MediaResult<Vec<(BoundingBox, f64)>> {
         use opencv::core::{Mat, Size};
         use opencv::imgproc;
         use opencv::prelude::MatTraitConst;
@@ -367,7 +378,10 @@ impl YuNetDetector {
         }
 
         // Update detector input size (required for some OpenCV versions)
-        if let Err(e) = self.detector.set_input_size(Size::new(self.input_size.0, self.input_size.1)) {
+        if let Err(e) = self
+            .detector
+            .set_input_size(Size::new(self.input_size.0, self.input_size.1))
+        {
             debug!("Failed to set input size (may be OK): {}", e);
         }
 
@@ -377,9 +391,9 @@ impl YuNetDetector {
             Ok(_) => {}
             Err(e) => {
                 let error_str = e.to_string();
-                
+
                 // Check for known OpenCV 4.6.0 bug
-                if error_str.contains("Layer with requested id=-1") 
+                if error_str.contains("Layer with requested id=-1")
                     || error_str.contains("StsObjectNotFound")
                     || error_str.contains("-204")
                 {
@@ -391,7 +405,7 @@ impl YuNetDetector {
                         error_str
                     )));
                 }
-                
+
                 // Other errors - log and return empty
                 warn!("YuNet detection error: {}", e);
                 return Ok(Vec::new());
@@ -429,7 +443,10 @@ impl YuNetDetector {
         // Validate matrix dimensions
         let num_cols = faces.cols();
         if num_cols < 15 {
-            warn!("YuNet output has unexpected format: {} columns (expected 15)", num_cols);
+            warn!(
+                "YuNet output has unexpected format: {} columns (expected 15)",
+                num_cols
+            );
             return Ok(Vec::new());
         }
 
@@ -475,7 +492,7 @@ impl YuNetDetector {
                 let y_clamped = y.max(0.0);
                 let w_clamped = (w - (x_clamped - x)).min(frame_width - x_clamped);
                 let h_clamped = (h - (y_clamped - y)).min(frame_height - y_clamped);
-                
+
                 if w_clamped > 0.0 && h_clamped > 0.0 {
                     let bbox = BoundingBox::new(x_clamped, y_clamped, w_clamped, h_clamped);
                     results.push((bbox, score));
@@ -493,7 +510,11 @@ impl YuNetDetector {
                 num_faces, SCORE_THRESHOLD
             );
         } else {
-            debug!("YuNet detected {} faces (from {} candidates)", results.len(), num_faces);
+            debug!(
+                "YuNet detected {} faces (from {} candidates)",
+                results.len(),
+                num_faces
+            );
         }
         Ok(results)
     }
@@ -531,13 +552,15 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
     frame_height: u32,
     sample_fps: f64,
 ) -> MediaResult<Vec<Vec<(BoundingBox, f64)>>> {
-    use opencv::videoio::{VideoCapture, CAP_PROP_POS_MSEC, CAP_PROP_FRAME_WIDTH, CAP_PROP_FRAME_HEIGHT};
     use opencv::core::Mat;
-    use opencv::prelude::{VideoCaptureTraitConst, VideoCaptureTrait, MatTraitConst};
+    use opencv::prelude::{MatTraitConst, VideoCaptureTrait, VideoCaptureTraitConst};
+    use opencv::videoio::{
+        VideoCapture, CAP_PROP_FRAME_HEIGHT, CAP_PROP_FRAME_WIDTH, CAP_PROP_POS_MSEC,
+    };
 
     let video_path = video_path.as_ref();
     let video_path_str = video_path.to_str().unwrap_or("");
-    
+
     // Validate inputs
     if video_path_str.is_empty() {
         return Err(MediaError::detection_failed("Empty video path"));
@@ -564,10 +587,8 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
     let heartbeat_every = 40usize;
 
     // Open video with OpenCV
-    let mut cap = VideoCapture::from_file(
-        video_path_str,
-        opencv::videoio::CAP_ANY,
-    ).map_err(|e| MediaError::detection_failed(format!("Failed to open video: {}", e)))?;
+    let mut cap = VideoCapture::from_file(video_path_str, opencv::videoio::CAP_ANY)
+        .map_err(|e| MediaError::detection_failed(format!("Failed to open video: {}", e)))?;
 
     if !cap.is_opened().unwrap_or(false) {
         return Err(MediaError::detection_failed(format!(
@@ -578,7 +599,9 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
 
     // Get actual video dimensions
     let actual_width = cap.get(CAP_PROP_FRAME_WIDTH).unwrap_or(frame_width as f64) as u32;
-    let actual_height = cap.get(CAP_PROP_FRAME_HEIGHT).unwrap_or(frame_height as f64) as u32;
+    let actual_height = cap
+        .get(CAP_PROP_FRAME_HEIGHT)
+        .unwrap_or(frame_height as f64) as u32;
 
     debug!(
         "Video opened: {}x{} (requested: {}x{})",
@@ -595,12 +618,15 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
     const MAX_CONSECUTIVE_FAILURES: usize = 3;
     info!(
         "Detecting faces with YuNet: {} frames at {:.1} fps (cap {}), threshold={}, input={}x{}",
-        num_samples, sample_fps, max_samples, SCORE_THRESHOLD,
-        detector.input_size.0, detector.input_size.1
+        num_samples,
+        sample_fps,
+        max_samples,
+        SCORE_THRESHOLD,
+        detector.input_size.0,
+        detector.input_size.1
     );
 
     for frame_idx in 0..max_samples {
-
         // Seek to current time
         if let Err(e) = cap.set(CAP_PROP_POS_MSEC, current_time * 1000.0) {
             warn!("Failed to seek to {:.2}s: {}", current_time, e);
@@ -635,7 +661,8 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
                 consecutive_failures = 0;
                 let mut detections = detections;
                 // Keep highest-confidence faces and cap per-frame count
-                detections.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                detections
+                    .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
                 if detections.len() > max_detections_per_frame {
                     detections.truncate(max_detections_per_frame);
                 }
@@ -643,13 +670,13 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
             }
             Err(e) => {
                 let error_str = e.to_string();
-                
+
                 // Check if this is the known OpenCV 4.6.0 bug
                 let is_opencv_compat_issue = error_str.contains("Layer with requested id=-1")
                     || error_str.contains("StsObjectNotFound")
                     || error_str.contains("-204")
                     || error_str.contains("OpenCV 4.6.0 compatibility");
-                
+
                 if is_opencv_compat_issue && !using_fallback_model {
                     // Try legacy 2022 model as fallback
                     use super::model_config::ModelConfig;
@@ -661,7 +688,11 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
                             fallback_path_str
                         );
 
-                        match YuNetDetector::new_with_model(&fallback_path_str, actual_width, actual_height) {
+                        match YuNetDetector::new_with_model(
+                            &fallback_path_str,
+                            actual_width,
+                            actual_height,
+                        ) {
                             Ok(new_detector) => {
                                 detector = new_detector;
                                 using_fallback_model = true;
@@ -684,7 +715,7 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
                             }
                         }
                     }
-                    
+
                     // If fallback failed, propagate the error
                     error!("YuNet hit OpenCV compatibility bug: {}", error_str);
                     return Err(MediaError::detection_failed(format!(
@@ -692,14 +723,14 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
                         error_str
                     )));
                 }
-                
+
                 // Other errors - track consecutive failures
                 consecutive_failures += 1;
                 warn!(
                     "YuNet detection failed at frame {} ({:.2}s): {}",
                     frame_idx, current_time, e
                 );
-                
+
                 if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
                     error!(
                         "YuNet failed {} consecutive times, aborting",
@@ -710,7 +741,7 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
                         consecutive_failures, e
                     )));
                 }
-                
+
                 all_detections.push(Vec::new());
             }
         }
@@ -719,10 +750,7 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
 
         let total: usize = all_detections.iter().map(|d| d.len()).sum();
         if total >= max_total_detections {
-            warn!(
-                total,
-                "Stopping YuNet early: hit total detection cap"
-            );
+            warn!(total, "Stopping YuNet early: hit total detection cap");
             break;
         }
 
@@ -745,7 +773,10 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
 
     // If we got zero detections, that's suspicious but not necessarily an error
     if total_detections == 0 {
-        warn!("YuNet found no faces in {} frames - video may not contain faces", num_samples);
+        warn!(
+            "YuNet found no faces in {} frames - video may not contain faces",
+            num_samples
+        );
     }
 
     Ok(all_detections)
@@ -776,7 +807,7 @@ pub async fn detect_faces_with_yunet<P: AsRef<Path>>(
 
 #[cfg(test)]
 mod tests {
-    use crate::intelligent::yunet::{YUNET_MODEL_PATHS_2023, YUNET_MODEL_PATHS_2022};
+    use crate::intelligent::yunet::{YUNET_MODEL_PATHS_2022, YUNET_MODEL_PATHS_2023};
 
     #[test]
     fn test_model_paths() {

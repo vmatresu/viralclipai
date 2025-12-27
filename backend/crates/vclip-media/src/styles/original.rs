@@ -3,11 +3,11 @@
 //! Handles video processing with no style modifications - just transcoding
 //! with the specified encoding parameters.
 
+use super::utils;
+use crate::core::{ProcessingContext, ProcessingRequest, ProcessingResult, StyleProcessor};
+use crate::error::MediaResult;
 use async_trait::async_trait;
 use vclip_models::Style;
-use crate::error::MediaResult;
-use crate::core::{ProcessingRequest, ProcessingResult, ProcessingContext, StyleProcessor};
-use super::utils;
 
 /// Processor for original video style.
 /// Simply transcodes the video without any filtering or cropping.
@@ -44,7 +44,11 @@ impl StyleProcessor for OriginalProcessor {
         matches!(style, Style::Original)
     }
 
-    async fn validate(&self, request: &ProcessingRequest, ctx: &ProcessingContext) -> MediaResult<()> {
+    async fn validate(
+        &self,
+        request: &ProcessingRequest,
+        ctx: &ProcessingContext,
+    ) -> MediaResult<()> {
         // Additional validation for original style
         utils::validate_paths(&request.input_path, &request.output_path)?;
 
@@ -54,11 +58,18 @@ impl StyleProcessor for OriginalProcessor {
         Ok(())
     }
 
-    async fn process(&self, request: ProcessingRequest, ctx: ProcessingContext) -> MediaResult<ProcessingResult> {
+    async fn process(
+        &self,
+        request: ProcessingRequest,
+        ctx: ProcessingContext,
+    ) -> MediaResult<ProcessingResult> {
         utils::run_basic_style(request, ctx, "original").await
     }
 
-    fn estimate_complexity(&self, request: &ProcessingRequest) -> crate::core::ProcessingComplexity {
+    fn estimate_complexity(
+        &self,
+        request: &ProcessingRequest,
+    ) -> crate::core::ProcessingComplexity {
         let duration = request.task.end.parse::<f64>().unwrap_or(30.0);
         utils::estimate_complexity(duration, false)
     }
@@ -110,7 +121,8 @@ mod tests {
             EncodingConfig::default(),
             "test-request".to_string(),
             "test-user".to_string(),
-        ).unwrap();
+        )
+        .unwrap();
 
         let ctx = ProcessingContext::new(
             "test-request".to_string(),

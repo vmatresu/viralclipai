@@ -11,7 +11,9 @@
 
 use super::config::IntelligentCropConfig;
 use super::models::CropWindow;
-use super::output_format::{PORTRAIT_WIDTH, PORTRAIT_HEIGHT, SPLIT_PANEL_WIDTH, SPLIT_PANEL_HEIGHT};
+use super::output_format::{
+    PORTRAIT_HEIGHT, PORTRAIT_WIDTH, SPLIT_PANEL_HEIGHT, SPLIT_PANEL_WIDTH,
+};
 use crate::error::{MediaError, MediaResult};
 use std::path::Path;
 use std::process::Stdio;
@@ -50,7 +52,9 @@ impl ContinuousRenderer {
         let output = output.as_ref();
 
         if crop_windows.is_empty() {
-            return Err(MediaError::InvalidVideo("No crop windows provided".to_string()));
+            return Err(MediaError::InvalidVideo(
+                "No crop windows provided".to_string(),
+            ));
         }
 
         info!(
@@ -62,38 +66,50 @@ impl ContinuousRenderer {
         );
 
         // Build the filter graph
-        let filter_complex = self.build_dynamic_crop_filter(
-            crop_windows,
-            start_time,
-            output_width,
-            output_height,
-        );
+        let filter_complex =
+            self.build_dynamic_crop_filter(crop_windows, start_time, output_width, output_height);
 
         debug!("Filter graph:\n{}", filter_complex);
 
         let mut cmd = crate::command::create_ffmpeg_command();
         cmd.args([
             "-y",
-            "-ss", &format!("{:.3}", start_time),
-            "-i", input.to_str().unwrap_or(""),
-            "-t", &format!("{:.3}", duration),
-            "-filter_complex", &filter_complex,
-            "-map", "[vout]",
-            "-map", "0:a?",
+            "-ss",
+            &format!("{:.3}", start_time),
+            "-i",
+            input.to_str().unwrap_or(""),
+            "-t",
+            &format!("{:.3}", duration),
+            "-filter_complex",
+            &filter_complex,
+            "-map",
+            "[vout]",
+            "-map",
+            "0:a?",
             // Video encoding with consistent settings
-            "-c:v", "libx264",
-            "-preset", &self.config.render_preset,
-            "-crf", &self.config.render_crf.to_string(),
-            "-pix_fmt", "yuv420p",
+            "-c:v",
+            "libx264",
+            "-preset",
+            &self.config.render_preset,
+            "-crf",
+            &self.config.render_crf.to_string(),
+            "-pix_fmt",
+            "yuv420p",
             // Ensure consistent timestamps
-            "-vsync", "cfr",
-            "-video_track_timescale", "90000",
+            "-vsync",
+            "cfr",
+            "-video_track_timescale",
+            "90000",
             // Audio
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-af", "aresample=async=1:first_pts=0",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-af",
+            "aresample=async=1:first_pts=0",
             // Output
-            "-movflags", "+faststart",
+            "-movflags",
+            "+faststart",
             output.to_str().unwrap_or(""),
         ])
         .stdout(Stdio::piped())
@@ -228,7 +244,9 @@ impl ContinuousRenderer {
         let output = output.as_ref();
 
         if left_crops.is_empty() || right_crops.is_empty() {
-            return Err(MediaError::InvalidVideo("Empty crop windows for split view".to_string()));
+            return Err(MediaError::InvalidVideo(
+                "Empty crop windows for split view".to_string(),
+            ));
         }
 
         info!(
@@ -245,26 +263,42 @@ impl ContinuousRenderer {
         let mut cmd = crate::command::create_ffmpeg_command();
         cmd.args([
             "-y",
-            "-ss", &format!("{:.3}", start_time),
-            "-i", input.to_str().unwrap_or(""),
-            "-t", &format!("{:.3}", duration),
-            "-filter_complex", &filter_complex,
-            "-map", "[vout]",
-            "-map", "0:a?",
+            "-ss",
+            &format!("{:.3}", start_time),
+            "-i",
+            input.to_str().unwrap_or(""),
+            "-t",
+            &format!("{:.3}", duration),
+            "-filter_complex",
+            &filter_complex,
+            "-map",
+            "[vout]",
+            "-map",
+            "0:a?",
             // Consistent encoding
-            "-c:v", "libx264",
-            "-preset", &self.config.render_preset,
-            "-crf", &self.config.render_crf.to_string(),
-            "-pix_fmt", "yuv420p",
+            "-c:v",
+            "libx264",
+            "-preset",
+            &self.config.render_preset,
+            "-crf",
+            &self.config.render_crf.to_string(),
+            "-pix_fmt",
+            "yuv420p",
             // Timestamp normalization - critical for avoiding PTS glitches
-            "-vsync", "cfr",
-            "-video_track_timescale", "90000",
+            "-vsync",
+            "cfr",
+            "-video_track_timescale",
+            "90000",
             // Audio with resample to fix any discontinuities
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-af", "aresample=async=1:first_pts=0",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-af",
+            "aresample=async=1:first_pts=0",
             // Finalize
-            "-movflags", "+faststart",
+            "-movflags",
+            "+faststart",
             output.to_str().unwrap_or(""),
         ])
         .stdout(Stdio::piped())
@@ -351,7 +385,9 @@ impl ContinuousRenderer {
         let output = output.as_ref();
 
         if layout_spans.is_empty() {
-            return Err(MediaError::InvalidVideo("No layout spans provided".to_string()));
+            return Err(MediaError::InvalidVideo(
+                "No layout spans provided".to_string(),
+            ));
         }
 
         info!(
@@ -360,39 +396,50 @@ impl ContinuousRenderer {
             duration
         );
 
-        let filter_complex = self.build_hybrid_filter(
-            layout_spans,
-            full_crops,
-            left_crops,
-            right_crops,
-            duration,
-        );
+        let filter_complex =
+            self.build_hybrid_filter(layout_spans, full_crops, left_crops, right_crops, duration);
 
         debug!("Hybrid filter graph:\n{}", filter_complex);
 
         let mut cmd = crate::command::create_ffmpeg_command();
         cmd.args([
             "-y",
-            "-ss", &format!("{:.3}", start_time),
-            "-i", input.to_str().unwrap_or(""),
-            "-t", &format!("{:.3}", duration),
-            "-filter_complex", &filter_complex,
-            "-map", "[vout]",
-            "-map", "0:a?",
+            "-ss",
+            &format!("{:.3}", start_time),
+            "-i",
+            input.to_str().unwrap_or(""),
+            "-t",
+            &format!("{:.3}", duration),
+            "-filter_complex",
+            &filter_complex,
+            "-map",
+            "[vout]",
+            "-map",
+            "0:a?",
             // Consistent encoding
-            "-c:v", "libx264",
-            "-preset", &self.config.render_preset,
-            "-crf", &self.config.render_crf.to_string(),
-            "-pix_fmt", "yuv420p",
+            "-c:v",
+            "libx264",
+            "-preset",
+            &self.config.render_preset,
+            "-crf",
+            &self.config.render_crf.to_string(),
+            "-pix_fmt",
+            "yuv420p",
             // Critical: Constant frame rate for seamless playback
-            "-vsync", "cfr",
-            "-video_track_timescale", "90000",
+            "-vsync",
+            "cfr",
+            "-video_track_timescale",
+            "90000",
             // Audio
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-af", "aresample=async=1:first_pts=0",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-af",
+            "aresample=async=1:first_pts=0",
             // Output
-            "-movflags", "+faststart",
+            "-movflags",
+            "+faststart",
             output.to_str().unwrap_or(""),
         ])
         .stdout(Stdio::piped())
@@ -572,7 +619,11 @@ pub struct LayoutSpan {
 impl LayoutSpan {
     /// Create a new layout span.
     pub fn new(start: f64, end: f64, layout_type: LayoutType) -> Self {
-        Self { start, end, layout_type }
+        Self {
+            start,
+            end,
+            layout_type,
+        }
     }
 
     /// Create a full-view span.

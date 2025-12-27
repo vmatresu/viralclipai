@@ -141,14 +141,15 @@ fn build_overlay_filter(config: &WatermarkConfig) -> String {
         // Full opacity - simpler filter
         format!(
             "[0:v][1:v]overlay=W-w-{}:H-h-{}:format=auto",
-            config.offset_x,
-            config.offset_y
+            config.offset_x, config.offset_y
         )
     }
 }
 
 fn escape_filter_path(path: &str) -> String {
-    path.replace('\\', "\\\\").replace('\'', "\\'").replace(':', "\\:")
+    path.replace('\\', "\\\\")
+        .replace('\'', "\\'")
+        .replace(':', "\\:")
 }
 
 fn build_movie_overlay_filter(
@@ -170,11 +171,7 @@ fn build_movie_overlay_filter(
     } else {
         format!(
             "movie='{}'[wm];[{}][wm]overlay=W-w-{}:H-h-{}:format=auto[{}]",
-            escaped_path,
-            input_label,
-            config.offset_x,
-            config.offset_y,
-            output_label
+            escaped_path, input_label, config.offset_x, config.offset_y, output_label
         )
     }
 }
@@ -267,34 +264,41 @@ pub async fn apply_watermark(
 
     // Build FFmpeg command
     let filter_complex = build_overlay_filter(config);
-    
+
     let output = crate::command::create_ffmpeg_command()
         .args([
             "-y",
             "-hide_banner",
-            "-loglevel", "warning",
-            "-i", &video_str,
-            "-i", &config.image_path,
-            "-filter_complex", &filter_complex,
-            "-c:v", &encoding.codec,
-            "-preset", &encoding.preset,
-            "-crf", &encoding.crf.to_string(),
-            "-c:a", "copy",
-            "-movflags", "+faststart",
+            "-loglevel",
+            "warning",
+            "-i",
+            &video_str,
+            "-i",
+            &config.image_path,
+            "-filter_complex",
+            &filter_complex,
+            "-c:v",
+            &encoding.codec,
+            "-preset",
+            &encoding.preset,
+            "-crf",
+            &encoding.crf.to_string(),
+            "-c:a",
+            "copy",
+            "-movflags",
+            "+faststart",
             &temp_output_str,
         ])
         .output()
         .await
-        .map_err(|e| MediaError::ffmpeg_failed(
-            format!("Failed to spawn FFmpeg: {}", e),
-            None,
-            None,
-        ))?;
+        .map_err(|e| {
+            MediaError::ffmpeg_failed(format!("Failed to spawn FFmpeg: {}", e), None, None)
+        })?;
 
     if !output.status.success() {
         // Clean up temp file on failure
         let _ = tokio::fs::remove_file(&temp_output).await;
-        
+
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(MediaError::ffmpeg_failed(
             "Watermark overlay failed",
@@ -304,12 +308,14 @@ pub async fn apply_watermark(
     }
 
     // Atomic replace: rename temp file to original
-    tokio::fs::rename(&temp_output, video_path).await.map_err(|e| {
-        MediaError::InvalidVideo(format!(
-            "Failed to replace video with watermarked version: {}",
-            e
-        ))
-    })?;
+    tokio::fs::rename(&temp_output, video_path)
+        .await
+        .map_err(|e| {
+            MediaError::InvalidVideo(format!(
+                "Failed to replace video with watermarked version: {}",
+                e
+            ))
+        })?;
 
     info!(video = %video_str, "Watermark applied successfully");
     Ok(())
@@ -372,7 +378,7 @@ mod tests {
         let config = WatermarkConfig::default()
             .with_offset(30, 40)
             .with_opacity(0.9);
-        
+
         assert_eq!(config.offset_x, 30);
         assert_eq!(config.offset_y, 40);
         assert!((config.opacity - 0.9).abs() < 0.01);
@@ -382,7 +388,7 @@ mod tests {
     fn test_opacity_clamping() {
         let config = WatermarkConfig::default().with_opacity(1.5);
         assert!((config.opacity - 1.0).abs() < 0.01);
-        
+
         let config = WatermarkConfig::default().with_opacity(-0.5);
         assert!((config.opacity - 0.0).abs() < 0.01);
     }
@@ -404,8 +410,7 @@ mod tests {
 
     #[test]
     fn test_is_available_false_for_missing() {
-        let config = WatermarkConfig::default()
-            .with_image_path("/nonexistent/path.png");
+        let config = WatermarkConfig::default().with_image_path("/nonexistent/path.png");
         assert!(!config.is_available());
     }
 }

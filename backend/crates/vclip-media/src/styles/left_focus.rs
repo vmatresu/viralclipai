@@ -3,11 +3,11 @@
 //! Handles video processing with left half focus - left half expanded
 //! to portrait aspect ratio.
 
+use super::utils;
+use crate::core::{ProcessingContext, ProcessingRequest, ProcessingResult, StyleProcessor};
+use crate::error::MediaResult;
 use async_trait::async_trait;
 use vclip_models::Style;
-use crate::error::MediaResult;
-use crate::core::{ProcessingRequest, ProcessingResult, ProcessingContext, StyleProcessor};
-use super::utils;
 
 /// Processor for left focus video style.
 /// Expands the left half of the video to portrait aspect ratio.
@@ -37,19 +37,31 @@ impl StyleProcessor for LeftFocusProcessor {
         matches!(style, Style::LeftFocus)
     }
 
-    async fn validate(&self, request: &ProcessingRequest, ctx: &ProcessingContext) -> MediaResult<()> {
+    async fn validate(
+        &self,
+        request: &ProcessingRequest,
+        ctx: &ProcessingContext,
+    ) -> MediaResult<()> {
         utils::validate_paths(&request.input_path, &request.output_path)?;
         ctx.security.check_resource_limits("ffmpeg")?;
         Ok(())
     }
 
-    async fn process(&self, request: ProcessingRequest, ctx: ProcessingContext) -> MediaResult<ProcessingResult> {
+    async fn process(
+        &self,
+        request: ProcessingRequest,
+        ctx: ProcessingContext,
+    ) -> MediaResult<ProcessingResult> {
         utils::run_basic_style(request, ctx, "left_focus").await
     }
 
-    fn estimate_complexity(&self, request: &ProcessingRequest) -> crate::core::ProcessingComplexity {
-        let duration = super::super::intelligent::parse_timestamp(&request.task.end).unwrap_or(30.0) -
-                      super::super::intelligent::parse_timestamp(&request.task.start).unwrap_or(0.0);
+    fn estimate_complexity(
+        &self,
+        request: &ProcessingRequest,
+    ) -> crate::core::ProcessingComplexity {
+        let duration = super::super::intelligent::parse_timestamp(&request.task.end)
+            .unwrap_or(30.0)
+            - super::super::intelligent::parse_timestamp(&request.task.start).unwrap_or(0.0);
         utils::estimate_complexity(duration, false)
     }
 }

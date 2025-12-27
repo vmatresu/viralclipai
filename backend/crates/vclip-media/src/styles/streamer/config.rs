@@ -50,11 +50,11 @@ impl StreamerConfig {
     pub fn calculate_main_video_dimensions(&self, src_width: u32, src_height: u32) -> (u32, u32) {
         let scale_factor = self.output_width as f64 / src_width as f64;
         let main_height = (src_height as f64 * scale_factor) as u32;
-        
+
         // Ensure even dimensions for h264 encoding
         let main_width = self.output_width - (self.output_width % 2);
         let main_height = main_height - (main_height % 2);
-        
+
         (main_width, main_height)
     }
 

@@ -56,7 +56,8 @@ impl VisualActivityCropper {
 
     /// Process a pre-cut video segment with visual activity-based intelligent cropping.
     pub async fn process<P: AsRef<Path>>(&self, input: P, output: P) -> MediaResult<()> {
-        self.process_with_cached_detections(input, output, None).await
+        self.process_with_cached_detections(input, output, None)
+            .await
     }
 
     /// Process a pre-cut video segment with optional cached neural analysis.
@@ -95,7 +96,10 @@ impl VisualActivityCropper {
         let end_time = duration;
 
         // 2. Get detections from cache or run fallback detection
-        info!("Step 1/3: Getting detections (cached: {})...", cached_analysis.is_some());
+        info!(
+            "Step 1/3: Getting detections (cached: {})...",
+            cached_analysis.is_some()
+        );
         let detections = get_detections(
             cached_analysis,
             input,
@@ -118,13 +122,8 @@ impl VisualActivityCropper {
         let mut smoother = TierAwareCameraSmoother::new(self.config.clone(), self.tier, fps);
         // No speaker segments - visual activity tiers don't use stereo audio
 
-        let camera_keyframes = smoother.compute_camera_plan(
-            &detections,
-            width,
-            height,
-            start_time,
-            end_time,
-        );
+        let camera_keyframes =
+            smoother.compute_camera_plan(&detections, width, height, start_time, end_time);
         info!("  Generated {} camera keyframes", camera_keyframes.len());
 
         // 4. Compute crop windows
@@ -176,8 +175,16 @@ where
     P: AsRef<Path>,
     F: Fn(crate::progress::FfmpegProgress) + Send + 'static,
 {
-    create_visual_activity_clip_with_cache(input, output, task, tier, encoding, None, progress_callback)
-        .await
+    create_visual_activity_clip_with_cache(
+        input,
+        output,
+        task,
+        tier,
+        encoding,
+        None,
+        progress_callback,
+    )
+    .await
 }
 
 /// Create a visual activity intelligent clip with optional cached neural analysis.
@@ -209,7 +216,10 @@ where
     let segment_path = output.with_extension("segment.mp4");
     info!(
         "Extracting segment for visual activity crop: {:.2}s - {:.2}s (tier: {:?}, cached: {})",
-        start_secs, end_secs, tier, cached_analysis.is_some()
+        start_secs,
+        end_secs,
+        tier,
+        cached_analysis.is_some()
     );
 
     extract_segment(input, &segment_path, start_secs, duration).await?;

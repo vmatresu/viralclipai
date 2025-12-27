@@ -160,13 +160,23 @@ pub async fn render_speaker_split(
     );
     info!(
         "[SPEAKER_SPLIT] Left face: y={:.0} h={:.0}, bias={:.2}, crop {}x{} at ({}, {})",
-        left_box.y, left_box.height, left_bias,
-        crop_width_left_u32, tile_height_left_u32, left_crop_x, left_crop_y
+        left_box.y,
+        left_box.height,
+        left_bias,
+        crop_width_left_u32,
+        tile_height_left_u32,
+        left_crop_x,
+        left_crop_y
     );
     info!(
         "[SPEAKER_SPLIT] Right face: y={:.0} h={:.0}, bias={:.2}, crop {}x{} at ({}, {})",
-        right_box.y, right_box.height, right_bias,
-        crop_width_right_u32, tile_height_right_u32, right_crop_x, right_crop_y
+        right_box.y,
+        right_box.height,
+        right_bias,
+        crop_width_right_u32,
+        tile_height_right_u32,
+        right_crop_x,
+        right_crop_y
     );
 
     // Adjust crop dimensions to exactly match 9:8 panel aspect ratio (zoom to fill)
@@ -221,7 +231,9 @@ pub async fn render_speaker_split(
     );
 
     let (filter_complex, map_label) = if let Some(config) = watermark {
-        if let Some(watermarked) = append_watermark_filter_complex(&base_filter_complex, "vout", config) {
+        if let Some(watermarked) =
+            append_watermark_filter_complex(&base_filter_complex, "vout", config)
+        {
             (watermarked.filter_complex, watermarked.output_label)
         } else {
             (base_filter_complex, "vout".to_string())
@@ -270,9 +282,14 @@ pub async fn render_standard_split(
     }
     renderer
         .render_split(
-            segment, output, width, height, 
-            left_bias, right_bias, 
-            left_horizontal, right_horizontal,
+            segment,
+            output,
+            width,
+            height,
+            left_bias,
+            right_bias,
+            left_horizontal,
+            right_horizontal,
             encoding,
         )
         .await

@@ -5,7 +5,7 @@
 use super::config::IntelligentCropConfig;
 use super::crop_planner::is_static_crop;
 use super::models::CropWindow;
-use super::output_format::{PORTRAIT_WIDTH, PORTRAIT_HEIGHT};
+use super::output_format::{PORTRAIT_HEIGHT, PORTRAIT_WIDTH};
 use crate::error::{MediaError, MediaResult};
 use std::path::Path;
 use std::process::Stdio;
@@ -43,7 +43,9 @@ impl IntelligentRenderer {
         let output = output.as_ref();
 
         if crop_windows.is_empty() {
-            return Err(MediaError::InvalidVideo("No crop windows to render".to_string()));
+            return Err(MediaError::InvalidVideo(
+                "No crop windows to render".to_string(),
+            ));
         }
 
         // Determine rendering strategy
@@ -77,8 +79,7 @@ impl IntelligentRenderer {
         // Crop to 9:16 region, then scale to exact 1080×1920 portrait output
         let vf = format!(
             "crop={}:{}:{}:{},scale={}:{}:flags=lanczos,setsar=1",
-            crop.width, crop.height, crop.x, crop.y,
-            PORTRAIT_WIDTH, PORTRAIT_HEIGHT
+            crop.width, crop.height, crop.x, crop.y, PORTRAIT_WIDTH, PORTRAIT_HEIGHT
         );
 
         let mut cmd = crate::command::create_ffmpeg_command();
@@ -149,12 +150,7 @@ impl IntelligentRenderer {
         if segments.len() == 1 {
             // Single segment - use static crop
             return self
-                .render_single_segment(
-                    input,
-                    output,
-                    &segments[0],
-                    start_time,
-                )
+                .render_single_segment(input, output, &segments[0], start_time)
                 .await;
         }
 
@@ -186,7 +182,9 @@ impl IntelligentRenderer {
         let output = output.as_ref();
 
         if segments.is_empty() || crop_windows.is_empty() {
-            return Err(MediaError::InvalidVideo("No crop segments provided".to_string()));
+            return Err(MediaError::InvalidVideo(
+                "No crop segments provided".to_string(),
+            ));
         }
 
         // Build sendcmd script for crop updates
@@ -220,26 +218,42 @@ impl IntelligentRenderer {
         let mut cmd = crate::command::create_ffmpeg_command();
         cmd.args([
             "-y",
-            "-ss", &format!("{:.3}", start_time),
-            "-i", input.to_str().unwrap_or(""),
-            "-t", &format!("{:.3}", duration),
-            "-filter_complex", &filter_complex,
-            "-map", "[vout]",
-            "-map", "0:a?",
+            "-ss",
+            &format!("{:.3}", start_time),
+            "-i",
+            input.to_str().unwrap_or(""),
+            "-t",
+            &format!("{:.3}", duration),
+            "-filter_complex",
+            &filter_complex,
+            "-map",
+            "[vout]",
+            "-map",
+            "0:a?",
             // Video encoding
-            "-c:v", "libx264",
-            "-preset", &self.config.render_preset,
-            "-crf", &self.config.render_crf.to_string(),
-            "-pix_fmt", "yuv420p",
+            "-c:v",
+            "libx264",
+            "-preset",
+            &self.config.render_preset,
+            "-crf",
+            &self.config.render_crf.to_string(),
+            "-pix_fmt",
+            "yuv420p",
             // Constant frame rate to prevent timing issues
-            "-vsync", "cfr",
-            "-video_track_timescale", "90000",
+            "-vsync",
+            "cfr",
+            "-video_track_timescale",
+            "90000",
             // Audio with resample to handle any discontinuities
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-af", "aresample=async=1:first_pts=0",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-af",
+            "aresample=async=1:first_pts=0",
             // Output
-            "-movflags", "+faststart",
+            "-movflags",
+            "+faststart",
             output.to_str().unwrap_or(""),
         ])
         .stdout(Stdio::piped())
@@ -251,13 +265,15 @@ impl IntelligentRenderer {
 
         if !output_result.status.success() {
             let stderr = String::from_utf8_lossy(&output_result.stderr);
-            
+
             // Fall back to legacy concat if sendcmd not supported
             if stderr.contains("sendcmd") || stderr.contains("Unknown filter") {
                 debug!("sendcmd filter not available, falling back to segment concat");
-                return self.render_and_concat_segments_fixed(input, output, segments, start_time).await;
+                return self
+                    .render_and_concat_segments_fixed(input, output, segments, start_time)
+                    .await;
             }
-            
+
             return Err(MediaError::ffmpeg_failed(
                 "Continuous crop render failed",
                 Some(stderr.to_string()),
@@ -301,7 +317,8 @@ impl IntelligentRenderer {
         // Render each segment with timestamp normalization
         for (i, segment) in segments.iter().enumerate() {
             let seg_path = temp_dir.path().join(format!("segment_{:04}.mp4", i));
-            self.render_single_segment_normalized(input, &seg_path, segment, base_start).await?;
+            self.render_single_segment_normalized(input, &seg_path, segment, base_start)
+                .await?;
             segment_files.push(seg_path);
         }
 
@@ -317,13 +334,19 @@ impl IntelligentRenderer {
         let mut cmd = crate::command::create_ffmpeg_command();
         cmd.args([
             "-y",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", concat_list_path.to_str().unwrap_or(""),
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            concat_list_path.to_str().unwrap_or(""),
             // Stream copy - segments are already encoded with normalized timestamps
-            "-c:v", "copy",
-            "-c:a", "copy",
-            "-movflags", "+faststart",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "copy",
+            "-movflags",
+            "+faststart",
             output.to_str().unwrap_or(""),
         ])
         .stdout(Stdio::piped())
@@ -364,25 +387,35 @@ impl IntelligentRenderer {
         // Scale to exact 1080×1920 portrait output with square pixels
         let vf = format!(
             "crop={}:{}:{}:{},setpts=PTS-STARTPTS,scale={}:{}:flags=lanczos,setsar=1",
-            crop.width, crop.height, crop.x, crop.y,
-            PORTRAIT_WIDTH, PORTRAIT_HEIGHT
+            crop.width, crop.height, crop.x, crop.y, PORTRAIT_WIDTH, PORTRAIT_HEIGHT
         );
 
         let mut cmd = crate::command::create_ffmpeg_command();
         cmd.args([
             "-y",
-            "-ss", &format!("{:.3}", start),
-            "-i", input.to_str().unwrap_or(""),
-            "-t", &format!("{:.3}", duration),
-            "-vf", &vf,
+            "-ss",
+            &format!("{:.3}", start),
+            "-i",
+            input.to_str().unwrap_or(""),
+            "-t",
+            &format!("{:.3}", duration),
+            "-vf",
+            &vf,
             // Audio timestamp normalization
-            "-af", "aresample=async=1:first_pts=0",
-            "-c:v", "libx264",
-            "-preset", &self.config.render_preset,
-            "-crf", &self.config.render_crf.to_string(),
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-pix_fmt", "yuv420p",
+            "-af",
+            "aresample=async=1:first_pts=0",
+            "-c:v",
+            "libx264",
+            "-preset",
+            &self.config.render_preset,
+            "-crf",
+            &self.config.render_crf.to_string(),
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-pix_fmt",
+            "yuv420p",
             output.to_str().unwrap_or(""),
         ])
         .stdout(Stdio::piped())
@@ -464,8 +497,7 @@ impl IntelligentRenderer {
         // Crop to 9:16 region, then scale to exact 1080×1920 portrait output
         let vf = format!(
             "crop={}:{}:{}:{},scale={}:{}:flags=lanczos,setsar=1",
-            crop.width, crop.height, crop.x, crop.y,
-            PORTRAIT_WIDTH, PORTRAIT_HEIGHT
+            crop.width, crop.height, crop.x, crop.y, PORTRAIT_WIDTH, PORTRAIT_HEIGHT
         );
 
         let mut cmd = crate::command::create_ffmpeg_command();

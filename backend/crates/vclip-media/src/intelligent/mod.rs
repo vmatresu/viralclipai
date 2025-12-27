@@ -50,34 +50,35 @@ pub mod activity_scorer;
 pub mod activity_split;
 pub mod avframe_view;
 pub mod backend;
-pub mod cpu_features;
-pub mod face_engine;
-pub mod face_timeline;
-#[cfg(feature = "opencv")]
-pub mod motion;
 pub mod camera_constraints;
 pub mod cinematic;
 pub mod config;
 pub mod continuous_renderer;
+pub mod cpu_features;
 pub mod crop_planner;
 pub mod detection_adapter;
 pub mod detector;
 pub mod enhanced_smoother;
 pub mod face_activity;
-pub mod face_mesh;
+pub mod face_engine;
 pub mod face_landmarks;
+pub mod face_mesh;
+pub mod face_timeline;
 pub mod fast_split;
 pub mod frame_converter;
 pub mod kalman_tracker;
+pub mod layout_detector;
 pub mod letterbox;
 pub mod mapping;
-pub mod output_format;
-pub mod layout_detector;
 pub mod model_config;
 pub mod models;
+#[cfg(feature = "opencv")]
+pub mod motion;
 pub mod optimized_detector;
+pub mod output_format;
 pub mod premium;
 pub mod renderer;
+pub mod scene_cut;
 pub mod segment_analysis;
 pub mod single_pass_renderer;
 pub mod smoother;
@@ -86,7 +87,6 @@ pub mod split;
 pub mod split_evaluator;
 pub mod split_renderer;
 pub mod stacking;
-pub mod scene_cut;
 pub mod temporal;
 pub mod tier_aware_cropper;
 pub mod tier_aware_smoother;
@@ -105,27 +105,39 @@ pub use backend::{BackendConfig, BackendMetrics, BackendSelector, InferenceBacke
 pub use config::{FaceEngineMode, FallbackPolicy, IntelligentCropConfig, OptimizedEngineConfig};
 pub use cpu_features::{CpuArch, CpuFeatures, CpuMismatchError, InferenceTier};
 pub use crop_planner::CropPlanner;
+pub use detector::FaceDetector;
+pub use face_activity::{FaceActivityAnalyzer, FaceActivityConfig};
+pub use face_engine::{
+    EngineMode, EngineStats, FaceEngineConfig, FaceFrameResult, FaceInferenceEngine, TrackedFace,
+};
+pub use face_landmarks::{FaceLandmarkDetector, FaceLandmarks};
+pub use face_timeline::{FaceTimeline, FaceTimelineEntry, TimelineExporter};
+pub use fast_split::{FastSplitConfig, FastSplitEngine};
+pub use frame_converter::FrameConverter;
+pub use kalman_tracker::{FaceTrack, KalmanTracker, KalmanTrackerConfig, TrackerStats};
+pub use layout_detector::{HeuristicGenerator, LayoutDetector, VideoLayout};
 pub use letterbox::Letterboxer;
 pub use mapping::{MappingMeta, NormalizedBBox, DEFAULT_INF_HEIGHT, DEFAULT_INF_WIDTH};
 pub use model_config::{ModelConfig, ModelResolutionError, ModelSearchPaths, ModelVariant};
-pub use scene_cut::{SceneCutConfig, SceneCutDetector};
-pub use temporal::{DecimatorStats, DetectionTrigger, TemporalConfig, TemporalDecimator};
-pub use kalman_tracker::{FaceTrack, KalmanTracker, KalmanTrackerConfig, TrackerStats};
-pub use frame_converter::FrameConverter;
-pub use face_engine::{EngineMode, EngineStats, FaceEngineConfig, FaceInferenceEngine, FaceFrameResult, TrackedFace};
-pub use face_timeline::{FaceTimeline, FaceTimelineEntry, TimelineExporter};
-pub use detector::FaceDetector;
-pub use optimized_detector::OptimizedFaceDetector;
-pub use face_activity::{FaceActivityAnalyzer, FaceActivityConfig};
-pub use face_landmarks::{FaceLandmarkDetector, FaceLandmarks};
-pub use fast_split::{FastSplitConfig, FastSplitEngine};
-pub use layout_detector::{HeuristicGenerator, LayoutDetector, VideoLayout};
 pub use models::*;
+pub use optimized_detector::OptimizedFaceDetector;
 pub use renderer::IntelligentRenderer;
+pub use scene_cut::{SceneCutConfig, SceneCutDetector};
 pub use smoother::CameraSmoother;
+pub use temporal::{DecimatorStats, DetectionTrigger, TemporalConfig, TemporalDecimator};
 // Note: split.rs is deprecated - use tier_aware_split.rs instead
 // The old IntelligentSplitProcessor and create_intelligent_split_clip functions
 // are kept for backward compatibility but should not be used for new code.
+pub use continuous_renderer::{ContinuousRenderer, LayoutSpan, LayoutType};
+pub use enhanced_smoother::{EnhancedCameraSmoother, SmoothingPreset};
+pub use output_format::{
+    clamp_crop_to_frame, make_even, portrait_scale_filter, split_panel_scale_filter,
+    PORTRAIT_HEIGHT, PORTRAIT_WIDTH, SPLIT_PANEL_HEIGHT, SPLIT_PANEL_WIDTH,
+};
+pub use premium::{
+    CameraState, CameraTargetSelector, CropComputeConfig, CropComputer, FocusPoint, PlannerStats,
+    PremiumCameraPlanner, PremiumSmoother, PremiumSpeakerConfig, VisualScores,
+};
 pub use split::{
     create_intelligent_split_clip, create_intelligent_split_clip_with_cache,
     IntelligentSplitProcessor as LegacyIntelligentSplitProcessor, SplitLayout,
@@ -139,14 +151,6 @@ pub use tier_aware_split::{
     create_tier_aware_split_clip, create_tier_aware_split_clip_with_cache, TierAwareSplitProcessor,
 };
 pub use tracker::IoUTracker;
-pub use output_format::{PORTRAIT_WIDTH, PORTRAIT_HEIGHT, SPLIT_PANEL_WIDTH, SPLIT_PANEL_HEIGHT, portrait_scale_filter, split_panel_scale_filter, make_even, clamp_crop_to_frame};
-pub use enhanced_smoother::{EnhancedCameraSmoother, SmoothingPreset};
-pub use continuous_renderer::{ContinuousRenderer, LayoutSpan, LayoutType};
-pub use premium::{
-    PremiumSpeakerConfig, CameraTargetSelector, PremiumCameraPlanner,
-    PremiumSmoother, CropComputer, CropComputeConfig,
-    FocusPoint, VisualScores, CameraState, PlannerStats,
-};
 
 use crate::error::MediaResult;
 use crate::probe::probe_video;
@@ -160,24 +164,30 @@ pub fn parse_timestamp(ts: &str) -> MediaResult<f64> {
     match parts.len() {
         1 => {
             // Just seconds
-            parts[0].parse::<f64>()
+            parts[0]
+                .parse::<f64>()
                 .map_err(|_| crate::error::MediaError::InvalidTimestamp(ts.to_string()))
         }
         2 => {
             // MM:SS
-            let mins: f64 = parts[0].parse()
+            let mins: f64 = parts[0]
+                .parse()
                 .map_err(|_| crate::error::MediaError::InvalidTimestamp(ts.to_string()))?;
-            let secs: f64 = parts[1].parse()
+            let secs: f64 = parts[1]
+                .parse()
                 .map_err(|_| crate::error::MediaError::InvalidTimestamp(ts.to_string()))?;
             Ok(mins * 60.0 + secs)
         }
         3 => {
             // HH:MM:SS
-            let hours: f64 = parts[0].parse()
+            let hours: f64 = parts[0]
+                .parse()
                 .map_err(|_| crate::error::MediaError::InvalidTimestamp(ts.to_string()))?;
-            let mins: f64 = parts[1].parse()
+            let mins: f64 = parts[1]
+                .parse()
                 .map_err(|_| crate::error::MediaError::InvalidTimestamp(ts.to_string()))?;
-            let secs: f64 = parts[2].parse()
+            let secs: f64 = parts[2]
+                .parse()
                 .map_err(|_| crate::error::MediaError::InvalidTimestamp(ts.to_string()))?;
             Ok(hours * 3600.0 + mins * 60.0 + secs)
         }
@@ -211,11 +221,7 @@ impl IntelligentCropper {
     ///
     /// This is the main entry point for intelligent cropping.
     /// The input should be a pre-cut segment (not the full video).
-    pub async fn process<P: AsRef<Path>>(
-        &self,
-        input: P,
-        output: P,
-    ) -> MediaResult<()> {
+    pub async fn process<P: AsRef<Path>>(&self, input: P, output: P) -> MediaResult<()> {
         let input = input.as_ref();
         let output = output.as_ref();
 
@@ -250,7 +256,8 @@ impl IntelligentCropper {
         // 3. Compute camera plan
         info!("Step 2/3: Computing camera path...");
         let smoother = CameraSmoother::new(self.config.clone(), fps);
-        let camera_keyframes = smoother.compute_camera_plan(&detections, width, height, start_time, end_time);
+        let camera_keyframes =
+            smoother.compute_camera_plan(&detections, width, height, start_time, end_time);
         info!("  Generated {} camera keyframes", camera_keyframes.len());
 
         // 4. Compute crop windows
@@ -268,13 +275,13 @@ impl IntelligentCropper {
             .await?;
 
         info!("Intelligent crop complete: {:?}", output);
-        
+
         // Generate thumbnail
         let thumb_path = output.with_extension("jpg");
         if let Err(e) = crate::thumbnail::generate_thumbnail(output, &thumb_path).await {
             tracing::warn!("Failed to generate thumbnail for intelligent clip: {}", e);
         }
-        
+
         Ok(())
     }
 }
@@ -282,7 +289,7 @@ impl IntelligentCropper {
 /// Create an intelligent clip from a video file.
 ///
 /// This is the main entry point for the Intelligent style.
-/// 
+///
 /// # Workflow
 /// 1. Extract the segment from the source video (fast, no re-encoding)
 /// 2. Apply intelligent cropping to the segment
@@ -307,31 +314,38 @@ where
 {
     let input = input.as_ref();
     let output = output.as_ref();
-    
+
     // Parse timestamps and apply padding
     let start_secs = (parse_timestamp(&task.start)? - task.pad_before).max(0.0);
     let end_secs = parse_timestamp(&task.end)? + task.pad_after;
     let duration = end_secs - start_secs;
-    
+
     // Step 1: Extract segment to temporary file
     let segment_path = output.with_extension("segment.mp4");
-    info!("Extracting segment for intelligent crop: {:.2}s - {:.2}s", start_secs, end_secs);
-    
+    info!(
+        "Extracting segment for intelligent crop: {:.2}s - {:.2}s",
+        start_secs, end_secs
+    );
+
     crate::clip::extract_segment(input, &segment_path, start_secs, duration).await?;
-    
+
     // Step 2: Apply intelligent cropping to the segment
     let config = IntelligentCropConfig::default();
     let cropper = IntelligentCropper::new(config);
     let result = cropper.process(segment_path.as_path(), output).await;
-    
+
     // Step 3: Cleanup temporary segment file
     if segment_path.exists() {
         if let Err(e) = tokio::fs::remove_file(&segment_path).await {
-            tracing::warn!("Failed to delete temporary segment file {}: {}", segment_path.display(), e);
+            tracing::warn!(
+                "Failed to delete temporary segment file {}: {}",
+                segment_path.display(),
+                e
+            );
         } else {
             info!("Deleted temporary segment: {}", segment_path.display());
         }
     }
-    
+
     result
 }

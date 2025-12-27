@@ -393,10 +393,7 @@ mod tests {
             assert_eq!(frame_dets.len(), 1);
             // Face should be in right quarter of frame
             let bbox = &frame_dets[0].0;
-            assert!(
-                bbox.cx() > 1920.0 * 0.65,
-                "Face should be in right portion"
-            );
+            assert!(bbox.cx() > 1920.0 * 0.65, "Face should be in right portion");
         }
     }
 

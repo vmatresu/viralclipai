@@ -29,7 +29,7 @@ use super::signals::{FaceSignals, ShotBoundary, ShotSignals};
 use super::trajectory::TrajectoryOptimizer;
 use super::zoom::AdaptiveZoom;
 use crate::clip::extract_segment;
-use crate::detection::{ObjectDetector, ObjectDetectorConfig, ObjectDetection, PipelineBuilder};
+use crate::detection::{ObjectDetection, ObjectDetector, ObjectDetectorConfig, PipelineBuilder};
 use crate::error::MediaResult;
 use crate::intelligent::config::IntelligentCropConfig;
 use crate::intelligent::crop_planner::CropPlanner;
@@ -58,7 +58,7 @@ impl CinematicProcessor {
     pub fn new() -> Self {
         let config = CinematicConfig::default();
         let object_detector = Self::try_load_object_detector(&config);
-        
+
         Self {
             config,
             base_config: IntelligentCropConfig::for_tier(DetectionTier::Cinematic),
@@ -69,7 +69,7 @@ impl CinematicProcessor {
     /// Create with custom configuration.
     pub fn with_config(config: CinematicConfig) -> Self {
         let object_detector = Self::try_load_object_detector(&config);
-        
+
         Self {
             config,
             base_config: IntelligentCropConfig::for_tier(DetectionTier::Cinematic),
@@ -81,14 +81,14 @@ impl CinematicProcessor {
     pub fn for_podcast() -> Self {
         let config = CinematicConfig::podcast();
         let object_detector = Self::try_load_object_detector(&config);
-        
+
         Self {
             config,
             base_config: IntelligentCropConfig::for_tier(DetectionTier::Cinematic),
             object_detector,
         }
     }
-    
+
     /// Try to load the object detector model.
     fn try_load_object_detector(config: &CinematicConfig) -> Option<Arc<ObjectDetector>> {
         if !config.enable_object_detection {
@@ -107,7 +107,7 @@ impl CinematicProcessor {
             }
         }
     }
-    
+
     /// Check if object detection is available.
     pub fn has_object_detection(&self) -> bool {
         self.object_detector.is_some()
@@ -126,7 +126,8 @@ impl CinematicProcessor {
         encoding: &EncodingConfig,
         watermark: Option<&WatermarkConfig>,
     ) -> MediaResult<()> {
-        self.process_with_cache(segment, output, encoding, watermark, None).await
+        self.process_with_cache(segment, output, encoding, watermark, None)
+            .await
     }
 
     /// Process with optional cached neural analysis.
@@ -162,7 +163,10 @@ impl CinematicProcessor {
         info!(
             "[CINEMATIC] Step 1/7 DONE in {:.2}s - {}x{} @ {:.2}fps, {:.2}s",
             step_start.elapsed().as_secs_f64(),
-            width, height, fps, duration
+            width,
+            height,
+            fps,
+            duration
         );
 
         let start_time = 0.0;
@@ -172,12 +176,13 @@ impl CinematicProcessor {
         let step_start = std::time::Instant::now();
         let shots = if self.config.enable_shot_detection {
             info!("[CINEMATIC] Step 2/7: Detecting shots...");
-            let shots = self.detect_shots_or_use_cached(
-                segment, cached_analysis, start_time, end_time
-            ).await?;
+            let shots = self
+                .detect_shots_or_use_cached(segment, cached_analysis, start_time, end_time)
+                .await?;
             info!(
                 "[CINEMATIC] Step 2/7 DONE in {:.2}s - {} shots detected",
-                step_start.elapsed().as_secs_f64(), shots.len()
+                step_start.elapsed().as_secs_f64(),
+                shots.len()
             );
             shots
         } else {
@@ -237,38 +242,52 @@ impl CinematicProcessor {
 
         // Step 3.5: Get object detections (cached or fresh)
         let step_start = std::time::Instant::now();
-        let (object_detections, object_cache_for_save): (Vec<Vec<ObjectDetection>>, Option<ObjectDetectionsCache>) = 
-            if let Some(cached) = self.try_get_cached_object_detections(cached_analysis, width, height) {
-                let total_objects: usize = cached.iter().map(|d| d.len()).sum();
-                info!(
-                    "[CINEMATIC] Step 3.5/8: Using cached object detections ({} objects in {} frames)",
-                    total_objects, cached.len()
-                );
-                (cached, None) // Already cached, no need to save
-            } else if self.object_detector.is_some() {
-                info!("[CINEMATIC] Step 3.5/8: Running object detection (YOLOv8)...");
-                let obj_dets = self
-                    .run_object_detection(segment, &detections, start_time, sample_interval)
-                    .await?;
-                let total_objects: usize = obj_dets.iter().map(|d| d.len()).sum();
-                info!(
-                    "[CINEMATIC] Step 3.5/8 DONE in {:.2}s - {} objects in {} frames",
-                    step_start.elapsed().as_secs_f64(),
-                    total_objects,
-                    obj_dets.len()
-                );
-                // Build cache for saving
-                let cache = self.build_object_detections_cache(&obj_dets, sample_interval, start_time, width, height);
-                (obj_dets, Some(cache))
-            } else {
-                info!("[CINEMATIC] Step 3.5/8: Object detection skipped (no model)");
-                (vec![vec![]; detections.len()], None)
-            };
-        
+        let (object_detections, object_cache_for_save): (
+            Vec<Vec<ObjectDetection>>,
+            Option<ObjectDetectionsCache>,
+        ) = if let Some(cached) =
+            self.try_get_cached_object_detections(cached_analysis, width, height)
+        {
+            let total_objects: usize = cached.iter().map(|d| d.len()).sum();
+            info!(
+                "[CINEMATIC] Step 3.5/8: Using cached object detections ({} objects in {} frames)",
+                total_objects,
+                cached.len()
+            );
+            (cached, None) // Already cached, no need to save
+        } else if self.object_detector.is_some() {
+            info!("[CINEMATIC] Step 3.5/8: Running object detection (YOLOv8)...");
+            let obj_dets = self
+                .run_object_detection(segment, &detections, start_time, sample_interval)
+                .await?;
+            let total_objects: usize = obj_dets.iter().map(|d| d.len()).sum();
+            info!(
+                "[CINEMATIC] Step 3.5/8 DONE in {:.2}s - {} objects in {} frames",
+                step_start.elapsed().as_secs_f64(),
+                total_objects,
+                obj_dets.len()
+            );
+            // Build cache for saving
+            let cache = self.build_object_detections_cache(
+                &obj_dets,
+                sample_interval,
+                start_time,
+                width,
+                height,
+            );
+            (obj_dets, Some(cache))
+        } else {
+            info!("[CINEMATIC] Step 3.5/8: Object detection skipped (no model)");
+            (vec![vec![]; detections.len()], None)
+        };
+
         // Note: object_cache_for_save can be used to update the cached_analysis
         // This is typically done by the caller (neural_cache.rs) after processing
         if object_cache_for_save.is_some() {
-            info!("[CINEMATIC] Object detections ready for caching ({} frames)", object_detections.len());
+            info!(
+                "[CINEMATIC] Object detections ready for caching ({} frames)",
+                object_detections.len()
+            );
         }
 
         // If we have no usable faces, compute a motion-aware fallback once.
@@ -303,12 +322,13 @@ impl CinematicProcessor {
 
         // Step 5: Per-shot processing (camera mode + keyframes + trajectory)
         let step_start = std::time::Instant::now();
-        info!("[CINEMATIC] Step 5/8: Per-shot camera analysis ({} shots)...", shots.len());
-
-        let _face_signals = FaceSignals::with_weights(
-            self.config.face_weight,
-            self.config.activity_boost,
+        info!(
+            "[CINEMATIC] Step 5/8: Per-shot camera analysis ({} shots)...",
+            shots.len()
         );
+
+        let _face_signals =
+            FaceSignals::with_weights(self.config.face_weight, self.config.activity_boost);
         let _mode_analyzer = CameraModeAnalyzer::new(&self.config);
         let trajectory_optimizer = TrajectoryOptimizer::new(&self.config);
         let mut adaptive_zoom = AdaptiveZoom::new(&self.config, width, height);
@@ -316,39 +336,45 @@ impl CinematicProcessor {
         let mut all_smoothed_keyframes = Vec::new();
         for (shot_idx, shot) in shots.iter().enumerate() {
             // Filter face detections for this shot
-            let shot_face_detections = self.filter_detections_for_shot(
-                &detections, shot, sample_interval, start_time
-            );
-            
+            let shot_face_detections =
+                self.filter_detections_for_shot(&detections, shot, sample_interval, start_time);
+
             // Filter object detections for this shot (same indices)
-            let shot_frame_start = ((shot.start_time - start_time) / sample_interval).floor() as usize;
+            let shot_frame_start =
+                ((shot.start_time - start_time) / sample_interval).floor() as usize;
             let shot_frame_end = ((shot.end_time - start_time) / sample_interval).ceil() as usize;
             let shot_object_detections: Vec<Vec<ObjectDetection>> = object_detections
                 .get(shot_frame_start..shot_frame_end.min(object_detections.len()))
                 .map(|s| s.to_vec())
                 .unwrap_or_default();
 
-            let shot_motion_detections: Option<Vec<Vec<Detection>>> = motion_detections.as_ref().map(|md| {
-                md.get(shot_frame_start..shot_frame_end.min(md.len()))
-                    .map(|s| s.to_vec())
-                    .unwrap_or_default()
-            });
+            let shot_motion_detections: Option<Vec<Vec<Detection>>> =
+                motion_detections.as_ref().map(|md| {
+                    md.get(shot_frame_start..shot_frame_end.min(md.len()))
+                        .map(|s| s.to_vec())
+                        .unwrap_or_default()
+                });
 
             if shot_face_detections.is_empty() {
                 continue;
             }
-            
+
             // Compute fused saliency signals from faces + objects
             let has_objects = shot_object_detections.iter().any(|o| !o.is_empty());
             if has_objects {
-                info!("[CINEMATIC]   Shot {}: Fusing {} face frames + {} object frames", 
-                    shot_idx + 1, shot_face_detections.len(), shot_object_detections.len());
+                info!(
+                    "[CINEMATIC]   Shot {}: Fusing {} face frames + {} object frames",
+                    shot_idx + 1,
+                    shot_face_detections.len(),
+                    shot_object_detections.len()
+                );
             }
-            
+
             // Build per-frame detections used by the window analyzer.
             // We inject object detections (and motion fallback) as pseudo-detections so
             // screen recordings without usable faces still get meaningful camera motion.
-            let mut shot_detections: Vec<Vec<Detection>> = Vec::with_capacity(shot_face_detections.len());
+            let mut shot_detections: Vec<Vec<Detection>> =
+                Vec::with_capacity(shot_face_detections.len());
             for (i, frame_faces) in shot_face_detections.into_iter().enumerate() {
                 let mut frame_dets = frame_faces;
 
@@ -383,8 +409,12 @@ impl CinematicProcessor {
                         ranked.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(Ordering::Equal));
                         for (_rank, j, bbox, score) in ranked.into_iter().take(3) {
                             let time = shot.start_time + i as f64 * sample_interval;
-                            frame_dets
-                                .push(Detection::new(time, bbox, score, 1_000_000 + j as u32));
+                            frame_dets.push(Detection::new(
+                                time,
+                                bbox,
+                                score,
+                                1_000_000 + j as u32,
+                            ));
                         }
                     }
                 }
@@ -410,16 +440,15 @@ impl CinematicProcessor {
             );
 
             // Pre-analyze the shot to get window-smoothed focus points
-            let window_analyses = window_analyzer.analyze_shot(
-                &shot_detections,
-                sample_interval,
-                shot.start_time,
-            );
+            let window_analyses =
+                window_analyzer.analyze_shot(&shot_detections, sample_interval, shot.start_time);
 
             // Create keyframes from window analyses (temporally smoothed)
             let shot_keyframes: Vec<CameraKeyframe> = window_analyses
                 .iter()
-                .map(|wa| wa.to_keyframe(wa.median_cx / width as f64 * sample_interval + shot.start_time))
+                .map(|wa| {
+                    wa.to_keyframe(wa.median_cx / width as f64 * sample_interval + shot.start_time)
+                })
                 .enumerate()
                 .map(|(i, mut kf)| {
                     // Use proper time from the window analysis loop
@@ -452,8 +481,11 @@ impl CinematicProcessor {
 
             info!(
                 "[CINEMATIC]   Shot {}: {:.2}s-{:.2}s, mode={}, {} keyframes (window smoothed)",
-                shot_idx + 1, shot.start_time, shot.end_time,
-                camera_mode.description(), smoothed.len()
+                shot_idx + 1,
+                shot.start_time,
+                shot.end_time,
+                camera_mode.description(),
+                smoothed.len()
             );
 
             all_smoothed_keyframes.extend(smoothed);
@@ -473,10 +505,7 @@ impl CinematicProcessor {
         let planner = CropPlanner::new(self.base_config.clone(), width, height);
         let crop_windows = planner.compute_crop_windows(&all_smoothed_keyframes, &target_aspect);
 
-        info!(
-            "[CINEMATIC] Generated {} crop windows",
-            crop_windows.len()
-        );
+        info!("[CINEMATIC] Generated {} crop windows", crop_windows.len());
 
         // Render with single pass
         let mut renderer = SinglePassRenderer::new(self.base_config.clone());
@@ -522,10 +551,7 @@ impl CinematicProcessor {
         for frame_dets in detections {
             for det in frame_dets {
                 let score = det.mouth_openness.unwrap_or(0.0);
-                track_scores
-                    .entry(det.track_id)
-                    .or_default()
-                    .push(score);
+                track_scores.entry(det.track_id).or_default().push(score);
             }
         }
 
@@ -555,8 +581,13 @@ impl CinematicProcessor {
         if let Some(analysis) = cached_analysis {
             if let Some(ref signals) = analysis.cinematic_signals {
                 if signals.is_valid(self.config.shot_threshold, self.config.min_shot_duration) {
-                    info!("[CINEMATIC] Using cached shot boundaries ({} shots)", signals.shots.len());
-                    return Ok(signals.shots.iter()
+                    info!(
+                        "[CINEMATIC] Using cached shot boundaries ({} shots)",
+                        signals.shots.len()
+                    );
+                    return Ok(signals
+                        .shots
+                        .iter()
                         .map(|s| ShotBoundary::new(s.start_time, s.end_time))
                         .collect());
                 }
@@ -682,7 +713,7 @@ impl CinematicProcessor {
 
         cache
     }
-    
+
     /// Run object detection on sampled frames using YOLOv8.
     ///
     /// Samples frames at the configured detection FPS and runs inference.
@@ -698,29 +729,34 @@ impl CinematicProcessor {
             Some(d) => d,
             None => return Ok(vec![vec![]; face_detections.len()]),
         };
-        
+
         // Create temp dir for frame extraction
-        let temp_dir = tempfile::tempdir()
-            .map_err(|e| crate::error::MediaError::internal(format!("Failed to create temp dir: {}", e)))?;
-        
+        let temp_dir = tempfile::tempdir().map_err(|e| {
+            crate::error::MediaError::internal(format!("Failed to create temp dir: {}", e))
+        })?;
+
         let frame_count = face_detections.len();
-        
+
         // Sample every Nth frame to match face detection sampling
         // For efficiency, we sample every 5th detection frame (approx 1.6 fps if detection_fps=8)
         let sample_stride = 5;
         let mut object_detections: Vec<Vec<ObjectDetection>> = vec![vec![]; frame_count];
-        
+
         for (i, _) in face_detections.iter().enumerate().step_by(sample_stride) {
             let time = base_start_time + i as f64 * sample_interval;
             let frame_path = temp_dir.path().join(format!("frame_{:06}.jpg", i));
-            
+
             // Extract single frame using FFmpeg
             let extract_result = crate::command::create_ffmpeg_command()
                 .args([
-                    "-ss", &format!("{:.3}", time),
-                    "-i", segment.to_str().unwrap_or(""),
-                    "-vframes", "1",
-                    "-q:v", "2",
+                    "-ss",
+                    &format!("{:.3}", time),
+                    "-i",
+                    segment.to_str().unwrap_or(""),
+                    "-vframes",
+                    "1",
+                    "-q:v",
+                    "2",
                     "-y",
                     frame_path.to_str().unwrap_or(""),
                 ])
@@ -728,22 +764,22 @@ impl CinematicProcessor {
                 .stderr(std::process::Stdio::null())
                 .output()
                 .await;
-            
+
             if extract_result.is_err() || !frame_path.exists() {
                 continue;
             }
-            
+
             // Load frame as image
             let frame_data = match tokio::fs::read(&frame_path).await {
                 Ok(data) => data,
                 Err(_) => continue,
             };
-            
+
             let img = match image::load_from_memory(&frame_data) {
                 Ok(img) => img,
                 Err(_) => continue,
             };
-            
+
             // Run object detection
             match detector.detect_image(&img) {
                 Ok(detections) => {
@@ -756,11 +792,11 @@ impl CinematicProcessor {
                     warn!("[CINEMATIC] Object detection failed for frame {}: {}", i, e);
                 }
             }
-            
+
             // Clean up frame
             let _ = tokio::fs::remove_file(&frame_path).await;
         }
-        
+
         Ok(object_detections)
     }
 
@@ -837,7 +873,16 @@ where
     P: AsRef<Path>,
     F: Fn(crate::progress::FfmpegProgress) + Send + 'static,
 {
-    create_cinematic_clip_with_cache(input, output, task, encoding, watermark, None, _progress_callback).await
+    create_cinematic_clip_with_cache(
+        input,
+        output,
+        task,
+        encoding,
+        watermark,
+        None,
+        _progress_callback,
+    )
+    .await
 }
 
 /// Create a cinematic clip with optional cached analysis.
@@ -865,8 +910,7 @@ where
     info!("[PIPELINE] Cached analysis: {}", cached_analysis.is_some());
 
     // Parse timestamps and apply padding
-    let start_secs =
-        (crate::intelligent::parse_timestamp(&task.start)? - task.pad_before).max(0.0);
+    let start_secs = (crate::intelligent::parse_timestamp(&task.start)? - task.pad_before).max(0.0);
     let end_secs = crate::intelligent::parse_timestamp(&task.end)? + task.pad_after;
     let duration = end_secs - start_secs;
 
@@ -886,7 +930,13 @@ where
 
     let processor = CinematicProcessor::new();
     let result = processor
-        .process_with_cache(segment_path.as_path(), output, encoding, watermark, cached_analysis)
+        .process_with_cache(
+            segment_path.as_path(),
+            output,
+            encoding,
+            watermark,
+            cached_analysis,
+        )
         .await;
 
     // Cleanup temporary segment
@@ -915,8 +965,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::signals::FaceSignals;
+    use super::*;
     use crate::intelligent::models::BoundingBox;
 
     #[test]
@@ -973,7 +1023,12 @@ mod tests {
         );
         let detections: Vec<Vec<Detection>> = vec![];
         let keyframes = processor.create_raw_keyframes_with_fusion(
-            &detections, &face_signals, 1920, 1080, processor.config.detection_fps, 0.0
+            &detections,
+            &face_signals,
+            1920,
+            1080,
+            processor.config.detection_fps,
+            0.0,
         );
         assert_eq!(keyframes.len(), 1);
         // Should be centered
@@ -987,17 +1042,20 @@ mod tests {
             processor.config.face_weight,
             processor.config.activity_boost,
         );
-        let detections = vec![
-            vec![Detection::with_mouth(
-                0.0,
-                BoundingBox::new(800.0, 400.0, 100.0, 120.0),
-                0.9,
-                1,
-                Some(0.5),
-            )],
-        ];
+        let detections = vec![vec![Detection::with_mouth(
+            0.0,
+            BoundingBox::new(800.0, 400.0, 100.0, 120.0),
+            0.9,
+            1,
+            Some(0.5),
+        )]];
         let keyframes = processor.create_raw_keyframes_with_fusion(
-            &detections, &face_signals, 1920, 1080, processor.config.detection_fps, 0.0
+            &detections,
+            &face_signals,
+            1920,
+            1080,
+            processor.config.detection_fps,
+            0.0,
         );
         assert_eq!(keyframes.len(), 1);
         // Should be focused on the face center (800 + 50 = 850)

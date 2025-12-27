@@ -11,15 +11,10 @@ use tokio::sync::mpsc;
 #[derive(Debug, Clone)]
 pub enum ProgressEvent {
     /// Extracting video segment
-    ExtractingSegment {
-        start_sec: f64,
-        duration_sec: f64,
-    },
+    ExtractingSegment { start_sec: f64, duration_sec: f64 },
 
     /// Detecting faces in frames
-    DetectingFaces {
-        total_frames: u32,
-    },
+    DetectingFaces { total_frames: u32 },
 
     /// Face detection complete
     FaceDetectionComplete {
@@ -31,17 +26,13 @@ pub enum ProgressEvent {
     ComputingCameraPath,
 
     /// Camera path complete
-    CameraPathComplete {
-        keyframes: u32,
-    },
+    CameraPathComplete { keyframes: u32 },
 
     /// Computing crop windows
     ComputingCropWindows,
 
     /// Rendering output
-    Rendering {
-        style: String,
-    },
+    Rendering { style: String },
 
     /// Render complete
     RenderComplete,
@@ -50,19 +41,17 @@ pub enum ProgressEvent {
     Complete,
 
     /// Processing failed
-    Failed {
-        error: String,
-    },
+    Failed { error: String },
 }
 
 /// Progress callback type.
-/// 
+///
 /// This is a function that receives progress events and can forward them
 /// to the appropriate destination (WebSocket, logging, metrics, etc.).
 pub type ProgressCallback = Arc<dyn Fn(ProgressEvent) + Send + Sync>;
 
 /// Progress sender for async contexts.
-/// 
+///
 /// Uses a bounded channel to avoid blocking the processing thread.
 #[derive(Clone)]
 pub struct ProgressSender {
@@ -176,7 +165,7 @@ impl ProgressReceiver {
 }
 
 /// Create a progress channel pair.
-/// 
+///
 /// Returns a sender that can be cloned and passed to processing functions,
 /// and a receiver for collecting the events.
 pub fn channel(scene_id: u32, style: impl Into<String>) -> (ProgressSender, ProgressReceiver) {
@@ -209,7 +198,10 @@ mod tests {
         assert!(matches!(event1, ProgressEvent::ExtractingSegment { .. }));
 
         let event2 = receiver.recv().await.unwrap();
-        assert!(matches!(event2, ProgressEvent::DetectingFaces { total_frames: 100 }));
+        assert!(matches!(
+            event2,
+            ProgressEvent::DetectingFaces { total_frames: 100 }
+        ));
 
         let event3 = receiver.recv().await.unwrap();
         assert!(matches!(event3, ProgressEvent::Complete));

@@ -666,8 +666,7 @@ fn tuned_guard_enabled() -> bool {
     match std::env::var("VCLIP_TUNED_BUILD") {
         Ok(value) => {
             let value = value.trim().to_ascii_lowercase();
-            value.is_empty()
-                || matches!(value.as_str(), "1" | "true" | "yes" | "on")
+            value.is_empty() || matches!(value.as_str(), "1" | "true" | "yes" | "on")
         }
         Err(_) => false,
     }

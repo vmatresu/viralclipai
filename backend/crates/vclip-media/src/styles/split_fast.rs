@@ -8,13 +8,15 @@ use std::time::Instant;
 use async_trait::async_trait;
 use tracing::info;
 
-use crate::core::{ProcessingComplexity, ProcessingContext, ProcessingRequest, ProcessingResult, StyleProcessor};
+use super::utils;
+use crate::core::{
+    ProcessingComplexity, ProcessingContext, ProcessingRequest, ProcessingResult, StyleProcessor,
+};
 use crate::error::MediaResult;
 use crate::intelligent::{parse_timestamp, FastSplitEngine};
-use crate::thumbnail::generate_thumbnail;
 use crate::probe::probe_video;
+use crate::thumbnail::generate_thumbnail;
 use vclip_models::Style;
-use super::utils;
 
 /// Split Fast processor - uses heuristic positioning only.
 pub struct SplitFastProcessor;
@@ -41,7 +43,11 @@ impl StyleProcessor for SplitFastProcessor {
         matches!(style, Style::SplitFast)
     }
 
-    async fn validate(&self, request: &ProcessingRequest, _ctx: &ProcessingContext) -> MediaResult<()> {
+    async fn validate(
+        &self,
+        request: &ProcessingRequest,
+        _ctx: &ProcessingContext,
+    ) -> MediaResult<()> {
         utils::validate_paths(&request.input_path, &request.output_path)?;
         Ok(())
     }
@@ -53,7 +59,11 @@ impl StyleProcessor for SplitFastProcessor {
         utils::estimate_complexity(duration, false)
     }
 
-    async fn process(&self, request: ProcessingRequest, ctx: ProcessingContext) -> MediaResult<ProcessingResult> {
+    async fn process(
+        &self,
+        request: ProcessingRequest,
+        ctx: ProcessingContext,
+    ) -> MediaResult<ProcessingResult> {
         let timer = ctx.metrics.start_timer("split_fast_processing");
         let logger = crate::core::observability::ProcessingLogger::new(
             ctx.request_id.clone(),
@@ -69,9 +79,14 @@ impl StyleProcessor for SplitFastProcessor {
         let duration = end_secs - start_secs;
 
         // Create segment path as PathBuf
-        let segment_path = request.output_path.with_file_name(
-            format!("{}.segment.mp4", request.output_path.file_stem().unwrap_or_default().to_string_lossy())
-        );
+        let segment_path = request.output_path.with_file_name(format!(
+            "{}.segment.mp4",
+            request
+                .output_path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+        ));
 
         // Extract segment first - convert Arc<Path> to Path refs
         crate::clip::extract_segment(
@@ -79,13 +94,19 @@ impl StyleProcessor for SplitFastProcessor {
             segment_path.as_path(),
             (start_secs - request.task.pad_before).max(0.0),
             duration + request.task.pad_before + request.task.pad_after,
-        ).await?;
+        )
+        .await?;
 
         // Process with FastSplitEngine - convert Arc<Path> to Path ref
         let output_pathbuf = request.output_path.to_path_buf();
         let engine = FastSplitEngine::new();
         engine
-            .process(&segment_path, &output_pathbuf, &request.encoding, request.watermark.as_ref())
+            .process(
+                &segment_path,
+                &output_pathbuf,
+                &request.encoding,
+                request.watermark.as_ref(),
+            )
             .await?;
 
         // Cleanup segment
@@ -113,11 +134,12 @@ impl StyleProcessor for SplitFastProcessor {
             metadata: Default::default(),
         };
 
-        ctx.metrics.increment_counter("processing_completed", &[("style", "split_fast")]);
+        ctx.metrics
+            .increment_counter("processing_completed", &[("style", "split_fast")]);
         ctx.metrics.record_histogram(
             "processing_duration_ms",
             processing_time.as_millis() as f64,
-            &[("style", "split_fast")]
+            &[("style", "split_fast")],
         );
 
         timer.success();

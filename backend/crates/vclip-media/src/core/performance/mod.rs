@@ -35,7 +35,10 @@ impl FFmpegPool {
     /// Acquire a connection from the pool.
     pub async fn acquire(&self) -> MediaResult<FFmpegConnection> {
         // Wait for available permit
-        let _permit = self.semaphore.acquire().await
+        let _permit = self
+            .semaphore
+            .acquire()
+            .await
             .map_err(|_| MediaError::ResourceLimit("Semaphore closed".to_string()))?;
 
         // Try to get an existing connection
@@ -66,9 +69,7 @@ impl FFmpegPool {
         let mut pool = self.pool.lock().unwrap();
         let now = Instant::now();
 
-        pool.retain(|conn| {
-            now.duration_since(conn.last_used) < self.max_idle_time
-        });
+        pool.retain(|conn| now.duration_since(conn.last_used) < self.max_idle_time);
     }
 
     /// Get pool statistics.
@@ -209,7 +210,8 @@ impl TempDirectoryManager {
         let dir_name = format!("{}_{}", request_id, uuid::Uuid::new_v4().simple());
         let dir_path = self.base_dir.join(dir_name);
 
-        tokio::fs::create_dir_all(&dir_path).await
+        tokio::fs::create_dir_all(&dir_path)
+            .await
             .map_err(MediaError::Io)?;
 
         let info = TempDirInfo {
@@ -218,7 +220,10 @@ impl TempDirectoryManager {
             request_id: request_id.to_string(),
         };
 
-        self.dirs.write().unwrap().insert(request_id.to_string(), info);
+        self.dirs
+            .write()
+            .unwrap()
+            .insert(request_id.to_string(), info);
 
         Ok(dir_path)
     }
@@ -274,7 +279,10 @@ impl ProcessingCache {
     }
 
     /// Get cached video info or compute it.
-    pub async fn get_video_info(&self, path: &std::path::Path) -> MediaResult<crate::probe::VideoInfo> {
+    pub async fn get_video_info(
+        &self,
+        path: &std::path::Path,
+    ) -> MediaResult<crate::probe::VideoInfo> {
         let key = path.to_string_lossy().to_string();
         let now = Instant::now();
 
@@ -302,9 +310,10 @@ impl ProcessingCache {
     /// Clean up expired cache entries.
     pub async fn cleanup_expired(&self) {
         let now = Instant::now();
-        self.video_info.write().unwrap().retain(|_, info| {
-            now.duration_since(info.cached_at) < self.max_age
-        });
+        self.video_info
+            .write()
+            .unwrap()
+            .retain(|_, info| now.duration_since(info.cached_at) < self.max_age);
     }
 }
 
@@ -359,7 +368,11 @@ pub mod monitoring {
 
     impl CircuitBreaker {
         /// Create a new circuit breaker.
-        pub fn new(failure_threshold: u32, recovery_timeout: Duration, success_threshold: u32) -> Self {
+        pub fn new(
+            failure_threshold: u32,
+            recovery_timeout: Duration,
+            success_threshold: u32,
+        ) -> Self {
             Self {
                 state: Arc::new(RwLock::new(CircuitState::Closed)),
                 failure_threshold,
@@ -394,7 +407,9 @@ pub mod monitoring {
                     if new_count >= self.success_threshold {
                         *state = CircuitState::Closed;
                     } else {
-                        *state = CircuitState::HalfOpen { success_count: new_count };
+                        *state = CircuitState::HalfOpen {
+                            success_count: new_count,
+                        };
                     }
                 }
                 _ => {} // No change for other states
@@ -406,7 +421,9 @@ pub mod monitoring {
             let mut state = self.state.write().unwrap();
             match *state {
                 CircuitState::Closed | CircuitState::HalfOpen { .. } => {
-                    *state = CircuitState::Open { opened_at: Instant::now() };
+                    *state = CircuitState::Open {
+                        opened_at: Instant::now(),
+                    };
                 }
                 CircuitState::Open { .. } => {} // Already open
             }

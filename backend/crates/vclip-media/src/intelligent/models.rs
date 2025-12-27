@@ -20,7 +20,12 @@ pub struct BoundingBox {
 impl BoundingBox {
     /// Create a new bounding box.
     pub fn new(x: f64, y: f64, width: f64, height: f64) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     /// Center x-coordinate.
@@ -131,8 +136,14 @@ impl BoundingBox {
 
         let x = boxes.iter().map(|b| b.x).fold(f64::INFINITY, f64::min);
         let y = boxes.iter().map(|b| b.y).fold(f64::INFINITY, f64::min);
-        let x2 = boxes.iter().map(|b| b.x2()).fold(f64::NEG_INFINITY, f64::max);
-        let y2 = boxes.iter().map(|b| b.y2()).fold(f64::NEG_INFINITY, f64::max);
+        let x2 = boxes
+            .iter()
+            .map(|b| b.x2())
+            .fold(f64::NEG_INFINITY, f64::max);
+        let y2 = boxes
+            .iter()
+            .map(|b| b.y2())
+            .fold(f64::NEG_INFINITY, f64::max);
 
         Some(BoundingBox {
             x,
@@ -303,13 +314,22 @@ impl AspectRatio {
     }
 
     /// Portrait 9:16 (TikTok, Instagram Reels)
-    pub const PORTRAIT: AspectRatio = AspectRatio { width: 9, height: 16 };
+    pub const PORTRAIT: AspectRatio = AspectRatio {
+        width: 9,
+        height: 16,
+    };
 
     /// Square 1:1 (Instagram)
-    pub const SQUARE: AspectRatio = AspectRatio { width: 1, height: 1 };
+    pub const SQUARE: AspectRatio = AspectRatio {
+        width: 1,
+        height: 1,
+    };
 
     /// Landscape 16:9 (YouTube)
-    pub const LANDSCAPE: AspectRatio = AspectRatio { width: 16, height: 9 };
+    pub const LANDSCAPE: AspectRatio = AspectRatio {
+        width: 16,
+        height: 9,
+    };
 }
 
 impl std::fmt::Display for AspectRatio {

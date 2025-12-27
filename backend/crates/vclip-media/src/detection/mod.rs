@@ -23,4 +23,3 @@ pub use pipeline::{DetectionPipeline, DetectionResult, FrameResult};
 pub use pipeline_builder::PipelineBuilder;
 pub use pipelines::{BasicPipeline, MotionAwarePipeline, NonePipeline, SpeakerAwarePipeline};
 pub use providers::{FaceActivityProvider, FaceProvider};
-

@@ -310,8 +310,7 @@ pub fn compute_split_info_from_detections(
         }
     }
 
-    let should_split =
-        distinct_tracks.len() >= 2 && simultaneous_time >= MIN_SIMULTANEOUS_SECONDS;
+    let should_split = distinct_tracks.len() >= 2 && simultaneous_time >= MIN_SIMULTANEOUS_SECONDS;
 
     info!(
         "[SPLIT_INFO] {} tracks, {:.1}s simultaneous (need >= {:.1}s) → {}",
@@ -513,9 +512,7 @@ mod tests {
         );
         frame.add_face(
             FaceDetection::new(
-                vclip_models::BoundingBox::from_pixels(
-                    1600.0, 200.0, 150.0, 150.0, 1920.0, 1080.0,
-                ),
+                vclip_models::BoundingBox::from_pixels(1600.0, 200.0, 150.0, 150.0, 1920.0, 1080.0),
                 0.92,
             )
             .with_track_id(2),

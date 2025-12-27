@@ -1,4 +1,8 @@
 //! Video download using yt-dlp.
+//!
+//! This module provides functions to download videos and segments from YouTube
+//! and other platforms using yt-dlp. Includes IPv6 rotation support for
+//! avoiding rate limiting.
 
 use std::path::Path;
 use std::process::Stdio;
@@ -8,6 +12,7 @@ use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 use crate::error::{MediaError, MediaResult};
+use crate::ipv6_rotation::{get_random_ipv6_address, record_ipv6_failure, record_ipv6_success};
 
 /// Minimum video file size threshold (50MB) to consider download complete.
 const MIN_VIDEO_FILE_SIZE: u64 = 50 * 1024 * 1024;
@@ -22,26 +27,29 @@ const TEMP_COOKIES_PATH: &str = "/tmp/youtube-cookies.txt";
 static COOKIES_LOCK: OnceLock<Mutex<bool>> = OnceLock::new();
 
 /// Get path to a writable cookies file.
-/// 
+///
 /// Copies the source cookies file to a temp location if needed,
 /// since yt-dlp tries to save cookies back after use.
 pub async fn get_writable_cookies_path() -> Option<String> {
     let source_path = Path::new(SOURCE_COOKIES_PATH);
-    
+
     if !source_path.exists() {
         return None;
     }
-    
+
     let temp_path = Path::new(TEMP_COOKIES_PATH);
     let lock = COOKIES_LOCK.get_or_init(|| Mutex::new(false));
-    
+
     let mut copied = lock.lock().await;
-    
+
     // Copy if not yet copied or temp file doesn't exist
     if !*copied || !temp_path.exists() {
         match tokio::fs::copy(source_path, temp_path).await {
             Ok(_) => {
-                debug!("Copied cookies file to writable location: {}", TEMP_COOKIES_PATH);
+                debug!(
+                    "Copied cookies file to writable location: {}",
+                    TEMP_COOKIES_PATH
+                );
                 *copied = true;
             }
             Err(e) => {
@@ -50,11 +58,28 @@ pub async fn get_writable_cookies_path() -> Option<String> {
             }
         }
     }
-    
+
     Some(TEMP_COOKIES_PATH.to_string())
 }
 
 /// Download a video from URL using yt-dlp.
+///
+/// # Features
+///
+/// - IPv6 rotation to avoid rate limiting
+/// - Cookie-based authentication for YouTube
+/// - Automatic retry on transient failures
+/// - Sleep intervals to avoid detection
+///
+/// # Arguments
+///
+/// * `url` - Video URL (YouTube, Vimeo, etc.)
+/// * `output_path` - Path to save the downloaded video
+///
+/// # Returns
+///
+/// - `Ok(())` if download was successful
+/// - `Err(MediaError)` on failure
 pub async fn download_video(url: &str, output_path: impl AsRef<Path>) -> MediaResult<()> {
     let output_path = output_path.as_ref();
 
@@ -77,12 +102,16 @@ pub async fn download_video(url: &str, output_path: impl AsRef<Path>) -> MediaRe
     // Check yt-dlp exists
     which::which("yt-dlp").map_err(|_| MediaError::YtDlpNotFound)?;
 
-    info!("Downloading video from {} to {}", url, output_path.display());
+    info!(
+        "Downloading video from {} to {}",
+        url,
+        output_path.display()
+    );
 
     // Use cookies file if available for YouTube authentication (copy to writable location)
     let cookies_path = get_writable_cookies_path().await;
     let output_path_str = output_path.to_string_lossy();
-    
+
     let mut args = vec![
         "--remote-components", "ejs:github",
         "--sleep-subtitles", "5",
@@ -103,9 +132,19 @@ pub async fn download_video(url: &str, output_path: impl AsRef<Path>) -> MediaRe
         "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "-o",
     ];
-    
+
     args.push(&output_path_str);
-    
+
+    // IPv6 rotation: select random source address if available
+    // Uses cached address pool from ipv6_rotation module
+    let ipv6_source = get_random_ipv6_address();
+    let ipv6_ref = ipv6_source.as_deref();
+    if let Some(ip) = ipv6_ref {
+        args.push("--source-address");
+        args.push(ip);
+        info!(ipv6_address = %ip, "Using IPv6 source address for download");
+    }
+
     let cookies_ref = cookies_path.as_deref();
     if let Some(cp) = cookies_ref {
         args.push("--cookies");
@@ -121,25 +160,57 @@ pub async fn download_video(url: &str, output_path: impl AsRef<Path>) -> MediaRe
         .output()
         .await?;
 
+    let using_ipv6 = ipv6_source.is_some();
+
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         debug!("yt-dlp stderr: {}", stderr);
+
+        // Record failure for IPv6 metrics
+        if using_ipv6 {
+            record_ipv6_failure();
+        }
+
+        // Detect rate limiting for better error messages
+        let error_msg = stderr.lines().last().unwrap_or("Unknown error");
+        let is_rate_limited = stderr.contains("429")
+            || stderr.contains("Too Many Requests")
+            || stderr.contains("rate limit")
+            || stderr.contains("Sign in to confirm");
+
+        if is_rate_limited {
+            warn!(
+                url = %url,
+                using_ipv6 = using_ipv6,
+                "YouTube rate limit detected"
+            );
+        }
+
         return Err(MediaError::download_failed(format!(
             "yt-dlp failed: {}",
-            stderr.lines().last().unwrap_or("Unknown error")
+            error_msg
         )));
     }
 
     // Verify file was created
     if !output_path.exists() {
+        if using_ipv6 {
+            record_ipv6_failure();
+        }
         return Err(MediaError::download_failed("Output file not created"));
+    }
+
+    // Record success for IPv6 metrics
+    if using_ipv6 {
+        record_ipv6_success();
     }
 
     let file_size = output_path.metadata()?.len();
     info!(
-        "Downloaded video: {} ({:.1} MB)",
-        output_path.display(),
-        file_size as f64 / (1024.0 * 1024.0)
+        output = %output_path.display(),
+        size_mb = file_size as f64 / (1024.0 * 1024.0),
+        using_ipv6 = using_ipv6,
+        "Downloaded video successfully"
     );
 
     Ok(())
@@ -216,7 +287,7 @@ pub async fn download_segment(
     // Use cookies file if available for YouTube authentication (copy to writable location)
     let cookies_path = get_writable_cookies_path().await;
     let output_path_str = output_path.to_string_lossy();
-    
+
     let mut args = vec![
         "--remote-components".to_string(),
         "ejs:github".to_string(),
@@ -263,6 +334,16 @@ pub async fn download_segment(
         args.push("--force-keyframes-at-cuts".to_string());
     }
 
+    // IPv6 rotation: select random source address if available
+    // Uses cached address pool from ipv6_rotation module
+    let ipv6_source = get_random_ipv6_address();
+    let using_ipv6 = ipv6_source.is_some();
+    if let Some(ip) = &ipv6_source {
+        args.push("--source-address".to_string());
+        args.push(ip.clone());
+        info!(ipv6_address = %ip, "Using IPv6 source address for segment download");
+    }
+
     if let Some(cp) = &cookies_path {
         args.push("--cookies".to_string());
         args.push(cp.clone());
@@ -280,6 +361,11 @@ pub async fn download_segment(
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         debug!("yt-dlp segment download stderr: {}", stderr);
+
+        // Record failure for IPv6 metrics
+        if using_ipv6 {
+            record_ipv6_failure();
+        }
 
         // Check if failure is due to DASH-only or unsupported segment download
         if stderr.contains("--download-sections")
@@ -303,15 +389,24 @@ pub async fn download_segment(
 
     // Verify file was created
     if !output_path.exists() {
+        if using_ipv6 {
+            record_ipv6_failure();
+        }
         return Err(Box::new(MediaError::download_failed(
             "Segment output file not created",
         )));
+    }
+
+    // Record success for IPv6 metrics
+    if using_ipv6 {
+        record_ipv6_success();
     }
 
     let file_size = output_path.metadata()?.len();
     info!(
         output = %output_path.display(),
         size_mb = file_size as f64 / (1024.0 * 1024.0),
+        using_ipv6 = using_ipv6,
         "Downloaded video segment successfully"
     );
 
@@ -369,14 +464,29 @@ mod tests {
         );
 
         // Invalid formats
-        assert_eq!(extract_youtube_id("https://example.com"), Err(YoutubeIdError::InvalidYoutubeUrl));
-        assert_eq!(extract_youtube_id("https://youtube.com/watch"), Err(YoutubeIdError::VideoIdNotFound));
-        assert_eq!(extract_youtube_id("https://youtu.be/"), Err(YoutubeIdError::VideoIdNotFound));
+        assert_eq!(
+            extract_youtube_id("https://example.com"),
+            Err(YoutubeIdError::InvalidYoutubeUrl)
+        );
+        assert_eq!(
+            extract_youtube_id("https://youtube.com/watch"),
+            Err(YoutubeIdError::VideoIdNotFound)
+        );
+        assert_eq!(
+            extract_youtube_id("https://youtu.be/"),
+            Err(YoutubeIdError::VideoIdNotFound)
+        );
 
         // Invalid video ID format (wrong length)
-        assert_eq!(extract_youtube_id("https://youtube.com/watch?v=abc123"), Err(YoutubeIdError::InvalidVideoId));
+        assert_eq!(
+            extract_youtube_id("https://youtube.com/watch?v=abc123"),
+            Err(YoutubeIdError::InvalidVideoId)
+        );
 
         // Invalid video ID format (invalid characters)
-        assert_eq!(extract_youtube_id("https://youtube.com/watch?v=abc123def!!"), Err(YoutubeIdError::InvalidVideoId));
+        assert_eq!(
+            extract_youtube_id("https://youtube.com/watch?v=abc123def!!"),
+            Err(YoutubeIdError::InvalidVideoId)
+        );
     }
 }

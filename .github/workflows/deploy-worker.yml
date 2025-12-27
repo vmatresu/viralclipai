@@ -7,6 +7,7 @@ on:
     - 'backend/**'
     - 'Dockerfile'
     - 'deploy/docker-compose.worker.yml'
+    - 'deploy/scripts/**'
   workflow_dispatch:
 
 
@@ -56,7 +57,20 @@ jobs:
             docker rm -f vclip-worker 2>/dev/null || true
             docker compose --env-file .env -f deploy/docker-compose.worker.yml up -d --build --force-recreate 2>&1 | tee /tmp/worker-deploy.log
             docker image prune -f || true
+
+            # Wait for container to start before assigning IPv6 addresses
+            echo "Waiting 60s for container to stabilize..."
+            sleep 60
+
+            # Assign IPv6 addresses for IP rotation (if script exists and IPv6 is configured)
+            if [ -f /usr/local/bin/assign-ipv6.sh ] && [ -f /etc/viralclip/ipv6.conf ]; then
+              echo "Assigning IPv6 addresses..."
+              /usr/local/bin/assign-ipv6.sh 2>&1 | tee -a /tmp/worker-deploy.log || echo "⚠️ IPv6 assignment failed (non-critical)"
+            else
+              echo "ℹ️ IPv6 rotation not configured (assign-ipv6.sh or ipv6.conf missing)"
+            fi
           ' > /tmp/worker-deploy-wrapper.log 2>&1 &
           disown
 
           echo "✅ Build triggered in background. Monitor with: ssh ${{ vars.SSH_USER }}@${{ vars.WORKER_HOST }} 'tail -f /tmp/worker-deploy.log'"
+

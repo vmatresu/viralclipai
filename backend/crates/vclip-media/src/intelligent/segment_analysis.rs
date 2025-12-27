@@ -7,7 +7,10 @@ use super::models::CameraKeyframe;
 use super::smoothing_utils::median;
 
 /// Detect segment boundaries based on large camera moves.
-pub fn segment_boundaries(keyframes: &[CameraKeyframe], switch_threshold: f64) -> Vec<(usize, usize)> {
+pub fn segment_boundaries(
+    keyframes: &[CameraKeyframe],
+    switch_threshold: f64,
+) -> Vec<(usize, usize)> {
     let mut segments = Vec::new();
     let mut start = 0usize;
 
@@ -68,7 +71,9 @@ pub fn flatten_short_segments(
 
         for i in *start..*end {
             let src = keyframes[i];
-            output.push(CameraKeyframe::new(src.time, rep.cx, rep.cy, rep.width, rep.height));
+            output.push(CameraKeyframe::new(
+                src.time, rep.cx, rep.cy, rep.width, rep.height,
+            ));
         }
 
         last_rep = rep;
@@ -93,15 +98,15 @@ impl SegmentAnalysis {
     pub fn analyze(keyframes: &[CameraKeyframe], switch_threshold: f64) -> Self {
         let segments = segment_boundaries(keyframes, switch_threshold);
         let segment_count = segments.len();
-        
+
         let switch_indices: Vec<usize> = segments.iter().skip(1).map(|s| s.0).collect();
-        
+
         let total_duration = if keyframes.len() >= 2 {
             keyframes.last().unwrap().time - keyframes.first().unwrap().time
         } else {
             0.0
         };
-        
+
         let avg_segment_duration = if segment_count > 0 {
             total_duration / segment_count as f64
         } else {

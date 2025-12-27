@@ -8,7 +8,7 @@ pub enum TrajectoryMethod {
     /// L2 polynomial fitting - fast, good baseline.
     /// Produces paths with small, non-zero motion everywhere.
     L2Polynomial,
-    
+
     /// L1 optimal paths - better quality, promotes sparsity in derivatives.
     /// Produces cinematographic segments: static → pan → static.
     /// This is the default as it produces more professional results.
@@ -149,7 +149,7 @@ impl Default for CinematicConfig {
             panning_threshold: 0.15,
 
             // Trajectory optimization
-            trajectory_method: TrajectoryMethod::default(),  // L1Optimal
+            trajectory_method: TrajectoryMethod::default(), // L1Optimal
             polynomial_degree: 3,
             smoothness_weight: 0.3,
             output_sample_rate: 30.0,
@@ -157,10 +157,10 @@ impl Default for CinematicConfig {
             // Adaptive zoom - conservative values to avoid cutting faces
             // Reduced further from 1.8 max_zoom to prevent over-zoom
             min_zoom: 1.0,
-            max_zoom: 1.4,           // Reduced from 1.8 to prevent over-zoom
-            ideal_face_ratio: 0.12,  // Reduced from 0.18 - face ~12% of frame (wider framing)
+            max_zoom: 1.4,          // Reduced from 1.8 to prevent over-zoom
+            ideal_face_ratio: 0.12, // Reduced from 0.18 - face ~12% of frame (wider framing)
             multi_face_threshold: 0.3,
-            zoom_smoothing: 0.15,    // Smooth zoom transitions
+            zoom_smoothing: 0.15, // Smooth zoom transitions
 
             // Face margins - generous for better face containment
             vertical_margin: 0.20,   // Give more headroom

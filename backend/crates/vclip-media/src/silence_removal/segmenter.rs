@@ -74,7 +74,9 @@ impl SilenceRemover {
         Self {
             config,
             // Assume silence at start until proven otherwise to catch initial dead air
-            state: State::InSilence { silence_start_ms: 0 },
+            state: State::InSilence {
+                silence_start_ms: 0,
+            },
             segments: Vec::new(),
             current_segment_start: 0,
         }
@@ -300,8 +302,14 @@ mod tests {
         let segments = remover.finalize(3000);
 
         // Should have one Cut segment (silence > min_silence_ms)
-        let cut_segments: Vec<_> = segments.iter().filter(|s| s.label == SegmentLabel::Cut).collect();
-        assert!(!cut_segments.is_empty(), "Should have at least one cut segment");
+        let cut_segments: Vec<_> = segments
+            .iter()
+            .filter(|s| s.label == SegmentLabel::Cut)
+            .collect();
+        assert!(
+            !cut_segments.is_empty(),
+            "Should have at least one cut segment"
+        );
     }
 
     #[test]
@@ -357,16 +365,31 @@ mod tests {
         let segments = remover.finalize(1500);
 
         // Should be all Keep (short silence not cut)
-        let cut_count = segments.iter().filter(|s| s.label == SegmentLabel::Cut).count();
+        let cut_count = segments
+            .iter()
+            .filter(|s| s.label == SegmentLabel::Cut)
+            .count();
         assert_eq!(cut_count, 0, "Short silence should not be cut");
     }
 
     #[test]
     fn test_segment_stats() {
         let segments = vec![
-            Segment { start_ms: 0, end_ms: 1000, label: SegmentLabel::Keep },
-            Segment { start_ms: 1000, end_ms: 2000, label: SegmentLabel::Cut },
-            Segment { start_ms: 2000, end_ms: 3000, label: SegmentLabel::Keep },
+            Segment {
+                start_ms: 0,
+                end_ms: 1000,
+                label: SegmentLabel::Keep,
+            },
+            Segment {
+                start_ms: 1000,
+                end_ms: 2000,
+                label: SegmentLabel::Cut,
+            },
+            Segment {
+                start_ms: 2000,
+                end_ms: 3000,
+                label: SegmentLabel::Keep,
+            },
         ];
 
         let stats = compute_segment_stats(&segments);

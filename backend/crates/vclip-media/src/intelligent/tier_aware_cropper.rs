@@ -32,12 +32,12 @@ use super::detection_adapter::get_detections;
 use super::models::AspectRatio;
 use super::premium::{PremiumCameraPlanner, PremiumSpeakerConfig};
 use super::single_pass_renderer::SinglePassRenderer;
-use crate::watermark::WatermarkConfig;
 use super::tier_aware_smoother::TierAwareCameraSmoother;
 use crate::clip::extract_segment;
 use crate::error::MediaResult;
 use crate::probe::probe_video;
 use crate::thumbnail::generate_thumbnail;
+use crate::watermark::WatermarkConfig;
 
 /// Tier-aware intelligent cropper.
 ///
@@ -107,12 +107,15 @@ impl TierAwareIntelligentCropper {
         info!("[INTELLIGENT_FULL] ========================================");
         info!("[INTELLIGENT_FULL] START: {:?}", segment);
         info!("[INTELLIGENT_FULL] Tier: {:?}", self.tier);
-        info!("[INTELLIGENT_FULL] Cached analysis: {}", cached_analysis.is_some());
+        info!(
+            "[INTELLIGENT_FULL] Cached analysis: {}",
+            cached_analysis.is_some()
+        );
 
         // Step 1: Get video metadata
         let step_start = std::time::Instant::now();
         info!("[INTELLIGENT_FULL] Step 1/4: Probing video metadata...");
-        
+
         let video_info = probe_video(segment).await?;
         let width = video_info.width;
         let height = video_info.height;
@@ -122,7 +125,10 @@ impl TierAwareIntelligentCropper {
         info!(
             "[INTELLIGENT_FULL] Step 1/4 DONE in {:.2}s - {}x{} @ {:.2}fps, {:.2}s",
             step_start.elapsed().as_secs_f64(),
-            width, height, fps, duration
+            width,
+            height,
+            fps,
+            duration
         );
 
         let start_time = 0.0;
@@ -130,8 +136,11 @@ impl TierAwareIntelligentCropper {
 
         // Step 2: Face detection (or use cached) - uses centralized detection adapter
         let step_start = std::time::Instant::now();
-        info!("[INTELLIGENT_FULL] Step 2/4: Getting detections (cached: {})...", cached_analysis.is_some());
-        
+        info!(
+            "[INTELLIGENT_FULL] Step 2/4: Getting detections (cached: {})...",
+            cached_analysis.is_some()
+        );
+
         let detections = get_detections(
             cached_analysis,
             segment,
@@ -155,46 +164,36 @@ impl TierAwareIntelligentCropper {
         // Step 3: Camera path smoothing
         let step_start = std::time::Instant::now();
         info!("[INTELLIGENT_FULL] Step 3/4: Computing smooth camera path...");
-        
+
         let target_aspect = AspectRatio::new(9, 16);
-        
+
         // Use premium camera planner for SpeakerAware tier (intelligent_speaker)
         let (camera_keyframes, crop_windows) = if matches!(self.tier, DetectionTier::SpeakerAware) {
             info!("[INTELLIGENT_FULL]   Using Premium Camera Planner for intelligent_speaker");
             let premium_config = PremiumSpeakerConfig::default();
-            let mut premium_planner = PremiumCameraPlanner::new(
-                premium_config,
-                width,
-                height,
-                fps,
-            );
-            
+            let mut premium_planner = PremiumCameraPlanner::new(premium_config, width, height, fps);
+
             let keyframes = premium_planner.compute_camera_plan(&detections, start_time, end_time);
             let crops = premium_planner.compute_crop_windows(&keyframes, &target_aspect);
-            
+
             info!(
                 "[INTELLIGENT_FULL]   Primary subject: {:?}",
                 premium_planner.current_primary_subject()
             );
-            
+
             (keyframes, crops)
         } else {
             // Use standard tier-aware smoother for other tiers
             let mut smoother = TierAwareCameraSmoother::new(self.config.clone(), self.tier, fps);
-            let keyframes = smoother.compute_camera_plan(
-                &detections,
-                width,
-                height,
-                start_time,
-                end_time,
-            );
-            
+            let keyframes =
+                smoother.compute_camera_plan(&detections, width, height, start_time, end_time);
+
             let planner = CropPlanner::new(self.config.clone(), width, height);
             let crops = planner.compute_crop_windows(&keyframes, &target_aspect);
-            
+
             (keyframes, crops)
         };
-        
+
         info!(
             "[INTELLIGENT_FULL] Step 3/4 DONE in {:.2}s - {} keyframes",
             step_start.elapsed().as_secs_f64(),
@@ -204,7 +203,7 @@ impl TierAwareIntelligentCropper {
         // Step 4: Verify crop windows
         let step_start = std::time::Instant::now();
         info!("[INTELLIGENT_FULL] Step 4/4: Verifying crop windows...");
-        
+
         info!(
             "[INTELLIGENT_FULL] Step 4/4 DONE in {:.2}s - {} crop windows verified",
             step_start.elapsed().as_secs_f64(),
@@ -213,9 +212,11 @@ impl TierAwareIntelligentCropper {
 
         // Step 5: Single-pass render (THE ONLY ENCODE)
         info!("[INTELLIGENT_FULL] Step 5/5: Single-pass encoding...");
-        info!("[INTELLIGENT_FULL]   Encoding: {} preset={} crf={}", 
-            encoding.codec, encoding.preset, encoding.crf);
-        
+        info!(
+            "[INTELLIGENT_FULL]   Encoding: {} preset={} crf={}",
+            encoding.codec, encoding.preset, encoding.crf
+        );
+
         let mut renderer = SinglePassRenderer::new(self.config.clone());
         if let Some(config) = watermark {
             renderer = renderer.with_watermark(config.clone());
@@ -235,7 +236,10 @@ impl TierAwareIntelligentCropper {
             .map(|m| m.len())
             .unwrap_or(0);
 
-        info!("[INTELLIGENT_FULL:{:?}] ========================================", self.tier);
+        info!(
+            "[INTELLIGENT_FULL:{:?}] ========================================",
+            self.tier
+        );
         info!(
             "[INTELLIGENT_FULL:{:?}] COMPLETE in {:.2}s - {:.2} MB",
             self.tier,
@@ -245,7 +249,6 @@ impl TierAwareIntelligentCropper {
 
         Ok(())
     }
-
 }
 
 /// Create a tier-aware intelligent clip from a video file.
@@ -333,14 +336,20 @@ where
     info!("[PIPELINE] Output: {:?}", output);
     info!("[PIPELINE] Tier: {:?}", tier);
     info!("[PIPELINE] Cached analysis: {}", cached_analysis.is_some());
-    info!("[PIPELINE] Encoding: {} crf={}", encoding.codec, encoding.crf);
+    info!(
+        "[PIPELINE] Encoding: {} crf={}",
+        encoding.codec, encoding.crf
+    );
 
     // Parse timestamps and apply padding
     let start_secs = (super::parse_timestamp(&task.start)? - task.pad_before).max(0.0);
     let end_secs = super::parse_timestamp(&task.end)? + task.pad_after;
     let duration = end_secs - start_secs;
 
-    info!("[PIPELINE] Time: {:.2}s to {:.2}s ({:.2}s duration)", start_secs, end_secs, duration);
+    info!(
+        "[PIPELINE] Time: {:.2}s to {:.2}s ({:.2}s duration)",
+        start_secs, end_secs, duration
+    );
 
     // Step 1: Extract segment using STREAM COPY (no encode)
     let segment_path = output.with_extension("segment.mp4");
@@ -351,7 +360,7 @@ where
     // Step 2: Process with single-pass render (THE ONLY ENCODE)
     // Pass cached analysis to skip ML inference if available
     info!("[PIPELINE] Step 2/2: Process segment (SINGLE ENCODE)...");
-    
+
     let config = IntelligentCropConfig::for_tier(tier);
     let cropper = TierAwareIntelligentCropper::new(config, tier);
     let result = cropper
@@ -367,10 +376,7 @@ where
     // Step 3: Cleanup temporary segment file
     if segment_path.exists() {
         if let Err(e) = tokio::fs::remove_file(&segment_path).await {
-            tracing::warn!(
-                "[PIPELINE] Failed to delete temp segment: {}",
-                e
-            );
+            tracing::warn!("[PIPELINE] Failed to delete temp segment: {}", e);
         } else {
             info!("[PIPELINE] Cleaned up temp segment");
         }

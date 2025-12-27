@@ -1,4 +1,15 @@
 #!/usr/bin/env node
+/**
+ * YouTube Transcript Extractor using youtubei.js
+ * 
+ * Features:
+ * - Extracts transcripts with timestamps from YouTube videos
+ * - IPv6 rotation support to avoid rate limiting (when available)
+ * - Outputs JSON with transcript, segment count, and source
+ */
+
+import os from "node:os";
+import { Agent, fetch as undiciFetch } from "undici";
 import { Innertube } from "youtubei.js";
 
 const videoUrl = process.argv[2];
@@ -6,6 +17,84 @@ const videoUrl = process.argv[2];
 if (!videoUrl) {
   console.error("Missing video URL argument");
   process.exit(2);
+}
+
+/**
+ * Get a random global IPv6 address from available network interfaces.
+ * 
+ * Used for IP rotation to avoid YouTube rate limiting.
+ * Filters out:
+ * - IPv4 addresses
+ * - Link-local addresses (fe80::)
+ * - Loopback addresses (::1)
+ * - Internal/unique local addresses (fc00::/7, fd00::/8)
+ * 
+ * @returns {string|null} A random global IPv6 address or null if none available
+ */
+function getRandomIPv6Address() {
+  const interfaces = os.networkInterfaces();
+  const globalAddresses = [];
+
+  for (const [name, addrs] of Object.entries(interfaces)) {
+    if (!addrs) continue;
+
+    for (const addr of addrs) {
+      // Only consider IPv6
+      if (addr.family !== "IPv6") continue;
+
+      // Skip internal/loopback
+      if (addr.internal) continue;
+
+      // Skip link-local (fe80::/10)
+      if (addr.address.startsWith("fe80:")) continue;
+
+      // Skip loopback
+      if (addr.address === "::1") continue;
+
+      // Skip unique local (fc00::/7 and fd00::/8)
+      if (addr.address.startsWith("fc") || addr.address.startsWith("fd")) {
+        continue;
+      }
+
+      globalAddresses.push(addr.address);
+    }
+  }
+
+  if (globalAddresses.length === 0) {
+    return null;
+  }
+
+  // Select random address
+  const randomIndex = Math.floor(Math.random() * globalAddresses.length);
+  const selected = globalAddresses[randomIndex];
+
+  console.error(
+    `[IPv6] Selected ${selected} (from ${globalAddresses.length} available)`
+  );
+
+  return selected;
+}
+
+/**
+ * Create a custom fetch function that binds to a specific local address.
+ * Uses undici's Agent with localAddress option.
+ * 
+ * @param {string} localAddress - The local IP address to bind to
+ * @returns {Function} A fetch-compatible function
+ */
+function createBoundFetch(localAddress) {
+  const agent = new Agent({
+    connect: {
+      localAddress,
+    },
+  });
+
+  return (url, options = {}) => {
+    return undiciFetch(url, {
+      ...options,
+      dispatcher: agent,
+    });
+  };
 }
 
 function extractVideoId(url) {
@@ -86,7 +175,16 @@ async function main() {
     throw new Error("Could not extract video ID from URL");
   }
 
-  const youtube = await Innertube.create();
+  // Build Innertube options
+  const innertubeOptions = {};
+
+  // IPv6 rotation: bind to random global IPv6 address if available
+  const ipv6Address = getRandomIPv6Address();
+  if (ipv6Address) {
+    innertubeOptions.fetch = createBoundFetch(ipv6Address);
+  }
+
+  const youtube = await Innertube.create(innertubeOptions);
   const info = await youtube.getInfo(videoId);
   const transcriptData = await info.getTranscript();
 
@@ -108,6 +206,7 @@ async function main() {
       transcript: output.transcript,
       segment_count: output.segmentCount,
       source: "youtubei.js",
+      ipv6_address: ipv6Address || null,
     })
   );
 }
@@ -116,3 +215,4 @@ main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 });
+

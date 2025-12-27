@@ -325,11 +325,7 @@ pub fn get_resolved_model() -> Result<(ModelVariant, PathBuf), String> {
             let config = ModelConfig::from_env();
             match config.resolve() {
                 Ok((variant, path)) => {
-                    info!(
-                        "YuNet model resolved: {} at {}",
-                        variant,
-                        path.display()
-                    );
+                    info!("YuNet model resolved: {} at {}", variant, path.display());
                     Ok((variant, path))
                 }
                 Err(e) => {

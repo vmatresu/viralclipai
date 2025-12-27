@@ -139,7 +139,10 @@ impl StyleProcessor for StreamerSplitProcessor {
         Ok(result)
     }
 
-    fn estimate_complexity(&self, request: &ProcessingRequest) -> crate::core::ProcessingComplexity {
+    fn estimate_complexity(
+        &self,
+        request: &ProcessingRequest,
+    ) -> crate::core::ProcessingComplexity {
         let duration = crate::intelligent::parse_timestamp(&request.task.end).unwrap_or(30.0)
             - crate::intelligent::parse_timestamp(&request.task.start).unwrap_or(0.0);
 
@@ -200,7 +203,15 @@ async fn process_streamer_split(
     // Step 4: Render the streamer split
     info!("[STREAMER_SPLIT] Rendering split view...");
 
-    render_streamer_split(&segment_path, output, &crop_region, encoding, params, watermark).await?;
+    render_streamer_split(
+        &segment_path,
+        output,
+        &crop_region,
+        encoding,
+        params,
+        watermark,
+    )
+    .await?;
 
     // Cleanup segment
     if segment_path.exists() {
@@ -322,18 +333,18 @@ async fn render_streamer_split(
     // Calculate split dimensions
     // Default 50/50 split (0.5), range 0.1 to 0.9
     let ratio = params.split_ratio.unwrap_or(0.5).clamp(0.1, 0.9);
-    
+
     // Total height is 1920 (PORTRAIT_HEIGHT)
     // We must ensure heights are even for libx264
     let total_height = crate::intelligent::output_format::PORTRAIT_HEIGHT;
-    let top_height = crate::intelligent::output_format::make_even((total_height as f32 * ratio) as i32) as u32;
-
+    let top_height =
+        crate::intelligent::output_format::make_even((total_height as f32 * ratio) as i32) as u32;
 
     // Build filter complex:
     // - Top panel: webcam region scaled preserving aspect ratio (no stretching)
     // - Bottom panel: Center crop scaled to fill remaining space
     // - Use overlay so bottom panel covers any black bar from webcam padding
-    
+
     // Calculate actual webcam scaled height (preserving aspect ratio)
     // The webcam crop has aspect ratio crop.width / crop.height
     // When scaled to PANEL_WIDTH, the height will be:
@@ -342,15 +353,17 @@ async fn render_streamer_split(
     let scaled_webcam_height = (PANEL_WIDTH as f64 / webcam_aspect).round() as u32;
     // Clamp to top_height max (in case webcam is very wide)
     let actual_webcam_height = scaled_webcam_height.min(top_height);
-    
+
     // Bottom panel starts where webcam ends (no gap)
     // Bottom panel height = total - actual_webcam_height
     let actual_bottom_height = total_height - actual_webcam_height;
-    
+
     // Ensure even heights for libx264
-    let actual_webcam_height = crate::intelligent::output_format::make_even(actual_webcam_height as i32) as u32;
-    let actual_bottom_height = crate::intelligent::output_format::make_even(actual_bottom_height as i32) as u32;
-    
+    let actual_webcam_height =
+        crate::intelligent::output_format::make_even(actual_webcam_height as i32) as u32;
+    let actual_bottom_height =
+        crate::intelligent::output_format::make_even(actual_bottom_height as i32) as u32;
+
     let base_filter_complex = format!(
         "[0:v]crop={cw}:{ch}:{cx}:{cy},\
          scale={pw}:{wh}:flags=lanczos,\
@@ -368,7 +381,9 @@ async fn render_streamer_split(
         cy = crop.y,
     );
     let (filter_complex, map_label) = if let Some(config) = watermark {
-        if let Some(watermarked) = append_watermark_filter_complex(&base_filter_complex, "vout", config) {
+        if let Some(watermarked) =
+            append_watermark_filter_complex(&base_filter_complex, "vout", config)
+        {
             (watermarked.filter_complex, watermarked.output_label)
         } else {
             (base_filter_complex, "vout".to_string())
@@ -453,7 +468,7 @@ mod tests {
             split_ratio: None,
         };
         let crop = compute_crop_from_params(&params, 1920, 1080);
-        
+
         // With 2x zoom, crop should be half the frame width
         assert_eq!(crop.width, 960);
         // Crop should be at top-left
@@ -472,7 +487,7 @@ mod tests {
             split_ratio: None,
         };
         let crop = compute_crop_from_params(&params, 1920, 1080);
-        
+
         // With 1x zoom, crop should be full frame width
         assert_eq!(crop.width, 1920);
         // Crop should be at origin (full frame)
@@ -490,13 +505,13 @@ mod tests {
             split_ratio: None,
         };
         let crop = compute_crop_from_params(&params, 1920, 1080);
-        
+
         // With 2x zoom, crop should be half the frame width
         assert_eq!(crop.width, 960);
         // Crop should be at bottom-right
         assert_eq!(crop.x, 960); // 1920 - 960
     }
-        #[test]
+    #[test]
     fn test_manual_crop_priority() {
         let params = StreamerSplitParams {
             position_x: HorizontalPosition::Center,
@@ -512,7 +527,7 @@ mod tests {
             split_ratio: None,
         };
         let crop = compute_crop_from_params(&params, 1000, 1000);
-        
+
         // Should use manual crop (0.1 start, 0.5 width = 100px x, 500px w)
         assert_eq!(crop.x, 100);
         assert_eq!(crop.y, 100);

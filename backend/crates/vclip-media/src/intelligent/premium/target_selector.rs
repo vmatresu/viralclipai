@@ -44,7 +44,6 @@ pub struct VisualScores {
     pub total: f64,
 }
 
-
 /// Subject state for tracking across frames.
 #[derive(Debug, Clone)]
 struct SubjectState {
@@ -87,20 +86,33 @@ impl SubjectState {
         if self.position_history.len() < 2 {
             return 0.0;
         }
-        
+
         // Compute variance of positions
         let n = self.position_history.len() as f64;
-        let mean_cx: f64 = self.position_history.iter().map(|(_, cx, _)| cx).sum::<f64>() / n;
-        let mean_cy: f64 = self.position_history.iter().map(|(_, _, cy)| cy).sum::<f64>() / n;
-        
-        let variance: f64 = self.position_history.iter()
+        let mean_cx: f64 = self
+            .position_history
+            .iter()
+            .map(|(_, cx, _)| cx)
+            .sum::<f64>()
+            / n;
+        let mean_cy: f64 = self
+            .position_history
+            .iter()
+            .map(|(_, _, cy)| cy)
+            .sum::<f64>()
+            / n;
+
+        let variance: f64 = self
+            .position_history
+            .iter()
             .map(|(_, cx, cy)| {
                 let dx = cx - mean_cx;
                 let dy = cy - mean_cy;
                 dx * dx + dy * dy
             })
-            .sum::<f64>() / n;
-        
+            .sum::<f64>()
+            / n;
+
         variance.sqrt()
     }
 }
@@ -133,7 +145,6 @@ pub struct CameraTargetSelector {
     last_detection_time: Option<f64>,
 }
 
-
 impl CameraTargetSelector {
     /// Create a new camera target selector.
     pub fn new(config: PremiumSpeakerConfig, frame_width: u32, frame_height: u32) -> Self {
@@ -156,11 +167,7 @@ impl CameraTargetSelector {
     ///
     /// Returns a focus point with vertical bias applied, suitable for
     /// camera planning.
-    pub fn select_focus(
-        &mut self,
-        detections: &FrameDetections,
-        current_time: f64,
-    ) -> FocusPoint {
+    pub fn select_focus(&mut self, detections: &FrameDetections, current_time: f64) -> FocusPoint {
         // Handle empty detections with dropout tolerance
         if detections.is_empty() {
             return self.handle_dropout(current_time);
@@ -170,7 +177,10 @@ impl CameraTargetSelector {
         let scene_changed = self.detect_scene_change(detections);
         if scene_changed {
             if self.config.enable_debug_logging {
-                debug!("Scene change detected at t={:.2}s, resetting primary subject", current_time);
+                debug!(
+                    "Scene change detected at t={:.2}s, resetting primary subject",
+                    current_time
+                );
             }
             self.reset_primary_subject();
             self.last_scene_change_time = Some(current_time);
@@ -203,12 +213,14 @@ impl CameraTargetSelector {
     fn handle_dropout(&mut self, current_time: f64) -> FocusPoint {
         if let (Some(last_focus), Some(last_time)) = (self.last_focus, self.last_detection_time) {
             let dropout_duration = current_time - last_time;
-            
+
             if dropout_duration <= self.config.max_dropout_hold_sec {
                 // Hold last known position
                 if self.config.enable_debug_logging {
-                    debug!("Detection dropout at t={:.2}s, holding position ({}s)", 
-                           current_time, dropout_duration);
+                    debug!(
+                        "Detection dropout at t={:.2}s, holding position ({}s)",
+                        current_time, dropout_duration
+                    );
                 }
                 return FocusPoint {
                     cx: last_focus.cx,
@@ -221,7 +233,7 @@ impl CameraTargetSelector {
                 };
             }
         }
-        
+
         // Fallback after extended dropout
         self.fallback_focus(current_time)
     }
@@ -234,29 +246,40 @@ impl CameraTargetSelector {
         let frame_h = self.frame_height as f64;
 
         for det in detections {
-            let state = self.subjects.entry(det.track_id).or_insert_with(|| {
-                SubjectState::new(det.bbox, current_time)
-            });
+            let state = self
+                .subjects
+                .entry(det.track_id)
+                .or_insert_with(|| SubjectState::new(det.bbox, current_time));
 
             // Update bbox
             state.bbox = det.bbox;
 
             // Update position history for jitter calculation
-            state.position_history.push((current_time, det.bbox.cx(), det.bbox.cy()));
-            state.position_history.retain(|(t, _, _)| current_time - t <= stability_window);
+            state
+                .position_history
+                .push((current_time, det.bbox.cx(), det.bbox.cy()));
+            state
+                .position_history
+                .retain(|(t, _, _)| current_time - t <= stability_window);
 
             // Update mouth activity history
             let mouth_val = det.mouth_openness.unwrap_or(0.0);
             state.mouth_history.push((current_time, mouth_val));
-            state.mouth_history.retain(|(t, _)| current_time - t <= stability_window);
+            state
+                .mouth_history
+                .retain(|(t, _)| current_time - t <= stability_window);
 
             // Compute smoothed mouth activity
             state.smoothed_mouth = Self::smooth_mouth_activity(&state.mouth_history);
 
             // Compute full visual activity score inline to avoid borrow issues
             let scores = Self::compute_visual_scores_static(
-                det, state, current_time,
-                frame_area, frame_w, frame_h,
+                det,
+                state,
+                current_time,
+                frame_area,
+                frame_w,
+                frame_h,
                 &self.config,
             );
             state.activity_score = scores.total;
@@ -278,7 +301,6 @@ impl CameraTargetSelector {
         self.prev_detection_count = detections.len();
         self.prev_track_ids = current_ids;
     }
-
 
     /// Compute visual-only activity scores for a detection (static version).
     /// NO AUDIO INFORMATION IS USED.
@@ -304,23 +326,25 @@ impl CameraTargetSelector {
         // 4. Track stability score (age + low jitter)
         let age = state.age(current_time);
         let age_factor = (age / config.min_stable_age_sec).min(1.0);
-        
+
         let jitter = state.compute_jitter();
-        let jitter_factor = (1.0 - jitter / config.max_stable_jitter_px).max(0.0).min(1.0);
-        
+        let jitter_factor = (1.0 - jitter / config.max_stable_jitter_px)
+            .max(0.0)
+            .min(1.0);
+
         let stability_score = age_factor * 0.5 + jitter_factor * 0.5;
 
         // 5. Geometric centering score
         let cx = det.bbox.cx();
         let cy = det.bbox.cy();
-        
+
         let h_dist = (cx - frame_w / 2.0).abs() / (frame_w / 2.0);
         let h_center = 1.0 - h_dist;
-        
+
         let ideal_y = frame_h * 0.35;
         let v_dist = (cy - ideal_y).abs() / frame_h;
         let v_center = (1.0 - v_dist * 1.5).max(0.0);
-        
+
         let center_score = h_center * 0.6 + v_center * 0.4;
 
         // Weighted combination (ALL VISUAL)
@@ -349,7 +373,9 @@ impl CameraTargetSelector {
         current_time: f64,
     ) -> VisualScores {
         Self::compute_visual_scores_static(
-            det, state, current_time,
+            det,
+            state,
+            current_time,
             (self.frame_width * self.frame_height) as f64,
             self.frame_width as f64,
             self.frame_height as f64,
@@ -378,7 +404,8 @@ impl CameraTargetSelector {
     /// Select the primary subject to follow.
     fn select_primary_subject(&mut self, detections: &FrameDetections, current_time: f64) -> u32 {
         // Check if we're in reacquisition window (after scene change)
-        let in_reacquisition = self.last_scene_change_time
+        let in_reacquisition = self
+            .last_scene_change_time
             .map(|t| self.config.is_in_reacquisition(current_time - t))
             .unwrap_or(false);
 
@@ -413,12 +440,16 @@ impl CameraTargetSelector {
         }
 
         // Check if another subject is significantly more active
-        let current_activity = self.subjects.get(&current_primary)
+        let current_activity = self
+            .subjects
+            .get(&current_primary)
             .map(|s| s.activity_score)
             .unwrap_or(0.0);
 
         let best_candidate = self.find_most_active_subject(detections);
-        let best_activity = self.subjects.get(&best_candidate)
+        let best_activity = self
+            .subjects
+            .get(&best_candidate)
             .map(|s| s.activity_score)
             .unwrap_or(0.0);
 
@@ -442,13 +473,19 @@ impl CameraTargetSelector {
         detections
             .iter()
             .max_by(|a, b| {
-                let score_a = self.subjects.get(&a.track_id)
+                let score_a = self
+                    .subjects
+                    .get(&a.track_id)
                     .map(|s| s.activity_score)
                     .unwrap_or(0.0);
-                let score_b = self.subjects.get(&b.track_id)
+                let score_b = self
+                    .subjects
+                    .get(&b.track_id)
                     .map(|s| s.activity_score)
                     .unwrap_or(0.0);
-                score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
+                score_a
+                    .partial_cmp(&score_b)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             })
             .map(|d| d.track_id)
             .unwrap_or(0)
@@ -470,7 +507,6 @@ impl CameraTargetSelector {
         self.primary_selected_at = None;
     }
 
-
     /// Detect scene change based on detection layout changes.
     pub fn detect_scene_change(&self, detections: &FrameDetections) -> bool {
         if !self.config.enable_scene_detection {
@@ -485,7 +521,8 @@ impl CameraTargetSelector {
 
         // Check for significant change in track IDs
         let current_ids: Vec<u32> = detections.iter().map(|d| d.track_id).collect();
-        let common_count = current_ids.iter()
+        let common_count = current_ids
+            .iter()
             .filter(|id| self.prev_track_ids.contains(id))
             .count();
 
@@ -519,7 +556,9 @@ impl CameraTargetSelector {
         let focus_height = bbox.height * (1.0 + self.config.headroom_ratio);
 
         // Get activity score
-        let score = self.subjects.get(&det.track_id)
+        let score = self
+            .subjects
+            .get(&det.track_id)
             .map(|s| s.activity_score)
             .unwrap_or(det.score);
 
@@ -563,7 +602,8 @@ impl CameraTargetSelector {
 
     /// Get activity score for a track.
     pub fn get_activity(&self, track_id: u32) -> f64 {
-        self.subjects.get(&track_id)
+        self.subjects
+            .get(&track_id)
             .map(|s| s.activity_score)
             .unwrap_or(0.0)
     }
@@ -590,16 +630,16 @@ mod tests {
     use super::*;
 
     fn make_detection(time: f64, x: f64, y: f64, size: f64, track_id: u32) -> Detection {
-        Detection::new(
-            time,
-            BoundingBox::new(x, y, size, size),
-            0.9,
-            track_id,
-        )
+        Detection::new(time, BoundingBox::new(x, y, size, size), 0.9, track_id)
     }
 
     fn make_detection_with_mouth(
-        time: f64, x: f64, y: f64, size: f64, track_id: u32, mouth: f64
+        time: f64,
+        x: f64,
+        y: f64,
+        size: f64,
+        track_id: u32,
+        mouth: f64,
     ) -> Detection {
         Detection::with_mouth(
             time,
@@ -615,9 +655,7 @@ mod tests {
         let config = PremiumSpeakerConfig::default();
         let mut selector = CameraTargetSelector::new(config, 1920, 1080);
 
-        let detections = vec![
-            make_detection(0.0, 800.0, 400.0, 200.0, 1),
-        ];
+        let detections = vec![make_detection(0.0, 800.0, 400.0, 200.0, 1)];
 
         let focus = selector.select_focus(&detections, 0.0);
         assert_eq!(focus.track_id, 1);
@@ -653,9 +691,7 @@ mod tests {
         let config = PremiumSpeakerConfig::default();
         let mut selector = CameraTargetSelector::new(config, 1920, 1080);
 
-        let detections = vec![
-            make_detection(0.0, 800.0, 400.0, 200.0, 1),
-        ];
+        let detections = vec![make_detection(0.0, 800.0, 400.0, 200.0, 1)];
 
         let focus = selector.select_focus(&detections, 0.0);
 
@@ -712,7 +748,10 @@ mod tests {
 
         // Short dropout - should hold position
         let focus2 = selector.select_focus(&vec![], 0.5);
-        assert!((focus2.cx - focus1.cx).abs() < 1.0, "Should hold position during short dropout");
+        assert!(
+            (focus2.cx - focus1.cx).abs() < 1.0,
+            "Should hold position during short dropout"
+        );
         assert_eq!(focus2.track_id, 1);
 
         // Long dropout - should fallback
@@ -728,11 +767,11 @@ mod tests {
         // Detection with mouth activity (visual signal from face mesh)
         let det = make_detection_with_mouth(0.0, 500.0, 400.0, 200.0, 1, 0.8);
         let detections = vec![det.clone()];
-        
+
         selector.select_focus(&detections, 0.0);
-        
+
         let scores = selector.get_visual_scores(&det, 0.0);
-        
+
         // All scores should be computed from visual signals only
         assert!(scores.size_score >= 0.0 && scores.size_score <= 1.0);
         assert!(scores.conf_score >= 0.0 && scores.conf_score <= 1.0);
@@ -755,7 +794,7 @@ mod tests {
 
         let det2 = vec![make_detection(0.1, 500.0, 400.0, 200.0, 10)]; // New track
         let focus = selector.select_focus(&det2, 0.1);
-        
+
         assert!(focus.is_scene_change || selector.is_in_reacquisition(0.1));
     }
 }

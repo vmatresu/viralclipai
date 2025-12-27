@@ -80,9 +80,7 @@ impl StyleProcessor for IntelligentProcessor {
     fn can_handle(&self, style: Style) -> bool {
         matches!(
             style,
-            Style::Intelligent
-                | Style::IntelligentSpeaker
-                | Style::IntelligentMotion
+            Style::Intelligent | Style::IntelligentSpeaker | Style::IntelligentMotion
         )
     }
 
@@ -172,7 +170,10 @@ impl StyleProcessor for IntelligentProcessor {
         Ok(result)
     }
 
-    fn estimate_complexity(&self, request: &ProcessingRequest) -> crate::core::ProcessingComplexity {
+    fn estimate_complexity(
+        &self,
+        request: &ProcessingRequest,
+    ) -> crate::core::ProcessingComplexity {
         let duration = super::super::intelligent::parse_timestamp(&request.task.end)
             .unwrap_or(30.0)
             - super::super::intelligent::parse_timestamp(&request.task.start).unwrap_or(0.0);

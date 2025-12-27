@@ -136,7 +136,10 @@ impl Letterboxer {
         debug!(
             raw = format!("{}x{}", raw_width, raw_height),
             scaled = format!("{}x{}", meta.scaled_width, meta.scaled_height),
-            padding = format!("l={} t={} r={} b={}", pad_left, pad_top, pad_right, pad_bottom),
+            padding = format!(
+                "l={} t={} r={} b={}",
+                pad_left, pad_top, pad_right, pad_bottom
+            ),
             "Letterbox complete"
         );
 
@@ -151,16 +154,21 @@ impl Letterboxer {
         meta: &MappingMeta,
     ) -> MediaResult<()> {
         // Pre-allocate resize buffer
-        self.resize_buffer = Mat::zeros(meta.scaled_height, meta.scaled_width, opencv::core::CV_8UC3)
-            .map_err(|e| MediaError::detection_failed(format!("Buffer alloc failed: {}", e)))?
-            .to_mat()
-            .map_err(|e| MediaError::detection_failed(format!("Buffer conversion failed: {}", e)))?;
+        self.resize_buffer =
+            Mat::zeros(meta.scaled_height, meta.scaled_width, opencv::core::CV_8UC3)
+                .map_err(|e| MediaError::detection_failed(format!("Buffer alloc failed: {}", e)))?
+                .to_mat()
+                .map_err(|e| {
+                    MediaError::detection_failed(format!("Buffer conversion failed: {}", e))
+                })?;
 
         // Pre-allocate output buffer
         self.output_buffer = Mat::zeros(self.inf_height, self.inf_width, opencv::core::CV_8UC3)
             .map_err(|e| MediaError::detection_failed(format!("Buffer alloc failed: {}", e)))?
             .to_mat()
-            .map_err(|e| MediaError::detection_failed(format!("Buffer conversion failed: {}", e)))?;
+            .map_err(|e| {
+                MediaError::detection_failed(format!("Buffer conversion failed: {}", e))
+            })?;
 
         debug!(
             raw = format!("{}x{}", raw_width, raw_height),

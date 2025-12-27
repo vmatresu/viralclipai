@@ -136,7 +136,9 @@ where
     let config = IntelligentCropConfig::default();
     let processor = VisualActivitySplitProcessor::new(config, tier);
     let output_buf = output.to_path_buf();
-    let result = processor.process(&segment_path, &output_buf, encoding).await;
+    let result = processor
+        .process(&segment_path, &output_buf, encoding)
+        .await;
 
     // Step 3: Cleanup temporary segment file
     if segment_path.exists() {

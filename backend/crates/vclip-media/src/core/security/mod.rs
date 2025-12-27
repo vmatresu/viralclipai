@@ -16,8 +16,8 @@
 //! 2. Filter strings are constructed programmatically, not from user input
 //! 3. The validation distinguishes between filter arguments and other arguments
 
-use std::path::{Path, PathBuf};
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 use crate::error::{MediaError, MediaResult};
 
@@ -59,14 +59,16 @@ impl SecurityContext {
         }
 
         let mut blocked_commands = HashSet::new();
-        for cmd in ["rm", "rmdir", "del", "delete", "format", "fdisk", "mkfs", "dd", "wget", "curl"] {
+        for cmd in [
+            "rm", "rmdir", "del", "delete", "format", "fdisk", "mkfs", "dd", "wget", "curl",
+        ] {
             blocked_commands.insert(cmd.to_string());
         }
 
         Self {
             allowed_input_extensions,
             allowed_output_extensions,
-            max_file_size_mb: 2048, // 2GB limit
+            max_file_size_mb: 2048,            // 2GB limit
             max_processing_time_seconds: 1800, // 30 minutes
             allowed_base_dirs: Vec::new(),
             blocked_commands,
@@ -103,7 +105,7 @@ impl SecurityContext {
         // Check for null bytes (common injection attack)
         if path.to_string_lossy().contains('\0') {
             return Err(MediaError::SecurityViolation(
-                "Path contains null bytes".to_string()
+                "Path contains null bytes".to_string(),
             ));
         }
 
@@ -111,9 +113,10 @@ impl SecurityContext {
         let path_str = path.to_string_lossy();
         for pattern in &self.path_traversal_patterns {
             if path_str.contains(pattern) {
-                return Err(MediaError::SecurityViolation(
-                    format!("Path traversal attempt detected: {}", pattern)
-                ));
+                return Err(MediaError::SecurityViolation(format!(
+                    "Path traversal attempt detected: {}",
+                    pattern
+                )));
             }
         }
 
@@ -122,13 +125,14 @@ impl SecurityContext {
             let ext_str = extension.to_string_lossy().to_lowercase();
 
             // Check if it's an allowed input or output extension
-            let is_allowed = self.allowed_input_extensions.contains(&ext_str) ||
-                           self.allowed_output_extensions.contains(&ext_str);
+            let is_allowed = self.allowed_input_extensions.contains(&ext_str)
+                || self.allowed_output_extensions.contains(&ext_str);
 
             if !is_allowed {
-                return Err(MediaError::SecurityViolation(
-                    format!("File extension not allowed: {}", ext_str)
-                ));
+                return Err(MediaError::SecurityViolation(format!(
+                    "File extension not allowed: {}",
+                    ext_str
+                )));
             }
         }
 
@@ -147,9 +151,10 @@ impl SecurityContext {
             }
 
             if !is_allowed {
-                return Err(MediaError::SecurityViolation(
-                    format!("Path not within allowed directories: {}", path_abs.display())
-                ));
+                return Err(MediaError::SecurityViolation(format!(
+                    "Path not within allowed directories: {}",
+                    path_abs.display()
+                )));
             }
         }
 
@@ -160,9 +165,10 @@ impl SecurityContext {
     pub fn validate_file_size(&self, size_bytes: u64) -> MediaResult<()> {
         let size_mb = size_bytes / (1024 * 1024);
         if size_mb > self.max_file_size_mb {
-            return Err(MediaError::SecurityViolation(
-                format!("File size {}MB exceeds maximum {}MB", size_mb, self.max_file_size_mb)
-            ));
+            return Err(MediaError::SecurityViolation(format!(
+                "File size {}MB exceeds maximum {}MB",
+                size_mb, self.max_file_size_mb
+            )));
         }
         Ok(())
     }
@@ -194,9 +200,10 @@ impl SecurityContext {
         for arg in args {
             // Check for blocked commands
             if self.blocked_commands.contains(arg) {
-                return Err(MediaError::SecurityViolation(
-                    format!("Blocked command in arguments: {}", arg)
-                ));
+                return Err(MediaError::SecurityViolation(format!(
+                    "Blocked command in arguments: {}",
+                    arg
+                )));
             }
 
             // Check if this is a filter argument flag
@@ -218,9 +225,10 @@ impl SecurityContext {
             // Note: `:` is allowed as it's common in timestamps and codec options
             let dangerous_chars = [';', '&', '|', '`', '$', '<', '>', '\n', '\r'];
             if arg.chars().any(|c| dangerous_chars.contains(&c)) {
-                return Err(MediaError::SecurityViolation(
-                    format!("Dangerous character in argument: {}", arg)
-                ));
+                return Err(MediaError::SecurityViolation(format!(
+                    "Dangerous character in argument: {}",
+                    arg
+                )));
             }
 
             // Validate paths in arguments (skip flags)
@@ -251,16 +259,17 @@ impl SecurityContext {
         // Check for null bytes (always dangerous)
         if filter.contains('\0') {
             return Err(MediaError::SecurityViolation(
-                "Filter contains null bytes".to_string()
+                "Filter contains null bytes".to_string(),
             ));
         }
 
         // These characters could indicate shell injection attempts even in filter context
         let dangerous_chars = ['&', '|', '`', '$', '<', '>', '\n', '\r'];
         if filter.chars().any(|c| dangerous_chars.contains(&c)) {
-            return Err(MediaError::SecurityViolation(
-                format!("Dangerous character in filter: {}", filter)
-            ));
+            return Err(MediaError::SecurityViolation(format!(
+                "Dangerous character in filter: {}",
+                filter
+            )));
         }
 
         // Validate that the filter only contains expected FFmpeg filter syntax
@@ -294,9 +303,10 @@ impl SecurityContext {
                 ;
 
             if !is_valid {
-                return Err(MediaError::SecurityViolation(
-                    format!("Invalid character '{}' in filter", c)
-                ));
+                return Err(MediaError::SecurityViolation(format!(
+                    "Invalid character '{}' in filter",
+                    c
+                )));
             }
         }
 
@@ -316,17 +326,17 @@ impl SecurityContext {
                 // Could check GPU memory, CPU limits
                 Ok(())
             }
-            _ => Ok(())
+            _ => Ok(()),
         }
     }
 
     /// Validate processing time estimate is within limits.
     pub fn validate_processing_time(&self, estimated_seconds: u64) -> MediaResult<()> {
         if estimated_seconds > self.max_processing_time_seconds {
-            return Err(MediaError::SecurityViolation(
-                format!("Estimated processing time {}s exceeds maximum {}s",
-                       estimated_seconds, self.max_processing_time_seconds)
-            ));
+            return Err(MediaError::SecurityViolation(format!(
+                "Estimated processing time {}s exceeds maximum {}s",
+                estimated_seconds, self.max_processing_time_seconds
+            )));
         }
         Ok(())
     }
@@ -352,7 +362,7 @@ pub mod validation {
     pub fn validate_processing_request(
         input_path: &Path,
         output_path: &Path,
-        security: &SecurityContext
+        security: &SecurityContext,
     ) -> MediaResult<()> {
         // Validate input path
         security.validate_path(input_path)?;
@@ -362,10 +372,9 @@ pub mod validation {
 
         // Check file size if input exists
         if input_path.exists() {
-            let metadata = input_path.metadata()
-                .map_err(|e| MediaError::InvalidVideo(
-                    format!("Cannot read input file metadata: {}", e)
-                ))?;
+            let metadata = input_path.metadata().map_err(|e| {
+                MediaError::InvalidVideo(format!("Cannot read input file metadata: {}", e))
+            })?;
             security.validate_file_size(metadata.len())?;
         }
 
@@ -400,16 +409,18 @@ pub mod validation {
             ];
             for pattern in &patterns {
                 if filter.contains(pattern) {
-                    return Err(MediaError::SecurityViolation(
-                        format!("Dangerous filter operation: {}", dangerous)
-                    ));
+                    return Err(MediaError::SecurityViolation(format!(
+                        "Dangerous filter operation: {}",
+                        dangerous
+                    )));
                 }
             }
             // Also check if filter ends with the dangerous name
             if filter.ends_with(dangerous) {
-                return Err(MediaError::SecurityViolation(
-                    format!("Dangerous filter operation: {}", dangerous)
-                ));
+                return Err(MediaError::SecurityViolation(format!(
+                    "Dangerous filter operation: {}",
+                    dangerous
+                )));
             }
         }
 
@@ -454,7 +465,11 @@ mod tests {
         ];
 
         let result = ctx.sanitize_command(&args);
-        assert!(result.is_ok(), "Filter should be allowed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Filter should be allowed: {:?}",
+            result.err()
+        );
 
         let sanitized = result.unwrap();
         assert_eq!(sanitized.len(), args.len());
@@ -478,7 +493,11 @@ mod tests {
         ];
 
         let result = ctx.sanitize_command(&args);
-        assert!(result.is_ok(), "filter_complex should be allowed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "filter_complex should be allowed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -493,7 +512,10 @@ mod tests {
 
         let result = ctx.sanitize_command(&args);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Dangerous character"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Dangerous character"));
     }
 
     #[test]
@@ -501,14 +523,14 @@ mod tests {
         let ctx = SecurityContext::new();
 
         // Shell injection attempt in filter (backticks)
-        let args = vec![
-            "-vf".to_string(),
-            "scale=`rm -rf /`:1080".to_string(),
-        ];
+        let args = vec!["-vf".to_string(), "scale=`rm -rf /`:1080".to_string()];
 
         let result = ctx.sanitize_command(&args);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Dangerous character"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Dangerous character"));
     }
 
     #[test]
@@ -540,7 +562,12 @@ mod tests {
 
         for filter in valid_filters {
             let result = validation::validate_ffmpeg_filter(filter, &ctx);
-            assert!(result.is_ok(), "Filter '{}' should be valid: {:?}", filter, result.err());
+            assert!(
+                result.is_ok(),
+                "Filter '{}' should be valid: {:?}",
+                filter,
+                result.err()
+            );
             assert_eq!(result.unwrap(), filter, "Filter should be unchanged");
         }
     }
@@ -568,10 +595,21 @@ mod tests {
         // All these characters should be allowed in filters
         let valid_chars = "abcABC123;[]():=,/-_.'\"+#@%^!?\\";
         let result = ctx.validate_ffmpeg_filter_arg(valid_chars);
-        assert!(result.is_ok(), "Valid chars should pass: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Valid chars should pass: {:?}",
+            result.err()
+        );
 
         // These should be blocked
-        let invalid_cases = ["test&cmd", "test|cmd", "test`cmd", "test$var", "test<file", "test>file"];
+        let invalid_cases = [
+            "test&cmd",
+            "test|cmd",
+            "test`cmd",
+            "test$var",
+            "test<file",
+            "test>file",
+        ];
         for case in invalid_cases {
             let result = ctx.validate_ffmpeg_filter_arg(case);
             assert!(result.is_err(), "Invalid case '{}' should be blocked", case);
@@ -593,6 +631,10 @@ mod tests {
         ];
 
         let result = ctx.sanitize_command(&args);
-        assert!(result.is_ok(), "Colons should be allowed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Colons should be allowed: {:?}",
+            result.err()
+        );
     }
 }

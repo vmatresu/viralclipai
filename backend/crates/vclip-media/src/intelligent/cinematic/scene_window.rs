@@ -136,7 +136,7 @@ impl SceneWindowAnalyzer {
     pub fn add_frame(&mut self, detections: &[Detection], time: f64) -> WindowAnalysis {
         // Compute focus point for this frame
         let focus = self.compute_frame_focus(detections, time);
-        
+
         // Add to buffer, maintaining window size
         self.buffer.push_back(focus);
         while self.buffer.len() > self.window_size {
@@ -165,7 +165,7 @@ impl SceneWindowAnalyzer {
         start_time: f64,
     ) -> Vec<WindowAnalysis> {
         self.reset();
-        
+
         detections
             .iter()
             .enumerate()
@@ -248,10 +248,8 @@ impl SceneWindowAnalyzer {
         }
 
         // Collect values from frames with detections
-        let valid_frames: Vec<&FrameFocus> = self.buffer
-            .iter()
-            .filter(|f| f.has_detections)
-            .collect();
+        let valid_frames: Vec<&FrameFocus> =
+            self.buffer.iter().filter(|f| f.has_detections).collect();
 
         let valid_count = valid_frames.len();
 
@@ -307,7 +305,8 @@ impl SceneWindowAnalyzer {
         // Classification
         if position_std < self.stationary_threshold && size_std < self.stationary_threshold {
             CameraMode::Stationary
-        } else if position_std > self.panning_threshold || size_std > self.panning_threshold * 0.67 {
+        } else if position_std > self.panning_threshold || size_std > self.panning_threshold * 0.67
+        {
             CameraMode::Tracking
         } else {
             CameraMode::Panning
@@ -350,19 +349,14 @@ mod tests {
     use crate::intelligent::models::BoundingBox;
 
     fn make_detection(x: f64, y: f64, size: f64, track_id: u32) -> Detection {
-        Detection::new(
-            0.0,
-            BoundingBox::new(x, y, size, size),
-            0.9,
-            track_id,
-        )
+        Detection::new(0.0, BoundingBox::new(x, y, size, size), 0.9, track_id)
     }
 
     #[test]
     fn test_empty_window() {
         let mut analyzer = SceneWindowAnalyzer::with_defaults(5, 1920, 1080);
         let analysis = analyzer.add_frame(&[], 0.0);
-        
+
         assert_eq!(analysis.valid_frames, 0);
         assert_eq!(analysis.camera_mode, CameraMode::Stationary);
     }
@@ -372,7 +366,7 @@ mod tests {
         let mut analyzer = SceneWindowAnalyzer::with_defaults(5, 1920, 1080);
         let det = make_detection(500.0, 300.0, 100.0, 1);
         let analysis = analyzer.add_frame(&[det], 0.0);
-        
+
         assert_eq!(analysis.valid_frames, 1);
         // Center should be near face center (500 + 50 = 550, 300 + 50 = 350)
         assert!((analysis.median_cx - 550.0).abs() < 10.0);
@@ -381,7 +375,7 @@ mod tests {
     #[test]
     fn test_window_median_filters_outliers() {
         let mut analyzer = SceneWindowAnalyzer::with_defaults(5, 1920, 1080);
-        
+
         // Add 4 consistent frames and 1 outlier
         for i in 0..4 {
             let det = make_detection(500.0, 300.0, 100.0, 1);
@@ -390,22 +384,26 @@ mod tests {
         // Outlier at completely different position
         let outlier = make_detection(1500.0, 800.0, 100.0, 1);
         let analysis = analyzer.add_frame(&[outlier], 0.4);
-        
+
         // Median should still be close to majority position, not pulled by outlier
-        assert!(analysis.median_cx < 800.0, "Median should resist outlier: {}", analysis.median_cx);
+        assert!(
+            analysis.median_cx < 800.0,
+            "Median should resist outlier: {}",
+            analysis.median_cx
+        );
     }
 
     #[test]
     fn test_stationary_mode_detection() {
         let mut analyzer = SceneWindowAnalyzer::with_defaults(10, 1920, 1080);
-        
+
         // Add frames with very little movement
         for i in 0..10 {
             let x = 500.0 + (i as f64 * 2.0); // Very small movement
             let det = make_detection(x, 300.0, 100.0, 1);
             analyzer.add_frame(&[det], i as f64 * 0.1);
         }
-        
+
         let analysis = analyzer.analyze_window();
         assert_eq!(analysis.camera_mode, CameraMode::Stationary);
     }
@@ -413,14 +411,14 @@ mod tests {
     #[test]
     fn test_tracking_mode_detection() {
         let mut analyzer = SceneWindowAnalyzer::with_defaults(10, 1920, 1080);
-        
+
         // Add frames with large movement (needs to exceed panning_threshold 0.15)
         for i in 0..10 {
             let x = 100.0 + (i as f64 * 180.0); // Very large movement across frame
             let det = make_detection(x, 300.0, 100.0, 1);
             analyzer.add_frame(&[det], i as f64 * 0.1);
         }
-        
+
         let analysis = analyzer.analyze_window();
         // With large movement, should be Tracking or at least Panning (not Stationary)
         assert_ne!(analysis.camera_mode, CameraMode::Stationary);
@@ -429,13 +427,13 @@ mod tests {
     #[test]
     fn test_analyze_shot() {
         let mut analyzer = SceneWindowAnalyzer::with_defaults(5, 1920, 1080);
-        
+
         let detections: Vec<Vec<Detection>> = (0..10)
             .map(|i| vec![make_detection(500.0 + i as f64 * 10.0, 300.0, 100.0, 1)])
             .collect();
-        
+
         let analyses = analyzer.analyze_shot(&detections, 0.1, 0.0);
-        
+
         assert_eq!(analyses.len(), 10);
         // All should have valid frames as window fills up
         assert!(analyses.last().unwrap().valid_frames >= 1);
@@ -444,14 +442,14 @@ mod tests {
     #[test]
     fn test_dropout_handling() {
         let mut analyzer = SceneWindowAnalyzer::with_defaults(5, 1920, 1080);
-        
+
         // Add frame with detection
         let det = make_detection(500.0, 300.0, 100.0, 1);
         analyzer.add_frame(&[det], 0.0);
-        
+
         // Add empty frame (dropout)
         let analysis = analyzer.add_frame(&[], 0.1);
-        
+
         // Should still have the previous valid frame
         assert!(analysis.valid_frames >= 1);
         // Should use valid frame's position, not center

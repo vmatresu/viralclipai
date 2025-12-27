@@ -37,18 +37,32 @@ mod tier_aware_smoother_tests {
         let mut smoother = TierAwareCameraSmoother::new(config, DetectionTier::SpeakerAware, 30.0);
 
         let detections = vec![
-            Detection::with_mouth(0.0, BoundingBox::new(100.0, 100.0, 120.0, 120.0), 0.8, 1, Some(0.2)),
-            Detection::with_mouth(0.0, BoundingBox::new(1500.0, 100.0, 120.0, 120.0), 0.7, 2, Some(0.9)),
+            Detection::with_mouth(
+                0.0,
+                BoundingBox::new(100.0, 100.0, 120.0, 120.0),
+                0.8,
+                1,
+                Some(0.2),
+            ),
+            Detection::with_mouth(
+                0.0,
+                BoundingBox::new(1500.0, 100.0, 120.0, 120.0),
+                0.7,
+                2,
+                Some(0.9),
+            ),
         ];
 
         let frame_dets = vec![detections];
         let keyframes = smoother.compute_camera_plan(&frame_dets, 1920, 1080, 0.0, 1.0);
 
         assert!(!keyframes.is_empty());
-        assert!(keyframes[0].cx > 960.0, "Should focus on mouth-active right face");
+        assert!(
+            keyframes[0].cx > 960.0,
+            "Should focus on mouth-active right face"
+        );
     }
 }
-
 
 /// Tests for the premium intelligent_speaker implementation.
 /// ALL TESTS VERIFY VISUAL-ONLY BEHAVIOR - NO AUDIO.
@@ -90,10 +104,10 @@ mod premium_speaker_tests {
         // Create detection with mouth activity (visual signal from face mesh)
         let det = make_detection_with_mouth(0.0, 500.0, 400.0, 200.0, 1, 0.8);
         let detections = vec![det.clone()];
-        
+
         selector.select_focus(&detections, 0.0);
         let scores = selector.get_visual_scores(&det, 0.0);
-        
+
         // All scores should be in valid range
         assert!(scores.size_score >= 0.0 && scores.size_score <= 1.0);
         assert!(scores.conf_score >= 0.0 && scores.conf_score <= 1.0);
@@ -111,8 +125,12 @@ mod premium_speaker_tests {
             + config.weight_mouth_activity
             + config.weight_track_stability
             + config.weight_centering;
-        
-        assert!((weight_sum - 1.0).abs() < 0.01, "Visual weights should sum to 1.0: {}", weight_sum);
+
+        assert!(
+            (weight_sum - 1.0).abs() < 0.01,
+            "Visual weights should sum to 1.0: {}",
+            weight_sum
+        );
     }
 
     // === Target Selector Tests ===
@@ -161,16 +179,19 @@ mod premium_speaker_tests {
             focus2.track_id == 1 || focus2.track_id == 2,
             "Mid-dwell focus should be a valid track"
         );
-        
+
         // After dwell time, the selection should be stable
         let det3 = vec![
             make_detection(1.5, 200.0, 400.0, 350.0, 1),
             make_detection(1.5, 1400.0, 400.0, 250.0, 2),
         ];
         let focus3 = selector.select_focus(&det3, 1.5);
-        
+
         // Verify the selector makes consistent decisions
-        assert!(focus3.track_id == 1 || focus3.track_id == 2, "Should have a valid selection");
+        assert!(
+            focus3.track_id == 1 || focus3.track_id == 2,
+            "Should have a valid selection"
+        );
     }
 
     #[test]
@@ -236,7 +257,10 @@ mod premium_speaker_tests {
 
         // Short dropout - should hold position
         let focus2 = selector.select_focus(&vec![], 0.5);
-        assert!((focus2.cx - focus1.cx).abs() < 1.0, "Should hold position during short dropout");
+        assert!(
+            (focus2.cx - focus1.cx).abs() < 1.0,
+            "Should hold position during short dropout"
+        );
         assert_eq!(focus2.track_id, 1);
 
         // Long dropout - should fallback
@@ -268,7 +292,6 @@ mod premium_speaker_tests {
         assert!(focus.is_scene_change);
     }
 
-
     // === Smoother Tests ===
 
     #[test]
@@ -279,16 +302,26 @@ mod premium_speaker_tests {
         let mut smoother = PremiumSmoother::new(config, 30.0, 1920, 1080);
 
         use crate::intelligent::premium::target_selector::FocusPoint;
-        
+
         let focus1 = FocusPoint {
-            cx: 200.0, cy: 400.0, width: 200.0, height: 200.0,
-            track_id: 1, score: 0.9, is_scene_change: false,
+            cx: 200.0,
+            cy: 400.0,
+            width: 200.0,
+            height: 200.0,
+            track_id: 1,
+            score: 0.9,
+            is_scene_change: false,
         };
         smoother.smooth(&focus1, 0.0);
 
         let focus2 = FocusPoint {
-            cx: 1500.0, cy: 400.0, width: 200.0, height: 200.0,
-            track_id: 1, score: 0.9, is_scene_change: false,
+            cx: 1500.0,
+            cy: 400.0,
+            width: 200.0,
+            height: 200.0,
+            track_id: 1,
+            score: 0.9,
+            is_scene_change: false,
         };
         let kf2 = smoother.smooth(&focus2, 0.1);
 
@@ -299,7 +332,7 @@ mod premium_speaker_tests {
     #[test]
     fn test_smoother_zoom_aware_dead_zone() {
         let config = PremiumSpeakerConfig::default();
-        
+
         let (dz_1x, _) = config.dead_zone_for_zoom(1920, 1080, 1.0);
         let (dz_2x, _) = config.dead_zone_for_zoom(1920, 1080, 2.0);
         let (dz_4x, _) = config.dead_zone_for_zoom(1920, 1080, 4.0);
@@ -316,25 +349,35 @@ mod premium_speaker_tests {
         let mut smoother = PremiumSmoother::new(config, 30.0, 1920, 1080);
 
         use crate::intelligent::premium::target_selector::FocusPoint;
-        
+
         // Start with wide shot
         let focus1 = FocusPoint {
-            cx: 960.0, cy: 540.0, width: 800.0, height: 800.0,
-            track_id: 1, score: 0.9, is_scene_change: false,
+            cx: 960.0,
+            cy: 540.0,
+            width: 800.0,
+            height: 800.0,
+            track_id: 1,
+            score: 0.9,
+            is_scene_change: false,
         };
         let kf1 = smoother.smooth(&focus1, 0.0);
 
         // Request tight zoom
         let focus2 = FocusPoint {
-            cx: 960.0, cy: 540.0, width: 200.0, height: 200.0,
-            track_id: 1, score: 0.9, is_scene_change: false,
+            cx: 960.0,
+            cy: 540.0,
+            width: 200.0,
+            height: 200.0,
+            track_id: 1,
+            score: 0.9,
+            is_scene_change: false,
         };
         let kf2 = smoother.smooth(&focus2, 0.1);
 
         let zoom1 = 1920.0 / kf1.width;
         let zoom2 = 1920.0 / kf2.width;
         let zoom_change = (zoom2 - zoom1).abs();
-        
+
         assert!(zoom_change < 0.2, "Zoom changed too fast: {}", zoom_change);
     }
 
@@ -344,16 +387,26 @@ mod premium_speaker_tests {
         let mut smoother = PremiumSmoother::new(config, 30.0, 1920, 1080);
 
         use crate::intelligent::premium::target_selector::FocusPoint;
-        
+
         let focus1 = FocusPoint {
-            cx: 200.0, cy: 400.0, width: 200.0, height: 200.0,
-            track_id: 1, score: 0.9, is_scene_change: false,
+            cx: 200.0,
+            cy: 400.0,
+            width: 200.0,
+            height: 200.0,
+            track_id: 1,
+            score: 0.9,
+            is_scene_change: false,
         };
         smoother.smooth(&focus1, 0.0);
 
         let new_focus = FocusPoint {
-            cx: 1500.0, cy: 400.0, width: 200.0, height: 200.0,
-            track_id: 10, score: 0.9, is_scene_change: true,
+            cx: 1500.0,
+            cy: 400.0,
+            width: 200.0,
+            height: 200.0,
+            track_id: 10,
+            score: 0.9,
+            is_scene_change: true,
         };
         smoother.soft_reset(&new_focus, 0.5);
 
@@ -368,16 +421,26 @@ mod premium_speaker_tests {
         let mut smoother = PremiumSmoother::new(config, 30.0, 1920, 1080);
 
         use crate::intelligent::premium::target_selector::FocusPoint;
-        
+
         let focus1 = FocusPoint {
-            cx: 500.0, cy: 400.0, width: 200.0, height: 200.0,
-            track_id: 1, score: 0.9, is_scene_change: false,
+            cx: 500.0,
+            cy: 400.0,
+            width: 200.0,
+            height: 200.0,
+            track_id: 1,
+            score: 0.9,
+            is_scene_change: false,
         };
         smoother.smooth(&focus1, 0.0);
 
         let focus2 = FocusPoint {
-            cx: 600.0, cy: 400.0, width: 200.0, height: 200.0,
-            track_id: 1, score: 0.9, is_scene_change: false,
+            cx: 600.0,
+            cy: 400.0,
+            width: 200.0,
+            height: 200.0,
+            track_id: 1,
+            score: 0.9,
+            is_scene_change: false,
         };
         let kf_short = smoother.smooth(&focus2, 0.033);
 
@@ -387,8 +450,11 @@ mod premium_speaker_tests {
 
         let dx_short = (kf_short.cx - 500.0).abs();
         let dx_long = (kf_long.cx - 500.0).abs();
-        
-        assert!(dx_long >= dx_short, "Longer dt should allow more smoothing progress");
+
+        assert!(
+            dx_long >= dx_short,
+            "Longer dt should allow more smoothing progress"
+        );
     }
 
     // === Camera Planner Tests ===
@@ -425,7 +491,7 @@ mod premium_speaker_tests {
         ];
 
         let keyframes = planner.compute_camera_plan(&detections, 0.0, 1.0);
-        
+
         assert!((keyframes[0].time - 0.0).abs() < 0.01);
         assert!((keyframes[1].time - 0.5).abs() < 0.01);
         assert!((keyframes[2].time - 0.6).abs() < 0.01);
@@ -466,10 +532,10 @@ mod premium_speaker_tests {
         ];
 
         let keyframes = planner.compute_camera_plan(&detections, 0.0, 0.3);
-        
+
         let dx = (keyframes[2].cx - keyframes[1].cx).abs();
         assert!(dx > 100.0, "Scene change should allow faster repositioning");
-        
+
         assert!(planner.stats().scene_changes >= 1);
     }
 
@@ -485,7 +551,11 @@ mod premium_speaker_tests {
         let crops = planner.compute_crop_windows(&keyframes, &AspectRatio::PORTRAIT);
 
         let ratio = crops[0].width as f64 / crops[0].height as f64;
-        assert!((ratio - 0.5625).abs() < 0.02, "Aspect ratio wrong: {}", ratio);
+        assert!(
+            (ratio - 0.5625).abs() < 0.02,
+            "Aspect ratio wrong: {}",
+            ratio
+        );
     }
 
     #[test]
@@ -500,8 +570,14 @@ mod premium_speaker_tests {
 
         assert!(crops[0].x >= 0, "Crop x out of bounds: {}", crops[0].x);
         assert!(crops[0].y >= 0, "Crop y out of bounds: {}", crops[0].y);
-        assert!(crops[0].x + crops[0].width <= 1920, "Crop extends past frame width");
-        assert!(crops[0].y + crops[0].height <= 1080, "Crop extends past frame height");
+        assert!(
+            crops[0].x + crops[0].width <= 1920,
+            "Crop extends past frame width"
+        );
+        assert!(
+            crops[0].y + crops[0].height <= 1080,
+            "Crop extends past frame height"
+        );
     }
 
     // === Integration Tests ===
@@ -559,7 +635,12 @@ mod premium_speaker_tests {
                 let dx = (keyframes[i].cx - keyframes[i - 1].cx).abs();
                 let speed = dx / dt;
                 // Allow some tolerance for smoothing algorithms
-                assert!(speed < 2000.0, "Pan speed unreasonably high at frame {}: {} px/s", i, speed);
+                assert!(
+                    speed < 2000.0,
+                    "Pan speed unreasonably high at frame {}: {} px/s",
+                    i,
+                    speed
+                );
             }
         }
     }
@@ -576,7 +657,7 @@ mod premium_speaker_tests {
         ];
 
         planner.compute_camera_plan(&detections, 0.0, 0.3);
-        
+
         let stats = planner.stats();
         assert_eq!(stats.total_frames, 3);
         assert_eq!(stats.frames_with_detections, 2);
@@ -594,7 +675,9 @@ mod premium_speaker_tests {
 #[cfg(test)]
 #[cfg(feature = "opencv")]
 mod optimized_pipeline_tests {
-    use crate::intelligent::config::{FaceEngineMode, IntelligentCropConfig, OptimizedEngineConfig};
+    use crate::intelligent::config::{
+        FaceEngineMode, IntelligentCropConfig, OptimizedEngineConfig,
+    };
     use crate::intelligent::face_engine::{EngineMode, FaceEngineConfig};
     use crate::intelligent::kalman_tracker::{KalmanTracker, KalmanTrackerConfig};
     use crate::intelligent::letterbox::Letterboxer;

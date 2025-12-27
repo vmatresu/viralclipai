@@ -249,8 +249,14 @@ impl SinglePassRenderer {
 
         info!(
             "[RENDER_SPLIT] Source: {}x{}, Panel crop: {}x{}, Left: ({}, {}), Right: ({}, {})",
-            source_width, source_height, crop_width, crop_height,
-            left_crop_x, left_crop_y, right_crop_x, right_crop_y
+            source_width,
+            source_height,
+            crop_width,
+            crop_height,
+            left_crop_x,
+            left_crop_y,
+            right_crop_x,
+            right_crop_y
         );
         info!(
             "[RENDER_SPLIT] Encoding: {} preset={} crf={}",
@@ -273,7 +279,9 @@ impl SinglePassRenderer {
             ph = SPLIT_PANEL_HEIGHT,
         );
         let (filter_complex, map_label) = if let Some(config) = self.watermark.as_ref() {
-            if let Some(watermarked) = append_watermark_filter_complex(&base_filter_complex, "vout", config) {
+            if let Some(watermarked) =
+                append_watermark_filter_complex(&base_filter_complex, "vout", config)
+            {
                 (watermarked.filter_complex, watermarked.output_label)
             } else {
                 (base_filter_complex, "vout".to_string())

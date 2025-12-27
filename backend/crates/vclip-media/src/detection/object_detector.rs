@@ -51,17 +51,85 @@ impl ObjectDetection {
 
 /// COCO class names (80 classes).
 pub const COCO_CLASSES: &[&str] = &[
-    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck",
-    "boat", "traffic light", "fire hydrant", "stop sign", "parking meter", "bench",
-    "bird", "cat", "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra",
-    "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
-    "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove",
-    "skateboard", "surfboard", "tennis racket", "bottle", "wine glass", "cup",
-    "fork", "knife", "spoon", "bowl", "banana", "apple", "sandwich", "orange",
-    "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
-    "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse",
-    "remote", "keyboard", "cell phone", "microwave", "oven", "toaster", "sink",
-    "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier",
+    "person",
+    "bicycle",
+    "car",
+    "motorcycle",
+    "airplane",
+    "bus",
+    "train",
+    "truck",
+    "boat",
+    "traffic light",
+    "fire hydrant",
+    "stop sign",
+    "parking meter",
+    "bench",
+    "bird",
+    "cat",
+    "dog",
+    "horse",
+    "sheep",
+    "cow",
+    "elephant",
+    "bear",
+    "zebra",
+    "giraffe",
+    "backpack",
+    "umbrella",
+    "handbag",
+    "tie",
+    "suitcase",
+    "frisbee",
+    "skis",
+    "snowboard",
+    "sports ball",
+    "kite",
+    "baseball bat",
+    "baseball glove",
+    "skateboard",
+    "surfboard",
+    "tennis racket",
+    "bottle",
+    "wine glass",
+    "cup",
+    "fork",
+    "knife",
+    "spoon",
+    "bowl",
+    "banana",
+    "apple",
+    "sandwich",
+    "orange",
+    "broccoli",
+    "carrot",
+    "hot dog",
+    "pizza",
+    "donut",
+    "cake",
+    "chair",
+    "couch",
+    "potted plant",
+    "bed",
+    "dining table",
+    "toilet",
+    "tv",
+    "laptop",
+    "mouse",
+    "remote",
+    "keyboard",
+    "cell phone",
+    "microwave",
+    "oven",
+    "toaster",
+    "sink",
+    "refrigerator",
+    "book",
+    "clock",
+    "vase",
+    "scissors",
+    "teddy bear",
+    "hair drier",
     "toothbrush",
 ];
 
@@ -147,10 +215,7 @@ impl ObjectDetector {
         // 4. Postprocess: parse YOLOv8 output, apply NMS
         let detections = self.postprocess(&outputs, width, height)?;
 
-        debug!(
-            count = detections.len(),
-            "Object detection completed"
-        );
+        debug!(count = detections.len(), "Object detection completed");
 
         Ok(detections)
     }
@@ -231,7 +296,7 @@ impl ObjectDetector {
             .session
             .lock()
             .map_err(|_| MediaError::internal("Session lock poisoned"))?;
-        
+
         let outputs = session
             .run(ort::inputs![input])
             .map_err(|e| MediaError::internal(format!("ONNX inference failed: {}", e)))?;
@@ -342,7 +407,10 @@ impl ObjectDetector {
     }
 
     /// Apply Non-Maximum Suppression to remove overlapping detections.
-    fn non_maximum_suppression(&self, mut detections: Vec<ObjectDetection>) -> Vec<ObjectDetection> {
+    fn non_maximum_suppression(
+        &self,
+        mut detections: Vec<ObjectDetection>,
+    ) -> Vec<ObjectDetection> {
         if detections.is_empty() {
             return detections;
         }
@@ -530,7 +598,7 @@ mod tests {
             class_id: 0,
             confidence: 0.9,
         };
-        
+
         // Can't test compute_iou directly without detector, but we can verify area
         assert!((a.area() - 0.04).abs() < 0.001);
     }

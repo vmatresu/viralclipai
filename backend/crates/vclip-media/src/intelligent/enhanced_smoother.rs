@@ -57,7 +57,11 @@ impl EnhancedCameraSmoother {
     /// 1. Gaussian smoothing (bidirectional lookahead)
     /// 2. Deadband application (lock camera when subject stationary)
     /// 3. Velocity constraint enforcement
-    pub fn smooth(&self, raw_keyframes: &[CameraKeyframe], frame_width: u32) -> Vec<CameraKeyframe> {
+    pub fn smooth(
+        &self,
+        raw_keyframes: &[CameraKeyframe],
+        frame_width: u32,
+    ) -> Vec<CameraKeyframe> {
         if raw_keyframes.len() < 2 {
             return raw_keyframes.to_vec();
         }
@@ -168,7 +172,11 @@ impl EnhancedCameraSmoother {
     ///
     /// If the face moves less than `deadband_threshold` × frame_width,
     /// the camera stays locked at the last significant position.
-    fn apply_deadband(&self, keyframes: &[CameraKeyframe], frame_width: u32) -> Vec<CameraKeyframe> {
+    fn apply_deadband(
+        &self,
+        keyframes: &[CameraKeyframe],
+        frame_width: u32,
+    ) -> Vec<CameraKeyframe> {
         if keyframes.is_empty() {
             return Vec::new();
         }
@@ -192,10 +200,7 @@ impl EnhancedCameraSmoother {
             } else {
                 // Movement within deadband - keep camera locked
                 result.push(CameraKeyframe::new(
-                    kf.time,
-                    anchor.cx,
-                    anchor.cy,
-                    kf.width,  // Allow zoom changes
+                    kf.time, anchor.cx, anchor.cy, kf.width, // Allow zoom changes
                     kf.height,
                 ));
             }
@@ -293,7 +298,11 @@ impl SmoothingPreset {
     }
 
     /// Create an enhanced smoother with this preset.
-    pub fn create_smoother(&self, config: IntelligentCropConfig, fps: f64) -> EnhancedCameraSmoother {
+    pub fn create_smoother(
+        &self,
+        config: IntelligentCropConfig,
+        fps: f64,
+    ) -> EnhancedCameraSmoother {
         EnhancedCameraSmoother::with_params(
             config,
             fps,
@@ -334,8 +343,16 @@ mod tests {
 
         // Smoothed values should be closer to 500, 300
         for kf in &smoothed {
-            assert!((kf.cx - 500.0).abs() < 20.0, "cx={} too far from mean", kf.cx);
-            assert!((kf.cy - 300.0).abs() < 15.0, "cy={} too far from mean", kf.cy);
+            assert!(
+                (kf.cx - 500.0).abs() < 20.0,
+                "cx={} too far from mean",
+                kf.cx
+            );
+            assert!(
+                (kf.cy - 300.0).abs() < 15.0,
+                "cy={} too far from mean",
+                kf.cy
+            );
         }
     }
 
@@ -347,9 +364,9 @@ mod tests {
         // Small movements should be ignored (frame width = 1920, 5% = 96px)
         let raw = make_keyframes(&[
             (0.0, 500.0, 300.0),
-            (0.1, 510.0, 305.0),  // +10, +5 - within deadband
-            (0.2, 520.0, 310.0),  // +20, +10 - within deadband
-            (0.3, 530.0, 315.0),  // +30, +15 - still within
+            (0.1, 510.0, 305.0), // +10, +5 - within deadband
+            (0.2, 520.0, 310.0), // +20, +10 - within deadband
+            (0.3, 530.0, 315.0), // +30, +15 - still within
         ]);
 
         let result = smoother.apply_deadband(&raw, 1920);

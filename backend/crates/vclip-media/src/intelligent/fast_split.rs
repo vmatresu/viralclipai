@@ -19,8 +19,8 @@
 use std::path::Path;
 use tracing::info;
 
-use super::single_pass_renderer::SinglePassRenderer;
 use super::config::IntelligentCropConfig;
+use super::single_pass_renderer::SinglePassRenderer;
 use crate::error::MediaResult;
 use crate::probe::probe_video;
 use crate::thumbnail::generate_thumbnail;
@@ -42,7 +42,7 @@ impl Default for FastSplitConfig {
     fn default() -> Self {
         Self {
             crop_fraction: 0.45,
-            top_vertical_bias: 0.0,     // Bias upward for top panel (face/upper body)
+            top_vertical_bias: 0.0, // Bias upward for top panel (face/upper body)
             bottom_vertical_bias: 0.15, // Also bias upward for bottom panel to show full face
         }
     }
@@ -110,26 +110,30 @@ impl FastSplitEngine {
 
         // 2. Use SinglePassRenderer with fixed positioning (SINGLE ENCODE)
         info!("[FAST_SPLIT] Processing with SINGLE-PASS encoding...");
-        info!("[FAST_SPLIT]   Encoding: {} preset={} crf={}", 
-            encoding.codec, encoding.preset, encoding.crf);
-        
+        info!(
+            "[FAST_SPLIT]   Encoding: {} preset={} crf={}",
+            encoding.codec, encoding.preset, encoding.crf
+        );
+
         let config = IntelligentCropConfig::default();
         let mut renderer = SinglePassRenderer::new(config);
         if let Some(config) = watermark {
             renderer = renderer.with_watermark(config.clone());
         }
-        
-        renderer.render_split(
-            segment,
-            output,
-            width,
-            height,
-            self.config.top_vertical_bias,
-            self.config.bottom_vertical_bias,
-            0.5,  // Default: center horizontally (no face detection)
-            0.5,  // Default: center horizontally (no face detection)
-            encoding,
-        ).await?;
+
+        renderer
+            .render_split(
+                segment,
+                output,
+                width,
+                height,
+                self.config.top_vertical_bias,
+                self.config.bottom_vertical_bias,
+                0.5, // Default: center horizontally (no face detection)
+                0.5, // Default: center horizontally (no face detection)
+                encoding,
+            )
+            .await?;
 
         // 3. Generate thumbnail
         let thumb_path = output.with_extension("jpg");

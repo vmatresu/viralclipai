@@ -102,11 +102,7 @@ impl FaceActivityAnalyzer {
     /// Compute mouth openness score for a face region.
     ///
     /// Returns `Some(score)` where score is 0.0-1.0, or `None` if landmarks unavailable.
-    pub fn compute_mouth_openness(
-        &mut self,
-        frame: &Mat,
-        bbox: &BoundingBox,
-    ) -> Option<f64> {
+    pub fn compute_mouth_openness(&mut self, frame: &Mat, bbox: &BoundingBox) -> Option<f64> {
         let detector = self.landmark_detector.as_mut()?;
 
         match detector.detect_landmarks(frame, bbox) {
@@ -122,12 +118,7 @@ impl FaceActivityAnalyzer {
     /// Compute motion score for a face region using frame differencing.
     ///
     /// Returns a score from 0.0 (no motion) to 1.0 (high motion).
-    pub fn compute_motion_score(
-        &mut self,
-        frame: &Mat,
-        bbox: &BoundingBox,
-        track_id: u32,
-    ) -> f64 {
+    pub fn compute_motion_score(&mut self, frame: &Mat, bbox: &BoundingBox, track_id: u32) -> f64 {
         use opencv::core::Scalar;
         use opencv::imgproc;
 
@@ -148,23 +139,26 @@ impl FaceActivityAnalyzer {
         };
 
         // Ensure same size for comparison
-        let prev_resized = if prev_region.size().unwrap_or_default() != curr_region.size().unwrap_or_default() {
-            let mut resized = Mat::default();
-            if imgproc::resize(
-                prev_region,
-                &mut resized,
-                curr_region.size().unwrap_or_default(),
-                0.0,
-                0.0,
-                imgproc::INTER_LINEAR,
-            ).is_err() {
-                self.prev_frames.insert(track_id, curr_region);
-                return 0.0;
-            }
-            resized
-        } else {
-            prev_region.clone()
-        };
+        let prev_resized =
+            if prev_region.size().unwrap_or_default() != curr_region.size().unwrap_or_default() {
+                let mut resized = Mat::default();
+                if imgproc::resize(
+                    prev_region,
+                    &mut resized,
+                    curr_region.size().unwrap_or_default(),
+                    0.0,
+                    0.0,
+                    imgproc::INTER_LINEAR,
+                )
+                .is_err()
+                {
+                    self.prev_frames.insert(track_id, curr_region);
+                    return 0.0;
+                }
+                resized
+            } else {
+                prev_region.clone()
+            };
 
         // Convert to grayscale for comparison
         let prev_gray = self.to_grayscale(&prev_resized);
@@ -176,9 +170,9 @@ impl FaceActivityAnalyzer {
                 let mut diff = Mat::default();
                 if opencv::core::absdiff(&pg, &cg, &mut diff).is_ok() {
                     // Calculate mean of difference
-                    let mean = opencv::core::mean(&diff, &Mat::default())
-                        .unwrap_or(Scalar::all(0.0));
-                    
+                    let mean =
+                        opencv::core::mean(&diff, &Mat::default()).unwrap_or(Scalar::all(0.0));
+
                     // Normalize: typical values are 0-30 for normal motion
                     let raw_score = mean.0[0] / 255.0;
                     (raw_score * 10.0).clamp(0.0, 1.0)
@@ -213,7 +207,13 @@ impl FaceActivityAnalyzer {
             return None;
         };
 
-        match imgproc::cvt_color(mat, &mut gray, code, 0, opencv::core::AlgorithmHint::ALGO_HINT_DEFAULT) {
+        match imgproc::cvt_color(
+            mat,
+            &mut gray,
+            code,
+            0,
+            opencv::core::AlgorithmHint::ALGO_HINT_DEFAULT,
+        ) {
             Ok(_) => Some(gray),
             Err(_) => None,
         }
@@ -296,11 +296,7 @@ impl FaceActivityAnalyzer {
     /// Compute overall activity score for a face detection.
     ///
     /// Combines mouth movement, motion, and size changes with configured weights.
-    pub fn compute_activity_score(
-        &mut self,
-        frame: &Mat,
-        detection: &Detection,
-    ) -> f64 {
+    pub fn compute_activity_score(&mut self, frame: &Mat, detection: &Detection) -> f64 {
         let mut scores: Vec<f64> = Vec::new();
         let mut weights: Vec<f64> = Vec::new();
 
@@ -322,9 +318,12 @@ impl FaceActivityAnalyzer {
             return 0.0;
         }
 
-        let activity: f64 = scores.iter().zip(weights.iter())
+        let activity: f64 = scores
+            .iter()
+            .zip(weights.iter())
             .map(|(s, w)| s * w)
-            .sum::<f64>() / total_weight;
+            .sum::<f64>()
+            / total_weight;
 
         activity.clamp(0.0, 1.0)
     }
@@ -342,11 +341,7 @@ impl FaceActivityAnalyzer {
     }
 
     /// Get detected landmarks for a face (for debugging).
-    pub fn get_landmarks(
-        &mut self,
-        frame: &Mat,
-        bbox: &BoundingBox,
-    ) -> Option<FaceLandmarks> {
+    pub fn get_landmarks(&mut self, frame: &Mat, bbox: &BoundingBox) -> Option<FaceLandmarks> {
         let detector = self.landmark_detector.as_mut()?;
         detector.detect_landmarks(frame, bbox).ok().flatten()
     }
@@ -383,47 +378,53 @@ mod tests {
         assert!(config.enable_mouth_detection);
         assert_eq!(config.activity_window, 0.5);
         assert_eq!(config.min_switch_duration, 1.0);
-        assert!((config.weight_mouth + config.weight_motion + config.weight_size - 1.0).abs() < 0.01);
+        assert!(
+            (config.weight_mouth + config.weight_motion + config.weight_size - 1.0).abs() < 0.01
+        );
     }
 
     #[test]
     fn test_size_change_tracking() {
         let config = FaceActivityConfig::default();
-        
+
         #[cfg(feature = "opencv")]
         {
             let mut analyzer = FaceActivityAnalyzer::new(config);
-            
+
             // First detection - returns 0.0 (not enough history)
             let bbox1 = BoundingBox::new(100.0, 100.0, 50.0, 50.0);
             let score1 = analyzer.compute_size_change_score(&bbox1, 0.8, 1, 0.0);
             assert_eq!(score1, 0.0);
-            
+
             // Second detection with larger size - should show positive trend
             let bbox2 = BoundingBox::new(100.0, 100.0, 60.0, 60.0);
             let score2 = analyzer.compute_size_change_score(&bbox2, 0.85, 1, 0.1);
-            assert!(score2 > 0.0, "Growing face should have positive size score: {}", score2);
+            assert!(
+                score2 > 0.0,
+                "Growing face should have positive size score: {}",
+                score2
+            );
         }
     }
 
     #[test]
     fn test_cleanup_track() {
         let config = FaceActivityConfig::default();
-        
+
         #[cfg(feature = "opencv")]
         {
             let mut analyzer = FaceActivityAnalyzer::new(config);
-            
+
             // Add some history
             let bbox = BoundingBox::new(100.0, 100.0, 50.0, 50.0);
             analyzer.compute_size_change_score(&bbox, 0.8, 1, 0.0);
             analyzer.compute_size_change_score(&bbox, 0.8, 1, 0.1);
-            
+
             assert!(analyzer.face_history.contains_key(&1));
-            
+
             // Cleanup
             analyzer.cleanup_track(1);
-            
+
             assert!(!analyzer.face_history.contains_key(&1));
         }
     }

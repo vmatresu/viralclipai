@@ -51,7 +51,7 @@ pub fn build_streamer_filter(
             // Following lines: title wrapped to ~25 chars per line
             let escaped_title = escape_drawtext(title);
             let wrapped_title = wrap_text(&escaped_title, 25);
-            
+
             // Use two drawtext filters: one for the number, one for the wrapped title
             filter = format!(
                 "{filter}[composed];\
@@ -93,9 +93,9 @@ pub fn build_streamer_filter(
 /// Escape special characters for FFmpeg drawtext filter.
 fn escape_drawtext(s: &str) -> String {
     s.replace('\\', "\\\\")
-     .replace('\'', "'\\''")
-     .replace(':', "\\:")
-     .replace('%', "\\%")
+        .replace('\'', "'\\''")
+        .replace(':', "\\:")
+        .replace('%', "\\%")
 }
 
 /// Wrap text to multiple lines with max chars per line.
@@ -103,7 +103,7 @@ fn escape_drawtext(s: &str) -> String {
 fn wrap_text(text: &str, max_chars: usize) -> String {
     let mut lines: Vec<String> = Vec::new();
     let mut current_line = String::new();
-    
+
     for word in text.split_whitespace() {
         if current_line.is_empty() {
             // First word on line
@@ -135,12 +135,12 @@ fn wrap_text(text: &str, max_chars: usize) -> String {
             }
         }
     }
-    
+
     // Add last line if not at max
     if !current_line.is_empty() && lines.len() < 3 {
         lines.push(current_line);
     }
-    
+
     // Join with escaped newline for FFmpeg
     lines.join("\\n")
 }
@@ -153,7 +153,7 @@ mod tests {
     fn test_build_filter_without_countdown() {
         let config = StreamerConfig::default();
         let filter = build_streamer_filter(&config, 1920, 1080, None, None);
-        
+
         assert!(filter.contains("[bg]"));
         assert!(filter.contains("[main]"));
         assert!(filter.contains("[vout]"));
@@ -166,7 +166,7 @@ mod tests {
     fn test_build_filter_with_countdown() {
         let config = StreamerConfig::default();
         let filter = build_streamer_filter(&config, 1920, 1080, Some(5), None);
-        
+
         assert!(filter.contains("drawtext"));
         assert!(filter.contains("text='5.'"));
         assert!(filter.contains("[vout]"));
@@ -182,7 +182,7 @@ mod tests {
             ..Default::default()
         };
         let filter = build_streamer_filter(&config, 1920, 1080, None, None);
-        
+
         assert!(filter.contains("crop=720:1280"));
         assert!(filter.contains("sigma=20"));
         assert!(filter.contains("scale=iw*2:ih*2"));
@@ -192,7 +192,7 @@ mod tests {
     fn test_build_filter_with_countdown_and_title() {
         let config = StreamerConfig::default();
         let filter = build_streamer_filter(&config, 1920, 1080, Some(5), Some("Test Title"));
-        
+
         // Number and title are now in separate drawtext filters
         assert!(filter.contains("drawtext"));
         assert!(filter.contains("text='5.'"), "Should have countdown number");

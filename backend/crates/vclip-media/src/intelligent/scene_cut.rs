@@ -231,13 +231,7 @@ impl SceneCutDetector {
         let mask = Mat::default();
 
         imgproc::calc_hist(
-            &images,
-            &channels,
-            &mask,
-            &mut hist,
-            &hist_size,
-            &ranges,
-            false,
+            &images, &channels, &mask, &mut hist, &hist_size, &ranges, false,
         )?;
 
         // Normalize
@@ -406,7 +400,11 @@ mod tests {
         assert!(!is_scene_cut_by_hash(12345, 12345, 0.3));
 
         // Very different hash
-        assert!(is_scene_cut_by_hash(0x0000_0000_0000_0000, 0xFFFF_FFFF_FFFF_FFFF, 0.3));
+        assert!(is_scene_cut_by_hash(
+            0x0000_0000_0000_0000,
+            0xFFFF_FFFF_FFFF_FFFF,
+            0.3
+        ));
     }
 
     #[test]

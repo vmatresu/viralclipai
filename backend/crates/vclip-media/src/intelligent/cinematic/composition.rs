@@ -47,11 +47,11 @@ impl SubjectArrangement {
     /// Get recommended zoom level for this arrangement.
     pub fn recommended_zoom(&self) -> f64 {
         match self {
-            Self::Single => 0.15,      // Tight on single subject
-            Self::SideBySide => 0.5,   // Wide to fit both
-            Self::Interview => 0.35,   // Medium
-            Self::Group => 0.6,        // Wide
-            Self::NoSubjects => 0.5,   // Default
+            Self::Single => 0.15,    // Tight on single subject
+            Self::SideBySide => 0.5, // Wide to fit both
+            Self::Interview => 0.35, // Medium
+            Self::Group => 0.6,      // Wide
+            Self::NoSubjects => 0.5, // Default
         }
     }
 }
@@ -256,7 +256,9 @@ impl SceneCompositionAnalyzer {
 
         for frame in detections {
             for det in frame {
-                let entry = track_sums.entry(det.track_id).or_insert((0.0, 0.0, 0.0, 0.0, 0));
+                let entry = track_sums
+                    .entry(det.track_id)
+                    .or_insert((0.0, 0.0, 0.0, 0.0, 0));
                 entry.0 += det.bbox.cx();
                 entry.1 += det.bbox.cy();
                 entry.2 += det.bbox.width;
@@ -316,7 +318,9 @@ impl SceneCompositionAnalyzer {
                 sorted.sort_by(|a, b| {
                     let area_a = a.1 .2 * a.1 .3;
                     let area_b = b.1 .2 * b.1 .3;
-                    area_b.partial_cmp(&area_a).unwrap_or(std::cmp::Ordering::Equal)
+                    area_b
+                        .partial_cmp(&area_a)
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 });
 
                 if let Some((_, (cx, cy, w, h))) = sorted.first() {
@@ -477,7 +481,7 @@ mod tests {
         // One large face, one small face (> 2x area difference)
         let faces = vec![
             vec![
-                make_detection(700.0, 400.0, 300.0, 1), // Large
+                make_detection(700.0, 400.0, 300.0, 1),  // Large
                 make_detection(1500.0, 400.0, 100.0, 2), // Small
             ],
             vec![

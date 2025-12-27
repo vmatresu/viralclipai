@@ -301,12 +301,7 @@ impl PremiumSpeakerConfig {
     /// Get zoom-aware dead-zone in pixels.
     /// At higher zoom (tighter framing), dead-zone shrinks for more responsiveness.
     /// At lower zoom (wider shot), dead-zone expands for more stability.
-    pub fn dead_zone_for_zoom(
-        &self,
-        frame_width: u32,
-        frame_height: u32,
-        zoom: f64,
-    ) -> (f64, f64) {
+    pub fn dead_zone_for_zoom(&self, frame_width: u32, frame_height: u32, zoom: f64) -> (f64, f64) {
         let base = self.dead_zone_pixels(frame_width, frame_height);
         // Scale inversely with sqrt of zoom: higher zoom = smaller dead-zone
         let scale = 1.0 / zoom.sqrt().max(1.0);
@@ -340,14 +335,18 @@ mod tests {
         assert!(config.ema_alpha > 0.0 && config.ema_alpha < 1.0);
         assert!(config.dead_zone_fraction_x > 0.0);
         assert!(config.primary_subject_dwell_ms > 0);
-        
+
         // Verify visual weights sum to ~1.0
         let weight_sum = config.weight_size
             + config.weight_confidence
             + config.weight_mouth_activity
             + config.weight_track_stability
             + config.weight_centering;
-        assert!((weight_sum - 1.0).abs() < 0.01, "Weights should sum to 1.0: {}", weight_sum);
+        assert!(
+            (weight_sum - 1.0).abs() < 0.01,
+            "Weights should sum to 1.0: {}",
+            weight_sum
+        );
     }
 
     #[test]
@@ -366,7 +365,10 @@ mod tests {
         let alpha_short = config.compute_ema_alpha_for_dt(0.01);
         let alpha_long = config.compute_ema_alpha_for_dt(0.1);
 
-        assert!(alpha_long > alpha_short, "Longer dt should have higher alpha");
+        assert!(
+            alpha_long > alpha_short,
+            "Longer dt should have higher alpha"
+        );
     }
 
     #[test]
@@ -383,7 +385,7 @@ mod tests {
     #[test]
     fn test_zoom_aware_dead_zone() {
         let config = PremiumSpeakerConfig::default();
-        
+
         let (dz_x_1x, _) = config.dead_zone_for_zoom(1920, 1080, 1.0);
         let (dz_x_2x, _) = config.dead_zone_for_zoom(1920, 1080, 2.0);
         let (dz_x_4x, _) = config.dead_zone_for_zoom(1920, 1080, 4.0);
@@ -405,13 +407,16 @@ mod tests {
     #[test]
     fn test_reacquisition_window() {
         let config = PremiumSpeakerConfig::default();
-        
+
         assert!(config.is_in_reacquisition(0.1));
         assert!(config.is_in_reacquisition(0.3));
         assert!(!config.is_in_reacquisition(0.5));
-        
+
         let reacq_dwell = config.reacquisition_dwell_time_seconds();
         let normal_dwell = config.dwell_time_seconds();
-        assert!(reacq_dwell < normal_dwell, "Reacquisition dwell should be shorter");
+        assert!(
+            reacq_dwell < normal_dwell,
+            "Reacquisition dwell should be shorter"
+        );
     }
 }

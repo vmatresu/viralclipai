@@ -383,14 +383,8 @@ mod tests {
 
     #[test]
     fn test_recommended_model() {
-        assert!(InferenceTier::Vnni
-            .recommended_model()
-            .contains("int8bq"));
-        assert!(InferenceTier::Avx512
-            .recommended_model()
-            .contains("int8"));
-        assert!(!InferenceTier::Avx2
-            .recommended_model()
-            .contains("int8"));
+        assert!(InferenceTier::Vnni.recommended_model().contains("int8bq"));
+        assert!(InferenceTier::Avx512.recommended_model().contains("int8"));
+        assert!(!InferenceTier::Avx2.recommended_model().contains("int8"));
     }
 }

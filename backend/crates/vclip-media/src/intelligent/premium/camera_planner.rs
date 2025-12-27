@@ -12,7 +12,7 @@
 use tracing::debug;
 
 use super::config::PremiumSpeakerConfig;
-use super::crop_computer::{CropComputer, CropComputeConfig};
+use super::crop_computer::{CropComputeConfig, CropComputer};
 use super::smoothing::PremiumSmoother;
 use super::target_selector::CameraTargetSelector;
 use crate::intelligent::models::{AspectRatio, CameraKeyframe, CropWindow, FrameDetections};
@@ -44,7 +44,6 @@ pub struct PremiumCameraPlanner {
     /// Last primary subject for tracking switches
     last_primary: Option<u32>,
 }
-
 
 impl PremiumCameraPlanner {
     /// Create a new premium camera planner.
@@ -95,12 +94,19 @@ impl PremiumCameraPlanner {
 
         for (i, frame_dets) in detections.iter().enumerate() {
             // Extract real timestamp from detections
-            let time = self.extract_frame_time(frame_dets, i, start_time, end_time, &mut last_known_time, &mut last_known_dt);
+            let time = self.extract_frame_time(
+                frame_dets,
+                i,
+                start_time,
+                end_time,
+                &mut last_known_time,
+                &mut last_known_dt,
+            );
 
             // Check for scene change
             let current_ids: Vec<u32> = frame_dets.iter().map(|d| d.track_id).collect();
             let is_scene_change = self.is_scene_change(&prev_track_ids, &current_ids);
-            
+
             if is_scene_change {
                 self.stats.scene_changes += 1;
                 if self.config.enable_debug_logging {
@@ -118,7 +124,7 @@ impl PremiumCameraPlanner {
 
             // Select focus and smooth
             let focus = self.target_selector.select_focus(frame_dets, time);
-            
+
             // Track subject switches
             if let Some(last) = self.last_primary {
                 if focus.track_id != last && focus.track_id != 0 {
@@ -135,7 +141,7 @@ impl PremiumCameraPlanner {
             }
 
             let smoothed = self.smoother.smooth(&focus, time);
-            
+
             // Track zoom stats
             let zoom = self.frame_width as f64 / smoothed.width;
             self.stats.max_zoom = self.stats.max_zoom.max(zoom);
@@ -158,8 +164,11 @@ impl PremiumCameraPlanner {
         if self.config.enable_debug_logging {
             debug!(
                 "Camera plan: {} frames, {} detections, {} dropouts, {} scene changes, {} switches",
-                self.stats.total_frames, self.stats.frames_with_detections,
-                self.stats.dropout_frames, self.stats.scene_changes, self.stats.subject_switches
+                self.stats.total_frames,
+                self.stats.frames_with_detections,
+                self.stats.dropout_frames,
+                self.stats.scene_changes,
+                self.stats.subject_switches
             );
             debug!(
                 "  Max pan speed: {:.0} px/s, Zoom range: {:.2} - {:.2}",
@@ -186,7 +195,7 @@ impl PremiumCameraPlanner {
             // Use median time from detections for robustness
             let mut times: Vec<f64> = frame_dets.iter().map(|d| d.time).collect();
             times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-            
+
             let median_time = if times.len() % 2 == 0 {
                 (times[times.len() / 2 - 1] + times[times.len() / 2]) / 2.0
             } else {
@@ -221,14 +230,14 @@ impl PremiumCameraPlanner {
         time
     }
 
-
     /// Compute crop windows from camera keyframes.
     pub fn compute_crop_windows(
         &self,
         keyframes: &[CameraKeyframe],
         target_aspect: &AspectRatio,
     ) -> Vec<CropWindow> {
-        self.crop_computer.compute_crop_windows(keyframes, target_aspect)
+        self.crop_computer
+            .compute_crop_windows(keyframes, target_aspect)
     }
 
     /// Detect scene change based on track ID continuity.
@@ -244,7 +253,8 @@ impl PremiumCameraPlanner {
         }
 
         // Check track ID overlap
-        let common_count = current_ids.iter()
+        let common_count = current_ids
+            .iter()
             .filter(|id| prev_ids.contains(id))
             .count();
 
@@ -332,7 +342,7 @@ mod tests {
         ];
 
         let keyframes = planner.compute_camera_plan(&detections, 0.0, 1.0);
-        
+
         // Keyframes should use real timestamps
         assert!((keyframes[0].time - 0.0).abs() < 0.01);
         assert!((keyframes[1].time - 0.5).abs() < 0.01);
@@ -400,11 +410,11 @@ mod tests {
         ];
 
         let keyframes = planner.compute_camera_plan(&detections, 0.0, 0.3);
-        
+
         // After scene change, camera should move toward new subject faster
         let dx = (keyframes[2].cx - keyframes[1].cx).abs();
         assert!(dx > 100.0, "Scene change should allow faster repositioning");
-        
+
         assert!(planner.stats().scene_changes >= 1);
     }
 
@@ -430,7 +440,7 @@ mod tests {
         ];
 
         planner.compute_camera_plan(&detections, 0.0, 0.3);
-        
+
         let stats = planner.stats();
         assert_eq!(stats.total_frames, 3);
         assert_eq!(stats.frames_with_detections, 2);
@@ -446,7 +456,11 @@ mod tests {
         let mut detections = Vec::new();
         for i in 0..20 {
             let time = i as f64 * 0.1;
-            let (size1, size2) = if i < 15 { (300.0, 150.0) } else { (150.0, 350.0) };
+            let (size1, size2) = if i < 15 {
+                (300.0, 150.0)
+            } else {
+                (150.0, 350.0)
+            };
             detections.push(vec![
                 Detection::new(time, BoundingBox::new(200.0, 400.0, size1, size1), 0.9, 1),
                 Detection::new(time, BoundingBox::new(1400.0, 400.0, size2, size2), 0.9, 2),
@@ -454,8 +468,11 @@ mod tests {
         }
 
         planner.compute_camera_plan(&detections, 0.0, 2.0);
-        
+
         // Should have at least one switch
-        assert!(planner.stats().subject_switches >= 1, "Should track subject switches");
+        assert!(
+            planner.stats().subject_switches >= 1,
+            "Should track subject switches"
+        );
     }
 }

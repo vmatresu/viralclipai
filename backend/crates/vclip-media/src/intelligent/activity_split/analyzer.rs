@@ -58,15 +58,14 @@ impl ActivityAnalyzer {
 
             let mut scores = Vec::new();
             for det in frame {
-                let (motion_score, size_score) = if let Some((prev_bbox, prev_area)) =
-                    track_state.get(&det.track_id)
-                {
-                    let motion = self.motion_score(prev_bbox, &det.bbox);
-                    let size = self.size_delta_score(*prev_area, det.bbox.area());
-                    (motion, size)
-                } else {
-                    (0.0, 0.0)
-                };
+                let (motion_score, size_score) =
+                    if let Some((prev_bbox, prev_area)) = track_state.get(&det.track_id) {
+                        let motion = self.motion_score(prev_bbox, &det.bbox);
+                        let size = self.size_delta_score(*prev_area, det.bbox.area());
+                        (motion, size)
+                    } else {
+                        (0.0, 0.0)
+                    };
 
                 let mouth_score = det.mouth_openness.unwrap_or(0.0);
                 let raw_score = self.combine_scores(motion_score, size_score, mouth_score);
@@ -115,7 +114,7 @@ impl ActivityAnalyzer {
     fn combine_scores(&self, motion: f64, size: f64, mouth: f64) -> f64 {
         let weight_motion = self.config.activity_weight_motion.max(0.0);
         let weight_size = self.config.activity_weight_size_change.max(0.0);
-        
+
         // Prioritize mouth movement (visual speech) when available.
         // This ensures active speakers are correctly identified even with minimal head motion.
         const MOUTH_ACTIVITY_WEIGHT: f64 = 2.0;
@@ -158,4 +157,3 @@ mod tests {
         assert!(!timeline[0].raw_activity.is_empty());
     }
 }
-

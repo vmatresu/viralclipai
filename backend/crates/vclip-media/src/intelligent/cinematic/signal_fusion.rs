@@ -25,14 +25,9 @@ pub enum SignalSource {
         activity: f64, // Mouth openness or visual activity (0-1)
     },
     /// Object detection with COCO class info.
-    Object {
-        class_id: u32,
-        class_name: String,
-    },
+    Object { class_id: u32, class_name: String },
     /// Safe region that should not be cropped (logo, border, text).
-    SafeRegion {
-        description: String,
-    },
+    SafeRegion { description: String },
 }
 
 impl SignalSource {
@@ -91,7 +86,10 @@ impl SaliencySignal {
             bbox,
             weight,
             is_required,
-            source: SignalSource::Object { class_id, class_name },
+            source: SignalSource::Object {
+                class_id,
+                class_name,
+            },
         }
     }
 
@@ -217,8 +215,16 @@ impl SignalFusingCalculator {
         }
 
         let total_weight: f64 = weighted_signals.iter().map(|s| s.weight).sum();
-        let cx = weighted_signals.iter().map(|s| s.weighted_cx()).sum::<f64>() / total_weight;
-        let cy = weighted_signals.iter().map(|s| s.weighted_cy()).sum::<f64>() / total_weight;
+        let cx = weighted_signals
+            .iter()
+            .map(|s| s.weighted_cx())
+            .sum::<f64>()
+            / total_weight;
+        let cy = weighted_signals
+            .iter()
+            .map(|s| s.weighted_cy())
+            .sum::<f64>()
+            / total_weight;
 
         (cx, cy)
     }
@@ -317,10 +323,22 @@ impl SignalFusingCalculator {
 mod tests {
     use super::*;
 
-    fn make_detection(track_id: u32, x: f64, y: f64, w: f64, h: f64, mouth: Option<f64>) -> Detection {
+    fn make_detection(
+        track_id: u32,
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+        mouth: Option<f64>,
+    ) -> Detection {
         Detection {
             time: 0.0,
-            bbox: BoundingBox { x, y, width: w, height: h },
+            bbox: BoundingBox {
+                x,
+                y,
+                width: w,
+                height: h,
+            },
             score: 0.9,
             track_id,
             mouth_openness: mouth,
@@ -340,7 +358,12 @@ mod tests {
 
     #[test]
     fn test_object_signal_creation() {
-        let bbox = BoundingBox { x: 100.0, y: 200.0, width: 50.0, height: 60.0 };
+        let bbox = BoundingBox {
+            x: 100.0,
+            y: 200.0,
+            width: 50.0,
+            height: 60.0,
+        };
         let signal = SaliencySignal::from_object(bbox, 0, "person".to_string(), 0.5, false);
 
         assert!(signal.source.is_person());
@@ -350,7 +373,12 @@ mod tests {
 
     #[test]
     fn test_safe_region_signal() {
-        let bbox = BoundingBox { x: 0.0, y: 0.0, width: 100.0, height: 50.0 };
+        let bbox = BoundingBox {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 50.0,
+        };
         let signal = SaliencySignal::from_safe_region(bbox, "logo".to_string());
 
         assert!(signal.is_required);
@@ -425,7 +453,10 @@ mod tests {
 
         // Focus should be centered on the face
         let face_cx = 800.0 + 50.0; // 850
-        assert!((result.cx() - face_cx).abs() < 50.0, "Focus should be near face center");
+        assert!(
+            (result.cx() - face_cx).abs() < 50.0,
+            "Focus should be near face center"
+        );
     }
 
     #[test]
@@ -440,7 +471,12 @@ mod tests {
 
         // Create signal that is not required
         let signal = SaliencySignal {
-            bbox: BoundingBox { x: 100.0, y: 200.0, width: 50.0, height: 60.0 },
+            bbox: BoundingBox {
+                x: 100.0,
+                y: 200.0,
+                width: 50.0,
+                height: 60.0,
+            },
             weight: 0.5,
             is_required: false,
             source: SignalSource::Object {

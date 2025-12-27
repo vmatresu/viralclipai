@@ -237,7 +237,9 @@ impl FaceDetector {
 
         let has_any_detection = frames.iter().any(|f| !f.is_empty());
         if !has_any_detection {
-            let (bbox, score) = self.heuristic_generator.create_centered_detection(width, height, 0.6);
+            let (bbox, score) = self
+                .heuristic_generator
+                .create_centered_detection(width, height, 0.6);
             let expected_frames = (duration / sample_interval).ceil().max(1.0) as usize;
 
             frames = (0..expected_frames)
@@ -294,8 +296,7 @@ impl FaceDetector {
                 Err(e) => {
                     // Log the error but continue to fallback
                     let error_str = e.to_string();
-                    if error_str.contains("OpenCV")
-                        || error_str.contains("Layer with requested id")
+                    if error_str.contains("OpenCV") || error_str.contains("Layer with requested id")
                     {
                         warn!("YuNet OpenCV compatibility issue: {}", error_str);
                     } else {
@@ -328,7 +329,9 @@ impl FaceDetector {
         );
 
         let layout_detector = LayoutDetector::new();
-        let layout = layout_detector.detect_layout(video_path, width, height).await?;
+        let layout = layout_detector
+            .detect_layout(video_path, width, height)
+            .await?;
 
         match layout {
             VideoLayout::SinglePerson => {
@@ -336,9 +339,11 @@ impl FaceDetector {
                     Ok(detections)
                 } else {
                     info!("Using single-person heuristic detections");
-                    Ok(self
-                        .heuristic_generator
-                        .single_person_heuristic(width, height, capped_samples))
+                    Ok(self.heuristic_generator.single_person_heuristic(
+                        width,
+                        height,
+                        capped_samples,
+                    ))
                 }
             }
             VideoLayout::TwoPeopleSideBySide => {
@@ -523,7 +528,6 @@ impl FaceDetector {
 
         detections
     }
-
 }
 
 impl FaceDetector {

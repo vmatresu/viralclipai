@@ -37,18 +37,30 @@ impl StyleProcessor for CenterFocusProcessor {
         matches!(style, Style::CenterFocus)
     }
 
-    async fn validate(&self, request: &ProcessingRequest, ctx: &ProcessingContext) -> MediaResult<()> {
+    async fn validate(
+        &self,
+        request: &ProcessingRequest,
+        ctx: &ProcessingContext,
+    ) -> MediaResult<()> {
         utils::validate_paths(&request.input_path, &request.output_path)?;
         ctx.security.check_resource_limits("ffmpeg")?;
         Ok(())
     }
 
-    async fn process(&self, request: ProcessingRequest, ctx: ProcessingContext) -> MediaResult<ProcessingResult> {
+    async fn process(
+        &self,
+        request: ProcessingRequest,
+        ctx: ProcessingContext,
+    ) -> MediaResult<ProcessingResult> {
         utils::run_basic_style(request, ctx, "center_focus").await
     }
 
-    fn estimate_complexity(&self, request: &ProcessingRequest) -> crate::core::ProcessingComplexity {
-        let duration = super::super::intelligent::parse_timestamp(&request.task.end).unwrap_or(30.0)
+    fn estimate_complexity(
+        &self,
+        request: &ProcessingRequest,
+    ) -> crate::core::ProcessingComplexity {
+        let duration = super::super::intelligent::parse_timestamp(&request.task.end)
+            .unwrap_or(30.0)
             - super::super::intelligent::parse_timestamp(&request.task.start).unwrap_or(0.0);
         utils::estimate_complexity(duration, false)
     }
@@ -66,4 +78,3 @@ mod tests {
         assert!(!processor.can_handle(Style::Split));
     }
 }
-

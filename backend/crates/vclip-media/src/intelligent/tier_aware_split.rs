@@ -28,12 +28,12 @@ use super::detection_adapter::{
     get_detections,
 };
 use super::single_pass_renderer::SinglePassRenderer;
-use crate::watermark::WatermarkConfig;
 use super::split_renderer;
 use crate::clip::extract_segment;
 use crate::error::MediaResult;
 use crate::probe::probe_video;
 use crate::thumbnail::generate_thumbnail;
+use crate::watermark::WatermarkConfig;
 
 /// Tier-aware split processor.
 pub struct TierAwareSplitProcessor {
@@ -106,7 +106,10 @@ impl TierAwareSplitProcessor {
         info!("[INTELLIGENT_SPLIT] ========================================");
         info!("[INTELLIGENT_SPLIT] START: {:?}", segment);
         info!("[INTELLIGENT_SPLIT] Tier: {:?}", self.tier);
-        info!("[INTELLIGENT_SPLIT] Cached analysis: {}", cached_analysis.is_some());
+        info!(
+            "[INTELLIGENT_SPLIT] Cached analysis: {}",
+            cached_analysis.is_some()
+        );
 
         // Step 1: Get video metadata
         let step_start = std::time::Instant::now();
@@ -138,18 +141,15 @@ impl TierAwareSplitProcessor {
         } else {
             // Fallback: run detection through centralized adapter
             warn!("[INTELLIGENT_SPLIT] No cached analysis, running fallback detection");
-            let detections = get_detections(
-                None,
-                segment,
-                self.tier,
-                0.0,
-                duration,
+            let detections =
+                get_detections(None, segment, self.tier, 0.0, duration, width, height, fps).await?;
+            compute_split_info_from_detections(
+                &detections,
                 width,
                 height,
-                fps,
+                duration,
+                self.config.fps_sample,
             )
-            .await?;
-            compute_split_info_from_detections(&detections, width, height, duration, self.config.fps_sample)
         };
 
         info!(
@@ -165,7 +165,13 @@ impl TierAwareSplitProcessor {
                 self.tier,
             );
             cropper
-                .process_with_cached_detections(segment, output, encoding, watermark, cached_analysis)
+                .process_with_cached_detections(
+                    segment,
+                    output,
+                    encoding,
+                    watermark,
+                    cached_analysis,
+                )
                 .await?;
 
             // Generate thumbnail
@@ -174,7 +180,10 @@ impl TierAwareSplitProcessor {
                 warn!("[INTELLIGENT_SPLIT] Failed to generate thumbnail: {}", e);
             }
 
-            info!("[INTELLIGENT_SPLIT:{:?}] ========================================", self.tier);
+            info!(
+                "[INTELLIGENT_SPLIT:{:?}] ========================================",
+                self.tier
+            );
             info!(
                 "[INTELLIGENT_SPLIT:{:?}] COMPLETE (full-frame) in {:.2}s",
                 self.tier,
@@ -269,7 +278,10 @@ impl TierAwareSplitProcessor {
             .map(|m| m.len())
             .unwrap_or(0);
 
-        info!("[INTELLIGENT_SPLIT:{:?}] ========================================", self.tier);
+        info!(
+            "[INTELLIGENT_SPLIT:{:?}] ========================================",
+            self.tier
+        );
         info!(
             "[INTELLIGENT_SPLIT:{:?}] COMPLETE in {:.2}s - {:.2} MB",
             self.tier,
@@ -277,7 +289,6 @@ impl TierAwareSplitProcessor {
             file_size as f64 / 1_000_000.0
         );
     }
-
 }
 
 /// Create a tier-aware intelligent split clip from a video file.
@@ -346,14 +357,20 @@ where
     info!("[PIPELINE] Output: {:?}", output);
     info!("[PIPELINE] Tier: {:?}", tier);
     info!("[PIPELINE] Cached analysis: {}", cached_analysis.is_some());
-    info!("[PIPELINE] Encoding: {} crf={}", encoding.codec, encoding.crf);
+    info!(
+        "[PIPELINE] Encoding: {} crf={}",
+        encoding.codec, encoding.crf
+    );
 
     // Parse timestamps and apply padding
     let start_secs = (super::parse_timestamp(&task.start)? - task.pad_before).max(0.0);
     let end_secs = super::parse_timestamp(&task.end)? + task.pad_after;
     let duration = end_secs - start_secs;
 
-    info!("[PIPELINE] Time: {:.2}s to {:.2}s ({:.2}s duration)", start_secs, end_secs, duration);
+    info!(
+        "[PIPELINE] Time: {:.2}s to {:.2}s ({:.2}s duration)",
+        start_secs, end_secs, duration
+    );
 
     // Step 1: Extract segment using STREAM COPY (no encode)
     let segment_path = output.with_extension("segment.mp4");
@@ -363,7 +380,7 @@ where
 
     // Step 2: Process with single-pass render (THE ONLY ENCODE)
     info!("[PIPELINE] Step 2/2: Process segment (SINGLE ENCODE)...");
-    
+
     let config = IntelligentCropConfig::for_tier(tier);
     let processor = TierAwareSplitProcessor::new(config, tier);
     let result = processor
@@ -402,9 +419,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::detection_adapter::compute_vertical_bias;
     use super::super::models::BoundingBox;
+    use super::*;
 
     #[test]
     fn test_processor_creation() {
@@ -423,7 +440,11 @@ mod tests {
         // New algorithm is more conservative to ensure faces aren't cut
         let mid_face = BoundingBox::new(100.0, 440.0, 100.0, 100.0);
         let bias = compute_vertical_bias(&[mid_face], 1080);
-        assert!(bias < 0.3, "Mid face should have conservative bias: {}", bias);
+        assert!(
+            bias < 0.3,
+            "Mid face should have conservative bias: {}",
+            bias
+        );
 
         // Face at bottom of frame -> higher bias, but still clamped for safety
         let bottom_face = BoundingBox::new(100.0, 800.0, 100.0, 100.0);
@@ -434,6 +455,9 @@ mod tests {
     #[test]
     fn test_empty_faces_default_bias() {
         let bias = compute_vertical_bias(&[], 1080);
-        assert!((bias - 0.15).abs() < 0.01, "Empty faces should use default bias");
+        assert!(
+            (bias - 0.15).abs() < 0.01,
+            "Empty faces should use default bias"
+        );
     }
 }

@@ -27,9 +27,9 @@ use vclip_models::{ClipTask, CropMode, EncodingConfig, Style};
 use crate::command::{FfmpegCommand, FfmpegRunner};
 use crate::error::{MediaError, MediaResult};
 use crate::filters::build_video_filter;
-use crate::watermark::{build_vf_with_watermark, WatermarkConfig};
 use crate::progress::FfmpegProgress;
 use crate::thumbnail::generate_thumbnail;
+use crate::watermark::{build_vf_with_watermark, WatermarkConfig};
 
 /// Extract a segment from a video file using STREAM COPY (no re-encoding).
 ///
@@ -79,17 +79,24 @@ pub async fn extract_segment<P: AsRef<Path>>(
     let args = vec![
         "-y".to_string(),
         "-hide_banner".to_string(),
-        "-loglevel".to_string(), "error".to_string(),
+        "-loglevel".to_string(),
+        "error".to_string(),
         // Input seeking - fast, approximate to keyframe
-        "-ss".to_string(), format!("{:.3}", start_secs),
-        "-i".to_string(), input.to_string_lossy().to_string(),
+        "-ss".to_string(),
+        format!("{:.3}", start_secs),
+        "-i".to_string(),
+        input.to_string_lossy().to_string(),
         // Duration
-        "-t".to_string(), format!("{:.3}", duration),
+        "-t".to_string(),
+        format!("{:.3}", duration),
         // STREAM COPY - no re-encoding!
-        "-c".to_string(), "copy".to_string(),
+        "-c".to_string(),
+        "copy".to_string(),
         // Fix timestamp issues that can occur with stream copy
-        "-avoid_negative_ts".to_string(), "make_zero".to_string(),
-        "-movflags".to_string(), "+faststart".to_string(),
+        "-avoid_negative_ts".to_string(),
+        "make_zero".to_string(),
+        "-movflags".to_string(),
+        "+faststart".to_string(),
         output.to_string_lossy().to_string(),
     ];
 
@@ -174,7 +181,17 @@ where
     match (task.style, task.crop_mode) {
         // Original style always preserves original format
         (Style::Original, _) => {
-            create_basic_clip(input, output, start_secs, duration, None, encoding, watermark, progress_callback).await?;
+            create_basic_clip(
+                input,
+                output,
+                start_secs,
+                duration,
+                None,
+                encoding,
+                watermark,
+                progress_callback,
+            )
+            .await?;
         }
 
         // Intelligent style uses face tracking - should be handled by caller
@@ -194,7 +211,8 @@ where
         // Intelligent crop mode - not yet implemented
         (_, CropMode::Intelligent) => {
             return Err(MediaError::UnsupportedFormat(
-                "Intelligent crop mode requires ML client integration (not yet implemented)".to_string(),
+                "Intelligent crop mode requires ML client integration (not yet implemented)"
+                    .to_string(),
             ));
         }
 

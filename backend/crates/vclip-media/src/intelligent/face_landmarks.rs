@@ -237,76 +237,81 @@ mod tests {
     fn test_mouth_openness_closed() {
         // Simulate closed mouth (upper and lower lip at same position)
         let mut points = vec![(100.0, 100.0); 68];
-        
+
         // Set chin and brow for face height normalization
         points[8] = (100.0, 200.0); // chin
         points[27] = (100.0, 50.0); // brow
-        
+
         // Set inner lip points close together
         for i in 60..68 {
             points[i] = (100.0, 125.0);
         }
-        
+
         let landmarks = FaceLandmarks::new(points);
         let openness = landmarks.mouth_openness();
-        
-        assert!(openness < 0.2, "Closed mouth should have low openness: {}", openness);
+
+        assert!(
+            openness < 0.2,
+            "Closed mouth should have low openness: {}",
+            openness
+        );
     }
 
     #[test]
     fn test_mouth_openness_open() {
         let mut points = vec![(100.0, 100.0); 68];
-        
+
         // Set chin and brow for face height normalization
         points[8] = (100.0, 200.0); // chin
         points[27] = (100.0, 50.0); // brow (face height = 150)
-        
+
         // Set inner lip points far apart (upper at 120, lower at 140)
         // This is ~13% of face height
         for &i in INNER_LIP_UPPER {
             points[i] = (100.0, 120.0);
         }
         for &i in INNER_LIP_LOWER {
-            if i != 60 {  // avoid overlap
+            if i != 60 {
+                // avoid overlap
                 points[i] = (100.0, 140.0);
             }
         }
-        
+
         let landmarks = FaceLandmarks::new(points);
         let openness = landmarks.mouth_openness();
-        
-        assert!(openness > 0.5, "Open mouth should have high openness: {}", openness);
+
+        assert!(
+            openness > 0.5,
+            "Open mouth should have high openness: {}",
+            openness
+        );
     }
 
     #[test]
     fn test_mouth_center() {
         let mut points = vec![(0.0, 0.0); 68];
-        
+
         // Place inner lip points around center (100, 150)
         for i in 60..68 {
             points[i] = (100.0 + (i as f64 - 63.5) * 10.0, 150.0);
         }
-        
+
         let landmarks = FaceLandmarks::new(points);
         let (cx, cy) = landmarks.mouth_center();
-        
+
         assert!((cx - 100.0).abs() < 1.0, "Center X should be ~100: {}", cx);
         assert!((cy - 150.0).abs() < 1.0, "Center Y should be ~150: {}", cy);
     }
 
     #[test]
     fn test_bounding_box() {
-        let points = vec![
-            (10.0, 20.0),
-            (50.0, 30.0),
-            (30.0, 80.0),
-        ];
-        
+        let points = vec![(10.0, 20.0), (50.0, 30.0), (30.0, 80.0)];
+
         let landmarks = FaceLandmarks {
             points,
             confidence: 1.0,
         };
-        
+
         let bbox = landmarks.bounding_box();
         assert_eq!(bbox.x, 10.0);
         assert_eq!(bbox.y, 20.0);

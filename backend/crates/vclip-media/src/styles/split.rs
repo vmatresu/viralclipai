@@ -3,11 +3,11 @@
 //! Handles video processing with split view - left and right halves
 //! stacked vertically using FFmpeg filters.
 
+use super::utils;
+use crate::core::{ProcessingContext, ProcessingRequest, ProcessingResult, StyleProcessor};
+use crate::error::MediaResult;
 use async_trait::async_trait;
 use vclip_models::Style;
-use crate::error::MediaResult;
-use crate::core::{ProcessingRequest, ProcessingResult, ProcessingContext, StyleProcessor};
-use super::utils;
 
 /// Processor for split video style.
 /// Uses FFmpeg filters to create a split-screen view.
@@ -42,7 +42,11 @@ impl StyleProcessor for SplitProcessor {
         matches!(style, Style::Split)
     }
 
-    async fn validate(&self, request: &ProcessingRequest, ctx: &ProcessingContext) -> MediaResult<()> {
+    async fn validate(
+        &self,
+        request: &ProcessingRequest,
+        ctx: &ProcessingContext,
+    ) -> MediaResult<()> {
         // Additional validation for split style
         utils::validate_paths(&request.input_path, &request.output_path)?;
 
@@ -52,13 +56,21 @@ impl StyleProcessor for SplitProcessor {
         Ok(())
     }
 
-    async fn process(&self, request: ProcessingRequest, ctx: ProcessingContext) -> MediaResult<ProcessingResult> {
+    async fn process(
+        &self,
+        request: ProcessingRequest,
+        ctx: ProcessingContext,
+    ) -> MediaResult<ProcessingResult> {
         utils::run_basic_style(request, ctx, "split").await
     }
 
-    fn estimate_complexity(&self, request: &ProcessingRequest) -> crate::core::ProcessingComplexity {
-        let duration = super::super::intelligent::parse_timestamp(&request.task.end).unwrap_or(30.0) -
-                      super::super::intelligent::parse_timestamp(&request.task.start).unwrap_or(0.0);
+    fn estimate_complexity(
+        &self,
+        request: &ProcessingRequest,
+    ) -> crate::core::ProcessingComplexity {
+        let duration = super::super::intelligent::parse_timestamp(&request.task.end)
+            .unwrap_or(30.0)
+            - super::super::intelligent::parse_timestamp(&request.task.start).unwrap_or(0.0);
         utils::estimate_complexity(duration, false)
     }
 }
@@ -109,7 +121,8 @@ mod tests {
             EncodingConfig::default(),
             "test-request".to_string(),
             "test-user".to_string(),
-        ).unwrap();
+        )
+        .unwrap();
 
         let ctx = ProcessingContext::new(
             "test-request".to_string(),

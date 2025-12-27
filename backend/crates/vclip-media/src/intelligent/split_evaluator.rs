@@ -3,9 +3,9 @@
 //! Handles the decision-making process for entering split view based on detection frames.
 //! Used by `TierAwareSplitProcessor` to decide when to switch from single to split view.
 
+use crate::intelligent::models::{BoundingBox, Detection};
 use std::collections::HashMap;
 use tracing::info;
-use crate::intelligent::models::{BoundingBox, Detection};
 
 /// Evaluator for split view decisions.
 pub struct SplitEvaluator;
@@ -77,8 +77,7 @@ impl SplitEvaluator {
 
         // Sort by X coordinate (left to right)
         tracks.sort_by(|a, b| {
-            a.1
-                .cx()
+            a.1.cx()
                 .partial_cmp(&b.1.cx())
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
@@ -91,7 +90,7 @@ impl SplitEvaluator {
             let pad = (b.width.max(b.height)) * MARGIN;
             b.pad(pad)
         };
-        
+
         let left_box = expand(left_union).clamp(width, height);
         let right_box = expand(right_union).clamp(width, height);
 
@@ -125,9 +124,14 @@ mod tests {
         ]];
 
         // Pass simple check (1 frame is insufficient by default, but we can verify logic if we mock more frames
-        // or just verify the function handles inputs safely. 
+        // or just verify the function handles inputs safely.
         // Logic requires 3 frames min. Let's duplicate.
-        let frames = vec![frames[0].clone(), frames[0].clone(), frames[0].clone(), frames[0].clone()];
+        let frames = vec![
+            frames[0].clone(),
+            frames[0].clone(),
+            frames[0].clone(),
+            frames[0].clone(),
+        ];
 
         let res = SplitEvaluator::evaluate_speaker_split(&frames, width, height, 0.5);
         assert!(res.is_some(), "Should split when both are talking");
@@ -155,12 +159,20 @@ mod tests {
                 Some(0.2),
             ),
         ]];
-        
-        let frames = vec![frames[0].clone(), frames[0].clone(), frames[0].clone(), frames[0].clone()];
+
+        let frames = vec![
+            frames[0].clone(),
+            frames[0].clone(),
+            frames[0].clone(),
+            frames[0].clone(),
+        ];
 
         let res = SplitEvaluator::evaluate_speaker_split(&frames, width, height, 0.5);
         assert!(res.is_some(), "Should enter split mode with two faces");
         let (left_box, right_box) = res.unwrap();
-        assert!(left_box.cx() < right_box.cx(), "Left face should map to top panel");
+        assert!(
+            left_box.cx() < right_box.cx(),
+            "Left face should map to top panel"
+        );
     }
 }

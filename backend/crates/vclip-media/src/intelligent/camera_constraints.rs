@@ -190,8 +190,7 @@ pub fn compute_switch_threshold(keyframes: &[CameraKeyframe]) -> f64 {
     if keyframes.is_empty() {
         return 0.0;
     }
-    let avg_width: f64 =
-        keyframes.iter().map(|kf| kf.width).sum::<f64>() / keyframes.len() as f64;
+    let avg_width: f64 = keyframes.iter().map(|kf| kf.width).sum::<f64>() / keyframes.len() as f64;
     avg_width * 0.25
 }
 

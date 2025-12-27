@@ -74,8 +74,14 @@ impl MotionDetector {
                 .map_err(|e| MediaError::detection_failed(format!("motion absdiff: {e}")))?;
 
             let mut thresh = Mat::default();
-            imgproc::threshold(&diff, &mut thresh, self.threshold, 255.0, imgproc::THRESH_BINARY)
-                .map_err(|e| MediaError::detection_failed(format!("motion threshold: {e}")))?;
+            imgproc::threshold(
+                &diff,
+                &mut thresh,
+                self.threshold,
+                255.0,
+                imgproc::THRESH_BINARY,
+            )
+            .map_err(|e| MediaError::detection_failed(format!("motion threshold: {e}")))?;
 
             // 3) Center of mass (weighted average of white pixels).
             let moments = imgproc::moments(&thresh, true)
@@ -104,4 +110,3 @@ impl MotionDetector {
         Ok(result)
     }
 }
-

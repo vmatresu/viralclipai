@@ -300,8 +300,7 @@ impl KalmanTracker {
         // They will be deleted when time_since_update exceeds max_age
 
         // Remove dead tracks
-        self.tracks
-            .retain(|t| !t.should_delete(&self.config));
+        self.tracks.retain(|t| !t.should_delete(&self.config));
 
         // Return confirmed tracks
         self.get_confirmed_tracks()
@@ -324,8 +323,7 @@ impl KalmanTracker {
         }
 
         // Remove dead tracks
-        self.tracks
-            .retain(|t| !t.should_delete(&self.config));
+        self.tracks.retain(|t| !t.should_delete(&self.config));
 
         self.get_confirmed_tracks()
     }
@@ -365,10 +363,7 @@ impl KalmanTracker {
 
     /// Hard reset - clear all tracks.
     pub fn hard_reset(&mut self) {
-        debug!(
-            tracks_cleared = self.tracks.len(),
-            "Hard reset triggered"
-        );
+        debug!(tracks_cleared = self.tracks.len(), "Hard reset triggered");
         self.tracks.clear();
         self.current_scene_hash = 0;
     }

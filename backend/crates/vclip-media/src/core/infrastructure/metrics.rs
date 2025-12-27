@@ -54,7 +54,9 @@ impl ProductionMetricsCollector {
         let mut metrics = self.metrics.write().unwrap();
         let key = self.make_key(name, labels);
 
-        let histogram = metrics.entry(key).or_insert(MetricValue::Histogram(Vec::new()));
+        let histogram = metrics
+            .entry(key)
+            .or_insert(MetricValue::Histogram(Vec::new()));
         if let MetricValue::Histogram(ref mut values) = histogram {
             values.push(value);
         }
@@ -90,9 +92,24 @@ impl ProductionMetricsCollector {
 
                         output.push_str(&format!("# HELP {} Histogram metric\n", key));
                         output.push_str(&format!("# TYPE {} histogram\n", key));
-                        output.push_str(&format!("{}_count {} {}\n", key, count, self.format_labels(&key)));
-                        output.push_str(&format!("{}_sum {} {}\n", key, sum, self.format_labels(&key)));
-                        output.push_str(&format!("{}_avg {} {}\n", key, avg, self.format_labels(&key)));
+                        output.push_str(&format!(
+                            "{}_count {} {}\n",
+                            key,
+                            count,
+                            self.format_labels(&key)
+                        ));
+                        output.push_str(&format!(
+                            "{}_sum {} {}\n",
+                            key,
+                            sum,
+                            self.format_labels(&key)
+                        ));
+                        output.push_str(&format!(
+                            "{}_avg {} {}\n",
+                            key,
+                            avg,
+                            self.format_labels(&key)
+                        ));
                     }
                 }
             }
@@ -105,7 +122,8 @@ impl ProductionMetricsCollector {
         if labels.is_empty() {
             name.to_string()
         } else {
-            let label_str = labels.iter()
+            let label_str = labels
+                .iter()
                 .map(|(k, v)| format!("{}=\"{}\"", k, v))
                 .collect::<Vec<_>>()
                 .join(",");
@@ -144,7 +162,7 @@ impl HealthMetrics {
         let status = if healthy { "healthy" } else { "unhealthy" };
         self.collector.increment_counter(
             "health_check_total",
-            &[("service", service), ("status", status)]
+            &[("service", service), ("status", status)],
         );
     }
 
@@ -152,7 +170,7 @@ impl HealthMetrics {
         self.collector.record_histogram(
             "service_response_time_ms",
             duration_ms,
-            &[("service", service)]
+            &[("service", service)],
         );
     }
 }

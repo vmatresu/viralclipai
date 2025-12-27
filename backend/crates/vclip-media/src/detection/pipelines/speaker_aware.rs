@@ -8,7 +8,9 @@ use std::sync::Arc;
 use tracing::debug;
 use vclip_models::DetectionTier;
 
-use crate::detection::pipeline::{ActiveSpeakerHint, DetectionPipeline, DetectionResult, FrameResult};
+use crate::detection::pipeline::{
+    ActiveSpeakerHint, DetectionPipeline, DetectionResult, FrameResult,
+};
 use crate::detection::providers::{FaceProvider, YuNetFaceProvider};
 use crate::error::MediaResult;
 use crate::intelligent::face_mesh::{FaceDetailAnalyzer, OrtFaceMeshAnalyzer};

@@ -168,7 +168,10 @@ impl StyleProcessor for IntelligentSplitProcessor {
         Ok(result)
     }
 
-    fn estimate_complexity(&self, request: &ProcessingRequest) -> crate::core::ProcessingComplexity {
+    fn estimate_complexity(
+        &self,
+        request: &ProcessingRequest,
+    ) -> crate::core::ProcessingComplexity {
         let duration = super::super::intelligent::parse_timestamp(&request.task.end)
             .unwrap_or(30.0)
             - super::super::intelligent::parse_timestamp(&request.task.start).unwrap_or(0.0);

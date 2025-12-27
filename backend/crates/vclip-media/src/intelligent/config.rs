@@ -236,8 +236,8 @@ impl Default for IntelligentCropConfig {
             safe_margin: 0.05,
 
             // Camera Smoothing - increased pan speed for responsive speaker switching
-            max_pan_speed: 600.0,   // Faster transitions between speakers
-            smoothing_window: 0.3,  // Shorter smoothing for snappier movement
+            max_pan_speed: 600.0,  // Faster transitions between speakers
+            smoothing_window: 0.3, // Shorter smoothing for snappier movement
 
             // Zoom Limits
             max_zoom_factor: 3.0,
@@ -258,7 +258,7 @@ impl Default for IntelligentCropConfig {
             // Face Activity Detection
             enable_mouth_detection: true,
             face_activity_window: 0.5,
-            min_switch_duration: 0.5,  // Reduced from 1.0s for faster response to brief faces
+            min_switch_duration: 0.5, // Reduced from 1.0s for faster response to brief faces
             switch_margin: 0.2,
             activity_weight_mouth: 1.0,
             activity_weight_motion: 0.0,
@@ -329,11 +329,11 @@ impl IntelligentCropConfig {
     /// Prioritizes fast detection and speaker switching.
     pub fn responsive() -> Self {
         Self {
-            fps_sample: 10.0,              // High sample rate for responsive tracking
-            detection_resolution: 240,     // Small resolution for fast detection
-            analysis_resolution: 360,      // Lower analysis resolution
-            smoothing_window: 0.25,        // Fast smoothing for quick transitions
-            max_pan_speed: 400.0,          // Higher pan speed for snappier movement
+            fps_sample: 10.0,          // High sample rate for responsive tracking
+            detection_resolution: 240, // Small resolution for fast detection
+            analysis_resolution: 360,  // Lower analysis resolution
+            smoothing_window: 0.25,    // Fast smoothing for quick transitions
+            max_pan_speed: 400.0,      // Higher pan speed for snappier movement
             render_preset: "veryfast".to_string(),
             ..Default::default()
         }
@@ -346,15 +346,15 @@ impl IntelligentCropConfig {
     /// - Multi-speaker dwell time to prevent ping-ponging
     pub fn premium_speaker() -> Self {
         Self {
-            fps_sample: 8.0,               // Good balance of responsiveness and stability
+            fps_sample: 8.0, // Good balance of responsiveness and stability
             analysis_resolution: 480,
             detection_resolution: 320,
-            smoothing_window: 0.4,         // Moderate smoothing
-            max_pan_speed: 400.0,          // Balanced pan speed
-            min_switch_duration: 1.2,      // Longer dwell time for stability
-            switch_margin: 0.25,           // Higher margin to prevent rapid switching
-            headroom_ratio: 0.12,          // Good headroom for vertical framing
-            subject_padding: 0.15,         // Moderate padding around subject
+            smoothing_window: 0.4,    // Moderate smoothing
+            max_pan_speed: 400.0,     // Balanced pan speed
+            min_switch_duration: 1.2, // Longer dwell time for stability
+            switch_margin: 0.25,      // Higher margin to prevent rapid switching
+            headroom_ratio: 0.12,     // Good headroom for vertical framing
+            subject_padding: 0.15,    // Moderate padding around subject
             render_preset: "fast".to_string(),
             render_crf: 22,
             ..Default::default()
@@ -365,10 +365,10 @@ impl IntelligentCropConfig {
     /// Uses more conservative zoom to prevent over-tight crops.
     pub fn motion_aware() -> Self {
         Self {
-            max_zoom_factor: 2.0,          // Less aggressive zoom for more context
-            subject_padding: 0.25,         // More padding around subject
-            smoothing_window: 0.4,         // Smooth camera movement
-            max_pan_speed: 350.0,          // Moderate pan speed
+            max_zoom_factor: 2.0,  // Less aggressive zoom for more context
+            subject_padding: 0.25, // More padding around subject
+            smoothing_window: 0.4, // Smooth camera movement
+            max_pan_speed: 350.0,  // Moderate pan speed
             ..Default::default()
         }
     }
@@ -383,23 +383,22 @@ impl IntelligentCropConfig {
         match tier {
             DetectionTier::MotionAware => Self::motion_aware(),
             DetectionTier::SpeakerAware => Self {
-                max_zoom_factor: 2.5,      // Match premium config
-                subject_padding: 0.20,     // Moderate padding
+                max_zoom_factor: 2.5,  // Match premium config
+                subject_padding: 0.20, // Moderate padding
                 ..Self::premium_speaker()
             },
             // Cinematic tier uses premium speaker as base, but with settings
             // optimized for polynomial trajectory smoothing and conservative zoom
             // to prevent faces from being cut off
             DetectionTier::Cinematic => Self {
-                max_zoom_factor: 1.8,      // Reduced from 2.5 to prevent over-zoom
-                subject_padding: 0.25,     // Increased from 0.18 for better face margins
-                smoothing_window: 0.5,     // Longer smoothing for polynomial fitting
-                max_pan_speed: 300.0,      // Slower pan for cinematic feel
-                headroom_ratio: 0.18,      // More headroom than default
+                max_zoom_factor: 1.8,  // Reduced from 2.5 to prevent over-zoom
+                subject_padding: 0.25, // Increased from 0.18 for better face margins
+                smoothing_window: 0.5, // Longer smoothing for polynomial fitting
+                max_pan_speed: 300.0,  // Slower pan for cinematic feel
+                headroom_ratio: 0.18,  // More headroom than default
                 ..Self::premium_speaker()
             },
             DetectionTier::Basic | DetectionTier::None => Self::default(),
         }
     }
 }
-

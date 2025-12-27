@@ -51,14 +51,15 @@ pub mod trajectory;
 pub mod zoom;
 
 pub use camera_mode::{CameraMode, CameraModeAnalyzer};
-pub use composition::{CameraHint, FocusZone, SceneComposition, SceneCompositionAnalyzer, SubjectArrangement};
+pub use composition::{
+    CameraHint, FocusZone, SceneComposition, SceneCompositionAnalyzer, SubjectArrangement,
+};
 pub use config::{CinematicConfig, TrajectoryMethod};
-pub use l1_optimizer::{L1TrajectoryOptimizer, L1OptimizerConfig, L1Error};
-pub use processor::{CinematicProcessor, create_cinematic_clip, create_cinematic_clip_with_cache};
+pub use l1_optimizer::{L1Error, L1OptimizerConfig, L1TrajectoryOptimizer};
+pub use processor::{create_cinematic_clip, create_cinematic_clip_with_cache, CinematicProcessor};
 pub use scene_window::{SceneWindowAnalyzer, WindowAnalysis};
 pub use shot_detector::{Shot, ShotDetector};
 pub use signal_fusion::{SaliencySignal, SignalFusingCalculator, SignalSource};
+pub use signals::{ShotBoundary, ShotSignals};
 pub use trajectory::TrajectoryOptimizer;
 pub use zoom::AdaptiveZoom;
-pub use signals::{ShotBoundary, ShotSignals};
-

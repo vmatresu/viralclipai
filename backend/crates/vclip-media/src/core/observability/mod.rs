@@ -109,7 +109,7 @@ impl OperationTimer {
             collector.record_histogram(
                 "operation_duration_ms",
                 duration_ms,
-                &[("operation", &self.operation)]
+                &[("operation", &self.operation)],
             );
         }
         self.finished = true;
@@ -118,15 +118,12 @@ impl OperationTimer {
     /// Complete with success status.
     pub fn success(mut self) {
         if let Some(ref collector) = self.collector {
-            collector.increment_counter(
-                "operation_success",
-                &[("operation", &self.operation)]
-            );
+            collector.increment_counter("operation_success", &[("operation", &self.operation)]);
             let duration_ms = self.start.elapsed().as_millis() as f64;
             collector.record_histogram(
                 "operation_duration_ms",
                 duration_ms,
-                &[("operation", &self.operation)]
+                &[("operation", &self.operation)],
             );
         }
         self.finished = true;
@@ -137,13 +134,13 @@ impl OperationTimer {
         if let Some(ref collector) = self.collector {
             collector.increment_counter(
                 "operation_error",
-                &[("operation", &self.operation), ("error_type", error_type)]
+                &[("operation", &self.operation), ("error_type", error_type)],
             );
             let duration_ms = self.start.elapsed().as_millis() as f64;
             collector.record_histogram(
                 "operation_duration_ms",
                 duration_ms,
-                &[("operation", &self.operation)]
+                &[("operation", &self.operation)],
             );
         }
         self.finished = true;
@@ -159,7 +156,7 @@ impl Drop for OperationTimer {
                 collector.record_histogram(
                     "operation_duration_ms",
                     duration_ms,
-                    &[("operation", &self.operation)]
+                    &[("operation", &self.operation)],
                 );
             }
         }
@@ -287,9 +284,15 @@ pub mod health {
         components.insert("memory".to_string(), memory_health);
 
         // Determine overall health
-        let overall = if components.values().any(|c| c.status == HealthLevel::Unhealthy) {
+        let overall = if components
+            .values()
+            .any(|c| c.status == HealthLevel::Unhealthy)
+        {
             HealthLevel::Unhealthy
-        } else if components.values().any(|c| c.status == HealthLevel::Degraded) {
+        } else if components
+            .values()
+            .any(|c| c.status == HealthLevel::Degraded)
+        {
             HealthLevel::Degraded
         } else {
             HealthLevel::Healthy

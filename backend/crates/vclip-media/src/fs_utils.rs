@@ -73,7 +73,7 @@ async fn copy_and_delete(src: &Path, dst: &Path) -> MediaResult<()> {
 
     // Copy to a temp file in the same directory as dst (ensures same filesystem)
     let tmp_dst = dst.with_extension("tmp");
-    
+
     fs::copy(src, &tmp_dst).await.map_err(|e| {
         tracing::error!(
             "Failed to copy file during cross-device move: {} -> {}: {}",
@@ -127,15 +127,12 @@ mod tests {
         let dst = dir.path().join("dest.txt");
 
         fs::write(&src, b"test content").await.unwrap();
-        
+
         move_file(&src, &dst).await.unwrap();
 
         assert!(!src.exists(), "Source file should be removed");
         assert!(dst.exists(), "Destination file should exist");
-        assert_eq!(
-            fs::read_to_string(&dst).await.unwrap(),
-            "test content"
-        );
+        assert_eq!(fs::read_to_string(&dst).await.unwrap(), "test content");
     }
 
     #[tokio::test]
@@ -145,7 +142,7 @@ mod tests {
         let dst = dir.path().join("subdir").join("dest.txt");
 
         fs::write(&src, b"test content").await.unwrap();
-        
+
         move_file(&src, &dst).await.unwrap();
 
         assert!(!src.exists());
@@ -160,14 +157,11 @@ mod tests {
 
         fs::write(&src, b"new content").await.unwrap();
         fs::write(&dst, b"old content").await.unwrap();
-        
+
         move_file(&src, &dst).await.unwrap();
 
         assert!(!src.exists());
-        assert_eq!(
-            fs::read_to_string(&dst).await.unwrap(),
-            "new content"
-        );
+        assert_eq!(fs::read_to_string(&dst).await.unwrap(), "new content");
     }
 
     #[tokio::test]

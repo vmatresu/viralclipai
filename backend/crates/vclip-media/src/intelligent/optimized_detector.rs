@@ -39,7 +39,9 @@ use tracing::{info, warn};
 use opencv::{
     core::Mat,
     prelude::*,
-    videoio::{VideoCapture, CAP_ANY, CAP_PROP_FRAME_HEIGHT, CAP_PROP_FRAME_WIDTH, CAP_PROP_POS_MSEC},
+    videoio::{
+        VideoCapture, CAP_ANY, CAP_PROP_FRAME_HEIGHT, CAP_PROP_FRAME_WIDTH, CAP_PROP_POS_MSEC,
+    },
 };
 
 /// Optimized face detector using the new inference engine.
@@ -193,12 +195,7 @@ impl OptimizedFaceDetector {
                         .faces
                         .iter()
                         .map(|face| {
-                            Detection::new(
-                                current_time,
-                                face.bbox,
-                                face.confidence,
-                                face.track_id,
-                            )
+                            Detection::new(current_time, face.bbox, face.confidence, face.track_id)
                         })
                         .collect();
                     all_detections.push(dets);
@@ -313,19 +310,9 @@ impl OptimizedFaceDetector {
     pub fn is_optimized(&self) -> bool {
         self.config.engine_mode == FaceEngineMode::Optimized
     }
-}
 
-/// Non-OpenCV stub.
-#[cfg(not(feature = "opencv"))]
-impl OptimizedFaceDetector {
-    pub fn new(config: IntelligentCropConfig) -> MediaResult<Self> {
-        Err(MediaError::detection_failed("OpenCV feature not enabled"))
-    }
-
-    pub fn with_defaults() -> MediaResult<Self> {
-        Err(MediaError::detection_failed("OpenCV feature not enabled"))
-    }
-
+    /// Detect faces in a video over a time range (non-OpenCV stub).
+    #[cfg(not(feature = "opencv"))]
     pub async fn detect_in_video<P: AsRef<Path>>(
         &self,
         _video_path: P,

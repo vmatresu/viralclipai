@@ -81,7 +81,12 @@ pub fn filter_crop_right_half() -> &'static str {
 }
 
 /// Build filter for stacking two videos vertically.
-pub fn filter_vstack(top_width: u32, top_height: u32, bottom_width: u32, bottom_height: u32) -> String {
+pub fn filter_vstack(
+    top_width: u32,
+    top_height: u32,
+    bottom_width: u32,
+    bottom_height: u32,
+) -> String {
     format!(
         "[0:v]scale={}:{}:force_original_aspect_ratio=decrease,pad={}:{}:(ow-iw)/2:(oh-ih)/2[top];\
          [1:v]scale={}:{}:force_original_aspect_ratio=decrease,pad={}:{}:(ow-iw)/2:(oh-ih)/2[bottom];\

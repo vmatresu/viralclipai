@@ -36,8 +36,12 @@ impl CameraState {
     /// Create a new camera state.
     pub fn new(cx: f64, cy: f64, width: f64, height: f64, time: f64) -> Self {
         Self {
-            cx, cy, width, height,
-            vx: 0.0, vy: 0.0,
+            cx,
+            cy,
+            width,
+            height,
+            vx: 0.0,
+            vy: 0.0,
             zoom_velocity: 0.0,
             time,
         }
@@ -53,7 +57,6 @@ impl CameraState {
         CameraKeyframe::new(self.time, self.cx, self.cy, self.width, self.height)
     }
 }
-
 
 /// Camera smoother with EMA, zoom-aware dead-zone, and velocity constraints.
 ///
@@ -77,7 +80,12 @@ pub struct PremiumSmoother {
 
 impl PremiumSmoother {
     /// Create a new premium smoother.
-    pub fn new(config: PremiumSpeakerConfig, _fps: f64, frame_width: u32, frame_height: u32) -> Self {
+    pub fn new(
+        config: PremiumSpeakerConfig,
+        _fps: f64,
+        frame_width: u32,
+        frame_height: u32,
+    ) -> Self {
         Self {
             config,
             state: None,
@@ -149,7 +157,12 @@ impl PremiumSmoother {
             let speed = (new_vx * new_vx + new_vy * new_vy).sqrt();
             debug!(
                 "Smooth t={:.2}: pos=({:.0},{:.0}) vel={:.0}px/s zoom={:.2} zoom_vel={:.2}/s",
-                time, final_cx, final_cy, speed, self.frame_width as f64 / final_width, new_zoom_vel
+                time,
+                final_cx,
+                final_cy,
+                speed,
+                self.frame_width as f64 / final_width,
+                new_zoom_vel
             );
         }
 
@@ -158,7 +171,9 @@ impl PremiumSmoother {
 
     /// Apply zoom-aware dead-zone hysteresis.
     fn apply_dead_zone(&mut self, target_cx: f64, target_cy: f64, zoom: f64) -> (f64, f64) {
-        let (dz_x, dz_y) = self.config.dead_zone_for_zoom(self.frame_width, self.frame_height, zoom);
+        let (dz_x, dz_y) =
+            self.config
+                .dead_zone_for_zoom(self.frame_width, self.frame_height, zoom);
 
         match self.anchor {
             Some((anchor_x, anchor_y)) => {
@@ -181,7 +196,6 @@ impl PremiumSmoother {
         }
     }
 
-
     /// Apply pan velocity and acceleration constraints.
     fn apply_pan_constraints(
         &self,
@@ -191,8 +205,12 @@ impl PremiumSmoother {
         dt: f64,
     ) -> (f64, f64, f64, f64) {
         // Relax limits slightly right after scene change
-        let limit_factor = if self.frames_since_scene_change < 2 { 1.5 } else { 1.0 };
-        
+        let limit_factor = if self.frames_since_scene_change < 2 {
+            1.5
+        } else {
+            1.0
+        };
+
         let max_speed = self.config.max_pan_speed_px_per_sec * limit_factor;
         let max_accel = self.config.max_acceleration_px_per_sec2 * limit_factor;
 
@@ -215,7 +233,8 @@ impl PremiumSmoother {
         let final_cy = prev.cy + final_vy * dt;
 
         // Clamp to frame bounds
-        let (clamped_cx, clamped_cy) = self.clamp_to_bounds(final_cx, final_cy, prev.width, prev.height);
+        let (clamped_cx, clamped_cy) =
+            self.clamp_to_bounds(final_cx, final_cy, prev.width, prev.height);
 
         (clamped_cx, clamped_cy, final_vx, final_vy)
     }
@@ -230,7 +249,7 @@ impl PremiumSmoother {
         alpha: f64,
     ) -> (f64, f64, f64) {
         let frame_w = self.frame_width as f64;
-        
+
         // Current and target zoom factors
         let current_zoom = frame_w / prev.width;
         let raw_target_width = prev.width + alpha * (target_width - prev.width);
@@ -260,7 +279,7 @@ impl PremiumSmoother {
         // Compute final zoom and convert back to width/height
         let final_zoom = (current_zoom + final_zoom_vel * dt)
             .clamp(self.config.min_zoom_factor, self.config.max_zoom_factor);
-        
+
         let final_width = frame_w / final_zoom;
         let aspect = target_height / target_width.max(1.0);
         let final_height = final_width * aspect;
@@ -354,14 +373,14 @@ impl PremiumSmoother {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn make_focus(cx: f64, cy: f64) -> FocusPoint {
         FocusPoint {
-            cx, cy,
+            cx,
+            cy,
             width: 200.0,
             height: 200.0,
             track_id: 1,
@@ -372,7 +391,8 @@ mod tests {
 
     fn make_focus_scene_change(cx: f64, cy: f64) -> FocusPoint {
         FocusPoint {
-            cx, cy,
+            cx,
+            cy,
             width: 200.0,
             height: 200.0,
             track_id: 1,
@@ -420,16 +440,16 @@ mod tests {
 
         // At 1x zoom, dead-zone is larger
         let (dz_1x, _) = config.dead_zone_for_zoom(1920, 1080, 1.0);
-        
+
         // At 2x zoom, dead-zone should be smaller
         let (dz_2x, _) = config.dead_zone_for_zoom(1920, 1080, 2.0);
-        
+
         assert!(dz_2x < dz_1x, "Dead-zone should shrink at higher zoom");
 
         // Verify smoother uses zoom-aware dead-zone
         let focus1 = make_focus(500.0, 400.0);
         smoother.smooth(&focus1, 0.0);
-        
+
         let zoom = smoother.current_zoom();
         assert!(zoom > 0.0);
     }
@@ -463,18 +483,24 @@ mod tests {
 
         // Start with wide shot
         let focus1 = FocusPoint {
-            cx: 960.0, cy: 540.0,
-            width: 800.0, height: 800.0,
-            track_id: 1, score: 0.9,
+            cx: 960.0,
+            cy: 540.0,
+            width: 800.0,
+            height: 800.0,
+            track_id: 1,
+            score: 0.9,
             is_scene_change: false,
         };
         let kf1 = smoother.smooth(&focus1, 0.0);
 
         // Request tight zoom
         let focus2 = FocusPoint {
-            cx: 960.0, cy: 540.0,
-            width: 200.0, height: 200.0, // Much tighter
-            track_id: 1, score: 0.9,
+            cx: 960.0,
+            cy: 540.0,
+            width: 200.0,
+            height: 200.0, // Much tighter
+            track_id: 1,
+            score: 0.9,
             is_scene_change: false,
         };
         let kf2 = smoother.smooth(&focus2, 0.1);
@@ -483,7 +509,7 @@ mod tests {
         let zoom1 = 1920.0 / kf1.width;
         let zoom2 = 1920.0 / kf2.width;
         let zoom_change = (zoom2 - zoom1).abs();
-        
+
         // At 0.5 zoom/sec max, 0.1s should allow max 0.05 zoom change
         assert!(zoom_change < 0.2, "Zoom changed too fast: {}", zoom_change);
     }
@@ -548,7 +574,10 @@ mod tests {
         // Longer dt should result in more movement (higher alpha)
         let dx_short = (kf_short.cx - 500.0).abs();
         let dx_long = (kf_long.cx - 500.0).abs();
-        
-        assert!(dx_long >= dx_short, "Longer dt should allow more smoothing progress");
+
+        assert!(
+            dx_long >= dx_short,
+            "Longer dt should allow more smoothing progress"
+        );
     }
 }

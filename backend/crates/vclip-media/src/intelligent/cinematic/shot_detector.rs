@@ -287,8 +287,9 @@ pub async fn extract_histograms_from_video<P: AsRef<Path>>(
     let video_path = video_path.as_ref();
     let video_str = video_path.to_str().unwrap_or("");
 
-    let mut cap = VideoCapture::from_file(video_str, opencv::videoio::CAP_ANY)
-        .map_err(|e| crate::error::MediaError::detection_failed(format!("Failed to open video: {}", e)))?;
+    let mut cap = VideoCapture::from_file(video_str, opencv::videoio::CAP_ANY).map_err(|e| {
+        crate::error::MediaError::detection_failed(format!("Failed to open video: {}", e))
+    })?;
 
     let sample_interval = 1.0 / sample_fps;
     let duration = end_time - start_time;
@@ -319,12 +320,18 @@ pub async fn extract_histograms_from_video<P: AsRef<Path>>(
         // Convert to RGB and compute histogram
         let mut rgb_frame = opencv::core::Mat::default();
         opencv::imgproc::cvt_color_def(&frame, &mut rgb_frame, opencv::imgproc::COLOR_BGR2RGB)
-            .map_err(|e| crate::error::MediaError::detection_failed(format!("Color conversion failed: {}", e)))?;
+            .map_err(|e| {
+                crate::error::MediaError::detection_failed(format!(
+                    "Color conversion failed: {}",
+                    e
+                ))
+            })?;
 
         let width = rgb_frame.cols() as u32;
         let height = rgb_frame.rows() as u32;
-        let data = rgb_frame.data_bytes()
-            .map_err(|e| crate::error::MediaError::detection_failed(format!("Failed to get frame data: {}", e)))?;
+        let data = rgb_frame.data_bytes().map_err(|e| {
+            crate::error::MediaError::detection_failed(format!("Failed to get frame data: {}", e))
+        })?;
 
         let histogram = detector.compute_histogram(data, width, height);
         histograms.push(histogram);
@@ -345,7 +352,10 @@ mod tests {
         let h1 = vec![0.25, 0.25, 0.25, 0.25];
         let h2 = vec![0.25, 0.25, 0.25, 0.25];
         let distance = detector.chi_squared_distance(&h1, &h2);
-        assert!(distance < 0.001, "Identical histograms should have ~0 distance");
+        assert!(
+            distance < 0.001,
+            "Identical histograms should have ~0 distance"
+        );
     }
 
     #[test]
@@ -354,16 +364,17 @@ mod tests {
         let h1 = vec![1.0, 0.0, 0.0, 0.0];
         let h2 = vec![0.0, 0.0, 0.0, 1.0];
         let distance = detector.chi_squared_distance(&h1, &h2);
-        assert!(distance > 0.5, "Completely different histograms should have high distance");
+        assert!(
+            distance > 0.5,
+            "Completely different histograms should have high distance"
+        );
     }
 
     #[test]
     fn test_no_shots_uniform() {
         let detector = ShotDetector::new();
         // Same histogram repeated = no cuts
-        let histograms: Vec<Vec<f64>> = (0..30)
-            .map(|_| vec![0.25, 0.25, 0.25, 0.25])
-            .collect();
+        let histograms: Vec<Vec<f64>> = (0..30).map(|_| vec![0.25, 0.25, 0.25, 0.25]).collect();
 
         let shots = detector.detect_from_histograms(&histograms, 30.0);
         assert_eq!(shots.len(), 1, "Uniform content should be 1 shot");
@@ -402,12 +413,12 @@ mod tests {
         // - Frame 10 cut: 10 - 0 = 10 frames from start, < 15, so FILTERED
         // - Frame 20 cut: 20 - 0 = 20 frames from start, >= 15, so ACCEPTED
         let mut histograms = Vec::new();
-        
+
         // Frames 0-9: red (10 frames)
         for _ in 0..10 {
             histograms.push(vec![1.0, 0.0, 0.0, 0.0]);
         }
-        // Frames 10-19: blue (10 frames)  
+        // Frames 10-19: blue (10 frames)
         for _ in 0..10 {
             histograms.push(vec![0.0, 0.0, 0.0, 1.0]);
         }
@@ -419,7 +430,11 @@ mod tests {
         let shots = detector.detect_from_histograms(&histograms, 30.0);
         // Frame 10 cut is filtered (only 10 frames from 0), but frame 20 cut is accepted
         // Result: shots starting at frame 0 and frame 20
-        assert_eq!(shots.len(), 2, "Should have 2 shots (cut at frame 10 filtered, cut at frame 20 accepted)");
+        assert_eq!(
+            shots.len(),
+            2,
+            "Should have 2 shots (cut at frame 10 filtered, cut at frame 20 accepted)"
+        );
         assert_eq!(shots[0].start_frame, 0);
         assert_eq!(shots[0].end_frame, 19); // First shot spans frames 0-19
         assert_eq!(shots[1].start_frame, 20);

@@ -45,8 +45,16 @@ pub async fn process_single(
         let segment_path = output.with_extension("segment.mp4");
         extract_segment(input, &segment_path, start_secs, clip_duration).await?;
         // Render the streamer format
-        render_streamer_format(&segment_path, output, encoding, config, None, None, watermark)
-            .await?;
+        render_streamer_format(
+            &segment_path,
+            output,
+            encoding,
+            config,
+            None,
+            None,
+            watermark,
+        )
+        .await?;
         // Cleanup segment
         cleanup_file(&segment_path).await;
     } else {
@@ -148,17 +156,11 @@ async fn process_scene_with_countdown(
     let end_secs = parse_timestamp(&scene.end)?;
     let duration = end_secs - start_secs;
 
-    let segment_path = temp_dir.join(format!(
-        "streamer_scene_{}_segment.mp4",
-        scene.scene_number
-    ));
+    let segment_path = temp_dir.join(format!("streamer_scene_{}_segment.mp4", scene.scene_number));
     extract_segment(input, &segment_path, start_secs, duration).await?;
 
     // Render with countdown overlay
-    let styled_path = temp_dir.join(format!(
-        "streamer_scene_{}_styled.mp4",
-        scene.scene_number
-    ));
+    let styled_path = temp_dir.join(format!("streamer_scene_{}_styled.mp4", scene.scene_number));
     render_streamer_format(
         &segment_path,
         &styled_path,
@@ -177,7 +179,7 @@ async fn process_scene_with_countdown(
 }
 
 /// Render video in streamer format (landscape-in-portrait with blurred background).
-/// 
+///
 /// This function is public so it can be called directly from reprocessing layer
 /// for per-scene progress updates.
 pub async fn render_streamer_format(
@@ -191,7 +193,7 @@ pub async fn render_streamer_format(
 ) -> MediaResult<()> {
     // Get video dimensions
     let video_info = probe_video(segment).await?;
-    
+
     // Build filter complex
     let base_filter_complex = build_streamer_filter(
         config,
@@ -201,7 +203,9 @@ pub async fn render_streamer_format(
         scene_title,
     );
     let (filter_complex, map_label) = if let Some(config) = watermark {
-        if let Some(watermarked) = append_watermark_filter_complex(&base_filter_complex, "vout", config) {
+        if let Some(watermarked) =
+            append_watermark_filter_complex(&base_filter_complex, "vout", config)
+        {
             (watermarked.filter_complex, watermarked.output_label)
         } else {
             (base_filter_complex, "vout".to_string())
@@ -259,10 +263,7 @@ pub async fn render_streamer_format(
 
     // Force a keyframe at the very first frame to fix frozen video issues when concatenating
     // This ensures each segment starts cleanly when using stream copy concatenation
-    args.extend_from_slice(&[
-        "-force_key_frames".to_string(),
-        "expr:eq(n,0)".to_string(),
-    ]);
+    args.extend_from_slice(&["-force_key_frames".to_string(), "expr:eq(n,0)".to_string()]);
 
     args.extend_from_slice(&[
         "-movflags".to_string(),
@@ -301,7 +302,7 @@ pub async fn render_streamer_format(
 }
 
 /// Concatenate multiple video segments into a single output using stream copy.
-/// 
+///
 /// This function is public so it can be called directly from reprocessing layer.
 /// Uses stream copy (-c copy) since all segments should be in the same format.
 pub async fn concatenate_segments(
@@ -316,9 +317,9 @@ pub async fn concatenate_segments(
 
     if segments.len() == 1 {
         // Just copy the single segment
-        tokio::fs::copy(&segments[0], output).await.map_err(|e| {
-            MediaError::InvalidVideo(format!("Failed to copy segment: {}", e))
-        })?;
+        tokio::fs::copy(&segments[0], output)
+            .await
+            .map_err(|e| MediaError::InvalidVideo(format!("Failed to copy segment: {}", e)))?;
         return Ok(());
     }
 
@@ -349,7 +350,7 @@ pub async fn concatenate_segments(
             "-i",
             concat_list_path.to_str().unwrap_or(""),
             "-c",
-            "copy",  // Stream copy - no re-encoding
+            "copy", // Stream copy - no re-encoding
             "-movflags",
             "+faststart",
             output.to_str().unwrap_or(""),
@@ -458,17 +459,23 @@ pub async fn process_top_scenes_from_segments(
     let mut styled_paths: Vec<std::path::PathBuf> = Vec::new();
 
     // Process each segment with its countdown overlay
-    for (idx, (segment_path, scene_entry)) in segment_paths.iter().zip(params.top_scenes.iter()).enumerate() {
+    for (idx, (segment_path, scene_entry)) in segment_paths
+        .iter()
+        .zip(params.top_scenes.iter())
+        .enumerate()
+    {
         let countdown_number = scene_entry.scene_number;
-        
+
         // Verify segment exists
         let segment_exists = segment_path.exists();
         let segment_size = if segment_exists {
-            std::fs::metadata(segment_path).map(|m| m.len()).unwrap_or(0)
+            std::fs::metadata(segment_path)
+                .map(|m| m.len())
+                .unwrap_or(0)
         } else {
             0
         };
-        
+
         info!(
             "[STREAMER_TOP_SCENES] Processing segment {} (countdown: {}) path={:?} exists={} size={}",
             idx + 1,
@@ -477,11 +484,12 @@ pub async fn process_top_scenes_from_segments(
             segment_exists,
             segment_size
         );
-        
+
         if !segment_exists {
             return Err(MediaError::InvalidVideo(format!(
                 "Segment {} does not exist at {:?}",
-                idx + 1, segment_path
+                idx + 1,
+                segment_path
             )));
         }
 

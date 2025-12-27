@@ -11,23 +11,23 @@
 
 use std::path::Path;
 
+use crate::core::{StyleProcessor, StyleProcessorFactory as StyleProcessorFactoryTrait};
+use crate::error::MediaResult;
 use async_trait::async_trait;
 use vclip_models::Style;
-use crate::error::MediaResult;
-use crate::core::{StyleProcessor, StyleProcessorFactory as StyleProcessorFactoryTrait};
 
-pub mod original;
-pub mod split;
-pub mod split_fast;
-pub mod left_focus;
-pub mod right_focus;
 pub mod center_focus;
 pub mod intelligent;
+pub mod intelligent_cinematic;
 pub mod intelligent_split;
 pub mod intelligent_split_activity;
-pub mod intelligent_cinematic;
-pub mod streamer_split;
+pub mod left_focus;
+pub mod original;
+pub mod right_focus;
+pub mod split;
+pub mod split_fast;
 pub mod streamer;
+pub mod streamer_split;
 
 /// Factory for creating style processors.
 /// Implements dependency injection for testing and flexibility.
@@ -60,11 +60,11 @@ impl StyleProcessorFactoryTrait for StyleProcessorFactory {
             Style::CenterFocus => Ok(Box::new(center_focus::CenterFocusProcessor::new())),
 
             // Intelligent single-view styles (tier-aware)
-            Style::Intelligent | Style::IntelligentSpeaker | Style::IntelligentMotion => Ok(
-                Box::new(intelligent::IntelligentProcessor::with_tier(
+            Style::Intelligent | Style::IntelligentSpeaker | Style::IntelligentMotion => {
+                Ok(Box::new(intelligent::IntelligentProcessor::with_tier(
                     style.detection_tier(),
-                )),
-            ),
+                )))
+            }
 
             // Intelligent split-view styles (tier-aware)
             Style::IntelligentSplit
@@ -72,10 +72,12 @@ impl StyleProcessorFactoryTrait for StyleProcessorFactory {
             | Style::IntelligentSplitMotion => Ok(Box::new(
                 intelligent_split::IntelligentSplitProcessor::with_tier(style.detection_tier()),
             )),
-            
+
             // Intelligent activity-based split
             Style::IntelligentSplitActivity => Ok(Box::new(
-                intelligent_split_activity::IntelligentSplitActivityProcessor::new(style.detection_tier()),
+                intelligent_split_activity::IntelligentSplitActivityProcessor::new(
+                    style.detection_tier(),
+                ),
             )),
 
             // Intelligent cinematic - AutoAI-inspired smooth camera motion
@@ -84,14 +86,12 @@ impl StyleProcessorFactoryTrait for StyleProcessorFactory {
             )),
 
             // Streamer split - original content on top, face cam on bottom
-            Style::StreamerSplit => Ok(Box::new(
-                streamer_split::StreamerSplitProcessor::new(),
-            )),
+            Style::StreamerSplit => Ok(Box::new(streamer_split::StreamerSplitProcessor::new())),
 
             // Streamer (full view) - landscape-in-portrait with blurred background
-            Style::Streamer | Style::StreamerTopScenes => Ok(Box::new(
-                streamer::StreamerProcessor::new(),
-            )),
+            Style::Streamer | Style::StreamerTopScenes => {
+                Ok(Box::new(streamer::StreamerProcessor::new()))
+            }
         }
     }
 }
@@ -105,24 +105,26 @@ impl Default for StyleProcessorFactory {
 /// Utility functions shared across style processors.
 pub mod utils {
     use super::*;
-    use std::time::Instant;
     use crate::clip::create_clip;
     use crate::core::observability::ProcessingLogger;
     use crate::intelligent::parse_timestamp;
+    use std::time::Instant;
 
     /// Validate that input and output paths are accessible.
     pub fn validate_paths(input: &Path, output: &Path) -> MediaResult<()> {
         if !input.exists() {
-            return Err(crate::error::MediaError::InvalidVideo(
-                format!("Input file does not exist: {}", input.display())
-            ));
+            return Err(crate::error::MediaError::InvalidVideo(format!(
+                "Input file does not exist: {}",
+                input.display()
+            )));
         }
 
         if let Some(parent) = output.parent() {
             if !parent.exists() {
-                return Err(crate::error::MediaError::InvalidVideo(
-                    format!("Output directory does not exist: {}", parent.display())
-                ));
+                return Err(crate::error::MediaError::InvalidVideo(format!(
+                    "Output directory does not exist: {}",
+                    parent.display()
+                )));
             }
         }
 
@@ -137,9 +139,13 @@ pub mod utils {
     /// Calculate processing complexity based on video properties.
     pub fn estimate_complexity(
         duration_seconds: f64,
-        requires_intelligence: bool
+        requires_intelligence: bool,
     ) -> crate::core::ProcessingComplexity {
-        let base_time = if requires_intelligence { 60_000 } else { 30_000 }; // ms
+        let base_time = if requires_intelligence {
+            60_000
+        } else {
+            30_000
+        }; // ms
         let duration_factor = (duration_seconds / 60.0).max(1.0); // Scale by duration
 
         crate::core::ProcessingComplexity {
@@ -157,7 +163,9 @@ pub mod utils {
         ctx: crate::core::ProcessingContext,
         style_label: &'static str,
     ) -> crate::error::MediaResult<crate::core::ProcessingResult> {
-        let timer = ctx.metrics.start_timer(&format!("{style_label}_processing"));
+        let timer = ctx
+            .metrics
+            .start_timer(&format!("{style_label}_processing"));
         let logger = ProcessingLogger::new(
             ctx.request_id.clone(),
             ctx.user_id.clone(),

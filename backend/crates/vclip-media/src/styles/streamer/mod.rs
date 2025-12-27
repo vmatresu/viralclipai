@@ -26,9 +26,7 @@ use crate::intelligent::parse_timestamp;
 use super::utils;
 pub use config::StreamerConfig;
 pub use pipeline::{
-    concatenate_segments,
-    process_top_scenes_from_segments,
-    render_streamer_format,
+    concatenate_segments, process_top_scenes_from_segments, render_streamer_format,
 };
 
 /// Processor for Streamer (full view) video style.
@@ -75,7 +73,7 @@ impl StyleProcessor for StreamerProcessor {
     ) -> MediaResult<()> {
         utils::validate_paths(&request.input_path, &request.output_path)?;
         ctx.security.check_resource_limits("ffmpeg")?;
-        
+
         // Validate streamer params if present
         if let Some(params) = &request.task.streamer_params {
             if params.top_scenes_enabled && params.top_scenes.len() > 5 {
@@ -84,7 +82,7 @@ impl StyleProcessor for StreamerProcessor {
                 ));
             }
         }
-        
+
         Ok(())
     }
 
@@ -94,8 +92,12 @@ impl StyleProcessor for StreamerProcessor {
         ctx: ProcessingContext,
     ) -> MediaResult<ProcessingResult> {
         let is_top_scenes = request.task.style == Style::StreamerTopScenes;
-        let style_name = if is_top_scenes { "streamer_top_scenes" } else { "streamer" };
-        
+        let style_name = if is_top_scenes {
+            "streamer_top_scenes"
+        } else {
+            "streamer"
+        };
+
         let timer = ctx.metrics.start_timer("streamer_processing");
         let logger = ProcessingLogger::new(
             ctx.request_id.clone(),
@@ -168,7 +170,10 @@ impl StyleProcessor for StreamerProcessor {
         Ok(result)
     }
 
-    fn estimate_complexity(&self, request: &ProcessingRequest) -> crate::core::ProcessingComplexity {
+    fn estimate_complexity(
+        &self,
+        request: &ProcessingRequest,
+    ) -> crate::core::ProcessingComplexity {
         let duration = parse_timestamp(&request.task.end).unwrap_or(30.0)
             - parse_timestamp(&request.task.start).unwrap_or(0.0);
 
@@ -198,7 +203,10 @@ mod tests {
         assert!(Style::Streamer.is_fast());
         assert!(Style::StreamerTopScenes.is_fast());
         assert_eq!(Style::Streamer.detection_tier(), DetectionTier::None);
-        assert_eq!(Style::StreamerTopScenes.detection_tier(), DetectionTier::None);
+        assert_eq!(
+            Style::StreamerTopScenes.detection_tier(),
+            DetectionTier::None
+        );
     }
 
     #[test]

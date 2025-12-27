@@ -205,7 +205,12 @@ mod tests {
     ) -> Detection {
         Detection {
             time: 0.0,
-            bbox: BoundingBox { x, y, width: w, height: h },
+            bbox: BoundingBox {
+                x,
+                y,
+                width: w,
+                height: h,
+            },
             score: 0.9,
             track_id,
             mouth_openness: mouth,
@@ -256,7 +261,7 @@ mod tests {
     fn test_focus_bounds_fallback() {
         let signals = FaceSignals::new();
         let bounds = signals.compute_focus_bounds(&[], 1920, 1080, 0.2);
-        
+
         // Should get centered fallback
         assert!(bounds.cx() > 400.0 && bounds.cx() < 1500.0);
     }

@@ -3,9 +3,9 @@
 //! This module defines the fundamental types, traits, and interfaces that
 //! form the backbone of the video processing system following Domain-Driven Design.
 
+use async_trait::async_trait;
 use std::path::Path;
 use std::sync::Arc;
-use async_trait::async_trait;
 use tokio::sync::Semaphore;
 
 use vclip_models::{ClipTask, EncodingConfig, Style};
@@ -15,15 +15,17 @@ use crate::watermark::WatermarkConfig;
 use crate::error::MediaResult;
 
 // Re-export implementations
-pub use security::SecurityContext;
 pub use observability::MetricsCollector;
-pub use progress::{ProgressEvent, ProgressSender, ProgressReceiver, channel as progress_channel, noop_sender};
+pub use progress::{
+    channel as progress_channel, noop_sender, ProgressEvent, ProgressReceiver, ProgressSender,
+};
+pub use security::SecurityContext;
 
-pub mod security;
+pub mod infrastructure;
 pub mod observability;
 pub mod performance;
-pub mod infrastructure;
 pub mod progress;
+pub mod security;
 
 /// Core domain entity representing a video processing request.
 /// Wraps the task with additional context and validation.
@@ -56,17 +58,19 @@ impl ProcessingRequest {
         let output_path = output_path.as_ref();
 
         if !input_path.exists() {
-            return Err(crate::error::MediaError::InvalidVideo(
-                format!("Input video does not exist: {}", input_path.display())
-            ));
+            return Err(crate::error::MediaError::InvalidVideo(format!(
+                "Input video does not exist: {}",
+                input_path.display()
+            )));
         }
 
         // Validate output directory is writable
         if let Some(parent) = output_path.parent() {
             if !parent.exists() {
-                return Err(crate::error::MediaError::InvalidVideo(
-                    format!("Output directory does not exist: {}", parent.display())
-                ));
+                return Err(crate::error::MediaError::InvalidVideo(format!(
+                    "Output directory does not exist: {}",
+                    parent.display()
+                )));
             }
         }
 
@@ -84,7 +88,10 @@ impl ProcessingRequest {
 
     /// Set cached neural analysis for this request.
     /// When set, intelligent styles will skip ML inference and use cached detections.
-    pub fn with_cached_neural_analysis(mut self, analysis: vclip_models::SceneNeuralAnalysis) -> Self {
+    pub fn with_cached_neural_analysis(
+        mut self,
+        analysis: vclip_models::SceneNeuralAnalysis,
+    ) -> Self {
         self.cached_neural_analysis = Some(Arc::new(analysis));
         self
     }
@@ -155,22 +162,30 @@ pub trait StyleProcessor: Send + Sync {
     fn can_handle(&self, style: Style) -> bool;
 
     /// Get the priority of this processor (higher = preferred).
-    fn priority(&self) -> i32 { 0 }
+    fn priority(&self) -> i32 {
+        0
+    }
 
     /// Validate that this processor can handle the given request.
     /// Called before processing to ensure compatibility.
-    async fn validate(&self, request: &ProcessingRequest, ctx: &ProcessingContext) -> MediaResult<()> {
+    async fn validate(
+        &self,
+        request: &ProcessingRequest,
+        ctx: &ProcessingContext,
+    ) -> MediaResult<()> {
         // Default implementation does basic validation
         if !self.can_handle(request.style()) {
-            return Err(crate::error::MediaError::InvalidVideo(
-                format!("Style {} not supported by processor {}", request.style(), self.name())
-            ));
+            return Err(crate::error::MediaError::InvalidVideo(format!(
+                "Style {} not supported by processor {}",
+                request.style(),
+                self.name()
+            )));
         }
 
         // Validate resource availability
         if ctx.semaphore.available_permits() == 0 {
             return Err(crate::error::MediaError::ResourceLimit(
-                "No FFmpeg permits available".to_string()
+                "No FFmpeg permits available".to_string(),
             ));
         }
 
@@ -179,7 +194,11 @@ pub trait StyleProcessor: Send + Sync {
 
     /// Process the video according to the style requirements.
     /// This is the main processing method that implementations must provide.
-    async fn process(&self, request: ProcessingRequest, ctx: ProcessingContext) -> MediaResult<ProcessingResult>;
+    async fn process(
+        &self,
+        request: ProcessingRequest,
+        ctx: ProcessingContext,
+    ) -> MediaResult<ProcessingResult>;
 
     /// Estimate processing time and resources needed.
     /// Used for scheduling and resource allocation.
@@ -270,9 +289,10 @@ impl StyleProcessorRegistry {
             }
         }
 
-        Err(crate::error::MediaError::InvalidVideo(
-            format!("No processor available for style {}", style)
-        ))
+        Err(crate::error::MediaError::InvalidVideo(format!(
+            "No processor available for style {}",
+            style
+        )))
     }
 }
 

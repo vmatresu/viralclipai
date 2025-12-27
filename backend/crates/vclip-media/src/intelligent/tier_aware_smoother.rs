@@ -53,10 +53,8 @@ impl TierAwareCameraSmoother {
         // Tighten hysteresis for motion-based tiers to prevent micro-switching
         // and keep the camera from drifting when someone just shifts slightly.
         if matches!(tier, DetectionTier::MotionAware) {
-            activity_config.min_switch_duration =
-                activity_config.min_switch_duration.max(2.0);
-            activity_config.switch_margin =
-                activity_config.switch_margin.max(0.25);
+            activity_config.min_switch_duration = activity_config.min_switch_duration.max(2.0);
+            activity_config.switch_margin = activity_config.switch_margin.max(0.25);
         }
 
         Self {
@@ -70,10 +68,7 @@ impl TierAwareCameraSmoother {
 
     /// Update activity for a detection (SpeakerAware visual-only).
     pub fn update_activity(&mut self, detection: &Detection) {
-        let visual_score = detection
-            .mouth_openness
-            .unwrap_or(0.0)
-            .clamp(0.0, 2.0);
+        let visual_score = detection.mouth_openness.unwrap_or(0.0).clamp(0.0, 2.0);
         self.activity_tracker
             .update_activity(detection.track_id, visual_score, detection.time);
     }
@@ -108,14 +103,14 @@ impl TierAwareCameraSmoother {
         debug!("Camera mode: {:?}", mode);
 
         // Apply smoothing based on mode AND tier
-            // For speaker-aware tiers with tracking, use instant transitions at speaker boundaries
+        // For speaker-aware tiers with tracking, use instant transitions at speaker boundaries
         let smoothed = match (mode, self.tier) {
             // Speaker-aware tiers: snap between speakers with minimal drift
             (CameraMode::Tracking | CameraMode::Zoom, DetectionTier::SpeakerAware) => {
                 self.smooth_with_instant_speaker_transitions(&raw_keyframes)
             }
-                // Motion tiers: snap transitions and suppress short-lived motion
-                (CameraMode::Tracking | CameraMode::Zoom, DetectionTier::MotionAware) => {
+            // Motion tiers: snap transitions and suppress short-lived motion
+            (CameraMode::Tracking | CameraMode::Zoom, DetectionTier::MotionAware) => {
                 let min_segment = self.min_segment_duration_for_tier();
                 self.smooth_with_instant_switches(&raw_keyframes, min_segment)
             }
@@ -132,7 +127,7 @@ impl TierAwareCameraSmoother {
             DetectionTier::MotionAware => {
                 enforcer.enforce_constraints_with_snaps(&smoothed, width, height)
             }
-            _ => enforcer.enforce_constraints(&smoothed, width, height)
+            _ => enforcer.enforce_constraints(&smoothed, width, height),
         }
     }
 
@@ -175,7 +170,7 @@ impl TierAwareCameraSmoother {
 
         let mut current_time = start_time;
         let mut frame_idx = 0;
-        
+
         // Track last known good position - reuse when detection fails
         let mut last_focus: Option<CameraKeyframe> = None;
 
@@ -198,12 +193,8 @@ impl TierAwareCameraSmoother {
             } else {
                 // Use tier-specific focus computation
                 let focus = match self.tier {
-                    DetectionTier::None => {
-                        self.compute_focus_basic(frame_dets, width, height)
-                    }
-                    DetectionTier::Basic => {
-                        self.compute_focus_basic(frame_dets, width, height)
-                    }
+                    DetectionTier::None => self.compute_focus_basic(frame_dets, width, height),
+                    DetectionTier::Basic => self.compute_focus_basic(frame_dets, width, height),
                     DetectionTier::SpeakerAware | DetectionTier::Cinematic => {
                         self.compute_focus_speaker_aware(frame_dets, current_time, width, height)
                     }
@@ -219,7 +210,7 @@ impl TierAwareCameraSmoother {
                     focus.width,
                     focus.height,
                 );
-                
+
                 // Update last known position
                 last_focus = Some(kf);
                 kf
@@ -250,11 +241,15 @@ impl TierAwareCameraSmoother {
             .max_by(|a, b| {
                 let score_a = a.bbox.area() * a.score;
                 let score_b = b.bbox.area() * b.score;
-                score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
+                score_a
+                    .partial_cmp(&score_b)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             })
             .unwrap();
 
-        let focus_box = primary.bbox.pad(primary.bbox.width * self.config.subject_padding);
+        let focus_box = primary
+            .bbox
+            .pad(primary.bbox.width * self.config.subject_padding);
         focus_box.clamp(width, height)
     }
 
@@ -305,15 +300,9 @@ impl TierAwareCameraSmoother {
         let h = height as f64;
 
         match self.config.fallback_policy {
-            FallbackPolicy::Center => {
-                BoundingBox::new(w * 0.2, h * 0.2, w * 0.6, h * 0.6)
-            }
-            FallbackPolicy::UpperCenter => {
-                BoundingBox::new(w * 0.15, h * 0.15, w * 0.7, h * 0.5)
-            }
-            FallbackPolicy::RuleOfThirds => {
-                BoundingBox::new(w * 0.2, h * 0.15, w * 0.6, h * 0.45)
-            }
+            FallbackPolicy::Center => BoundingBox::new(w * 0.2, h * 0.2, w * 0.6, h * 0.6),
+            FallbackPolicy::UpperCenter => BoundingBox::new(w * 0.15, h * 0.15, w * 0.7, h * 0.5),
+            FallbackPolicy::RuleOfThirds => BoundingBox::new(w * 0.2, h * 0.15, w * 0.6, h * 0.45),
         }
     }
 
@@ -434,14 +423,18 @@ impl TierAwareCameraSmoother {
 
     /// Smooth keyframes with instant transitions at speaker change points.
     /// Uses minimal smoothing within speaker segments, but preserves raw positions at boundaries.
-    fn smooth_with_instant_speaker_transitions(&self, keyframes: &[CameraKeyframe]) -> Vec<CameraKeyframe> {
+    fn smooth_with_instant_speaker_transitions(
+        &self,
+        keyframes: &[CameraKeyframe],
+    ) -> Vec<CameraKeyframe> {
         if keyframes.len() < 3 {
             return keyframes.to_vec();
         }
 
         // Detect significant position changes (speaker switches)
         let mut switch_indices: Vec<usize> = Vec::new();
-        let avg_width: f64 = keyframes.iter().map(|kf| kf.width).sum::<f64>() / keyframes.len() as f64;
+        let avg_width: f64 =
+            keyframes.iter().map(|kf| kf.width).sum::<f64>() / keyframes.len() as f64;
         let switch_threshold = avg_width * 0.3; // 30% of crop width = significant move
 
         for i in 1..keyframes.len() {
@@ -456,7 +449,10 @@ impl TierAwareCameraSmoother {
             return self.smooth_tracking(keyframes);
         }
 
-        debug!("Detected {} speaker switches in keyframes", switch_indices.len());
+        debug!(
+            "Detected {} speaker switches in keyframes",
+            switch_indices.len()
+        );
 
         // Apply smoothing within segments, but preserve positions at switch points
         let mut result = Vec::with_capacity(keyframes.len());
@@ -571,7 +567,10 @@ mod tests {
         let focus = smoother.compute_focus_basic(&detections, 1920, 1080);
 
         // Should select the larger face (track 2)
-        assert!(focus.cx() > 400.0, "Should focus on larger face on right side");
+        assert!(
+            focus.cx() > 400.0,
+            "Should focus on larger face on right side"
+        );
     }
 
     #[test]
@@ -580,7 +579,7 @@ mod tests {
         let mut smoother = TierAwareCameraSmoother::new(config, DetectionTier::SpeakerAware, 30.0);
 
         // Set up track sides
-        smoother.track_sides.insert(1, true);  // Track 1 is on left
+        smoother.track_sides.insert(1, true); // Track 1 is on left
         smoother.track_sides.insert(2, false); // Track 2 is on right
 
         // Without mouth activity scores, speaker-aware falls back to prominence (size × confidence)
@@ -594,7 +593,11 @@ mod tests {
 
         // Without mouth activity, falls back to basic selection (largest face)
         // Track 2 is larger, so it should be selected
-        assert!(focus.cx() > 1000.0, "Should focus on larger right face when no mouth activity: cx={}", focus.cx());
+        assert!(
+            focus.cx() > 1000.0,
+            "Should focus on larger right face when no mouth activity: cx={}",
+            focus.cx()
+        );
     }
 
     #[test]
@@ -621,7 +624,10 @@ mod tests {
 
         // Should still be on track 1 due to min_switch_duration
         // (This depends on the activity tracker's hysteresis)
-        assert!(focus2.cx() < 1000.0 || focus2.cx() > 1000.0, "Focus should be determined");
+        assert!(
+            focus2.cx() < 1000.0 || focus2.cx() > 1000.0,
+            "Focus should be determined"
+        );
     }
 
     #[test]

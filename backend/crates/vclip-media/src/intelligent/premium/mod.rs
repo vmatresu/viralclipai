@@ -31,14 +31,14 @@
 //! - `crop_computer`: Aspect-ratio aware crop computation
 //! - `camera_planner`: Orchestrates the full pipeline with real timestamps
 
-pub mod config;
-pub mod target_selector;
-pub mod smoothing;
-pub mod crop_computer;
 pub mod camera_planner;
+pub mod config;
+pub mod crop_computer;
+pub mod smoothing;
+pub mod target_selector;
 
+pub use camera_planner::{PlannerStats, PremiumCameraPlanner};
 pub use config::PremiumSpeakerConfig;
+pub use crop_computer::{CropComputeConfig, CropComputer};
+pub use smoothing::{CameraState, PremiumSmoother};
 pub use target_selector::{CameraTargetSelector, FocusPoint, VisualScores};
-pub use smoothing::{PremiumSmoother, CameraState};
-pub use crop_computer::{CropComputer, CropComputeConfig};
-pub use camera_planner::{PremiumCameraPlanner, PlannerStats};

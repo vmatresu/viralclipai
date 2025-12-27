@@ -14,8 +14,8 @@ use crate::intelligent::config::IntelligentCropConfig;
 use crate::intelligent::crop_planner::CropPlanner;
 use crate::intelligent::models::{AspectRatio, CropWindow, Detection, FrameDetections};
 use crate::intelligent::single_pass_renderer::SinglePassRenderer;
-use crate::watermark::WatermarkConfig;
 use crate::intelligent::smoother::CameraSmoother;
+use crate::watermark::WatermarkConfig;
 use tracing::info;
 use vclip_models::EncodingConfig;
 
@@ -66,7 +66,7 @@ impl ActivitySplitRenderer {
 
         for (idx, span) in spans.iter().enumerate() {
             let target_path = temp_dir.path().join(format!("span_{idx}.mp4"));
-            
+
             // Log span being rendered
             info!(
                 span_idx = idx,
@@ -76,21 +76,26 @@ impl ActivitySplitRenderer {
                 layout = ?span.layout,
                 "Rendering span"
             );
-            
+
             match span.layout {
                 LayoutMode::Full { primary } => {
-                    info!(primary = primary, "Rendering Full layout span with SINGLE-PASS");
-                    let windows = self.track_windows(detections, primary, span, AspectRatio::PORTRAIT)?;
-                    
+                    info!(
+                        primary = primary,
+                        "Rendering Full layout span with SINGLE-PASS"
+                    );
+                    let windows =
+                        self.track_windows(detections, primary, span, AspectRatio::PORTRAIT)?;
+
                     // Use SinglePassRenderer to render directly to target size (1080x1920)
                     // This combines crop, scale and PAD/SAR in one pass
-                    
+
                     // Extract span source first (stream copy)
                     let span_duration = span.end - span.start;
                     let span_segment = temp_dir.path().join(format!("span_segment_full_{idx}.mp4"));
-                    
-                    self.extract_span_source(segment, &span_segment, span.start, span_duration).await?;
-                    
+
+                    self.extract_span_source(segment, &span_segment, span.start, span_duration)
+                        .await?;
+
                     let mut renderer = SinglePassRenderer::new(self.config.clone());
                     if let Some(config) = self.watermark.as_ref() {
                         renderer = renderer.with_watermark(config.clone());
@@ -100,31 +105,38 @@ impl ActivitySplitRenderer {
                         .await?;
                 }
                 LayoutMode::Split { primary, secondary } => {
-                    info!(primary = primary, secondary = secondary, "Rendering Split layout span with SINGLE-PASS");
-                    
+                    info!(
+                        primary = primary,
+                        secondary = secondary,
+                        "Rendering Split layout span with SINGLE-PASS"
+                    );
+
                     // For split spans, we need to render a split view for this time range
                     // We'll use a simplified approach: extract this span's time range, then use SinglePassRenderer
                     let span_duration = span.end - span.start;
                     let span_segment = temp_dir.path().join(format!("span_segment_{idx}.mp4"));
-                    
-                    self.extract_span_source(segment, &span_segment, span.start, span_duration).await?;
-                    
+
+                    self.extract_span_source(segment, &span_segment, span.start, span_duration)
+                        .await?;
+
                     // Use SinglePassRenderer for split (SINGLE ENCODE instead of 3)
                     let mut renderer = SinglePassRenderer::new(self.config.clone());
                     if let Some(config) = self.watermark.as_ref() {
                         renderer = renderer.with_watermark(config.clone());
                     }
-                    renderer.render_split(
-                        &span_segment,
-                        &target_path,
-                        self.frame_width,
-                        self.frame_height,
-                        0.0,  // left vertical bias
-                        0.15, // right vertical bias
-                        0.5,  // left horizontal center (default, no face detection)
-                        0.5,  // right horizontal center (default, no face detection)
-                        &self.encoding,
-                    ).await?;
+                    renderer
+                        .render_split(
+                            &span_segment,
+                            &target_path,
+                            self.frame_width,
+                            self.frame_height,
+                            0.0,  // left vertical bias
+                            0.15, // right vertical bias
+                            0.5,  // left horizontal center (default, no face detection)
+                            0.5,  // right horizontal center (default, no face detection)
+                            &self.encoding,
+                        )
+                        .await?;
                 }
             }
             span_outputs.push(target_path);
@@ -153,8 +165,13 @@ impl ActivitySplitRenderer {
         }
 
         let smoother = CameraSmoother::new(self.config.clone(), 1.0 / self.sample_interval);
-        let keyframes =
-            smoother.compute_camera_plan(&frames, self.frame_width, self.frame_height, span.start, span.end);
+        let keyframes = smoother.compute_camera_plan(
+            &frames,
+            self.frame_width,
+            self.frame_height,
+            span.start,
+            span.end,
+        );
         if keyframes.is_empty() {
             return Err(MediaError::detection_failed(
                 "Unable to compute camera plan for Smart Split (Activity)",
@@ -228,10 +245,12 @@ impl ActivitySplitRenderer {
 
         let filled_frames: Vec<FrameDetections> = frames
             .into_iter()
-            .filter_map(|(time, det_opt)| det_opt.map(|mut det| {
-                det.time = time;
-                vec![det]
-            }))
+            .filter_map(|(time, det_opt)| {
+                det_opt.map(|mut det| {
+                    det.time = time;
+                    vec![det]
+                })
+            })
             .collect();
 
         if filled_frames.is_empty() {
@@ -254,14 +273,19 @@ impl ActivitySplitRenderer {
         extract_cmd.args([
             "-y",
             "-hide_banner",
-            "-loglevel", "error",
-            "-ss", &format!("{:.3}", start),
-            "-i", full_source.to_str().unwrap_or(""),
-            "-t", &format!("{:.3}", duration),
-            "-c", "copy",
+            "-loglevel",
+            "error",
+            "-ss",
+            &format!("{:.3}", start),
+            "-i",
+            full_source.to_str().unwrap_or(""),
+            "-t",
+            &format!("{:.3}", duration),
+            "-c",
+            "copy",
             output.to_str().unwrap_or(""),
         ]);
-        
+
         let extract_result = extract_cmd.output().await?;
         if !extract_result.status.success() {
             return Err(MediaError::ffmpeg_failed(
@@ -294,15 +318,22 @@ impl ActivitySplitRenderer {
         let status = crate::command::create_ffmpeg_command()
             .args([
                 "-y",
-                "-f", "concat",
-                "-safe", "0",
-                "-i", list_path.to_str().unwrap_or_default(),
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                list_path.to_str().unwrap_or_default(),
                 // Video: stream copy (no re-encode)
-                "-c:v", "copy",
+                "-c:v",
+                "copy",
                 // Audio: copy or light re-encode for sync
-                "-c:a", "aac",
-                "-b:a", &self.encoding.audio_bitrate,
-                "-movflags", "+faststart",
+                "-c:a",
+                "aac",
+                "-b:a",
+                &self.encoding.audio_bitrate,
+                "-movflags",
+                "+faststart",
                 output.to_str().unwrap_or_default(),
             ])
             .output()

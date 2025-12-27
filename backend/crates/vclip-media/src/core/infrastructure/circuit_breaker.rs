@@ -63,7 +63,9 @@ impl CircuitBreaker {
                 if new_count >= self.success_threshold {
                     *state = CircuitState::Closed;
                 } else {
-                    *state = CircuitState::HalfOpen { success_count: new_count };
+                    *state = CircuitState::HalfOpen {
+                        success_count: new_count,
+                    };
                 }
             }
             _ => {} // No change for other states
@@ -75,7 +77,9 @@ impl CircuitBreaker {
         let mut state = self.state.write().unwrap();
         match *state {
             CircuitState::Closed | CircuitState::HalfOpen { .. } => {
-                *state = CircuitState::Open { opened_at: Instant::now() };
+                *state = CircuitState::Open {
+                    opened_at: Instant::now(),
+                };
             }
             CircuitState::Open { .. } => {} // Already open
         }

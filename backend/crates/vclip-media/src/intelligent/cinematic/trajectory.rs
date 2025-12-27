@@ -54,7 +54,12 @@ impl TrajectoryOptimizer {
     }
 
     /// Create optimizer with specific method.
-    pub fn with_method(method: TrajectoryMethod, degree: usize, smoothness: f64, sample_rate: f64) -> Self {
+    pub fn with_method(
+        method: TrajectoryMethod,
+        degree: usize,
+        smoothness: f64,
+        sample_rate: f64,
+    ) -> Self {
         Self {
             method,
             polynomial_degree: degree,
@@ -94,11 +99,14 @@ impl TrajectoryOptimizer {
         }
 
         let l1_optimizer = L1TrajectoryOptimizer::new(self.sample_rate);
-        
+
         match l1_optimizer.optimize(keyframes) {
             Ok(result) => result,
             Err(e) => {
-                warn!("L1 trajectory optimization failed: {}, falling back to L2", e);
+                warn!(
+                    "L1 trajectory optimization failed: {}, falling back to L2",
+                    e
+                );
                 self.optimize_l2(keyframes, mode)
             }
         }
@@ -432,10 +440,8 @@ mod tests {
     #[test]
     fn test_tracking_optimization() {
         // Use L2 explicitly since this test validates L2-specific resampling
-        let optimizer = TrajectoryOptimizer::with_method(
-            TrajectoryMethod::L2Polynomial,
-            3, 0.3, 10.0
-        );
+        let optimizer =
+            TrajectoryOptimizer::with_method(TrajectoryMethod::L2Polynomial, 3, 0.3, 10.0);
         let keyframes = make_keyframes(&[
             (0.0, 200.0, 300.0, 200.0),
             (0.5, 500.0, 350.0, 250.0),

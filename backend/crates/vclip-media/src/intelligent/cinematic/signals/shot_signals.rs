@@ -196,9 +196,9 @@ impl ShotSignals {
 
         debug!("[SHOT_SIGNALS] Running FFmpeg for histogram extraction");
 
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| MediaError::ffmpeg_failed(format!("Failed to spawn FFmpeg: {}", e), None, None))?;
+        let mut child = cmd.spawn().map_err(|e| {
+            MediaError::ffmpeg_failed(format!("Failed to spawn FFmpeg: {}", e), None, None)
+        })?;
 
         let stdout = child.stdout.take().ok_or_else(|| {
             MediaError::ffmpeg_failed("Failed to capture FFmpeg stdout", None, None)
@@ -237,9 +237,9 @@ impl ShotSignals {
             let frame_end = frame_start + bytes_per_frame;
             let frame_data = &buffer[frame_start..frame_end];
 
-            let histogram =
-                self.detector
-                    .compute_histogram(frame_data, THUMB_WIDTH, THUMB_HEIGHT);
+            let histogram = self
+                .detector
+                .compute_histogram(frame_data, THUMB_WIDTH, THUMB_HEIGHT);
             histograms.push(histogram);
         }
 

@@ -175,7 +175,11 @@ async fn apply_stream_copy_concat(
 
         // Two-pass seeking: fast input seek to get close, then accurate output seek
         // This avoids the keyframe alignment issues that cause duplicate frames
-        let fast_seek = if start_sec > 5.0 { start_sec - 5.0 } else { 0.0 };
+        let fast_seek = if start_sec > 5.0 {
+            start_sec - 5.0
+        } else {
+            0.0
+        };
         let accurate_seek = start_sec - fast_seek;
 
         let output = crate::command::create_ffmpeg_command()
@@ -213,7 +217,9 @@ async fn apply_stream_copy_concat(
             ])
             .output()
             .await
-            .map_err(|e| ApplyError::FfmpegFailed(format!("Segment {} extraction failed: {}", i, e)))?;
+            .map_err(|e| {
+                ApplyError::FfmpegFailed(format!("Segment {} extraction failed: {}", i, e))
+            })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -275,7 +281,6 @@ async fn apply_stream_copy_concat(
     // temp_dir is automatically cleaned up when dropped
     Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -51,7 +51,9 @@ use super::TierAwareIntelligentCropper;
 use crate::clip::extract_segment;
 use crate::command::{FfmpegCommand, FfmpegRunner};
 use crate::error::MediaResult;
-use crate::intelligent::output_format::{clamp_crop_to_frame, SPLIT_PANEL_HEIGHT, SPLIT_PANEL_WIDTH};
+use crate::intelligent::output_format::{
+    clamp_crop_to_frame, SPLIT_PANEL_HEIGHT, SPLIT_PANEL_WIDTH,
+};
 use crate::intelligent::stacking::stack_halves;
 use crate::probe::probe_video;
 use crate::thumbnail::generate_thumbnail;
@@ -248,16 +250,16 @@ impl IntelligentSplitProcessor {
     ) -> MediaResult<()> {
         // Create temp directory for intermediate files
         let temp_dir = tempfile::tempdir()?;
-        
+
         let half_width = width as f64 / 2.0;
-        
+
         // Target crop width: we want each panel to be 9:8 aspect ratio (for stacking to 9:16)
         // The crop width should be tall enough to capture faces well
         // Target: capture ~50-55% of the frame width for each person, centered on their face
         let target_crop_fraction = 0.50; // Capture 50% width per person
         let crop_width_f = (width as f64 * target_crop_fraction).min(half_width * 1.1);
         let crop_width = crop_width_f.round() as u32;
-        
+
         // Calculate 9:8 tile dimensions
         let tile_height = ((crop_width as f64 * 8.0 / 9.0).round() as u32).min(height);
         let vertical_margin = height.saturating_sub(tile_height);
@@ -266,13 +268,13 @@ impl IntelligentSplitProcessor {
         // Center the crop on the detected face position
         // left_horizontal_center is 0.0-1.0 within the left half
         let left_face_x = half_width * analysis.left_horizontal_center;
-        
+
         // Compute crop start X: center the crop on the face, but clamp to not go outside left half
         let left_crop_x = (left_face_x - crop_width_f / 2.0)
             .max(0.0)
             .min(half_width - crop_width_f.min(half_width))
             .round() as u32;
-        
+
         // Vertical bias
         let top_crop_y = (vertical_margin as f64 * analysis.left_vertical_bias).round() as u32;
 
@@ -290,13 +292,13 @@ impl IntelligentSplitProcessor {
         // Center the crop on the detected face position
         // right_horizontal_center is 0.0-1.0 within the right half
         let right_face_x = half_width + half_width * analysis.right_horizontal_center;
-        
+
         // Compute crop start X: center the crop on the face, but clamp to stay within right half
         let right_crop_x = (right_face_x - crop_width_f / 2.0)
             .max(half_width)
             .min(width as f64 - crop_width_f)
             .round() as u32;
-        
+
         // Vertical bias
         let bottom_crop_y = (vertical_margin as f64 * analysis.right_vertical_bias).round() as u32;
 
@@ -320,7 +322,7 @@ impl IntelligentSplitProcessor {
             left_crop_x + crop_width,
             analysis.left_horizontal_center * 100.0
         );
-        
+
         // Left person: single crop centered on face with proper aspect ratio
         let left_filter = format!(
             "crop={}:{}:{}:{},scale={}:{}:force_original_aspect_ratio=decrease,pad={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1",
@@ -328,7 +330,7 @@ impl IntelligentSplitProcessor {
             SPLIT_PANEL_WIDTH, SPLIT_PANEL_HEIGHT,  // Scale to panel dimensions
             SPLIT_PANEL_WIDTH, SPLIT_PANEL_HEIGHT  // Pad to panel dimensions
         );
-        
+
         let cmd_left = FfmpegCommand::new(segment, &left_half)
             .video_filter(&left_filter)
             .video_codec(&encoding.codec)
@@ -345,7 +347,7 @@ impl IntelligentSplitProcessor {
             right_crop_x + crop_width,
             analysis.right_horizontal_center * 100.0
         );
-        
+
         // Right person: single crop centered on face with proper aspect ratio
         let right_filter = format!(
             "crop={}:{}:{}:{},scale={}:{}:force_original_aspect_ratio=decrease,pad={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1",
@@ -417,7 +419,8 @@ impl IntelligentSplitProcessor {
         let left_horizontal_center = if left_faces.is_empty() {
             0.5 // Default to center of left half
         } else {
-            let avg_cx: f64 = left_faces.iter().map(|f| f.cx()).sum::<f64>() / left_faces.len() as f64;
+            let avg_cx: f64 =
+                left_faces.iter().map(|f| f.cx()).sum::<f64>() / left_faces.len() as f64;
             // Normalize to 0.0-1.0 within the left half
             (avg_cx / half_width).max(0.1).min(0.9)
         };
@@ -425,7 +428,8 @@ impl IntelligentSplitProcessor {
         let right_horizontal_center = if right_faces.is_empty() {
             0.5 // Default to center of right half
         } else {
-            let avg_cx: f64 = right_faces.iter().map(|f| f.cx()).sum::<f64>() / right_faces.len() as f64;
+            let avg_cx: f64 =
+                right_faces.iter().map(|f| f.cx()).sum::<f64>() / right_faces.len() as f64;
             // Normalize to 0.0-1.0 within the right half (cx is from center_x to width)
             ((avg_cx - center_x) / half_width).max(0.1).min(0.9)
         };

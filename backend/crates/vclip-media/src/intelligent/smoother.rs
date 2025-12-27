@@ -119,11 +119,15 @@ impl CameraSmoother {
                 .max_by(|a, b| {
                     let score_a = a.bbox.area() * a.score;
                     let score_b = b.bbox.area() * b.score;
-                    score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
+                    score_a
+                        .partial_cmp(&score_b)
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .unwrap();
 
-            let focus_box = primary.bbox.pad(primary.bbox.width * self.config.subject_padding);
+            let focus_box = primary
+                .bbox
+                .pad(primary.bbox.width * self.config.subject_padding);
             return focus_box.clamp(width, height);
         }
 
@@ -145,11 +149,15 @@ impl CameraSmoother {
             .max_by(|a, b| {
                 let score_a = a.bbox.area() * a.score;
                 let score_b = b.bbox.area() * b.score;
-                score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
+                score_a
+                    .partial_cmp(&score_b)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             })
             .unwrap();
 
-        let focus_box = primary.bbox.pad(primary.bbox.width * self.config.subject_padding);
+        let focus_box = primary
+            .bbox
+            .pad(primary.bbox.width * self.config.subject_padding);
         focus_box.clamp(width, height)
     }
 
@@ -183,7 +191,7 @@ impl CameraSmoother {
     }
 
     /// Create fallback bounding box based on policy.
-    /// 
+    ///
     /// For podcast-style videos, faces are typically in the upper 30-45% of frame.
     /// The fallback box should be positioned to capture this region.
     fn create_fallback_box(&self, width: u32, height: u32) -> BoundingBox {
@@ -452,7 +460,10 @@ mod tests {
             CameraKeyframe::new(1.0, 500.0, 500.0, 100.0, 100.0),
             CameraKeyframe::new(2.0, 500.0, 500.0, 100.0, 100.0),
         ];
-        assert_eq!(smoother.classify_camera_mode(&static_kfs), CameraMode::Static);
+        assert_eq!(
+            smoother.classify_camera_mode(&static_kfs),
+            CameraMode::Static
+        );
 
         // Tracking - position changes
         let tracking_kfs = vec![
@@ -460,6 +471,9 @@ mod tests {
             CameraKeyframe::new(1.0, 300.0, 500.0, 100.0, 100.0),
             CameraKeyframe::new(2.0, 500.0, 500.0, 100.0, 100.0),
         ];
-        assert_eq!(smoother.classify_camera_mode(&tracking_kfs), CameraMode::Tracking);
+        assert_eq!(
+            smoother.classify_camera_mode(&tracking_kfs),
+            CameraMode::Tracking
+        );
     }
 }

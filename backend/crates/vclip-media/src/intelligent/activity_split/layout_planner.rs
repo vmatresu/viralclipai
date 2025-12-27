@@ -7,8 +7,8 @@ use std::collections::{HashMap, HashSet};
 
 use super::TimelineFrame;
 use crate::error::{MediaError, MediaResult};
-use crate::intelligent::config::IntelligentCropConfig;
 use crate::intelligent::activity_scorer::TemporalActivityTracker;
+use crate::intelligent::config::IntelligentCropConfig;
 use tracing::{debug, info};
 
 // === Layout Types ===
@@ -29,23 +29,23 @@ pub struct LayoutSpan {
 // === Configuration ===
 
 /// Configuration for layout planning thresholds.
-/// 
+///
 /// These values control when Split vs Full layouts are triggered.
 #[derive(Debug, Clone)]
 pub struct LayoutPlannerConfig {
     /// Minimum ratio of secondary activity to primary for Split (0.0-1.0).
     /// Lower values make Split layouts more likely.
     pub min_secondary_ratio: f64,
-    
+
     /// Minimum time (seconds) secondary must hold before triggering Split.
     pub layout_hold: f64,
-    
+
     /// Minimum activity score threshold to consider a track active.
     pub min_active_score: f64,
-    
+
     /// Activity margin required to switch secondary track.
     pub secondary_switch_margin: f64,
-    
+
     /// Minimum detections for a track to be considered "significant" in fallback.
     pub min_significant_detections: usize,
 }
@@ -53,8 +53,8 @@ pub struct LayoutPlannerConfig {
 impl Default for LayoutPlannerConfig {
     fn default() -> Self {
         Self {
-            min_secondary_ratio: 0.1,   // Relaxed: if 2nd speaker has 10% of primary's activity (and > absolute min), show split
-            layout_hold: 0.6,           // 600ms hold time
+            min_secondary_ratio: 0.1, // Relaxed: if 2nd speaker has 10% of primary's activity (and > absolute min), show split
+            layout_hold: 0.6,         // 600ms hold time
             min_active_score: 0.05,
             secondary_switch_margin: 0.08,
             min_significant_detections: 3,
@@ -82,7 +82,7 @@ impl DetectionStats {
             .iter()
             .flat_map(|f| f.detections.iter().map(|d| d.track_id))
             .collect();
-        
+
         Self {
             max_faces_per_frame,
             total_detections,
@@ -90,12 +90,12 @@ impl DetectionStats {
             frame_count: frames.len(),
         }
     }
-    
+
     /// Average faces per frame.
     pub fn avg_faces(&self) -> f64 {
         self.total_detections as f64 / self.frame_count.max(1) as f64
     }
-    
+
     /// Log statistics at info level.
     pub fn log(&self, context: &str, duration: f64) {
         info!(
@@ -104,7 +104,8 @@ impl DetectionStats {
             unique_tracks = self.unique_tracks.len(),
             num_frames = self.frame_count,
             duration = format!("{:.2}s", duration),
-            "{}", context
+            "{}",
+            context
         );
     }
 }
@@ -123,11 +124,14 @@ impl LayoutPlanner {
             config: LayoutPlannerConfig::default(),
         }
     }
-    
+
     /// Create with custom layout planning configuration.
     #[allow(dead_code)]
     pub fn with_config(crop_config: IntelligentCropConfig, config: LayoutPlannerConfig) -> Self {
-        Self { crop_config, config }
+        Self {
+            crop_config,
+            config,
+        }
     }
 
     pub fn plan(&self, frames: &[TimelineFrame], duration: f64) -> MediaResult<Vec<LayoutSpan>> {
@@ -259,7 +263,9 @@ impl LayoutPlanner {
                 }
                 Some(_) => {
                     if let Some((pending, started)) = pending_layout {
-                        if pending == desired_layout && frame.time - started >= self.config.layout_hold {
+                        if pending == desired_layout
+                            && frame.time - started >= self.config.layout_hold
+                        {
                             spans.push(LayoutSpan {
                                 start: layout_since,
                                 end: frame.time,
@@ -290,11 +296,21 @@ impl LayoutPlanner {
             layout_since
         };
 
-        spans.push(LayoutSpan { start: span_start, end: duration, layout: final_layout });
+        spans.push(LayoutSpan {
+            start: span_start,
+            end: duration,
+            layout: final_layout,
+        });
 
         // Log final plan summary
-        let split_count = spans.iter().filter(|s| matches!(s.layout, LayoutMode::Split { .. })).count();
-        let full_count = spans.iter().filter(|s| matches!(s.layout, LayoutMode::Full { .. })).count();
+        let split_count = spans
+            .iter()
+            .filter(|s| matches!(s.layout, LayoutMode::Split { .. }))
+            .count();
+        let full_count = spans
+            .iter()
+            .filter(|s| matches!(s.layout, LayoutMode::Full { .. }))
+            .count();
         info!(
             total_spans = spans.len(),
             split_spans = split_count,
@@ -377,12 +393,26 @@ impl LayoutPlanner {
         match (simultaneous_pair, secondary) {
             // Prefer a pair that appeared together on screen
             (Some((p, s)), _) if counts.contains_key(&p) && counts.contains_key(&s) => {
-                info!(primary = p, secondary = s, "Fallback: Split from simultaneous pair");
-                Some(LayoutMode::Split { primary: p, secondary: s })
+                info!(
+                    primary = p,
+                    secondary = s,
+                    "Fallback: Split from simultaneous pair"
+                );
+                Some(LayoutMode::Split {
+                    primary: p,
+                    secondary: s,
+                })
             }
             (_, Some(sec)) => {
-                info!(primary = primary, secondary = sec, "Fallback: Split from top 2 tracks");
-                Some(LayoutMode::Split { primary, secondary: sec })
+                info!(
+                    primary = primary,
+                    secondary = sec,
+                    "Fallback: Split from top 2 tracks"
+                );
+                Some(LayoutMode::Split {
+                    primary,
+                    secondary: sec,
+                })
             }
             _ => {
                 info!(primary = primary, "Fallback: Full layout (single track)");
@@ -501,4 +531,3 @@ mod tests {
         }
     }
 }
-

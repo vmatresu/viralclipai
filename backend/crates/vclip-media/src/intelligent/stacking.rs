@@ -34,7 +34,10 @@ impl Default for StackingConfig {
 impl StackingConfig {
     /// Create a custom stacking configuration.
     pub fn new(panel_width: u32, panel_height: u32) -> Self {
-        Self { panel_width, panel_height }
+        Self {
+            panel_width,
+            panel_height,
+        }
     }
 
     /// Build the FFmpeg filter for normalizing and stacking two inputs.
@@ -79,7 +82,14 @@ pub async fn stack_halves(
     output: &Path,
     encoding: &EncodingConfig,
 ) -> MediaResult<()> {
-    stack_halves_with_config(top_half, bottom_half, output, encoding, &StackingConfig::default()).await
+    stack_halves_with_config(
+        top_half,
+        bottom_half,
+        output,
+        encoding,
+        &StackingConfig::default(),
+    )
+    .await
 }
 
 /// Stack two pre-cropped halves with custom panel dimensions.
@@ -105,7 +115,10 @@ pub async fn stack_halves_with_config(
     );
 
     let stack_args = build_ffmpeg_args(top_half, bottom_half, output, encoding, &filter, stack_crf);
-    let stack_status = crate::command::create_ffmpeg_command().args(&stack_args).output().await?;
+    let stack_status = crate::command::create_ffmpeg_command()
+        .args(&stack_args)
+        .output()
+        .await?;
 
     if !stack_status.status.success() {
         return Err(MediaError::ffmpeg_failed(
