@@ -197,6 +197,7 @@ async fn fetch_transcript_ytdlp(video_url: &str, workdir: &Path) -> WorkerResult
     let cookies_path = vclip_media::get_writable_cookies_path().await;
     let output_template_str = output_template.to_string_lossy();
     let mut args = vec![
+        "--verbose",
         "--write-auto-sub",
         "--write-sub",
         "--sub-lang",

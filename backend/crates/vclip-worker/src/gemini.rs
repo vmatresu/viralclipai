@@ -115,6 +115,7 @@ impl GeminiClient {
         // Use cookies file if available for YouTube authentication (copy to writable location)
         let cookies_path = vclip_media::get_writable_cookies_path().await;
         let mut args = vec![
+            "--verbose",
             "--remote-components",
             "ejs:github",
             "--print",

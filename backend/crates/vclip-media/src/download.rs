@@ -192,6 +192,7 @@ pub async fn download_video(url: &str, output_path: impl AsRef<Path>) -> MediaRe
     let output_path_str = output_path.to_string_lossy();
 
     let mut args = vec![
+        "--verbose",
         "--remote-components", "ejs:github",
         "--sleep-subtitles", "5",
         "--sleep-requests", "0.75", 
